@@ -131,9 +131,10 @@ surveytrace/
 │   └── index.php           Single-page web UI
 ├── sql/
 │   └── schema.sql          Database schema
-├── setup.sh                First-time installation script
-├── deploy.sh               Deploy updates to /opt/surveytrace
-└── surveytrace-*.service   systemd service units
+├── setup.sh                       First-time installation script
+├── deploy.sh                      Deploy updates to /opt/surveytrace
+├── surveytrace-daemon.service     systemd: scanner worker
+└── surveytrace-scheduler.service  systemd: cron scheduler
 ```
 
 ## Scan Profiles
