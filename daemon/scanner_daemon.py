@@ -1402,6 +1402,11 @@ def run_scan(job: dict) -> None:
             for row in rows:
                 hostname_cache[row["ip"]] = row["hostname"]
 
+    # ---- Phase 3c: HTTP title grabbing -----------------------------------
+    http_titles: dict[str, dict] = {}
+    if "banner" in phases and profile_obj.allow_banner:
+        http_titles = phase_http_titles(job_id, banner_results)
+
     for ip in all_ips:
         if ip not in hostname_cache:
             hostname_cache[ip] = resolve_hostname(ip)
@@ -1450,11 +1455,6 @@ def run_scan(job: dict) -> None:
         if scanned % 10 == 0 and is_aborted(job_id):
             log.info("[job %d] Aborted by user during asset cataloguing", job_id)
             return
-
-    # ---- Phase 3c: HTTP title grabbing -----------------------------------
-    http_titles: dict[str, dict] = {}
-    if "banner" in phases and profile_obj.allow_banner:
-        http_titles = phase_http_titles(job_id, banner_results)
 
     # ---- Phase 4: CVE correlation ----------------------------------------
     if "cve" in phases:

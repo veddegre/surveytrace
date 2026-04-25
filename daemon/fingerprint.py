@@ -430,15 +430,15 @@ OUI_TABLE: dict[str, tuple[str, str]] = {
     "88:75:56": ("Cisco VoIP",               "voi"),
 
     # --- VMware ---
-    "00:0C:29": ("VMware",                   "hv"),
-    "00:50:56": ("VMware",                   "hv"),
+    "00:0C:29": ("VMware",                   "srv"),  # VMware guest VM NIC
+    "00:50:56": ("VMware",                   "srv"),  # VMware guest VM NIC
     "00:05:69": ("VMware",                   "hv"),
 
     # --- Microsoft Hyper-V ---
-    "00:15:5D": ("Microsoft Hyper-V",        "hv"),
+    "00:15:5D": ("Microsoft Hyper-V",        "srv"),  # guest VM NIC — host may or may not be hv
 
     # --- Proxmox / Virtual ---
-    "08:00:27": ("VirtualBox",               "hv"),
+    "08:00:27": ("VirtualBox",               "srv"),  # VirtualBox guest VM NIC
 
     # --- Siemens OT ---
     "00:0E:CF": ("Profibus (Siemens/Beckhoff)","ot"),
@@ -710,6 +710,9 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"nextcloud|owncloud",           "srv",   ""),
     (r"portainer",                    "srv",   ""),
     (r"proxmox|pve",                  "hv",    "Proxmox"),
+    (r"escanaba",                      "hv",    "Microsoft Hyper-V"),  # known Hyper-V host
+    (r"hyperv|hyper-v",               "hv",    "Microsoft Hyper-V"),
+    (r"^hvhost",                       "hv",    ""),
     (r"esxi|vcenter",                 "hv",    "VMware"),
     (r"truenas|freenas",              "srv",   "TrueNAS"),
     (r"opnsense|pfsense",             "net",   ""),
@@ -1050,9 +1053,9 @@ def fingerprint(
         if vendor_key not in SKIP_AS_VENDOR:
             result["vendor"] = banner_cpe.split(":")[0].replace("_", " ").title()
 
-    # Hyper-V VMs: OUI 00:15:5d always means Hyper-V guest → force hv
-    if result.get("vendor") == "Microsoft Hyper-V":
-        result["category"] = "hv"
+    # Hyper-V MAC (00:15:5D) means the VM runs ON Hyper-V, not that it IS Hyper-V.
+    # Only classify as hv if hostname/banner confirms it's a hypervisor host.
+    # Guest VMs keep category=srv from the OUI table above.
 
     # 5. OS guess from SSH banner or SNMP
     if m := re.search(
