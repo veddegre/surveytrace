@@ -1005,6 +1005,36 @@ function sortAssets(col) {
     loadAssets(assetPage);
 }
 
+function detectServiceHitsFromAsset(asset) {
+    const banners = asset.banners || {};
+    const httpProbe = String(banners._http || '');
+    const ports = asset.open_ports || [];
+    const SERVICE_SIGS = [
+        ['Uptime Kuma', /uptime.?kuma/i],
+        ['Zabbix', /zabbix/i],
+        ['ntfy', /\bntfy\b/i],
+        ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
+        ['Proxmox VE', /proxmox|pve\./i],
+        ['Portainer', /portainer/i],
+        ['Grafana', /\bgrafana\b/i],
+        ['Prometheus', /prometheus/i],
+        ['Docker Engine', /docker/i],
+        ['Jellyfin', /jellyfin/i],
+        ['Gitea', /\bgitea\b/i],
+        ['Nextcloud', /nextcloud/i],
+        ['Mastodon', /mastodon/i],
+        ['OpenObserve', /openobserve/i],
+    ];
+    const hits = new Set();
+    const scan = (txt) => {
+        if (!txt) return;
+        for (const [name, rx] of SERVICE_SIGS) if (rx.test(txt)) hits.add(name);
+    };
+    scan(httpProbe);
+    for (const p of ports) scan(String(banners[String(p)] || ''));
+    return Array.from(hits).sort();
+}
+
 async function loadAssets(page) {
     refreshBadges();
     assetPage = page;
@@ -1024,11 +1054,20 @@ async function loadAssets(page) {
     document.getElementById('asset-tbody').innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
+        const svcHits = detectServiceHitsFromAsset(a);
+        const primaryVendor = a.vendor || '—';
+        let vendorCell = esc(primaryVendor) + (a.model ? '<span style="color:var(--tx2)"> ' + esc(a.model) + '</span>' : '');
+        if (svcHits.length > 1) {
+            const extra = svcHits.filter(s => s.toLowerCase() !== String(primaryVendor).toLowerCase());
+            if (extra.length) {
+                vendorCell += ` <span style="font-family:var(--mf);font-size:10px;color:var(--tx3)" title="${esc(svcHits.join(', '))}">+${extra.length} services</span>`;
+            }
+        }
         return `<tr>
           <td class="mono" style="cursor:pointer;color:var(--acc)" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td style="color:var(--tx)">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
-          <td style="color:var(--tx);font-size:11px">${esc(a.vendor||'—')} ${a.model?'<span style="color:var(--tx2)">'+esc(a.model)+'</span>':''}</td>
+          <td style="color:var(--tx);font-size:11px">${vendorCell}</td>
           <td><div class="pts">${ports}${more}</div></td>
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
