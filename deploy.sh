@@ -55,6 +55,21 @@ sudo cp "$SRC"/daemon/sources/stubs.py     "$DEST/daemon/sources/" 2>/dev/null |
 echo "  Daemon files deployed"
 
 # ---------------------------------------------------------------------------
+# Permission sanity for UI-triggered feed sync + daemon runtime
+# ---------------------------------------------------------------------------
+if id surveytrace >/dev/null 2>&1; then
+  sudo usermod -aG surveytrace www-data 2>/dev/null || true
+  # daemon scripts: surveytrace-owned, group-readable/traversable by group members
+  sudo chown -R surveytrace:surveytrace "$DEST/daemon" 2>/dev/null || true
+  sudo find "$DEST/daemon" -type d -exec chmod 750 {} \; 2>/dev/null || true
+  sudo find "$DEST/daemon" -type f -exec chmod 640 {} \; 2>/dev/null || true
+  # data dir: writable by daemon + web group; setgid keeps group on new files
+  sudo chown -R surveytrace:www-data "$DEST/data" 2>/dev/null || true
+  sudo find "$DEST/data" -type d -exec chmod 2770 {} \; 2>/dev/null || true
+  sudo find "$DEST/data" -type f -exec chmod 660 {} \; 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # SQL schema (reference only — don't re-apply to existing DB)
 # ---------------------------------------------------------------------------
 sudo cp "$SRC"/sql/schema.sql          "$DEST/sql/"
@@ -79,6 +94,56 @@ if sudo systemctl is-active --quiet surveytrace-scheduler; then
     echo "  surveytrace-scheduler: running"
 else
     echo "  surveytrace-scheduler: FAILED — check: sudo journalctl -u surveytrace-scheduler -n 20"
+fi
+
+# ---------------------------------------------------------------------------
+# Post-deploy verification
+# ---------------------------------------------------------------------------
+echo "Running post-deploy checks..."
+VERIFY_OK=1
+
+check_file() {
+  local p="$1"
+  local label="$2"
+  if [ -f "$p" ]; then
+    echo "  [OK] $label: $p"
+  else
+    echo "  [FAIL] $label missing: $p"
+    VERIFY_OK=0
+  fi
+}
+
+check_cmd() {
+  local cmd="$1"
+  local label="$2"
+  if eval "$cmd" >/dev/null 2>&1; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label"
+    VERIFY_OK=0
+  fi
+}
+
+check_file "$DEST/api/feeds.php" "feeds API"
+check_file "$DEST/daemon/sync_oui.py" "OUI sync script"
+check_file "$DEST/daemon/sync_webfp.py" "WebFP sync script"
+check_file "$DEST/data/surveytrace.db" "main DB"
+check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
+
+# Effective access checks for web-triggered feed sync path
+check_cmd "sudo -u www-data test -r \"$DEST/daemon/sync_oui.py\"" \
+  "www-data can read sync_oui.py"
+check_cmd "sudo -u www-data test -r \"$DEST/daemon/sync_webfp.py\"" \
+  "www-data can read sync_webfp.py"
+check_cmd "sudo -u www-data test -w \"$DEST/data\"" \
+  "www-data can write data dir"
+check_cmd "sudo -u surveytrace test -w \"$DEST/data\"" \
+  "surveytrace can write data dir"
+
+if [ "$VERIFY_OK" -eq 1 ]; then
+  echo "  Post-deploy checks: PASS"
+else
+  echo "  Post-deploy checks: FAIL (see lines above)"
 fi
 
 echo ""

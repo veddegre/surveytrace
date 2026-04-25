@@ -229,11 +229,16 @@ chown -R root:"$WEB_GROUP" "$INSTALL_DIR/public"
 
 # Daemon scripts: readable by app user
 chmod 750 "$INSTALL_DIR/daemon"
-chown -R "$APP_USER":root "$INSTALL_DIR/daemon"
+chown -R "$APP_USER":"$APP_USER" "$INSTALL_DIR/daemon"
 
 # Make sure data dir group-writable by both daemon user and www-data
 chown -R "$APP_USER":"$WEB_GROUP" "$DATA_DIR"
 chmod 770 "$DATA_DIR"
+# Ensure newly created files inherit the shared group
+chmod g+s "$DATA_DIR"
+# Existing files should be writable by both daemon user + web group
+find "$DATA_DIR" -type d -exec chmod 2770 {} \; 2>/dev/null || true
+find "$DATA_DIR" -type f -exec chmod 660 {} \; 2>/dev/null || true
 
 ok "Permissions set"
 
