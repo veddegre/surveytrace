@@ -46,6 +46,7 @@ from fingerprint import (
     fingerprint,
     classify_from_ports,
     classify_from_hostname,
+    load_external_oui_map,
     oui_lookup,
     vendor_hint_from_port_cpe,
 )
@@ -122,6 +123,9 @@ def resolve_hostname(ip: str) -> str:
 # Config
 # ---------------------------------------------------------------------------
 DB_PATH   = Path(__file__).parent.parent / "data" / "surveytrace.db"
+DATA_DIR  = Path(__file__).parent.parent / "data"
+OUI_MAP_PATH = DATA_DIR / "oui_map.json"
+WEBFP_RULES_PATH = DATA_DIR / "webfp_rules.json"
 POLL_SECS = 5          # how often to check for new jobs
 LOG_LEVEL = logging.INFO
 
@@ -167,6 +171,41 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("surveytrace")
+
+# Runtime web fingerprint rules synced by sync_webfp.py
+EXTERNAL_WEBFP_RULES: list[tuple[str, str, str]] = []  # (pattern, category, name)
+
+
+def load_external_webfp_rules(path: Path) -> int:
+    """
+    Load synced web fingerprint rules:
+      {"rules":[{"pattern":"...","category":"srv","name":"Tech"}, ...]}
+    """
+    global EXTERNAL_WEBFP_RULES
+    if not path.exists():
+        EXTERNAL_WEBFP_RULES = []
+        return 0
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        rows = doc.get("rules", []) if isinstance(doc, dict) else []
+        parsed: list[tuple[str, str, str]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            pat = str(row.get("pattern") or "").strip()
+            cat = str(row.get("category") or "srv").strip()
+            name = str(row.get("name") or "").strip()
+            if len(pat) < 3 or len(pat) > 260:
+                continue
+            if cat not in {"srv", "net", "iot", "ws", "prn", "voi", "hv", "ot"}:
+                cat = "srv"
+            parsed.append((pat, cat, name if name else "Web App"))
+        EXTERNAL_WEBFP_RULES = parsed
+        return len(parsed)
+    except Exception as e:
+        log.warning("Could not load external webfp rules: %s", e)
+        EXTERNAL_WEBFP_RULES = []
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -864,13 +903,19 @@ def _port_probe_priority(p: int) -> int:
 
 
 def _classify_http_probe_blob(blob: str) -> tuple[str, str] | None:
-    """Run TITLE_MAP (incl. body markers) over merged HTTP/TLS probe text."""
+    """Run built-in + synced web fingerprint rules over merged HTTP/TLS probe text."""
     import re as _re
     if not blob or len(blob) < 8:
         return None
     for pattern, cat, product in TITLE_MAP:
         if _re.search(pattern, blob, _re.IGNORECASE):
             return cat, product
+    for pattern, cat, name in EXTERNAL_WEBFP_RULES:
+        try:
+            if _re.search(pattern, blob, _re.IGNORECASE):
+                return cat, name
+        except re.error:
+            continue
     return None
 
 
@@ -1774,6 +1819,19 @@ def backfill_oui(conn: sqlite3.Connection) -> int:
 def main() -> None:
     log.info("SurveyTrace scanner daemon starting (db: %s)", DB_PATH)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load synced fingerprint feeds if present
+    oui_loaded = load_external_oui_map(OUI_MAP_PATH)
+    if oui_loaded:
+        log.info("Loaded external OUI map: %d prefixes (%s)", oui_loaded, OUI_MAP_PATH)
+    else:
+        log.info("No external OUI map loaded (run sync_oui.py)")
+
+    webfp_loaded = load_external_webfp_rules(WEBFP_RULES_PATH)
+    if webfp_loaded:
+        log.info("Loaded external web fingerprint rules: %d (%s)", webfp_loaded, WEBFP_RULES_PATH)
+    else:
+        log.info("No external web fingerprint rules loaded (run sync_webfp.py)")
 
     # Apply any pending schema migrations
     with db_conn() as conn:

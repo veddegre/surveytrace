@@ -169,6 +169,10 @@ if ($prev_scan) {
 
 // NVD sync status
 $nvd_sync = st_config('nvd_last_sync', 'never');
+$oui_sync = st_config('oui_last_sync', 'never');
+$webfp_sync = st_config('webfp_last_sync', 'never');
+$oui_count = (int)st_config('oui_prefix_count', '0');
+$webfp_count = (int)st_config('webfp_rule_count', '0');
 
 st_json([
     'assets' => [
@@ -187,5 +191,9 @@ st_json([
     'activity'       => $activity,
     'changes'        => $changes,
     'nvd_last_sync'  => $nvd_sync,
+    'oui_last_sync'  => $oui_sync,
+    'webfp_last_sync'=> $webfp_sync,
+    'oui_prefix_count' => $oui_count,
+    'webfp_rule_count' => $webfp_count,
     'server_time'    => date('c'),
 ]);

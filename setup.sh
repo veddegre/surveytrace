@@ -393,7 +393,29 @@ else
 fi
 
 # =============================================================================
-# STEP 11 — Set web UI password
+# STEP 11 — External fingerprint feed sync prompt (OUI + Web app signatures)
+# =============================================================================
+echo ""
+echo -e "${YLW}┌─────────────────────────────────────────────────────┐${NC}"
+echo -e "${YLW}│  Fingerprint feed sync                              │${NC}"
+echo -e "${YLW}│  Pulls IEEE OUI + Wappalyzer rules into data/.      │${NC}"
+echo -e "${YLW}└─────────────────────────────────────────────────────┘${NC}"
+read -rp "Run OUI/Web fingerprint sync now? [y/N] " run_fp
+if [[ "${run_fp,,}" == "y" ]]; then
+    info "Running OUI sync…"
+    sudo -u "$APP_USER" "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/sync_oui.py" && \
+        ok "OUI sync complete" || warn "OUI sync failed — retry manually"
+    info "Running web fingerprint sync…"
+    sudo -u "$APP_USER" "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/sync_webfp.py" && \
+        ok "Web fingerprint sync complete" || warn "Web fingerprint sync failed — retry manually"
+else
+    info "Skipping fingerprint sync. Run manually when ready:"
+    echo "  sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_oui.py"
+    echo "  sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_webfp.py"
+fi
+
+# =============================================================================
+# STEP 12 — Set web UI password
 # =============================================================================
 echo ""
 info "Set a web UI login password (leave blank to skip and set later):"
@@ -410,7 +432,7 @@ else
 fi
 
 # =============================================================================
-# STEP 12 — Weekly NVD cron
+# STEP 13 — Scheduled feed refresh (NVD + fingerprint feeds)
 # =============================================================================
 CRON_FILE="/etc/cron.d/surveytrace-nvd"
 cat > "$CRON_FILE" <<CRON
@@ -420,8 +442,17 @@ CRON
 chmod 644 "$CRON_FILE"
 ok "Weekly NVD cron installed at $CRON_FILE"
 
+FP_CRON_FILE="/etc/cron.d/surveytrace-fp"
+cat > "$FP_CRON_FILE" <<CRON
+# SurveyTrace — daily OUI + web fingerprint feed refresh
+15 4 * * * $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_oui.py >> $DATA_DIR/oui_sync.log 2>&1
+30 4 * * * $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_webfp.py >> $DATA_DIR/webfp_sync.log 2>&1
+CRON
+chmod 644 "$FP_CRON_FILE"
+ok "Daily fingerprint feed cron installed at $FP_CRON_FILE"
+
 # =============================================================================
-# STEP 13 — UFW firewall (LAN-safe defaults)
+# STEP 14 — UFW firewall (LAN-safe defaults)
 # =============================================================================
 if command -v ufw &>/dev/null; then
     info "Configuring UFW firewall…"

@@ -713,6 +713,26 @@ textarea.finput{resize:vertical;min-height:72px}
         </div>
       </div>
       <div class="card">
+        <div class="ct">Fingerprint feed status</div>
+        <div style="font-family:var(--mf);font-size:11px;color:var(--tx2);line-height:1.8">
+          OUI last sync: <span id="oui-sync-ts" style="color:var(--tx)">—</span><br>
+          OUI prefixes: <span id="oui-sync-count" style="color:var(--tx)">0</span><br>
+          WebFP last sync: <span id="webfp-sync-ts" style="color:var(--tx)">—</span><br>
+          WebFP rules: <span id="webfp-sync-count" style="color:var(--tx)">0</span>
+        </div>
+        <div style="font-size:11px;color:var(--tx2);margin-top:10px">
+          Source feeds: IEEE OUI CSV + Wappalyzer technologies (synced daily via cron).
+          Run <code style="color:var(--acc)">sync_oui.py</code> and
+          <code style="color:var(--acc)">sync_webfp.py</code> manually any time.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="tbtn" id="btn-sync-oui" onclick="runFeedSync('oui')">Sync OUI now</button>
+          <button class="tbtn" id="btn-sync-webfp" onclick="runFeedSync('webfp')">Sync WebFP now</button>
+          <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
+          <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
+        </div>
+      </div>
+      <div class="card">
         <div class="ct">About</div>
         <div style="font-family:var(--mf);font-size:11px;color:var(--tx2);line-height:1.8">
           SurveyTrace v0.2.0<br>
@@ -753,6 +773,17 @@ textarea.finput{resize:vertical;min-height:72px}
   <div id="hp-body" style="padding:16px"></div>
 </div>
 <div id="host-panel-bg" onclick="closeHostPanel()" style="display:none;position:fixed;inset:0;z-index:199;background:rgba(0,0,0,.2)"></div>
+
+<!-- Feed sync output modal -->
+<div id="fsync-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:210;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:16px;width:min(980px,92vw);max-height:86vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-family:var(--mf);font-size:12px;color:var(--acc)" id="fsync-title">Feed sync output</div>
+      <button class="tbtn" onclick="closeFeedSyncOutput()">Close</button>
+    </div>
+    <pre id="fsync-out" style="margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:11px;font-family:var(--mf);color:var(--tx2)">No sync output yet.</pre>
+  </div>
+</div>
 
 <!-- Enrichment source modal -->
 <div id="esrc-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
@@ -831,6 +862,7 @@ var logSinceId   = 0;
 var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
+var feedSyncLastOutput = 'No sync output yet.';
 
 // ==========================================================================
 // Nav
@@ -918,6 +950,10 @@ async function loadDashboard() {
 
     // NVD sync
     document.getElementById('nvd-sync-ts').textContent = d.nvd_last_sync || 'never';
+    document.getElementById('oui-sync-ts').textContent = d.oui_last_sync || 'never';
+    document.getElementById('webfp-sync-ts').textContent = d.webfp_last_sync || 'never';
+    document.getElementById('oui-sync-count').textContent = d.oui_prefix_count || 0;
+    document.getElementById('webfp-sync-count').textContent = d.webfp_rule_count || 0;
 
     // Top vulnerable
     const tv = d.top_vulnerable || [];
@@ -1643,6 +1679,51 @@ function updateSidebarBadges(assets, vulns, critical) {
 async function refreshBadges() {
     const d = await api('/api/dashboard.php');
     if (d) updateSidebarBadges(d.assets?.total, d.findings?.open, d.findings?.by_severity?.critical || 0);
+}
+
+async function runFeedSync(target) {
+    const btnIds = ['btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
+    btnIds.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+    toast('Starting ' + target + ' feed sync…', 'ok');
+    const r = await apiPost('/api/feeds.php?sync=1', {target});
+    btnIds.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+
+    if (!r) {
+        feedSyncLastOutput = '[client] Feed sync request failed (no response)';
+        toast('Feed sync request failed', 'err');
+        return;
+    }
+    const lines = [];
+    lines.push(`target=${target} ok=${!!r.ok}`);
+    for (const res of (r.results || [])) {
+        lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
+        lines.push((res.output || '').trim() || '(no output)');
+    }
+    feedSyncLastOutput = lines.join('\n');
+    if (!r.ok) {
+        const msg = (r.results && r.results.find(x => !x.ok)?.output) || r.error || 'Sync failed';
+        toast(msg.slice(0, 120), 'err');
+        openFeedSyncOutput();
+        return;
+    }
+
+    const names = (r.results || []).map(x => x.script.replace('.py', '')).join(', ');
+    toast('Feed sync complete: ' + names, 'ok');
+    await loadDashboard(); // refresh status timestamps/counts in Settings
+    openFeedSyncOutput();
+}
+
+function openFeedSyncOutput() {
+    const bg = document.getElementById('fsync-bg');
+    const out = document.getElementById('fsync-out');
+    if (!bg || !out) return;
+    out.textContent = feedSyncLastOutput || 'No sync output yet.';
+    bg.style.display = 'flex';
+}
+
+function closeFeedSyncOutput() {
+    const bg = document.getElementById('fsync-bg');
+    if (bg) bg.style.display = 'none';
 }
 
 // ==========================================================================

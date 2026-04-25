@@ -23,6 +23,7 @@ sudo cp "$SRC"/api/scan_abort.php      "$DEST/api/"
 sudo cp "$SRC"/api/schedules.php       "$DEST/api/"
 sudo cp "$SRC"/api/enrichment.php      "$DEST/api/"
 sudo cp "$SRC"/api/dashboard.php       "$DEST/api/"
+sudo cp "$SRC"/api/feeds.php           "$DEST/api/"
 sudo cp "$SRC"/api/export.php          "$DEST/api/"
 echo "  API files deployed"
 
@@ -48,6 +49,8 @@ sudo cp "$SRC"/daemon/sources/stubs.py     "$DEST/daemon/sources/" 2>/dev/null |
 
 # sync_nvd.py only if it exists (large script, less frequently changed)
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/sync_oui.py" ] && sudo cp "$SRC/daemon/sync_oui.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
 

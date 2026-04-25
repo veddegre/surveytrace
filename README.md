@@ -8,6 +8,7 @@ A self-hosted network asset discovery and inventory platform for homelab and sma
 - **Passive discovery** — ARP sniff, mDNS/Bonjour service type detection
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required)
+- **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support
@@ -91,6 +92,31 @@ sudo -u surveytrace /opt/surveytrace/venv/bin/python3 \
     /opt/surveytrace/daemon/sync_nvd.py --recent
 ```
 
+## Fingerprint Feed Setup
+
+```bash
+# Pull latest MAC vendor mappings (IEEE)
+sudo -u surveytrace /opt/surveytrace/venv/bin/python3 \
+    /opt/surveytrace/daemon/sync_oui.py
+
+# Pull latest web-app signature rules (Wappalyzer)
+sudo -u surveytrace /opt/surveytrace/venv/bin/python3 \
+    /opt/surveytrace/daemon/sync_webfp.py
+
+# Optional cron examples
+15 4 * * * surveytrace /opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/sync_oui.py
+30 4 * * * surveytrace /opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/sync_webfp.py
+```
+
+Feed source links used by these scripts:
+- IEEE OUI CSV (MA-L): https://standards-oui.ieee.org/oui/oui.csv
+- IEEE MA-M CSV: https://standards-oui.ieee.org/oui28/mam.csv
+- IEEE MA-S CSV: https://standards-oui.ieee.org/oui36/oui36.csv
+- IEEE IAB CSV: https://standards-oui.ieee.org/iab/iab.csv
+- Wappalyzer technologies JSON (raw): https://raw.githubusercontent.com/developit/wappalyzer/master/src/technologies/
+
+Manual sync is also available from the Settings tab (buttons call `POST /api/feeds.php?sync=1`).
+
 ## Architecture
 
 ```
@@ -123,6 +149,8 @@ surveytrace/
 │   ├── fingerprint.py      Asset classification engine
 │   ├── profiles.py         Scan profile definitions
 │   ├── sync_nvd.py         NVD database sync
+│   ├── sync_oui.py         IEEE OUI feed sync
+│   ├── sync_webfp.py       Wappalyzer signature sync
 │   └── sources/            Enrichment plugins
 │       ├── unifi.py        UniFi controller
 │       ├── snmp.py         SNMP polling
