@@ -1,7 +1,7 @@
 """
 SurveyTrace — Scheduler Daemon
 
-Polls the scan_schedules table every minute and enqueues scan jobs
+Polls the scan_schedules table every 30 seconds and enqueues scan jobs
 when a schedule's next_run time has arrived.
 
 Runs alongside scanner_daemon.py as a separate systemd service.
@@ -12,8 +12,8 @@ Usage:
 Features:
     - Standard 5-field cron expressions (min hr dom mon dow)
     - Common preset shortcuts (@hourly, @daily, @weekly, @monthly)
-    - Missed run detection (catches up if server was down)
-    - Per-schedule enable/disable
+    - Per-schedule enable/disable and pause/resume (paused skips cron only)
+    - missed_run_policy: run_once | skip_no_run | run_all (with missed_run_max cap)
     - Updates next_run after each trigger
     - Writes schedule run history to scan_jobs with schedule_id set
 """
@@ -53,30 +53,43 @@ def db_conn() -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create scan_schedules table if it doesn't exist."""
+    """Create scan_schedules table if it doesn't exist; migrate older installs."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS scan_schedules (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            name         TEXT NOT NULL,
-            enabled      INTEGER DEFAULT 1,
-            cron_expr    TEXT NOT NULL,
-            target_cidr  TEXT NOT NULL,
-            exclusions   TEXT DEFAULT '',
-            phases       TEXT DEFAULT '["passive","icmp","banner","fingerprint","cve"]',
-            profile      TEXT DEFAULT 'standard_inventory',
-            scan_mode    TEXT DEFAULT 'auto',
-            rate_pps     INTEGER DEFAULT 5,
-            inter_delay  INTEGER DEFAULT 200,
-            priority     INTEGER DEFAULT 20,
-            next_run     DATETIME,
-            last_run     DATETIME,
-            last_job_id  INTEGER DEFAULT 0,
-            last_status  TEXT DEFAULT '',
-            collector_id INTEGER DEFAULT 0,
-            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-            notes        TEXT DEFAULT ''
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            name               TEXT NOT NULL,
+            enabled            INTEGER DEFAULT 1,
+            paused             INTEGER DEFAULT 0,
+            cron_expr          TEXT NOT NULL,
+            target_cidr        TEXT NOT NULL,
+            exclusions         TEXT DEFAULT '',
+            phases             TEXT DEFAULT '["passive","icmp","banner","fingerprint","cve"]',
+            profile            TEXT DEFAULT 'standard_inventory',
+            scan_mode          TEXT DEFAULT 'auto',
+            rate_pps           INTEGER DEFAULT 5,
+            inter_delay        INTEGER DEFAULT 200,
+            priority           INTEGER DEFAULT 20,
+            next_run           DATETIME,
+            last_run           DATETIME,
+            last_job_id        INTEGER DEFAULT 0,
+            last_status        TEXT DEFAULT '',
+            collector_id       INTEGER DEFAULT 0,
+            created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            notes              TEXT DEFAULT '',
+            timezone           TEXT DEFAULT 'UTC',
+            missed_run_policy  TEXT DEFAULT 'run_once',
+            missed_run_max     INTEGER DEFAULT 5
         );
     """)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(scan_schedules)")}
+    for col, defn in [
+        ("timezone", "TEXT DEFAULT 'UTC'"),
+        ("paused", "INTEGER DEFAULT 0"),
+        ("missed_run_policy", "TEXT DEFAULT 'run_once'"),
+        ("missed_run_max", "INTEGER DEFAULT 5"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE scan_schedules ADD COLUMN {col} {defn}")
 
 
 # ---------------------------------------------------------------------------
@@ -195,11 +208,12 @@ def next_cron_run(expr: str, after: datetime, tz_name: str = "UTC") -> datetime:
 # ---------------------------------------------------------------------------
 # Job enqueueing
 # ---------------------------------------------------------------------------
-def enqueue_job(conn: sqlite3.Connection, schedule: dict) -> int:
+def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = "") -> int:
     """
     Create a scan_jobs entry from a schedule.
     Returns the new job ID.
     """
+    label = f"[Scheduled] {schedule['name']}{label_suffix}"
     conn.execute("""
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
@@ -207,7 +221,7 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict) -> int:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler')
     """, (
         schedule["target_cidr"],
-        f"[Scheduled] {schedule['name']}",
+        label,
         schedule["exclusions"] or "",
         schedule["phases"] or '["passive","icmp","banner","fingerprint","cve"]',
         schedule["rate_pps"] or 5,
@@ -228,6 +242,104 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict) -> int:
     return job_id
 
 
+def _parse_utc_naive(ts: str) -> datetime:
+    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+
+
+def _missed_fire_times(
+    expr: str,
+    first_due: datetime,
+    end: datetime,
+    tz_name: str,
+    max_n: int,
+) -> list[datetime]:
+    """UTC-naive cron fire times from first_due through end, at most max_n slots."""
+    slots: list[datetime] = []
+    cur = first_due
+    while cur <= end and len(slots) < max_n:
+        slots.append(cur)
+        cur = next_cron_run(expr, cur, tz_name)
+    return slots
+
+
+def process_due_schedule(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> None:
+    """Enqueue according to missed_run_policy and advance next_run."""
+    s = dict(row)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    expr = s["cron_expr"]
+    tz_name = s.get("timezone") or "UTC"
+    policy = (s.get("missed_run_policy") or "run_once").strip().lower()
+    if policy not in ("run_once", "skip_no_run", "run_all"):
+        policy = "run_once"
+    try:
+        max_catchup = int(s.get("missed_run_max") or 5)
+    except (TypeError, ValueError):
+        max_catchup = 5
+    max_catchup = max(1, min(100, max_catchup))
+
+    nr = next_cron_run(expr, now, tz_name)
+    nr_str = nr.strftime("%Y-%m-%d %H:%M:%S")
+
+    if policy == "skip_no_run":
+        conn.execute(
+            """
+            UPDATE scan_schedules
+            SET next_run = ?
+            WHERE id = ?
+            """,
+            (nr_str, s["id"]),
+        )
+        log.info(
+            "Schedule '%s' (id=%d) overdue — skip_no_run: advancing next_run to %s",
+            s["name"],
+            s["id"],
+            nr_str,
+        )
+        return
+
+    if policy == "run_all":
+        first_due = _parse_utc_naive(s["next_run"])
+        slots = _missed_fire_times(expr, first_due, now, tz_name, max_catchup)
+        if not slots:
+            conn.execute(
+                "UPDATE scan_schedules SET next_run = ? WHERE id = ?",
+                (nr_str, s["id"]),
+            )
+            return
+        last_job_id = 0
+        for i, _slot in enumerate(slots):
+            suf = "" if i == 0 else " (catch-up)"
+            last_job_id = enqueue_job(conn, s, suf)
+        conn.execute(
+            """
+            UPDATE scan_schedules
+            SET last_run = ?, last_job_id = ?, next_run = ?
+            WHERE id = ?
+            """,
+            (now_str, last_job_id, nr_str, s["id"]),
+        )
+        log.info(
+            "Schedule '%s' (id=%d) run_all: queued %d job(s), next run: %s",
+            s["name"],
+            s["id"],
+            len(slots),
+            nr_str,
+        )
+        return
+
+    # run_once — single job, align to next cron boundary after now
+    job_id = enqueue_job(conn, s)
+    conn.execute(
+        """
+        UPDATE scan_schedules
+        SET last_run = ?, last_job_id = ?, next_run = ?
+        WHERE id = ?
+        """,
+        (now_str, job_id, nr_str, s["id"]),
+    )
+    log.info("Schedule '%s' → job #%d queued, next run: %s", s["name"], job_id, nr_str)
+
+
 # ---------------------------------------------------------------------------
 # Main scheduler loop
 # ---------------------------------------------------------------------------
@@ -240,9 +352,10 @@ def main() -> None:
         ensure_schema(conn)
 
         # Initialize next_run for schedules that don't have one
-        schedules = conn.execute(
-            "SELECT * FROM scan_schedules WHERE enabled=1 AND next_run IS NULL"
-        ).fetchall()
+        schedules = conn.execute("""
+            SELECT * FROM scan_schedules
+            WHERE enabled = 1 AND COALESCE(paused, 0) = 0 AND next_run IS NULL
+        """).fetchall()
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         for s in schedules:
             try:
@@ -267,6 +380,7 @@ def main() -> None:
                 due = conn.execute("""
                     SELECT * FROM scan_schedules
                     WHERE enabled = 1
+                      AND COALESCE(paused, 0) = 0
                       AND next_run IS NOT NULL
                       AND next_run <= ?
                     ORDER BY next_run ASC
@@ -274,28 +388,12 @@ def main() -> None:
 
                 for schedule in due:
                     s = dict(schedule)
-                    log.info("Schedule '%s' (id=%d) is due — enqueueing job",
-                             s["name"], s["id"])
+                    log.info("Schedule '%s' (id=%d) is due — policy=%s",
+                             s["name"], s["id"],
+                             (s.get("missed_run_policy") or "run_once"))
 
                     try:
-                        job_id = enqueue_job(conn, s)
-
-                        # Calculate next run time
-                        nr = next_cron_run(s["cron_expr"], now, s.get("timezone") or "UTC")
-                        nr_str = nr.strftime("%Y-%m-%d %H:%M:%S")
-
-                        # Update schedule state
-                        conn.execute("""
-                            UPDATE scan_schedules
-                            SET last_run    = ?,
-                                last_job_id = ?,
-                                next_run    = ?
-                            WHERE id = ?
-                        """, (now_str, job_id, nr_str, s["id"]))
-
-                        log.info("Schedule '%s' → job #%d queued, next run: %s",
-                                 s["name"], job_id, nr_str)
-
+                        process_due_schedule(conn, schedule, now)
                     except Exception as e:
                         log.error("Failed to enqueue job for schedule '%s': %s",
                                   s["name"], e)

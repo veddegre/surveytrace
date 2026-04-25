@@ -2,11 +2,14 @@
 /**
  * SurveyTrace — /api/schedules.php
  *
- * GET    /api/schedules.php           — list all schedules
- * POST   /api/schedules.php           — create or update a schedule
- * DELETE /api/schedules.php?id=N      — delete a schedule
- * POST   /api/schedules.php?run_now=1 — immediately enqueue a job
- * POST   /api/schedules.php?toggle=1  — enable/disable a schedule
+ * GET    /api/schedules.php              — list all schedules
+ * GET    /api/schedules.php?history=1&id=N&limit=20 — last N jobs for a schedule
+ * POST   /api/schedules.php              — create or update a schedule
+ * DELETE /api/schedules.php?id=N         — delete a schedule
+ * POST   /api/schedules.php?run_now=1    — immediately enqueue a job
+ * POST   /api/schedules.php?toggle=1    — enable/disable a schedule
+ * POST   /api/schedules.php?pause=1     — pause (stops cron; keeps config)
+ * POST   /api/schedules.php?resume=1     — resume after pause
  */
 
 // Always work in UTC regardless of server timezone
@@ -20,27 +23,45 @@ $db = st_db();
 // Auto-create table if missing
 $db->exec("
     CREATE TABLE IF NOT EXISTS scan_schedules (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        name         TEXT NOT NULL,
-        enabled      INTEGER DEFAULT 1,
-        cron_expr    TEXT NOT NULL,
-        target_cidr  TEXT NOT NULL,
-        exclusions   TEXT DEFAULT '',
-        phases       TEXT DEFAULT '[\"passive\",\"icmp\",\"banner\",\"fingerprint\",\"cve\"]',
-        profile      TEXT DEFAULT 'standard_inventory',
-        scan_mode    TEXT DEFAULT 'auto',
-        rate_pps     INTEGER DEFAULT 5,
-        inter_delay  INTEGER DEFAULT 200,
-        priority     INTEGER DEFAULT 20,
-        next_run     DATETIME,
-        last_run     DATETIME,
-        last_job_id  INTEGER DEFAULT 0,
-        last_status  TEXT DEFAULT '',
-        collector_id INTEGER DEFAULT 0,
-        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-        notes        TEXT DEFAULT ''
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        name               TEXT NOT NULL,
+        enabled            INTEGER DEFAULT 1,
+        paused             INTEGER DEFAULT 0,
+        cron_expr          TEXT NOT NULL,
+        target_cidr        TEXT NOT NULL,
+        exclusions         TEXT DEFAULT '',
+        phases             TEXT DEFAULT '[\"passive\",\"icmp\",\"banner\",\"fingerprint\",\"cve\"]',
+        profile            TEXT DEFAULT 'standard_inventory',
+        scan_mode          TEXT DEFAULT 'auto',
+        rate_pps           INTEGER DEFAULT 5,
+        inter_delay        INTEGER DEFAULT 200,
+        priority           INTEGER DEFAULT 20,
+        next_run           DATETIME,
+        last_run           DATETIME,
+        last_job_id        INTEGER DEFAULT 0,
+        last_status        TEXT DEFAULT '',
+        collector_id       INTEGER DEFAULT 0,
+        created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+        notes              TEXT DEFAULT '',
+        timezone           TEXT DEFAULT 'UTC',
+        missed_run_policy  TEXT DEFAULT 'run_once',
+        missed_run_max     INTEGER DEFAULT 5
     )
 ");
+
+/** Add columns introduced after first deploy (SQLite). */
+$schedCols = array_column($db->query('PRAGMA table_info(scan_schedules)')->fetchAll(), 'name');
+$schedMigrations = [
+    'timezone'          => "TEXT DEFAULT 'UTC'",
+    'paused'            => 'INTEGER DEFAULT 0',
+    'missed_run_policy' => "TEXT DEFAULT 'run_once'",
+    'missed_run_max'    => 'INTEGER DEFAULT 5',
+];
+foreach ($schedMigrations as $col => $def) {
+    if (!in_array($col, $schedCols, true)) {
+        $db->exec('ALTER TABLE scan_schedules ADD COLUMN ' . $col . ' ' . $def);
+    }
+}
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -58,6 +79,24 @@ if ($method === 'DELETE') {
 // GET — list schedules with last job status
 // ---------------------------------------------------------------------------
 if ($method === 'GET') {
+    if (isset($_GET['history'])) {
+        $hid = (int)($_GET['id'] ?? 0);
+        $limit = max(1, min(100, (int)($_GET['limit'] ?? 20)));
+        if (!$hid) {
+            st_json(['error' => 'id required'], 400);
+        }
+        $h = $db->prepare("
+            SELECT id, status, label, created_at, started_at, finished_at,
+                   hosts_found, hosts_scanned, error_msg, created_by
+            FROM scan_jobs
+            WHERE schedule_id = ?
+            ORDER BY id DESC
+            LIMIT $limit
+        ");
+        $h->execute([$hid]);
+        st_json(['runs' => $h->fetchAll()]);
+    }
+
     $rows = $db->query("
         SELECT s.*,
             j.status AS last_job_status,
@@ -70,7 +109,7 @@ if ($method === 'GET') {
             END AS secs_until_next
         FROM scan_schedules s
         LEFT JOIN scan_jobs j ON j.id = s.last_job_id
-        ORDER BY s.enabled DESC, s.next_run ASC
+        ORDER BY s.enabled DESC, COALESCE(s.paused, 0) ASC, s.next_run ASC
     ")->fetchAll();
     st_json(['schedules' => $rows]);
 }
@@ -116,6 +155,35 @@ if (isset($_GET['run_now'])) {
     st_json(['ok' => true, 'job_id' => $job_id]);
 }
 
+// Pause — keeps schedule row and settings; cron firing stops until resume
+if (isset($_GET['pause'])) {
+    $id = (int)($body['id'] ?? 0);
+    if (!$id) {
+        st_json(['error' => 'id required'], 400);
+    }
+    $db->prepare('UPDATE scan_schedules SET paused = 1 WHERE id = ?')->execute([$id]);
+    st_json(['ok' => true, 'paused' => true]);
+}
+
+// Resume after pause (does not change enabled flag)
+if (isset($_GET['resume'])) {
+    $id = (int)($body['id'] ?? 0);
+    if (!$id) {
+        st_json(['error' => 'id required'], 400);
+    }
+    $nr = gmdate('Y-m-d H:i:s', time() + 60);
+    $db->prepare("
+        UPDATE scan_schedules SET paused = 0,
+            next_run = CASE
+                WHEN next_run IS NULL OR datetime(next_run) <= datetime('now')
+                THEN ?
+                ELSE next_run
+            END
+        WHERE id = ?
+    ")->execute([$nr, $id]);
+    st_json(['ok' => true, 'paused' => false]);
+}
+
 // Toggle enable/disable
 if (isset($_GET['toggle'])) {
     $id = (int)($body['id'] ?? 0);
@@ -138,10 +206,20 @@ $rate_pps    = max(1, min(100, (int)($body['rate_pps'] ?? 5)));
 $inter_delay = max(0, min(2000, (int)($body['inter_delay'] ?? 200)));
 $priority    = max(1, min(100, (int)($body['priority'] ?? 20)));
 $enabled     = (int)($body['enabled'] ?? 1);
+$paused      = (int)($body['paused'] ?? 0);
 $notes       = substr(trim($body['notes'] ?? ''), 0, 500);
 $timezone    = trim($body['timezone'] ?? 'UTC');
 // Validate timezone
-if (!in_array($timezone, timezone_identifiers_list())) $timezone = 'UTC';
+if (!in_array($timezone, timezone_identifiers_list())) {
+    $timezone = 'UTC';
+}
+
+$missed_run_policy = trim($body['missed_run_policy'] ?? 'run_once');
+$allowedPolicies = ['run_once', 'skip_no_run', 'run_all'];
+if (!in_array($missed_run_policy, $allowedPolicies, true)) {
+    $missed_run_policy = 'run_once';
+}
+$missed_run_max = max(1, min(100, (int)($body['missed_run_max'] ?? 5)));
 
 $phases_raw  = $body['phases'] ?? ["passive","icmp","banner","fingerprint","cve"];
 $phases      = json_encode(is_array($phases_raw) ? $phases_raw : json_decode($phases_raw, true));
@@ -178,22 +256,28 @@ if ($id > 0) {
         UPDATE scan_schedules SET
             name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
             profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
-            enabled=?, notes=?, timezone=?, next_run=COALESCE(next_run, ?)
+            enabled=?, paused=?, notes=?, timezone=?,
+            missed_run_policy=?, missed_run_max=?,
+            next_run=COALESCE(next_run, ?)
         WHERE id=?
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases,
         $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
-        $enabled, $notes, $timezone, $next_run, $id
+        $enabled, $paused, $notes, $timezone,
+        $missed_run_policy, $missed_run_max,
+        $next_run, $id
     ]);
 } else {
     $db->prepare("
         INSERT INTO scan_schedules
             (name, cron_expr, target_cidr, exclusions, phases, profile,
-             scan_mode, rate_pps, inter_delay, priority, enabled, notes, timezone, next_run)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone,
+             missed_run_policy, missed_run_max, next_run)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
-        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, $notes, $timezone, $next_run
+        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, $paused, $notes, $timezone,
+        $missed_run_policy, $missed_run_max, $next_run
     ]);
     $id = (int)$db->lastInsertId();
 }

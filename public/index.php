@@ -529,6 +529,7 @@ textarea.finput{resize:vertical;min-height:72px}
     <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:480px;max-height:90vh;overflow-y:auto">
       <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:14px" id="sched-title">New schedule</div>
       <input type="hidden" id="sched-id" value="">
+      <input type="hidden" id="sched-paused" value="0">
 
       <label class="flbl">Schedule name</label>
       <input class="finp" id="sched-name" placeholder="Weekly full scan" style="width:100%;margin-bottom:10px">
@@ -589,12 +590,45 @@ textarea.finput{resize:vertical;min-height:72px}
       <textarea class="finp" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="width:100%;height:60px;margin-bottom:10px;resize:vertical"></textarea>
 
       <label class="flbl">Notes (optional)</label>
-      <input class="finp" id="sched-notes" placeholder="Description or reason for this schedule" style="width:100%;margin-bottom:14px">
+      <input class="finp" id="sched-notes" placeholder="Description or reason for this schedule" style="width:100%;margin-bottom:10px">
+
+      <label class="flbl">If a run is missed (daemon down, pause, etc.)</label>
+      <select class="finp" id="sched-missed-pol" style="width:100%;margin-bottom:6px">
+        <option value="run_once">Run one catch-up scan, then resume cadence</option>
+        <option value="skip_no_run">Skip scan — only move next run forward</option>
+        <option value="run_all">Queue one job per missed slot (capped)</option>
+      </select>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <label style="font-family:var(--mf);font-size:11px;color:var(--tx2);white-space:nowrap">Max jobs per wake</label>
+        <input class="finp" type="number" id="sched-missed-max" min="1" max="100" value="5" style="width:72px">
+      </div>
+      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);margin-bottom:12px">
+        “Run all” uses this cap so a long outage cannot flood the queue.
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-family:var(--mf);font-size:12px;color:var(--tx2)">
+        <input type="checkbox" id="sched-en" checked> Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)
+      </label>
 
       <div style="display:flex;gap:8px">
         <button class="btnp" onclick="saveSchedule()">Save schedule</button>
         <button class="tbtn" onclick="closeSchedModal()">Cancel</button>
       </div>
+    </div>
+  </div>
+
+  <div id="sched-hist-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:101;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:560px;max-height:85vh;overflow-y:auto">
+      <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:10px" id="sched-hist-title">Run history</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>#</th><th>Status</th><th>Label</th><th>Hosts</th><th>Queued</th><th>Finished</th>
+          </tr></thead>
+          <tbody id="sched-hist-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <button class="tbtn" style="margin-top:12px" onclick="closeSchedHistModal()">Close</button>
     </div>
   </div>
 
@@ -607,10 +641,10 @@ textarea.finput{resize:vertical;min-height:72px}
     <table class="tbl">
       <thead><tr>
         <th>Name</th><th>Target</th><th>Profile</th><th>Cron</th>
-        <th>Next run</th><th>Last run</th><th>Last result</th>
-        <th>Enabled</th><th></th>
+        <th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
+        <th>On</th><th></th>
       </tr></thead>
-      <tbody id="sched-tbody"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+      <tbody id="sched-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -1621,11 +1655,23 @@ async function loadSchedules() {
     const statColor = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)'};
     const tbody = document.getElementById('sched-tbody');
     if (!d.schedules || !d.schedules.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="loading">No schedules yet — create one to get started</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="loading">No schedules yet — create one to get started</td></tr>';
         return;
     }
 
     tbody.innerHTML = d.schedules.map(s => {
+        const pol = (s.missed_run_policy || 'run_once');
+        const missedLbl = pol === 'skip_no_run'
+            ? 'Skip'
+            : pol === 'run_all'
+                ? `All ≤${parseInt(s.missed_run_max, 10) || 5}`
+                : 'Once';
+        const isPaused = !!(parseInt(s.paused, 10) || 0);
+        const isOn = !!(parseInt(s.enabled, 10) || 0);
+        const pausedTag = isPaused
+            ? '<span style="color:var(--amber);font-size:10px;margin-left:6px;font-family:var(--mf)">Paused</span>'
+            : '';
+
         // next_run is stored as UTC — display as local browser time
         let nextRun = '<span style="color:var(--tx3)">pending</span>';
         if (s.next_run) {
@@ -1649,26 +1695,35 @@ async function loadSchedules() {
               + (s.last_hosts_found ? ` <span style="font-family:var(--mf);font-size:10px;color:var(--tx3)">${s.last_hosts_found} hosts</span>` : '')
             : '—';
 
+        const pauseResume = isOn
+            ? (isPaused
+                ? `<button class="tbtn" style="font-size:9px" onclick="resumeSchedule(${s.id})" title="Resume schedule">Resume</button>`
+                : `<button class="tbtn" style="font-size:9px" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
+            : '';
+
         return `<tr>
-          <td style="color:var(--tx)">${esc(s.name)}</td>
+          <td style="color:var(--tx)">${esc(s.name)}${pausedTag}</td>
           <td class="mono" style="font-size:11px">${esc(s.target_cidr)}</td>
           <td style="font-family:var(--mf);font-size:11px;color:var(--tx2)">${esc((s.profile||'').replace(/_/g,' '))}</td>
           <td class="mono" style="font-size:11px">${esc(s.cron_expr)}</td>
+          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)" title="Catch-up when overdue">${missedLbl}</td>
           <td style="font-family:var(--mf);font-size:11px">${nextRun}</td>
           <td style="font-family:var(--mf);font-size:11px;color:var(--tx2)">${lastRun}</td>
           <td>${lastStat}</td>
           <td>
             <button class="tbtn" style="font-size:10px;font-family:var(--mf);
-              color:${s.enabled ? 'var(--green)' : 'var(--tx3)'};
-              border-color:${s.enabled ? 'var(--green)' : 'var(--bd2)'};
+              color:${isOn ? 'var(--green)' : 'var(--tx3)'};
+              border-color:${isOn ? 'var(--green)' : 'var(--bd2)'};
               min-width:52px"
               onclick="toggleSchedule(${s.id})"
-              title="${s.enabled ? 'Click to disable' : 'Click to enable'}">
-              ${s.enabled ? '● ON' : '○ OFF'}
+              title="${isOn ? 'Click to disable' : 'Click to enable'}">
+              ${isOn ? '● ON' : '○ OFF'}
             </button>
           </td>
-          <td style="display:flex;gap:4px;padding:4px 8px">
-            <button class="tbtn" style="font-size:10px" onclick="runSchedNow(${s.id})">&#9654;</button>
+          <td style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 8px;max-width:200px">
+            <button class="tbtn" style="font-size:9px" onclick="openSchedHist(${s.id})" title="Run history">Hist</button>
+            ${pauseResume}
+            <button class="tbtn" style="font-size:10px" onclick="runSchedNow(${s.id})" title="Run now">&#9654;</button>
             <button class="tbtn" style="font-size:10px" onclick="editSchedule(${s.id})">&#9998;</button>
             <button class="tbtn" style="font-size:10px;color:var(--red)" onclick="deleteSchedule(${s.id})">&#10005;</button>
           </td>
@@ -1686,6 +1741,14 @@ function openSchedModal(s) {
     document.getElementById('sched-mode').value  = s ? (s.scan_mode||'auto') : 'auto';
     document.getElementById('sched-excl').value  = s ? (s.exclusions||'') : '';
     document.getElementById('sched-notes').value = s ? (s.notes||'') : '';
+    const polEl = document.getElementById('sched-missed-pol');
+    if (polEl) polEl.value = s ? (s.missed_run_policy || 'run_once') : 'run_once';
+    const mxEl = document.getElementById('sched-missed-max');
+    if (mxEl) mxEl.value = s ? (parseInt(s.missed_run_max, 10) || 5) : 5;
+    const enCb = document.getElementById('sched-en');
+    if (enCb) enCb.checked = s ? !!(parseInt(s.enabled, 10) || 0) : true;
+    const pz = document.getElementById('sched-paused');
+    if (pz) pz.value = s ? (parseInt(s.paused, 10) || 0) : 0;
     const tzSel = document.getElementById('sched-tz');
     if (tzSel) {
         // Try to default to browser timezone for new schedules
@@ -1744,6 +1807,9 @@ async function editSchedule(id) {
 
 async function saveSchedule() {
     const id      = document.getElementById('sched-id').value;
+    let mx = parseInt(document.getElementById('sched-missed-max')?.value || '5', 10);
+    if (mx < 1) mx = 1;
+    if (mx > 100) mx = 100;
     const payload = {
         id:          id ? parseInt(id) : 0,
         name:        document.getElementById('sched-name').value.trim(),
@@ -1754,7 +1820,10 @@ async function saveSchedule() {
         exclusions:  document.getElementById('sched-excl').value.trim(),
         notes:       document.getElementById('sched-notes').value.trim(),
         timezone:    document.getElementById('sched-tz')?.value || 'UTC',
-        enabled:     1,
+        enabled:     document.getElementById('sched-en')?.checked ? 1 : 0,
+        paused:      parseInt(document.getElementById('sched-paused')?.value || '0', 10) || 0,
+        missed_run_policy: document.getElementById('sched-missed-pol')?.value || 'run_once',
+        missed_run_max: mx,
     };
     if (!payload.name)        { toast('Name is required', 'err'); return; }
     if (!payload.target_cidr) { toast('Target CIDR is required', 'err'); return; }
@@ -1794,6 +1863,78 @@ async function deleteSchedule(id) {
     });
     if (r.ok) { toast('Schedule deleted', 'ok'); loadSchedules(); }
     else toast('Delete failed', 'err');
+}
+
+function closeSchedHistModal() {
+    const el = document.getElementById('sched-hist-bg');
+    if (el) el.style.display = 'none';
+}
+
+function openJobFromHist(jobId) {
+    closeSchedHistModal();
+    goTab('scan');
+    hiNav('nscan');
+    activeJobId = jobId;
+    showScanRunning(jobId);
+    startPoll(jobId);
+    pollJob(jobId);
+    loadScanHistory();
+}
+
+async function openSchedHist(id) {
+    const bg = document.getElementById('sched-hist-bg');
+    const tb = document.getElementById('sched-hist-tbody');
+    const title = document.getElementById('sched-hist-title');
+    if (!bg || !tb) return;
+    let name = 'Schedule #' + id;
+    const list = await api('/api/schedules.php');
+    if (list && list.schedules) {
+        const row = list.schedules.find(x => x.id === id);
+        if (row) name = row.name;
+    }
+    title.textContent = 'Run history — ' + name;
+    tb.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+    bg.style.display = 'flex';
+    const d = await api('/api/schedules.php?history=1&id=' + encodeURIComponent(id) + '&limit=25');
+    if (!d || !d.runs) {
+        tb.innerHTML = '<tr><td colspan="6" class="loading">Could not load history</td></tr>';
+        return;
+    }
+    if (!d.runs.length) {
+        tb.innerHTML = '<tr><td colspan="6" class="loading">No jobs linked to this schedule yet</td></tr>';
+        return;
+    }
+    const toLoc = (ts) => {
+        if (!ts) return '—';
+        const iso = String(ts).replace(' ', 'T');
+        const dt = new Date(/Z|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z');
+        return isNaN(dt.getTime()) ? esc(ts) : dt.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    };
+    tb.innerHTML = d.runs.map(r => {
+        const hosts = (r.hosts_found != null && r.hosts_found !== '')
+            ? `${parseInt(r.hosts_scanned, 10) || 0}/${parseInt(r.hosts_found, 10) || 0}`
+            : '—';
+        return `<tr>
+          <td class="mono" style="font-size:11px"><a href="#" onclick="openJobFromHist(${r.id});return false">${r.id}</a></td>
+          <td style="font-family:var(--mf);font-size:10px">${esc(r.status || '')}</td>
+          <td style="font-size:11px;color:var(--tx2)">${esc(r.label || '')}</td>
+          <td style="font-family:var(--mf);font-size:10px">${hosts}</td>
+          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)">${toLoc(r.created_at)}</td>
+          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)">${toLoc(r.finished_at)}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function pauseSchedule(id) {
+    const r = await apiPost('/api/schedules.php?pause=1', {id});
+    if (r && r.ok) { toast('Schedule paused', 'ok'); loadSchedules(); }
+    else toast((r && r.error) || 'Pause failed', 'err');
+}
+
+async function resumeSchedule(id) {
+    const r = await apiPost('/api/schedules.php?resume=1', {id});
+    if (r && r.ok) { toast('Schedule resumed', 'ok'); loadSchedules(); }
+    else toast((r && r.error) || 'Resume failed', 'err');
 }
 
 // ==========================================================================
