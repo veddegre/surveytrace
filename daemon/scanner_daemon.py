@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import re
+import socket
+import ssl
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -647,6 +649,9 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"zabbix|zabbix-server", "srv", "Zabbix"),
     (r"\bntfy\b",           "srv",  "ntfy"),
     (r"\bkasm\b",           "voi",  "Kasm Workspaces"),
+    # Kasm SPA often hides product in <title> — match stable body / script markers
+    (r"kasmweb|kasmtechnologies|[\"']kasm_api[\"']|/api/public/kasm",
+     "voi",  "Kasm Workspaces"),
     (r"mastodon",           "srv",  "Mastodon"),
     (r"checkmk",            "srv",  "Check MK"),
     (r"librenms",           "srv",  "LibreNMS"),
@@ -747,55 +752,160 @@ TITLE_MAP: list[tuple[str, str, str]] = [
 ]
 
 
-def _fetch_http_title(ip: str, port: int, tls: bool = False) -> str | None:
-    """Fetch HTTP title from a single IP:port. Returns title string or None."""
+def _format_tls_cert_names(cert: dict | None) -> str:
+    """Flatten DNS names / CN from ssl.getpeercert() dict for pattern matching."""
+    if not cert:
+        return ""
+    names: list[str] = []
+    for typ, val in cert.get("subjectAltName", ()) or ():
+        if typ == "DNS" and val:
+            names.append(str(val))
+    for rdn in cert.get("subject", ()) or ():
+        for ava in rdn:
+            if len(ava) >= 2 and ava[0][0] == "commonName" and ava[0][1]:
+                names.append(str(ava[0][1]))
+    return " ".join(names)
+
+
+def _tls_peer_names_quick(host: str, port: int, timeout: float = HTTP_TITLE_TIMEOUT) -> str:
+    """TLS handshake only — used as fallback when urllib does not expose the cert."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                return _format_tls_cert_names(ssock.getpeercert())
+    except Exception:
+        return ""
+
+
+def _peer_cert_from_http_response(resp) -> str:
+    """Try to read TLS peer cert names from an open urllib response (one connection)."""
+    cur = getattr(resp, "fp", None)
+    for _ in range(12):
+        if cur is None:
+            break
+        if isinstance(cur, ssl.SSLSocket):
+            try:
+                return _format_tls_cert_names(cur.getpeercert())
+            except Exception:
+                return ""
+        nxt = getattr(cur, "raw", None) or getattr(cur, "_sock", None)
+        if nxt is cur:
+            break
+        cur = nxt
+    return ""
+
+
+def _fetch_http_snapshot(ip: str, port: int, tls: bool) -> dict[str, str | None]:
+    """
+    Fetch HTTP identity: title, Server / X-Powered-By, body prefix, TLS names.
+    Used for generic product detection beyond <title> alone.
+    """
     import urllib.request
-    import urllib.error
-    import ssl
     import re as _re
 
+    out: dict[str, str | None] = {
+        "title": None,
+        "server": None,
+        "powered": None,
+        "body": "",
+        "cert": "",
+    }
     scheme = "https" if tls else "http"
-    url    = f"{scheme}://{ip}:{port}/"
+    url = f"{scheme}://{ip}:{port}/"
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
-        ctx.verify_mode    = ssl.CERT_NONE
+        ctx.verify_mode = ssl.CERT_NONE
         req = urllib.request.Request(url, headers={"User-Agent": "SurveyTrace/1.0"})
         with urllib.request.urlopen(req, timeout=HTTP_TITLE_TIMEOUT,
                                     context=ctx if tls else None) as resp:
-            # Read up to 8KB — enough for the <title> tag
-            raw = resp.read(8192).decode("utf-8", errors="ignore")
+            out["server"] = resp.headers.get("Server")
+            out["powered"] = resp.headers.get("X-Powered-By")
+            if tls:
+                out["cert"] = _peer_cert_from_http_response(resp) or ""
+            raw = resp.read(12288).decode("utf-8", errors="ignore")
+        out["body"] = raw[:8192]
         m = _re.search(r"<title[^>]*>(.*?)</title>", raw, _re.IGNORECASE | _re.DOTALL)
         if m:
-            return m.group(1).strip()[:200]
+            out["title"] = m.group(1).strip()[:200]
+        if tls and not (out.get("cert") or "").strip():
+            out["cert"] = _tls_peer_names_quick(ip, port) or ""
     except Exception:
         pass
-    return None
+    return out
 
 
-def _classify_title(title: str) -> tuple[str, str] | None:
-    """Match a page title against TITLE_MAP. Returns (category, product) or None."""
+def _snapshot_to_probe_line(port: int, snap: dict[str, str | None]) -> str:
+    parts = [
+        f"PORT{port}",
+        f"TITLE={snap.get('title') or ''}",
+        f"SERVER={snap.get('server') or ''}",
+        f"XPB={snap.get('powered') or ''}",
+        f"CERT={snap.get('cert') or ''}",
+        (snap.get("body") or "")[:6000],
+    ]
+    return "\n".join(parts)
+
+
+def _port_probe_priority(p: int) -> int:
+    """Lower sorts first — prefer HTTPS app ports for merged probe."""
+    order = (
+        443, 8443, 9443, 8006, 8007, 8089, 8080, 8888, 3000, 3001, 9000, 9090,
+        80, 8000, 8001, 8081, 8082, 8083, 8086, 8088, 8096, 8123, 8181, 8384,
+        5080, 5341, 9001, 9091, 9925, 32400, 3030,
+    )
+    try:
+        return order.index(p)
+    except ValueError:
+        return 500 + p
+
+
+def _classify_http_probe_blob(blob: str) -> tuple[str, str] | None:
+    """Run TITLE_MAP (incl. body markers) over merged HTTP/TLS probe text."""
     import re as _re
-    if not title:
+    if not blob or len(blob) < 8:
         return None
     for pattern, cat, product in TITLE_MAP:
-        if _re.search(pattern, title, _re.IGNORECASE):
+        if _re.search(pattern, blob, _re.IGNORECASE):
             return cat, product
     return None
+
+
+def _generic_web_stack_vendor(blob: str) -> str | None:
+    """
+    When no TITLE_MAP hit: surface HTTP Server / X-Powered-By as a weak vendor hint
+    so unknown self-hosted stacks still show *some* fingerprint.
+    """
+    import re as _re
+    if not blob or len(blob) < 12:
+        return None
+    srv = _re.search(r"^SERVER=(.+)$", blob, _re.MULTILINE | _re.IGNORECASE)
+    xpb = _re.search(r"^XPB=(.+)$", blob, _re.MULTILINE | _re.IGNORECASE)
+    bits = []
+    if srv and srv.group(1).strip():
+        bits.append(srv.group(1).strip()[:80])
+    if xpb and xpb.group(1).strip():
+        bits.append("via " + xpb.group(1).strip()[:80])
+    if not bits:
+        return None
+    return " · ".join(bits)[:160]
 
 
 def phase_http_titles(
     job_id: int,
     hosts: dict[str, dict],   # {ip: {ports: [...], banners: {...}}}
-) -> dict[str, dict]:
+) -> tuple[dict[str, dict[int, str]], dict[str, str]]:
     """
-    For each host with HTTP ports open, fetch the page title.
-    Returns {ip: {port: title, ...}} for ports that returned a title.
-    Skips hosts with no HTTP ports to avoid unnecessary connections.
+    For each host with HTTP ports open, fetch titles + body/header/TLS hints.
+    Returns (titles_by_ip, merged_probe_by_ip) for generic product detection.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    results: dict[str, dict] = {}
+    titles_out: dict[str, dict[int, str]] = {}
+    snapshots: dict[str, dict[int, dict[str, str | None]]] = {}
     tasks = []  # (ip, port, tls)
 
     for ip, br in hosts.items():
@@ -807,36 +917,46 @@ def phase_http_titles(
             tasks.append((ip, port, tls))
 
     if not tasks:
-        return results
+        return titles_out, {}
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Phase 3c: HTTP title grab — {len(tasks)} endpoints across {len(hosts)} hosts")
+                  f"Phase 3c: HTTP probe — {len(tasks)} endpoints across {len(hosts)} hosts")
 
-    def fetch(ip: str, port: int, tls: bool) -> tuple[str, int, str | None]:
-        title = _fetch_http_title(ip, port, tls)
-        if not title and tls:
-            # Fallback to plain HTTP if TLS fails
-            title = _fetch_http_title(ip, port, False)
-        return ip, port, title
+    def fetch(ip: str, port: int, tls: bool) -> tuple[str, int, dict[str, str | None]]:
+        snap = _fetch_http_snapshot(ip, port, tls)
+        if tls and not (snap.get("title") or snap.get("body")):
+            snap = _fetch_http_snapshot(ip, port, False)
+        return ip, port, snap
 
     with ThreadPoolExecutor(max_workers=HTTP_TITLE_BATCH) as pool:
         futures = {pool.submit(fetch, ip, port, tls): (ip, port)
                    for ip, port, tls in tasks}
         for future in as_completed(futures):
             try:
-                ip, port, title = future.result()
-                if title:
-                    results.setdefault(ip, {})[port] = title
+                ip, port, snap = future.result()
+                snapshots.setdefault(ip, {})[port] = snap
+                if snap.get("title"):
+                    titles_out.setdefault(ip, {})[port] = snap["title"]  # type: ignore[index]
             except Exception:
                 pass
 
-    found = sum(len(v) for v in results.values())
+    probes: dict[str, str] = {}
+    for ip, per_port in snapshots.items():
+        lines = [
+            _snapshot_to_probe_line(p, s)
+            for p, s in sorted(per_port.items(), key=lambda kv: _port_probe_priority(kv[0]))
+        ]
+        blob = "\n---\n".join(lines)
+        if blob.strip():
+            probes[ip] = blob
+
+    found_t = sum(len(v) for v in titles_out.values())
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Phase 3c: HTTP titles found: {found} across {len(results)} hosts")
+                  f"Phase 3c: HTTP titles {found_t} / probe hosts {len(probes)} across {len(hosts)} scanned")
 
-    return results
+    return titles_out, probes
 
 
 # ---------------------------------------------------------------------------
@@ -1209,6 +1329,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   ports: list[int], banners: dict[str, str],
                   nmap_cpes: list[str] | None = None,
                   http_titles: dict[int, str] | None = None,
+                  http_probe: str | None = None,
                   hostname: str = "") -> dict:
     """Upsert an asset row and return the full row dict."""
     fp = fingerprint(mac, ports, banners, hostname=hostname)
@@ -1234,8 +1355,10 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             fp["cpe"] = best_nmap_cpe
 
     # Port profile category takes highest priority (e.g. port 8006 → hv/Proxmox)
+    port_cat_effective = ""
     port_cat, port_cpe, _ = classify_from_ports(ports)
     if port_cat and port_cat != "unk":
+        port_cat_effective = port_cat
         fp["category"] = port_cat
         if port_cpe:
             vh = vendor_hint_from_port_cpe(port_cpe)
@@ -1244,6 +1367,24 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                 fp["cpe"] = cpe_uri_from_port_fragment(port_cpe)
             if not fp.get("vendor") and vh:
                 fp["vendor"] = vh
+
+    # Merged HTTP probe (title + headers + body + TLS names) — Kasm body, unknown stacks
+    if http_probe:
+        hit = _classify_http_probe_blob(http_probe)
+        if hit:
+            cat_hit, prod = hit
+            if prod and (not fp.get("vendor") or cat_hit == "voi"):
+                fp["vendor"] = prod
+            if cat_hit == "voi":
+                fp["category"] = "voi"
+            elif port_cat_effective not in ("hv", "ot") and fp["category"] in (
+                "unk", "srv", "ws", "net", "",
+            ):
+                fp["category"] = cat_hit
+        elif port_cat_effective not in ("hv", "ot"):
+            gv = _generic_web_stack_vendor(http_probe)
+            if gv and not fp.get("vendor") and fp["category"] in ("unk", "srv", "ws"):
+                fp["vendor"] = gv
 
     # MAC OUI vendor always wins over banner/CPE-derived vendor
     vendor     = fp["vendor"]   # may be set from banner
@@ -1418,9 +1559,10 @@ def run_scan(job: dict) -> None:
                 hostname_cache[row["ip"]] = row["hostname"]
 
     # ---- Phase 3c: HTTP title grabbing -----------------------------------
-    http_titles: dict[str, dict] = {}
+    http_titles: dict[str, dict[int, str]] = {}
+    http_probes: dict[str, str] = {}
     if "banner" in phases and profile_obj.allow_banner:
-        http_titles = phase_http_titles(job_id, banner_results)
+        http_titles, http_probes = phase_http_titles(job_id, banner_results)
 
     for ip in all_ips:
         if ip not in hostname_cache:
@@ -1437,6 +1579,8 @@ def run_scan(job: dict) -> None:
         for port, title in titles.items():
             if port not in banners or not banners[port]:
                 banners[port] = f"[{title}]"  # bracket = title not banner
+        if http_probes.get(ip):
+            banners["_http"] = http_probes[ip][:8000]
 
         # Only record assets we have actual evidence for:
         # - Has a MAC address (ARP response = definitive Layer 2 proof)
@@ -1460,8 +1604,12 @@ def run_scan(job: dict) -> None:
                 hostname = enrich["hostname"]
 
         with db_conn() as conn:
-            asset = upsert_asset(conn, job_id, ip, mac, ports, banners, nmap_cpes,
-                                    http_titles=http_titles.get(ip, {}), hostname=hostname)
+            asset = upsert_asset(
+                conn, job_id, ip, mac, ports, banners, nmap_cpes,
+                http_titles=http_titles.get(ip, {}),
+                http_probe=http_probes.get(ip),
+                hostname=hostname,
+            )
             upserted_assets.append(asset)
             scanned += 1
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
