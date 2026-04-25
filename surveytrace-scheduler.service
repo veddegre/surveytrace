@@ -1,0 +1,25 @@
+[Unit]
+Description=SurveyTrace scheduler daemon
+After=network.target surveytrace-daemon.service
+Documentation=https://github.com/yourorg/surveytrace
+
+[Service]
+Type=simple
+User=surveytrace
+Group=surveytrace
+WorkingDirectory=/opt/surveytrace/daemon
+ExecStart=/opt/surveytrace/venv/bin/python3 scheduler_daemon.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=surveytrace-scheduler
+
+# Same DB as scanner; only needs SQLite access under data/
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/surveytrace/data
+
+[Install]
+WantedBy=multi-user.target
