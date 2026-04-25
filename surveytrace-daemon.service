@@ -1,0 +1,28 @@
+[Unit]
+Description=SurveyTrace scanner daemon
+After=network.target
+Documentation=https://github.com/yourorg/surveytrace
+
+[Service]
+Type=simple
+User=surveytrace
+Group=surveytrace
+WorkingDirectory=/opt/surveytrace/daemon
+ExecStart=/opt/surveytrace/venv/bin/python3 scanner_daemon.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Capabilities needed for raw socket / ARP scanning
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
+# Reasonable security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/surveytrace/data
+
+[Install]
+WantedBy=multi-user.target

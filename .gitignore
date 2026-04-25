@@ -1,0 +1,23 @@
+# Runtime data — contains your network inventory, never commit
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+*.egg-info/
+
+# Logs
+*.log
+
+# Secrets / local config
+.env
+config.local.php
+
+# OS
+.DS_Store
+Thumbs.db
