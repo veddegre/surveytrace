@@ -513,8 +513,9 @@ def phase_banner(
     nm  = nmap.PortScanner()
     # Use profile port list if available, fall back to SAFE_PORTS
     profile_obj  = get_profile(job.get("profile", DEFAULT_PROFILE) if job else DEFAULT_PROFILE)
+    scan_all_tcp = (profile_obj.name == "full_tcp")
     active_ports = profile_obj.port_list if profile_obj.port_list else SAFE_PORTS
-    port_str     = ",".join(str(p) for p in sorted(set(active_ports)))
+    port_str     = "-" if scan_all_tcp else ",".join(str(p) for p in sorted(set(active_ports)))
     delay_s      = inter_delay_ms / 1000.0
 
     # Batch into chunks of 32 to keep memory manageable
@@ -523,12 +524,10 @@ def phase_banner(
         chunk = hosts[i:i + chunk_size]
         targets = " ".join(chunk)
 
-        # Ensure rate is high enough to scan all ports within timeout
-        # On a LAN, even 50 pps is safe. 30s timeout is too short for 39 ports at 5 pps.
+        # Ensure rate is high enough; full TCP needs a longer timeout envelope.
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
-        port_count     = len(active_ports)
-        # Generous timeout: at least 2s per port + 15s overhead, min 60s
-        timeout_secs   = max(60, port_count * 2 + 15)
+        port_count     = 65535 if scan_all_tcp else len(active_ports)
+        timeout_secs   = 1200 if scan_all_tcp else max(60, port_count * 2 + 15)
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
         nm.scan(
@@ -536,7 +535,7 @@ def phase_banner(
             arguments=(
                 "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
                 f"-sV --version-intensity {vi} "
-                f"-p {port_str} "
+                f"-p{port_str} "
                 f"--max-rate {effective_rate} "
                 f"--host-timeout {timeout_secs}s "
                 f"--open"
@@ -581,6 +580,13 @@ def phase_banner(
                     break
             if not hostname:
                 hostname = resolve_hostname(host)
+            if not hostname:
+                # Proxmox web banner often includes "[node - Proxmox Virtual Environment]"
+                for b in banners.values():
+                    m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
+                    if m:
+                        hostname = m.group(1)
+                        break
 
             results[host] = {
                 "ports":     sorted(open_ports),
@@ -1379,6 +1385,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   hostname: str = "") -> dict:
     """Upsert an asset row and return the full row dict."""
     fp = fingerprint(mac, ports, banners, hostname=hostname)
+    oui_vendor_pre, oui_cat_pre = oui_lookup(mac)
 
     # HTTP title enrichment — improve category/vendor from page titles
     if http_titles:
@@ -1411,7 +1418,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             # Prefer HV/OT or well-known product ports over generic nginx/SSH CPE
             if port_cat in ("hv", "ot") or not fp.get("cpe") or vh:
                 fp["cpe"] = cpe_uri_from_port_fragment(port_cpe)
-            if not fp.get("vendor") and vh:
+            # If vendor currently equals hardware OUI, promote stronger product identity.
+            if vh and (not fp.get("vendor") or fp.get("vendor") == oui_vendor_pre):
                 fp["vendor"] = vh
 
     # Merged HTTP probe (title + headers + body + TLS names) — Kasm body, unknown stacks
@@ -1439,7 +1447,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     vendor     = fp["vendor"]   # may be set from banner
     mac_vendor = fp["vendor"]   # same baseline
     # If OUI gave us a vendor, keep it in mac_vendor; only fill vendor if empty
-    oui_vendor, oui_cat = oui_lookup(mac)
+    oui_vendor, oui_cat = oui_vendor_pre, oui_cat_pre
     if oui_vendor:
         mac_vendor = oui_vendor
         if not vendor:

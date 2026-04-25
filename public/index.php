@@ -438,6 +438,15 @@ textarea.finput{resize:vertical;min-height:72px}
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
+          <label class="profile-card" id="prof-full_tcp">
+            <input type="radio" name="scan_profile" value="full_tcp" style="display:none">
+            <div class="pc-icon">&#129517;</div>
+            <div style="flex:1">
+              <div class="pc-name">Full TCP</div>
+              <div class="pc-desc">All TCP ports (-p-) + service detect — slower, high coverage</div>
+            </div>
+            <div class="pc-badge warn">Confirmation required</div>
+          </label>
           <label class="profile-card" id="prof-ot_careful">
             <input type="radio" name="scan_profile" value="ot_careful" style="display:none">
             <div class="pc-icon">&#9888;</div>
@@ -556,6 +565,7 @@ textarea.finput{resize:vertical;min-height:72px}
         <option value="standard_inventory">Standard Inventory</option>
         <option value="iot_safe">IoT Safe</option>
         <option value="deep_scan">Deep Scan</option>
+        <option value="full_tcp">Full TCP</option>
         <option value="ot_careful">OT Careful</option>
       </select>
 
@@ -1164,7 +1174,7 @@ async function startScan() {
     const profileVal  = profileEl ? profileEl.value : 'standard_inventory';
 
     // Confirmation required for dangerous profiles
-    if (['deep_scan', 'ot_careful'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'ot_careful'].includes(profileVal)) {
         if (!confirm(`Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`)) return;
     }
 

@@ -9,11 +9,11 @@ A self-hosted network asset discovery and inventory platform for homelab and sma
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required)
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
-- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, OT Careful
+- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support
 - **Enrichment** — UniFi controller integration, SNMP, extensible source plugins
-- **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis
+- **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
 
@@ -173,6 +173,7 @@ surveytrace/
 | IoT Safe | Passive only — ARP/ICMP, no port scanning | ✅ | ✅ |
 | Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ | ❌ |
 | Deep Scan | Full nmap -sV, SNMP, all ports — requires confirmation | ❌ | ❌ |
+| Full TCP | All TCP ports (-p-) with service detection, high coverage, slower | ❌ | ❌ |
 | OT Careful | Passive only, 2pps max rate | ✅ | ✅ |
 
 ## Discovery Modes

@@ -9,6 +9,7 @@ Profile hierarchy (safest to most aggressive):
   iot_safe           — passive only, ARP/ICMP, OUI/hostname/enrichment
   standard_inventory — limited ports, light banners, common services
   deep_scan          — full nmap -sV, SNMP, CVE correlation
+  full_tcp           — all TCP ports (-p-), high coverage, slower
   ot_careful         — passive only, explicit override required for any probing
 
 Each profile is a dict of constraints that the daemon enforces at runtime.
@@ -244,6 +245,42 @@ DEEP_SCAN = ScanProfile(
     safe_for_ot          = False,
 )
 
+FULL_TCP = ScanProfile(
+    name        = "full_tcp",
+    label       = "Full TCP",
+    description = (
+        "Scans all 65,535 TCP ports with service detection (-sV -p-). "
+        "Useful when services run on non-standard ports or are hidden from "
+        "common-port profiles. High traffic and slower runtime; use carefully."
+    ),
+    icon        = "🧭",
+
+    allow_arp          = True,
+    allow_icmp         = True,
+    allow_tcp_ping     = True,
+    allow_banner       = True,
+    allow_version_intensity = 5,
+    max_ports          = 65535,
+    port_list          = [],      # scanner_daemon interprets full_tcp as -p-
+
+    allow_snmp         = True,
+    allow_ot_probes    = False,
+    allow_mdns         = True,
+    allow_ssdp         = True,
+
+    allow_cve          = True,
+
+    max_rate_pps       = 60,
+    min_delay_ms       = 25,
+    max_rate_pps_cap   = 200,
+    per_host_probe_limit = 0,
+
+    require_confirmation = True,
+    allow_force_mode     = True,
+    safe_for_iot         = False,
+    safe_for_ot          = False,
+)
+
 OT_CAREFUL = ScanProfile(
     name        = "ot_careful",
     label       = "OT Careful",
@@ -291,6 +328,7 @@ PROFILES: dict[str, ScanProfile] = {
     "iot_safe":           IOT_SAFE,
     "standard_inventory": STANDARD_INVENTORY,
     "deep_scan":          DEEP_SCAN,
+    "full_tcp":           FULL_TCP,
     "ot_careful":         OT_CAREFUL,
 }
 
@@ -317,7 +355,7 @@ def validate_phases(profile: ScanProfile, requested_phases: list[str]) -> list[s
     if profile.allow_icmp:
         allowed.append("icmp")
 
-    if profile.allow_banner and profile.port_list:
+    if profile.allow_banner and (profile.port_list or profile.name == "full_tcp"):
         allowed.append("banner")
         allowed.append("fingerprint")
 
