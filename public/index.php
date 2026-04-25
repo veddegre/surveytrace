@@ -2187,6 +2187,7 @@ async function openHostPanel(id, ip) {
     const findings = findingsData ? findingsData.findings : [];
     const ports = a.open_ports || [];
     const banners = a.banners || {};
+    const httpProbe = String(banners._http || '');
 
     const sevColor = {critical:'var(--red)',high:'#f97316',medium:'var(--amber)',low:'var(--blue)',none:'var(--tx3)'};
 
@@ -2202,6 +2203,31 @@ async function openHostPanel(id, ip) {
         9000:'Portainer / Minio / PHP-FPM', 9001:'Minio console',
         9090:'Prometheus', 9091:'Prometheus pushgateway',
         9443:'Portainer HTTPS', 9925:'FastAPI / Uvicorn',
+    };
+
+    // Aggregate product signals from per-port banners + merged HTTP probe blob.
+    const SERVICE_SIGS = [
+        ['Uptime Kuma', /uptime.?kuma/i],
+        ['Zabbix', /zabbix/i],
+        ['ntfy', /\bntfy\b/i],
+        ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
+        ['Proxmox VE', /proxmox|pve\./i],
+        ['Portainer', /portainer/i],
+        ['Grafana', /\bgrafana\b/i],
+        ['Prometheus', /prometheus/i],
+        ['Docker Engine', /docker/i],
+        ['Jellyfin', /jellyfin/i],
+        ['Gitea', /\bgitea\b/i],
+        ['Nextcloud', /nextcloud/i],
+        ['Mastodon', /mastodon/i],
+        ['OpenObserve', /openobserve/i],
+    ];
+    const serviceHits = new Set();
+    const addServiceHit = (txt) => {
+        if (!txt) return;
+        for (const [name, rx] of SERVICE_SIGS) {
+            if (rx.test(txt)) serviceHits.add(name);
+        }
     };
 
     const portRows = ports.length ? ports.map(p => {
@@ -2221,6 +2247,7 @@ async function openHostPanel(id, ip) {
             // Real banner detected — show it prominently
             serviceLabel = rest;
             labelColor   = 'var(--tx2)';
+            addServiceHit(rest);
         } else if (MISLEADING_PORTS[p]) {
             // Known misleading IANA name — show our hint instead
             serviceLabel = MISLEADING_PORTS[p];
@@ -2233,15 +2260,28 @@ async function openHostPanel(id, ip) {
             serviceLabel = 'open';
             labelColor   = 'var(--tx3)';
         }
+        addServiceHit(rawBanner);
 
         return `<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)">
           <span style="font-family:var(--mf);font-size:12px;color:var(--acc);min-width:48px;flex-shrink:0">${p}</span>
           <div style="min-width:0">
             <div style="font-size:11px;color:${labelColor};word-break:break-all;line-height:1.4">${esc(serviceLabel)}</div>
             ${rest && MISLEADING_PORTS[p] ? `<div style="font-size:10px;color:var(--tx3);margin-top:1px">hint: ${esc(MISLEADING_PORTS[p])}</div>` : ''}
+            ${rawBanner ? `<details style="margin-top:4px"><summary style="cursor:pointer;font-size:10px;color:var(--tx3)">raw banner</summary>
+              <div style="margin-top:2px;font-size:10px;color:var(--tx2);font-family:var(--mf);word-break:break-all">${esc(rawBanner)}</div>
+            </details>` : ''}
           </div>
         </div>`;
     }).join('') : '<div style="color:var(--tx3);font-size:11px;padding:8px 0">No open ports detected</div>';
+
+    addServiceHit(httpProbe);
+    const serviceRows = serviceHits.size
+        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${
+            Array.from(serviceHits).sort().map(s =>
+                `<span style="font-size:10px;font-family:var(--mf);padding:4px 7px;border:1px solid var(--bd2);border-radius:999px;color:var(--tx)">${esc(s)}</span>`
+            ).join('')
+          }</div>`
+        : `<div style="color:var(--tx3);font-size:11px;padding:4px 0 12px">No specific app fingerprints detected yet</div>`;
 
     const findingRows = findings.length ? findings.map(f => `
         <div style="padding:8px 0;border-bottom:1px solid var(--bd)">
@@ -2278,6 +2318,12 @@ async function openHostPanel(id, ip) {
           ${a.notes ? `<tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Notes</td><td style="color:var(--tx2)">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>
+
+      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+        Detected services
+        <div style="flex:1;height:1px;background:var(--bd)"></div>
+      </div>
+      ${serviceRows}
 
       <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
         Open ports (${ports.length})
