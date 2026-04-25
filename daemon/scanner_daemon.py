@@ -534,6 +534,7 @@ def phase_banner(
         nm.scan(
             hosts=targets,
             arguments=(
+                "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
                 f"-sV --version-intensity {vi} "
                 f"-p {port_str} "
                 f"--max-rate {effective_rate} "
@@ -1431,14 +1432,18 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             if gv and not fp.get("vendor") and fp["category"] in ("unk", "srv", "ws"):
                 fp["vendor"] = gv
 
-    # MAC OUI vendor always wins over banner/CPE-derived vendor
+    # Vendor precedence:
+    #  - vendor: detected service/product identity (Proxmox, Zabbix, etc.)
+    #  - mac_vendor: hardware/OUI manufacturer (HP, Dell, etc.)
+    # This keeps "Proxmox on HP" from being shown as only "Hewlett Packard".
     vendor     = fp["vendor"]   # may be set from banner
     mac_vendor = fp["vendor"]   # same baseline
-    # If OUI gave us a vendor, always prefer it
+    # If OUI gave us a vendor, keep it in mac_vendor; only fill vendor if empty
     oui_vendor, oui_cat = oui_lookup(mac)
     if oui_vendor:
-        vendor     = oui_vendor
         mac_vendor = oui_vendor
+        if not vendor:
+            vendor = oui_vendor
         # OUI category only fills gap if port profile didn't already classify
         if fp["category"] == "unk" and oui_cat:
             fp["category"] = oui_cat
