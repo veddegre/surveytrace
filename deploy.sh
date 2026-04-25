@@ -128,6 +128,27 @@ check_cmd() {
   fi
 }
 
+check_as_user() {
+  local user="$1"
+  local test_expr="$2"
+  local label="$3"
+  if [ "$(id -u)" -eq 0 ]; then
+    if runuser -u "$user" -- sh -lc "$test_expr" >/dev/null 2>&1; then
+      echo "  [OK] $label"
+    else
+      echo "  [FAIL] $label"
+      VERIFY_OK=0
+    fi
+  else
+    if sudo -u "$user" sh -lc "$test_expr" >/dev/null 2>&1; then
+      echo "  [OK] $label"
+    else
+      echo "  [FAIL] $label"
+      VERIFY_OK=0
+    fi
+  fi
+}
+
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/daemon/sync_oui.py" "OUI sync script"
 check_file "$DEST/daemon/sync_webfp.py" "WebFP sync script"
@@ -135,13 +156,13 @@ check_file "$DEST/data/surveytrace.db" "main DB"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
 
 # Effective access checks for web-triggered feed sync path
-check_cmd "sudo -u www-data test -r \"$DEST/daemon/sync_oui.py\"" \
+check_as_user "www-data" "test -r \"$DEST/daemon/sync_oui.py\"" \
   "www-data can read sync_oui.py"
-check_cmd "sudo -u www-data test -r \"$DEST/daemon/sync_webfp.py\"" \
+check_as_user "www-data" "test -r \"$DEST/daemon/sync_webfp.py\"" \
   "www-data can read sync_webfp.py"
-check_cmd "sudo -u www-data test -w \"$DEST/data\"" \
+check_as_user "www-data" "test -w \"$DEST/data\"" \
   "www-data can write data dir"
-check_cmd "sudo -u surveytrace test -w \"$DEST/data\"" \
+check_as_user "surveytrace" "test -w \"$DEST/data\"" \
   "surveytrace can write data dir"
 
 if [ "$VERIFY_OK" -eq 1 ]; then
