@@ -59,6 +59,10 @@ echo "  Daemon files deployed"
 # ---------------------------------------------------------------------------
 if id surveytrace >/dev/null 2>&1; then
   sudo usermod -aG surveytrace www-data 2>/dev/null || true
+  # Parent dirs must be traversable for web-triggered script execution
+  sudo chmod 755 "$DEST" 2>/dev/null || true
+  sudo chmod 755 "$DEST/venv" "$DEST/venv/bin" 2>/dev/null || true
+  sudo chmod 755 "$DEST/venv/bin/python3" 2>/dev/null || true
   # daemon scripts: surveytrace-owned, group-readable/traversable by group members
   sudo chown -R surveytrace:surveytrace "$DEST/daemon" 2>/dev/null || true
   sudo find "$DEST/daemon" -type d -exec chmod 750 {} \; 2>/dev/null || true
