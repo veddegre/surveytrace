@@ -1,6 +1,6 @@
 #!/bin/bash
 # SurveyTrace deploy script
-# Run from ~/surveytrace-repo to push changes to /opt/surveytrace
+# Run from ~/surveytrace to push changes to /opt/surveytrace
 set -e
 
 DEST="/opt/surveytrace"
