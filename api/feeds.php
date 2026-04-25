@@ -23,23 +23,43 @@ if (!in_array($target, ['oui', 'webfp', 'all'], true)) {
     st_json(['error' => 'target must be oui, webfp, or all'], 400);
 }
 
-$root = dirname(__DIR__);
-$venv_py = $root . '/venv/bin/python3';
-$python = is_executable($venv_py) ? $venv_py : 'python3';
+$roots = array_values(array_unique(array_filter([
+    dirname(__DIR__),                 // usual install root
+    '/opt/surveytrace',               // default production path
+    $_SERVER['DOCUMENT_ROOT'] ?? '',  // fallback if app lives under webroot
+])));
+
+$want = [];
+if ($target === 'all' || $target === 'oui') $want[] = 'sync_oui.py';
+if ($target === 'all' || $target === 'webfp') $want[] = 'sync_webfp.py';
 
 $scripts = [];
-if ($target === 'all' || $target === 'oui') {
-    $scripts[] = $root . '/daemon/sync_oui.py';
-}
-if ($target === 'all' || $target === 'webfp') {
-    $scripts[] = $root . '/daemon/sync_webfp.py';
-}
-
-foreach ($scripts as $s) {
-    if (!is_file($s)) {
-        st_json(['error' => "script not found: " . basename($s)], 500);
+$resolved_root = '';
+foreach ($roots as $root) {
+    $ok = true;
+    foreach ($want as $fn) {
+        if (!is_file($root . '/daemon/' . $fn)) {
+            $ok = false;
+            break;
+        }
+    }
+    if ($ok) {
+        $resolved_root = $root;
+        foreach ($want as $fn) $scripts[] = $root . '/daemon/' . $fn;
+        break;
     }
 }
+
+if (!$scripts) {
+    st_json([
+        'error' => 'sync scripts not found',
+        'searched_roots' => $roots,
+        'wanted' => $want,
+    ], 500);
+}
+
+$venv_py = $resolved_root . '/venv/bin/python3';
+$python = is_executable($venv_py) ? $venv_py : 'python3';
 
 @set_time_limit(180);
 
