@@ -111,12 +111,11 @@ surveytrace/
 │   ├── findings.php        CVE findings
 │   ├── findings_export.php CVE export (CSV/JSON)
 │   ├── scan_start.php      Job queue
-│   ├── scan_status.php     Job status + progress
+│   ├── scan_status.php     Job status, progress, audit log tail
 │   ├── scan_abort.php      Job abort/cancel
 │   ├── schedules.php       Schedule management
 │   ├── enrichment.php      Enrichment source management
 │   ├── dashboard.php       Dashboard stats
-│   ├── events.php          Audit log
 │   └── export.php          Asset export
 ├── daemon/                 Python background services
 │   ├── scanner_daemon.py   Main scan worker
