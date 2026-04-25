@@ -709,7 +709,11 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"gitea|gitlab|github",          "srv",   ""),
     (r"nextcloud|owncloud",           "srv",   ""),
     (r"portainer",                    "srv",   ""),
-    (r"proxmox|pve",                  "hv",    "Proxmox"),
+    (r"proxmox|pve\.|\.pve\b",        "hv",    "Proxmox"),
+    (r"zabbix",                       "srv",   "Zabbix"),
+    (r"kasm",                         "voi",   "Kasm Workspaces"),
+    (r"ntfy",                         "srv",   "ntfy"),
+    (r"mastodon",                     "srv",   "Mastodon"),
     (r"escanaba",                      "hv",    "Microsoft Hyper-V"),  # known Hyper-V host
     (r"hyperv|hyper-v",               "hv",    "Microsoft Hyper-V"),
     (r"^hvhost",                       "hv",    ""),
@@ -733,7 +737,12 @@ PORT_PROFILES: list[tuple[set[int], str, str, str]] = [
 
     # Hypervisors
     ({902, 903},         "hv",  "vmware:esxi",           "VMware ESXi"),
+    # PVE web UI is 8006; 8007 is optional — match on either alone
     ({8006, 8007},       "hv",  "proxmox:ve",            "Proxmox VE"),
+
+    # Monitoring / messaging (distinctive ports before generic DB rules)
+    ({10051},            "srv", "zabbix:zabbix_server",  "Zabbix server (trapper)"),
+    ({2375, 2376},       "srv", "docker:engine",         "Docker Engine API"),
 
     # VoIP
     ({5060},             "voi", "sip",                   "SIP / VoIP"),
@@ -824,7 +833,11 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"HDHomeRun|hdhomerun",         "iot",  "silicondust:hdhomerun"),
     (r"Ring",                        "iot",  "ring:ring"),
 
-    # Servers — specific products first
+    # Servers — specific products before generic web servers
+    (r"Zabbix|zabbix\.js|zabbix-server", "srv", "zabbix:zabbix"),
+    (r"\bntfy\b",                    "srv",  "ntfy:server"),
+    (r"Kasm|kasmweb|KasmVNC",        "voi",  "kasm:workspace"),
+    (r"Mastodon",                    "srv",  "mastodon:mastodon"),
     (r"nginx",                       "srv",  "nginx:nginx"),
     (r"Apache",                      "srv",  "apache:http_server"),
     (r"OpenSSH.*Ubuntu",             "srv",  "canonical:ubuntu_linux"),
@@ -919,6 +932,29 @@ def classify_from_ports(ports: list[int]) -> tuple[str, str, str]:
     return "", "", ""
 
 
+def vendor_hint_from_port_cpe(cpe_fragment: str) -> str:
+    """Display vendor/product for known port-profile CPE fragments."""
+    if not cpe_fragment:
+        return ""
+    low = cpe_fragment.lower()
+    if "proxmox" in low:
+        return "Proxmox"
+    if "vmware" in low or "esxi" in low:
+        return "VMware"
+    if "zabbix" in low:
+        return "Zabbix"
+    if "docker" in low:
+        return "Docker"
+    return ""
+
+
+def cpe_uri_from_port_fragment(cpe_fragment: str) -> str:
+    """Build a full CPE URI from a port-profile fragment (uses correct a/h/o prefix)."""
+    if not cpe_fragment:
+        return ""
+    return f"cpe:/{_cpe_type(cpe_fragment)}:{cpe_fragment}:*"
+
+
 def classify_from_banners(banners: dict[str, str]) -> tuple[str, str]:
     """
     Scan all banner strings against BANNER_PATTERNS.
@@ -944,7 +980,8 @@ _CPE_APP_PREFIXES = {
     "gitlab:gitlab", "grafana:grafana", "adguard:adguardhome",
     "jellyfin:jellyfin", "nextcloud:nextcloud", "plex:plex_media_server",
     "digium:asterisk", "freeswitch:freeswitch", "xen:xenserver",
-    "proxmox:ve", "vmware:esxi",
+    "proxmox:ve", "vmware:esxi", "zabbix:zabbix", "zabbix:zabbix_server",
+    "docker:engine", "ntfy:server", "kasm:workspace", "mastodon:mastodon",
 }
 # OS → o
 _CPE_OS_PREFIXES = {
@@ -1028,6 +1065,13 @@ def fingerprint(
         r"unifi|switch|router|gateway|firewall|USW|UAP|UDM|USG|MR[A-Z]|access.?point",
         re.IGNORECASE
     )
+    port_set = set(ports)
+    # PVE / ESXi often present nginx or Linux SSH banners — do not downgrade to generic srv
+    _generic_srv_cpe = {
+        "nginx:nginx", "apache:http_server", "lighttpd:lighttpd", "caddyserver:caddy",
+        "canonical:ubuntu_linux", "debian:debian_linux", "redhat:enterprise_linux",
+        "microsoft:iis",
+    }
     if hostname and NETWORK_HOSTNAMES.search(hostname):
         result["category"] = "net"
         # Don't let banner override net category for network devices
@@ -1036,9 +1080,15 @@ def fingerprint(
             result["cpe"] = f"cpe:/h:{banner_cpe}:*"
     else:
         banner_cat, banner_cpe = classify_from_banners({"all": combined})
+        skip_generic_banner = False
         if banner_cat:
-            result["category"] = banner_cat
-        if banner_cpe:
+            if port_set & {8006, 8007} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
+                skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
+            elif port_set & {902, 903} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
+                skip_generic_banner = True  # keep hv from ESXi port profile
+            else:
+                result["category"] = banner_cat
+        if banner_cpe and not skip_generic_banner:
             result["cpe"] = f"cpe:/{_cpe_type(banner_cpe)}:{banner_cpe}:*"
 
     # Vendor from banner CPE — but skip generic web/infra software names
@@ -1052,6 +1102,13 @@ def fingerprint(
         vendor_key = banner_cpe.split(":")[0].lower()
         if vendor_key not in SKIP_AS_VENDOR:
             result["vendor"] = banner_cpe.split(":")[0].replace("_", " ").title()
+
+    # Kasm / browser VDI often exposes RDP (3389) — hostname is a stronger signal than "RDP → Windows"
+    if hostname and re.search(r"kasm", hostname, re.I):
+        if result["category"] in ("ws", "srv", "unk"):
+            result["category"] = "voi"
+        if not result["vendor"]:
+            result["vendor"] = "Kasm Workspaces"
 
     # Hyper-V MAC (00:15:5D) means the VM runs ON Hyper-V, not that it IS Hyper-V.
     # Only classify as hv if hostname/banner confirms it's a hypervisor host.

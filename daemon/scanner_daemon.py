@@ -39,7 +39,14 @@ except ImportError:
     HAS_SCAPY = False
     logging.warning("scapy not found — passive discovery disabled")
 
-from fingerprint import fingerprint, classify_from_ports, classify_from_hostname, oui_lookup
+from fingerprint import (
+    cpe_uri_from_port_fragment,
+    fingerprint,
+    classify_from_ports,
+    classify_from_hostname,
+    oui_lookup,
+    vendor_hint_from_port_cpe,
+)
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE
 
 # Enrichment sources — import all to trigger registration
@@ -622,7 +629,7 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
 # Phase 3c — HTTP title grabbing
 # ---------------------------------------------------------------------------
 HTTP_TITLE_PORTS = [80, 443, 8080, 8081, 8082, 8083, 8086, 8088, 8089,
-                    8096, 8123, 8181, 8384, 8443, 8888, 3000, 3001, 3030,
+                    8006, 8007, 8096, 8123, 8181, 8384, 8443, 8888, 3000, 3001, 3030,
                     5080, 5341, 9000, 9001, 9090, 9091, 9443, 9925, 32400]
 
 HTTP_TITLE_TIMEOUT = 3   # seconds per request
@@ -637,7 +644,10 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"prometheus",         "srv",  "Prometheus"),
     (r"alertmanager",       "srv",  "Prometheus Alertmanager"),
     (r"netdata",            "srv",  "Netdata"),
-    (r"zabbix",             "srv",  "Zabbix"),
+    (r"zabbix|zabbix-server", "srv", "Zabbix"),
+    (r"\bntfy\b",           "srv",  "ntfy"),
+    (r"\bkasm\b",           "voi",  "Kasm Workspaces"),
+    (r"mastodon",           "srv",  "Mastodon"),
     (r"checkmk",            "srv",  "Check MK"),
     (r"librenms",           "srv",  "LibreNMS"),
     (r"prtg",               "srv",  "PRTG"),
@@ -677,7 +687,7 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"minio",              "srv",  "MinIO"),
     (r"truenas",            "srv",  "TrueNAS"),
     (r"freenas",            "srv",  "TrueNAS"),
-    (r"proxmox",            "net",  "Proxmox VE"),
+    (r"proxmox|pve\.|pve\s", "hv",  "Proxmox VE"),
     # Dev / code
     (r"gitea",              "srv",  "Gitea"),
     (r"gogs",               "srv",  "Gogs"),
@@ -793,7 +803,7 @@ def phase_http_titles(
         for port in HTTP_TITLE_PORTS:
             if port not in ports:
                 continue
-            tls = port in (443, 8443, 8089, 9443, 5986)
+            tls = port in (443, 8443, 8089, 9443, 5986, 8006, 8007)
             tasks.append((ip, port, tls))
 
     if not tasks:
@@ -1227,8 +1237,13 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     port_cat, port_cpe, _ = classify_from_ports(ports)
     if port_cat and port_cat != "unk":
         fp["category"] = port_cat
-        if port_cpe and not fp["cpe"]:
-            fp["cpe"] = f"cpe:/h:{port_cpe}:*"
+        if port_cpe:
+            vh = vendor_hint_from_port_cpe(port_cpe)
+            # Prefer HV/OT or well-known product ports over generic nginx/SSH CPE
+            if port_cat in ("hv", "ot") or not fp.get("cpe") or vh:
+                fp["cpe"] = cpe_uri_from_port_fragment(port_cpe)
+            if not fp.get("vendor") and vh:
+                fp["vendor"] = vh
 
     # MAC OUI vendor always wins over banner/CPE-derived vendor
     vendor     = fp["vendor"]   # may be set from banner
