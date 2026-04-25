@@ -68,6 +68,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now surveytrace-daemon surveytrace-scheduler
 ```
 
+## Updating / Deploying Changes
+
+```bash
+# After pulling changes from git
+cd ~/surveytrace-repo
+git pull
+bash deploy.sh
+```
+
+`deploy.sh` copies updated files to `/opt/surveytrace` and restarts both daemons automatically.
+
 ## NVD Database Setup
 
 ```bash
@@ -95,44 +106,81 @@ Browser → Apache → PHP API → SQLite
 ```
 surveytrace/
 ├── api/                    PHP API endpoints
+│   ├── db.php              Database connection + auth helpers
+│   ├── assets.php          Asset inventory
+│   ├── findings.php        CVE findings
+│   ├── findings_export.php CVE export (CSV/JSON)
+│   ├── scan_start.php      Job queue
+│   ├── scan_status.php     Job status + progress
+│   ├── scan_abort.php      Job abort/cancel
+│   ├── schedules.php       Schedule management
+│   ├── enrichment.php      Enrichment source management
+│   ├── dashboard.php       Dashboard stats
+│   ├── events.php          Audit log
+│   └── export.php          Asset export
 ├── daemon/                 Python background services
 │   ├── scanner_daemon.py   Main scan worker
 │   ├── scheduler_daemon.py Cron scheduler
-│   ├── fingerprint.py      Asset classification
+│   ├── fingerprint.py      Asset classification engine
 │   ├── profiles.py         Scan profile definitions
-│   ├── sync_nvd.py         NVD sync
+│   ├── sync_nvd.py         NVD database sync
 │   └── sources/            Enrichment plugins
+│       ├── unifi.py        UniFi controller
+│       ├── snmp.py         SNMP polling
+│       └── stubs.py        Plugin stubs (Cisco, Meraki, etc.)
 ├── public/
 │   └── index.php           Single-page web UI
 ├── sql/
 │   └── schema.sql          Database schema
-└── surveytrace-*.service   systemd units
+├── setup.sh                First-time installation script
+├── deploy.sh               Deploy updates to /opt/surveytrace
+└── surveytrace-*.service   systemd service units
 ```
 
 ## Scan Profiles
 
-| Profile | Description | Safe for IoT |
-|---------|-------------|--------------|
-| IoT Safe | Passive only — ARP/ICMP, no port scanning | ✅ |
-| Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ |
-| Deep Scan | Full nmap -sV, SNMP, all ports | ❌ |
-| OT Careful | Passive only, 2pps max | ✅ |
+| Profile | Description | Safe for IoT | Safe for OT |
+|---------|-------------|:------------:|:-----------:|
+| IoT Safe | Passive only — ARP/ICMP, no port scanning | ✅ | ✅ |
+| Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ | ❌ |
+| Deep Scan | Full nmap -sV, SNMP, all ports — requires confirmation | ❌ | ❌ |
+| OT Careful | Passive only, 2pps max rate | ✅ | ✅ |
 
 ## Discovery Modes
 
-| Mode | Description |
-|------|-------------|
-| Auto | ARP for same-subnet, ping scan for routed |
-| Routed | ICMP/TCP ping only — no ARP |
-| Force (-Pn) | Scan all IPs regardless of ping (firewalled hosts) |
+| Mode | Description | Use When |
+|------|-------------|----------|
+| Auto | ARP for same-subnet, ICMP/TCP ping scan for routed | Default — works for most networks |
+| Routed | ICMP/TCP ping scan only — no ARP | Scanning across routers |
+| Force (-Pn) | Scan all IPs regardless of ping response | Hosts with ICMP blocked (UFW etc.) |
+
+## Enrichment Sources
+
+| Source | Description | Status |
+|--------|-------------|--------|
+| UniFi | Pulls client list, hostnames, device info from UniFi controller | ✅ Available |
+| SNMP | Polls routers/switches for ARP tables and interface data | ✅ Available |
+| Cisco DNA Center | Network device inventory | 🔧 Stub |
+| Cisco Meraki | Cloud-managed network devices | 🔧 Stub |
+| Juniper Mist | Cloud-managed wireless | 🔧 Stub |
+| Infoblox | IPAM and DNS data | 🔧 Stub |
+| Palo Alto | Firewall user/device data | 🔧 Stub |
 
 ## Roadmap
 
-- Distributed collectors (multi-site)
-- MAC-first asset identity
-- Passive DHCP/DNS sources
-- Change detection and alerting
-- Baselines and reporting
+### In Progress
+- Phase 3: Scheduling (complete — polish remaining)
+- Phase 4: Discovery improvements (complete — DHCP/DNS import remaining)
+
+### Upcoming
+- **Phase 5**: MAC-first asset identity — track devices across IP changes
+- **Phase 6**: Collector architecture — distributed agents for multi-site scanning
+- **Phase 7**: Change detection — alerts on new assets, port changes, new CVEs
+- **Phase 8**: Asset lifecycle — stale/active/retired status, auto-retire
+- **Phase 9**: CVE improvements — per-finding evidence, confidence levels, risk scoring
+- **Phase 10**: Baselines and reporting — snapshot comparisons, scheduled reports
+- **Phase 11**: Integrations — Splunk, TrueNAS, Proxmox, syslog
+- **Phase 12**: UI polish — asset timeline, bulk operations, fingerprint pattern editor
 
 ## License
 
