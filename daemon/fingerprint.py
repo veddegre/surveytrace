@@ -831,7 +831,8 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"Roku",                        "iot",  "roku:roku"),
     (r"Sonos",                       "iot",  "sonos:sonos"),
     (r"HDHomeRun|hdhomerun",         "iot",  "silicondust:hdhomerun"),
-    (r"Ring",                        "iot",  "ring:ring"),
+    # Keep this strict: plain "ring" appears in unrelated strings (e.g. "BoringSSL", "keyring")
+    (r"\bRing\b|\bRing[- ]Doorbell\b", "iot",  "ring:ring"),
 
     # Servers — specific products before generic web servers
     (r"Zabbix|zabbix\.js|zabbix-server", "srv", "zabbix:zabbix"),
