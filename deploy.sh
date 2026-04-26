@@ -110,11 +110,20 @@ VERIFY_OK=1
 check_file() {
   local p="$1"
   local label="$2"
-  if [ -f "$p" ]; then
-    echo "  [OK] $label: $p"
+  if [ "$(id -u)" -eq 0 ]; then
+    if [ -f "$p" ]; then
+      echo "  [OK] $label: $p"
+    else
+      echo "  [FAIL] $label missing: $p"
+      VERIFY_OK=0
+    fi
   else
-    echo "  [FAIL] $label missing: $p"
-    VERIFY_OK=0
+    if sudo test -f "$p" >/dev/null 2>&1; then
+      echo "  [OK] $label: $p"
+    else
+      echo "  [FAIL] $label missing: $p"
+      VERIFY_OK=0
+    fi
   fi
 }
 
