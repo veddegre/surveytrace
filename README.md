@@ -143,6 +143,7 @@ surveytrace/
 │   ├── enrichment.php      Enrichment source management
 │   ├── dashboard.php       Dashboard stats
 │   ├── feeds.php           Manual feed sync trigger (Settings UI)
+│   ├── logout.php          Session logout endpoint
 │   └── export.php          Asset export
 ├── daemon/                 Python background services
 │   ├── scanner_daemon.py   Main scan worker

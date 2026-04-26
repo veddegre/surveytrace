@@ -218,6 +218,7 @@ textarea.finput{resize:vertical;min-height:72px}
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
+  <button class="tbtn" onclick="logoutSession()">Sign out</button>
 </div>
 
 <!-- Sidebar -->
@@ -945,6 +946,15 @@ async function apiPost(url, body) {
     } catch (e) {
         console.error('POST error', url, e);
         return null;
+    }
+}
+
+async function logoutSession() {
+    const r = await apiPost('/api/logout.php', {});
+    if (r && r.ok) {
+        window.location.reload();
+    } else {
+        toast('Sign-out failed. Try refreshing the page.', 'err');
     }
 }
 

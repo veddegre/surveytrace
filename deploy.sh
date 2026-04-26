@@ -24,6 +24,7 @@ sudo cp "$SRC"/api/schedules.php       "$DEST/api/"
 sudo cp "$SRC"/api/enrichment.php      "$DEST/api/"
 sudo cp "$SRC"/api/dashboard.php       "$DEST/api/"
 sudo cp "$SRC"/api/feeds.php           "$DEST/api/"
+sudo cp "$SRC"/api/logout.php          "$DEST/api/"
 sudo cp "$SRC"/api/export.php          "$DEST/api/"
 echo "  API files deployed"
 
