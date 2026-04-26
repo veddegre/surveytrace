@@ -534,12 +534,13 @@ def phase_banner(
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
         port_count     = 65535 if scan_all_tcp else len(active_ports)
         # Keep full-tcp host timeout bounded so progress remains responsive.
-        # For small target sets, allow a longer envelope so fast_full_tcp still
-        # returns open ports reliably even with mixed open/filtered services.
+        # Small fast_full_tcp scopes used to disable host-timeout entirely,
+        # which allowed a single host to stall for the full python-nmap
+        # guard window (900s). Use bounded envelopes instead.
         if profile_obj.name == "fast_full_tcp":
-            # For tiny scopes (/32, handful of hosts), avoid host-timeout truncation
-            # so we still get reliable open-port enumeration.
-            timeout_secs = 0 if len(hosts) <= 8 else 90
+            # Tiny scope (/32-ish): allow more time than normal fast_full_tcp,
+            # but never unbounded.
+            timeout_secs = 180 if len(hosts) <= 8 else 90
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
@@ -558,9 +559,8 @@ def phase_banner(
                       f"Phase 3 batch {i//chunk_size + 1}: scanning {len(chunk)} hosts")
         # python-nmap subprocess timeout:
         # - if nmap host-timeout is active, keep a short guard window
-        # - for tiny fast_full_tcp scopes without host-timeout, allow more time
-        #   so full-port scans on mixed open/filtered hosts can complete.
-        scan_timeout = (timeout_secs + 90) if timeout_secs > 0 else 900
+        # - keep an upper bound so one target cannot block progress for 15m.
+        scan_timeout = timeout_secs + 90
         try:
             # python-nmap timeout guards against a hung subprocess/read.
             nm.scan(
@@ -576,7 +576,7 @@ def phase_banner(
             # does not stall the entire job.
             for one_host in chunk:
                 try:
-                    one_host_timeout = max(45, min(timeout_secs, 180) + 30) if timeout_secs > 0 else 900
+                    one_host_timeout = max(45, min(timeout_secs, 180) + 30)
                     nm.scan(
                         hosts=one_host,
                         arguments=nmap_args,
