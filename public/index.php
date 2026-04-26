@@ -2390,6 +2390,8 @@ async function openHostPanel(id, ip) {
           <tr><td style="color:var(--tx3);padding:3px 0">Vendor</td><td style="color:var(--tx)">${esc(a.vendor||'—')}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">OS</td><td style="color:var(--tx)">${esc(a.os_guess||'—')}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">CPE</td><td style="color:var(--tx2);word-break:break-all">${esc(a.cpe||'—')}</td></tr>
+          <tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Connected via</td>
+              <td style="color:var(--tx2)">${esc(a.connected_via||'—')}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">First seen</td><td style="color:var(--tx2)">${localTime(a.first_seen)}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">Last seen</td><td style="color:var(--tx2)">${relTime(a.last_seen)}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Discovery</td>

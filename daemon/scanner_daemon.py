@@ -1395,6 +1395,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   http_titles: dict[int, str] | None = None,
                   http_probe: str | None = None,
                   discovery_sources: list[str] | None = None,
+                  connected_via: str = "",
                   hostname: str = "") -> dict:
     """Upsert an asset row and return the full row dict."""
     fp = fingerprint(mac, ports, banners, hostname=hostname)
@@ -1474,9 +1475,9 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             fp["category"] = oui_cat
 
     conn.execute("""
-        INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
+        INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess, connected_via,
                             open_ports, banners, nmap_cpes, discovery_sources, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:ports,:banners,:ncpes,:ds,CURRENT_TIMESTAMP,:jid)
+        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,CURRENT_TIMESTAMP,:jid)
         ON CONFLICT(ip) DO UPDATE SET
             hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
             mac        = COALESCE(excluded.mac, mac),
@@ -1485,6 +1486,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             vendor     = COALESCE(NULLIF(excluded.vendor,''), vendor),
             cpe        = COALESCE(NULLIF(excluded.cpe,''), cpe),
             os_guess   = COALESCE(NULLIF(excluded.os_guess,''), os_guess),
+            connected_via = COALESCE(NULLIF(excluded.connected_via,''), connected_via),
             open_ports = excluded.open_ports,
             banners    = excluded.banners,
             nmap_cpes  = excluded.nmap_cpes,
@@ -1495,6 +1497,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         "ip": ip, "host": hostname, "mac": mac, "mv": mac_vendor,
         "cat": fp["category"], "vnd": vendor,
         "cpe": fp["cpe"], "os": fp["os_guess"],
+        "cv": (connected_via or "").strip()[:240],
         "ports":   json.dumps(ports),
         "banners": json.dumps(banners),
         "ncpes":   json.dumps(nmap_cpes or []),
@@ -1673,6 +1676,7 @@ def run_scan(job: dict) -> None:
 
         nmap_cpes = br.get("nmap_cpes", [])
         hostname  = br.get("hostname", "") or hostname_cache.get(ip, "")
+        connected_via = ""
         sources: list[str] = []
         if ip in passive_hosts:
             sources.append("passive_mdns_or_arp")
@@ -1702,6 +1706,22 @@ def run_scan(job: dict) -> None:
             from_lldp_cdp = "snmp_lldp:" in enrich_src or "snmp_cdp:" in enrich_src
             from_switch_fdb = "snmp_fdb:" in enrich_src
             from_firewall_log = "firewall_log" in enrich_src
+            raw = enrich.get("raw") if isinstance(enrich.get("raw"), dict) else {}
+            if not connected_via:
+                if from_switch_fdb:
+                    ifdescr = str(raw.get("ifdescr", "") or "").strip()
+                    bport = str(raw.get("bridge_port", "") or "").strip()
+                    src_target = enrich_src.split("snmp_fdb:", 1)[1] if "snmp_fdb:" in enrich_src else ""
+                    if ifdescr:
+                        connected_via = f"SNMP FDB via {src_target} port {ifdescr}"
+                    elif bport:
+                        connected_via = f"SNMP FDB via {src_target} bridge-port {bport}"
+                elif from_lldp_cdp and enrich.get("description"):
+                    connected_via = str(enrich.get("description") or "").strip()
+                elif "unifi" in enrich_src:
+                    ap_mac = str(enrich.get("ap_mac", "") or "").strip()
+                    if ap_mac:
+                        connected_via = f"UniFi AP {ap_mac}"
             if from_firewall_log:
                 sources.append("seen_in_firewall_log")
             # Enrichment MAC wins if we didn't get one from ARP (cross-subnet case)
@@ -1735,6 +1755,7 @@ def run_scan(job: dict) -> None:
                 http_titles=http_titles.get(ip, {}),
                 http_probe=http_probes.get(ip),
                 discovery_sources=sources,
+                connected_via=connected_via,
                 hostname=hostname,
             )
             upserted_assets.append(asset)
@@ -2005,6 +2026,11 @@ def main() -> None:
         try:
             conn.execute("ALTER TABLE assets ADD COLUMN discovery_sources TEXT DEFAULT '[]'")
             log.info("Schema migration: added column assets.discovery_sources")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN connected_via TEXT DEFAULT ''")
+            log.info("Schema migration: added column assets.connected_via")
         except Exception:
             pass
 
