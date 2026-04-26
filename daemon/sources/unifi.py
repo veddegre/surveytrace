@@ -39,6 +39,14 @@ from sources import EnrichmentSource, register
 log = logging.getLogger("surveytrace.enrichment.unifi")
 
 
+def _truthy(val: Any, default: bool = False) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @register
 class UniFiSource(EnrichmentSource):
     name = "unifi"
@@ -50,7 +58,7 @@ class UniFiSource(EnrichmentSource):
         self.password       = config.get("password", "")
         self.port           = int(config.get("port", 443))
         self.site           = config.get("site", "default")
-        self.verify_ssl     = bool(config.get("verify_ssl", False))
+        self.verify_ssl     = _truthy(config.get("verify_ssl", False), False)
         self.controller_type= config.get("controller_type", "udm")
         self.timeout        = int(config.get("timeout", 10))
         self._cookies: dict[str, str] = {}
