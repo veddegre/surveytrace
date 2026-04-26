@@ -138,7 +138,7 @@ $profile = in_array($body['profile'] ?? '', $valid_profiles)
     : 'standard_inventory';
 
 // Require confirmation for dangerous profiles
-if (in_array($profile, ['deep_scan', 'ot_careful'])) {
+if (in_array($profile, ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'])) {
     if (!($body['confirmed'] ?? false)) {
         st_json(['error' => "Profile '$profile' requires confirmation. Resend with confirmed:true.", 'requires_confirmation' => true], 400);
     }

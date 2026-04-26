@@ -851,7 +851,9 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"FreeSWITCH",                  "voi",  "freeswitch:freeswitch"),
 
     # Printers
-    (r"HP LaserJet|HP.*Jet|HPHTTP",  "prn",  "hp:laserjet"),
+    # Keep HP printer detection strict; broad "HP.*Jet" caused false positives
+    # on non-printer hosts with unrelated banner text.
+    (r"\bHP\s*LaserJet\b|\bHPHTTP\b", "prn",  "hp:laserjet"),
     (r"Brother",                     "prn",  "brother:mfc"),
     (r"Ricoh",                       "prn",  "ricoh:printer"),
     (r"Xerox",                       "prn",  "xerox:workcentre"),
@@ -1127,6 +1129,10 @@ def fingerprint(
         banner_cat, banner_cpe = classify_from_banners({"all": combined})
         skip_generic_banner = False
         if banner_cat:
+            # Do not let a generic printer banner override stronger endpoint/server
+            # protocol signals (e.g., RDP/SMB, hypervisor, OT).
+            if banner_cat == "prn" and port_cat in ("ws", "srv", "hv", "ot"):
+                skip_generic_banner = True
             if port_set & {8006, 8007} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
                 skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
             elif port_set & {902, 903} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:

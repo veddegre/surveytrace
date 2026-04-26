@@ -832,6 +832,18 @@ textarea.finput{resize:vertical;min-height:72px}
   </div>
 </div>
 
+<!-- Confirm modal -->
+<div id="confirm-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:215;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:16px;width:min(520px,92vw)">
+    <div id="confirm-title" style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:8px">Confirm action</div>
+    <div id="confirm-msg" style="color:var(--tx2);font-size:12px;line-height:1.45;white-space:pre-wrap;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
+      <button class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- Enrichment source modal -->
 <div id="esrc-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
   <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:24px;width:440px;max-height:80vh;overflow-y:auto;font-family:var(--sf)">
@@ -915,6 +927,7 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'No sync output yet.';
 var authMode = 'basic';
 var loginRequired = false;
+var confirmResolve = null;
 
 // ==========================================================================
 // Nav
@@ -1289,7 +1302,11 @@ async function startScan() {
         }
         if (prefix <= 16) {
             const hosts = Math.pow(2, 32 - prefix).toLocaleString();
-            if (!confirm(`Warning: /${prefix} covers ${hosts} hosts and may take hours.\n\nAre you sure you want to scan ${c}?`)) {
+            const ok = await showConfirmModal(
+                `/${prefix} covers ${hosts} hosts and may take hours.\n\nAre you sure you want to scan ${c}?`,
+                {title: 'Large scope warning', okText: 'Scan anyway'}
+            );
+            if (!ok) {
                 return;
             }
         }
@@ -1305,7 +1322,11 @@ async function startScan() {
 
     // Confirmation required for dangerous profiles
     if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
-        if (!confirm(`Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`)) return;
+        const ok = await showConfirmModal(
+            `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`,
+            {title: 'High-impact scan profile', okText: 'Proceed'}
+        );
+        if (!ok) return;
     }
 
     const modeEl = document.querySelector('input[name="scan_mode"]:checked');
@@ -1507,7 +1528,10 @@ function updateQueuePanel(history) {
 // Job queue management
 // ==========================================================================
 async function abortJobById(id) {
-    if (!confirm('Abort job #' + id + '? The scan will stop after the current batch.')) return;
+    if (!(await showConfirmModal(
+        'Abort job #' + id + '? The scan will stop after the current batch.',
+        {title: 'Abort scan job', okText: 'Abort'}
+    ))) return;
     const r = await apiPost('/api/scan_abort.php', {job_id: id});
     if (r && r.ok) {
         toast('Job #' + id + ' aborted', 'ok');
@@ -1521,7 +1545,10 @@ async function abortJobById(id) {
 }
 
 async function cancelJob(id) {
-    if (!confirm('Cancel job #' + id + '?')) return;
+    if (!(await showConfirmModal(
+        'Cancel job #' + id + '?',
+        {title: 'Cancel queued job', okText: 'Cancel job'}
+    ))) return;
     const r = await apiPost('/api/scan_abort.php', {job_id: id});
     if (r && r.ok) { toast('Job #' + id + ' cancelled', 'ok'); loadScanHistory(); }
     else toast((r && r.error) || 'Cancel failed', 'err');
@@ -1661,6 +1688,42 @@ function toast(msg, type) {
     w.appendChild(d);
     setTimeout(() => d.remove(), 4000);
 }
+
+function showConfirmModal(message, opts) {
+    const o = opts || {};
+    const bg = document.getElementById('confirm-bg');
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-msg');
+    const okBtn = document.getElementById('confirm-ok-btn');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+    if (!bg || !titleEl || !msgEl || !okBtn || !cancelBtn) return Promise.resolve(false);
+    if (confirmResolve) {
+        try { confirmResolve(false); } catch (e) {}
+        confirmResolve = null;
+    }
+    titleEl.textContent = o.title || 'Confirm action';
+    msgEl.textContent = String(message || '');
+    okBtn.textContent = o.okText || 'Confirm';
+    cancelBtn.textContent = o.cancelText || 'Cancel';
+    bg.style.display = 'flex';
+    return new Promise(resolve => {
+        confirmResolve = resolve;
+    });
+}
+
+function closeConfirmModal(accepted) {
+    const bg = document.getElementById('confirm-bg');
+    if (bg) bg.style.display = 'none';
+    if (confirmResolve) {
+        const r = confirmResolve;
+        confirmResolve = null;
+        r(!!accepted);
+    }
+}
+
+document.getElementById('confirm-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeConfirmModal(false);
+});
 
 // ==========================================================================
 // Enrichment sources
@@ -1854,7 +1917,10 @@ async function testSource() {
 }
 
 async function deleteSource(id) {
-    if (!confirm('Delete this enrichment source?')) return;
+    if (!(await showConfirmModal(
+        'Delete this enrichment source?',
+        {title: 'Delete enrichment source', okText: 'Delete'}
+    ))) return;
     const r = await fetch('/api/enrichment.php?id=' + id, {
         method: 'DELETE', credentials: 'same-origin'
     });
@@ -2138,7 +2204,10 @@ async function runSchedNow(id) {
 }
 
 async function deleteSchedule(id) {
-    if (!confirm('Delete this schedule? This cannot be undone.')) return;
+    if (!(await showConfirmModal(
+        'Delete this schedule? This cannot be undone.',
+        {title: 'Delete schedule', okText: 'Delete'}
+    ))) return;
     const r = await fetch(`/api/schedules.php?id=${id}`, {
         method: 'DELETE', credentials: 'same-origin'
     });
