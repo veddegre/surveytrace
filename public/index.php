@@ -1546,6 +1546,8 @@ var SOURCE_FIELDS = {
         {id:'password',        label:'Password',               type:'password', placeholder:'',             default:''},
         {id:'site',            label:'Site name',              type:'text',     placeholder:'default',      default:'default'},
         {id:'controller_type', label:'Controller type',        type:'select',   options:['udm','legacy'],   default:'udm'},
+        {id:'verify_ssl',      label:'Verify TLS cert (true/false)', type:'text', placeholder:'false',     default:'false'},
+        {id:'timeout',         label:'HTTP timeout seconds',   type:'number',   placeholder:'10',           default:'10'},
     ],
     snmp: [
         {id:'targets',   label:'Router/switch IPs (comma-separated)', type:'text',   placeholder:'192.168.86.1', default:''},
