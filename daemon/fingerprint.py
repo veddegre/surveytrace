@@ -754,7 +754,6 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"kasm",                         "voi",   "Kasm Workspaces"),
     (r"ntfy",                         "srv",   "ntfy"),
     (r"mastodon",                     "srv",   "Mastodon"),
-    (r"escanaba",                      "hv",    "Microsoft Hyper-V"),  # known Hyper-V host
     (r"hyperv|hyper-v",               "hv",    "Microsoft Hyper-V"),
     (r"^hvhost",                       "hv",    ""),
     (r"esxi|vcenter",                 "hv",    "VMware"),

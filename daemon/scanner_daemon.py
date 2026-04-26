@@ -534,8 +534,12 @@ def phase_banner(
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
         port_count     = 65535 if scan_all_tcp else len(active_ports)
         # Keep full-tcp host timeout bounded so progress remains responsive.
-        # 120s is a practical ceiling for /24+ sweeps to avoid long stalls.
-        timeout_secs   = 90 if profile_obj.name == "fast_full_tcp" else (120 if scan_all_tcp else max(60, port_count * 2 + 15))
+        # For small target sets, allow a longer envelope so fast_full_tcp still
+        # returns open ports reliably even with mixed open/filtered services.
+        if profile_obj.name == "fast_full_tcp":
+            timeout_secs = 180 if len(hosts) <= 8 else 90
+        else:
+            timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
         nmap_args = (
