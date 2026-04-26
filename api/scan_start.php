@@ -179,6 +179,8 @@ $stmt->execute([
     ':pps'    => $rate_pps,
     ':delay'  => $inter_delay,
     ':mode'   => $scan_mode,
+    ':profile'=> $profile,
+    ':priority'=> $priority,
 ]);
 
 $job_id = (int)$db->lastInsertId();
