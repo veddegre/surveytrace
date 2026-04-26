@@ -117,4 +117,5 @@ INSERT OR IGNORE INTO config VALUES
     ('alert_webhook',   ''),
     ('alert_email',     ''),
     ('scan_schedule',   ''),
-    ('auth_hash',       '');  -- bcrypt hash of web UI password
+    ('auth_hash',       ''),  -- bcrypt hash of web UI password
+    ('auth_mode',       'basic');  -- basic | session

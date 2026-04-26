@@ -779,6 +779,24 @@ textarea.finput{resize:vertical;min-height:72px}
 
 <div class="toast-wrap" id="toasts"></div>
 
+<!-- Session login modal -->
+<div id="login-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:260;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:360px;font-family:var(--sf)">
+    <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:12px">Sign in</div>
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px" id="login-msg">
+      Session authentication required.
+    </div>
+    <label class="flbl">Username</label>
+    <input class="finp" id="login-user" style="width:100%;margin-bottom:10px" value="admin" autocomplete="username">
+    <label class="flbl">Password</label>
+    <input class="finp" id="login-pass" type="password" style="width:100%;margin-bottom:12px" autocomplete="current-password">
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="tbtn" onclick="closeLoginModal()">Close</button>
+      <button class="btnp" id="btn-login" onclick="submitLogin()">Sign in</button>
+    </div>
+  </div>
+</div>
+
 <!-- Host detail panel -->
 <div id="host-panel" style="display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--bg2);border-left:1px solid var(--bd2);z-index:200;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.3)">
   <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg2);z-index:1">
@@ -881,6 +899,8 @@ var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
 var feedSyncLastOutput = 'No sync output yet.';
+var authMode = 'basic';
+var loginRequired = false;
 
 // ==========================================================================
 // Nav
@@ -913,7 +933,7 @@ async function api(url) {
         const r = await fetch(url, {credentials: 'same-origin'});
         if (!r.ok) {
             if (r.status === 401) {
-                toast('Session expired or auth required. Refresh and sign in again.', 'err');
+                handleAuthRequired();
             } else {
                 toast('API request failed: HTTP ' + r.status, 'err');
             }
@@ -936,7 +956,7 @@ async function apiPost(url, body) {
         });
         if (!r.ok) {
             if (r.status === 401) {
-                toast('Session expired or auth required. Refresh and sign in again.', 'err');
+                handleAuthRequired();
             } else {
                 toast('Request failed: HTTP ' + r.status, 'err');
             }
@@ -949,10 +969,69 @@ async function apiPost(url, body) {
     }
 }
 
+function handleAuthRequired() {
+    if (authMode === 'session') {
+        loginRequired = true;
+        openLoginModal();
+        toast('Session expired. Please sign in again.', 'err');
+    } else {
+        toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
+    }
+}
+
+function openLoginModal(msg) {
+    const bg = document.getElementById('login-bg');
+    if (!bg) return;
+    const m = document.getElementById('login-msg');
+    if (m && msg) m.textContent = msg;
+    bg.style.display = 'flex';
+    const p = document.getElementById('login-pass');
+    if (p) p.focus();
+}
+
+function closeLoginModal() {
+    const bg = document.getElementById('login-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+async function submitLogin() {
+    const u = (document.getElementById('login-user')?.value || '').trim();
+    const p = document.getElementById('login-pass')?.value || '';
+    if (!u || !p) {
+        toast('Enter username and password', 'err');
+        return;
+    }
+    const btn = document.getElementById('btn-login');
+    if (btn) btn.disabled = true;
+    const r = await apiPost('/api/auth.php?login=1', {username: u, password: p});
+    if (btn) btn.disabled = false;
+    if (r && r.ok) {
+        loginRequired = false;
+        closeLoginModal();
+        const pass = document.getElementById('login-pass');
+        if (pass) pass.value = '';
+        toast('Signed in', 'ok');
+        loadDashboard();
+        if (currentTab === 'assets') loadAssets(assetPage || 1);
+        if (currentTab === 'vulns') loadFindings(vulnPage || 1);
+        if (currentTab === 'logs') loadLog();
+        if (currentTab === 'scan') loadScanStatus();
+        if (currentTab === 'sched') loadSchedules();
+        if (currentTab === 'enrich' || currentTab === 'settings') loadEnrichment();
+    } else {
+        toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
+    }
+}
+
 async function logoutSession() {
     const r = await apiPost('/api/logout.php', {});
     if (r && r.ok) {
-        window.location.reload();
+        loginRequired = true;
+        if (authMode === 'session') {
+            openLoginModal('Signed out. Sign in to continue.');
+        } else {
+            window.location.reload();
+        }
     } else {
         toast('Sign-out failed. Try refreshing the page.', 'err');
     }
@@ -2492,6 +2571,18 @@ function exportAssets(format) {
 // ==========================================================================
 // Init
 // ==========================================================================
+async function initAuthMode() {
+    const r = await api('/api/auth.php?status=1');
+    if (!r) return;
+    authMode = r.auth_mode || 'basic';
+    if (authMode === 'session' && r.requires_auth && !r.authed) {
+        loginRequired = true;
+        openLoginModal('Session sign-in required.');
+    }
+}
+
+initAuthMode();
+
 // Always load dashboard data first to populate sidebar badges
 loadDashboard();
 

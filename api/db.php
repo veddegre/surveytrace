@@ -130,25 +130,29 @@ function st_auth(): void {
     if (!empty($_SESSION['st_authed'])) return;
 
     $hash = st_config('auth_hash');
+    $mode = strtolower(trim(st_config('auth_mode', 'basic')));
+    if (!in_array($mode, ['basic', 'session'], true)) {
+        $mode = 'basic';
+    }
 
     // No password configured → open access (first-run / dev)
     if (empty($hash)) return;
 
-    // Check Basic auth credentials
-    $user = $_SERVER['PHP_AUTH_USER'] ?? '';
-    $pass = $_SERVER['PHP_AUTH_PW']   ?? '';
-
-    if ($user === 'admin' && password_verify($pass, $hash)) {
-        $_SESSION['st_authed']  = true;
-        $_SESSION['st_authed_at'] = time();
-        return;
+    if ($mode === 'basic') {
+        // Check Basic auth credentials
+        $user = $_SERVER['PHP_AUTH_USER'] ?? '';
+        $pass = $_SERVER['PHP_AUTH_PW']   ?? '';
+        if ($user === 'admin' && password_verify($pass, $hash)) {
+            $_SESSION['st_authed']  = true;
+            $_SESSION['st_authed_at'] = time();
+            return;
+        }
+        header('WWW-Authenticate: Basic realm="SurveyTrace"');
+        st_json(['error' => 'Authentication required', 'auth_mode' => 'basic'], 401);
     }
 
-    // Session login via POST /api/auth.php
-    if (!empty($_SESSION['st_authed'])) return;
-
-    header('WWW-Authenticate: Basic realm="SurveyTrace"');
-    st_json(['error' => 'Authentication required'], 401);
+    // Session mode requires explicit login via /api/auth.php
+    st_json(['error' => 'Authentication required', 'auth_mode' => 'session'], 401);
 }
 
 // ---------------------------------------------------------------------------
