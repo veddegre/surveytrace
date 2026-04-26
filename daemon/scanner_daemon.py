@@ -556,12 +556,17 @@ def phase_banner(
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
                       f"Phase 3 batch {i//chunk_size + 1}: scanning {len(chunk)} hosts")
+        # python-nmap subprocess timeout:
+        # - if nmap host-timeout is active, keep a short guard window
+        # - for tiny fast_full_tcp scopes without host-timeout, allow more time
+        #   so full-port scans on mixed open/filtered hosts can complete.
+        scan_timeout = (timeout_secs + 90) if timeout_secs > 0 else 900
         try:
             # python-nmap timeout guards against a hung subprocess/read.
             nm.scan(
                 hosts=targets,
                 arguments=nmap_args,
-                timeout=(timeout_secs + 90) if timeout_secs > 0 else 300,
+                timeout=scan_timeout,
             )
         except Exception as e:
             with db_conn() as conn:
@@ -571,10 +576,11 @@ def phase_banner(
             # does not stall the entire job.
             for one_host in chunk:
                 try:
+                    one_host_timeout = max(45, min(timeout_secs, 180) + 30) if timeout_secs > 0 else 900
                     nm.scan(
                         hosts=one_host,
                         arguments=nmap_args,
-                        timeout=max(45, min(timeout_secs, 180) + 30) if timeout_secs > 0 else 300,
+                        timeout=one_host_timeout,
                     )
                 except Exception as e2:
                     with db_conn() as conn:
