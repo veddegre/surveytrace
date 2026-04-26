@@ -1345,6 +1345,61 @@ def _should_skip_expat_cve_on_python_cpe_only(description: str, check_cpe: str) 
     return True
 
 
+def _parse_asset_ports(asset: dict) -> set[int]:
+    """Return normalized open port set from asset row/dict."""
+    ports_raw = asset.get("ports", [])
+    if not ports_raw:
+        ports_raw = asset.get("open_ports", [])
+    if isinstance(ports_raw, str):
+        try:
+            ports_raw = json.loads(ports_raw)
+        except Exception:
+            ports_raw = []
+    out: set[int] = set()
+    for p in (ports_raw or []):
+        try:
+            out.add(int(p))
+        except Exception:
+            continue
+    return out
+
+
+def _asset_has_tls_surface(asset: dict) -> bool:
+    """
+    True if asset has plausible TLS-exposed ports.
+    Used to suppress TLS-cipher CVEs (e.g. Sweet32) on non-TLS hosts.
+    """
+    tls_ports = {
+        443, 465, 587, 636, 853, 989, 990, 993, 995,
+        8443, 9443, 5986, 8006, 8007, 8089, 10443,
+    }
+    return bool(_parse_asset_ports(asset) & tls_ports)
+
+
+def _should_skip_odoo_cve_without_odoo_cpe(description: str, check_cpe: str) -> bool:
+    """Drop Odoo-scoped CVEs unless the matched CPE is explicitly Odoo."""
+    d = description.lower()
+    if "odoo" not in d:
+        return False
+    return ":odoo:" not in check_cpe.lower()
+
+
+def _should_skip_sweet32_without_tls_surface(description: str, asset: dict) -> bool:
+    """
+    Sweet32/3DES findings are only meaningful when a TLS-like listener exists.
+    """
+    d = description.lower()
+    is_sweet32 = (
+        "sweet32" in d
+        or "triple des" in d
+        or (" 3des" in f" {d}")
+        or "des and triple des" in d
+    )
+    if not is_sweet32:
+        return False
+    return not _asset_has_tls_surface(asset)
+
+
 def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
     """
     Match CPE strings against the NVD SQLite database.
@@ -1486,6 +1541,26 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
                         "Skipping %s — Expat CVE on python CPE only (%s)",
                         m["cve_id"],
                         check_cpe,
+                    )
+                    continue
+
+                if _should_skip_odoo_cve_without_odoo_cpe(
+                    m.get("description", ""), check_cpe
+                ):
+                    log.debug(
+                        "Skipping %s — Odoo-scoped CVE without Odoo CPE (%s)",
+                        m["cve_id"],
+                        check_cpe,
+                    )
+                    continue
+
+                if _should_skip_sweet32_without_tls_surface(
+                    m.get("description", ""), asset
+                ):
+                    log.debug(
+                        "Skipping %s — Sweet32/3DES CVE without TLS surface on asset %s",
+                        m["cve_id"],
+                        asset.get("ip"),
                     )
                     continue
 
