@@ -521,8 +521,11 @@ def phase_banner(
     port_str     = "-" if scan_all_tcp else ",".join(str(p) for p in sorted(set(active_ports)))
     delay_s      = inter_delay_ms / 1000.0
 
-    # Batch into chunks of 32 to keep memory manageable
-    chunk_size = 32
+    # Batch sizing:
+    # - Full TCP is heavy; run host-by-host so one slow target cannot stall
+    #   progress for an entire /24.
+    # - Standard profiles can safely batch.
+    chunk_size = 1 if scan_all_tcp else 32
     for i in range(0, len(hosts), chunk_size):
         chunk = hosts[i:i + chunk_size]
         targets = " ".join(chunk)
@@ -530,7 +533,8 @@ def phase_banner(
         # Ensure rate is high enough; full TCP needs a longer timeout envelope.
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
         port_count     = 65535 if scan_all_tcp else len(active_ports)
-        timeout_secs   = 1200 if scan_all_tcp else max(60, port_count * 2 + 15)
+        # Keep full-tcp host timeout bounded so progress remains responsive.
+        timeout_secs   = 300 if scan_all_tcp else max(60, port_count * 2 + 15)
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
         nmap_args = (
