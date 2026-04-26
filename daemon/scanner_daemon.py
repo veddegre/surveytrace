@@ -1382,6 +1382,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   nmap_cpes: list[str] | None = None,
                   http_titles: dict[int, str] | None = None,
                   http_probe: str | None = None,
+                  discovery_sources: list[str] | None = None,
                   hostname: str = "") -> dict:
     """Upsert an asset row and return the full row dict."""
     fp = fingerprint(mac, ports, banners, hostname=hostname)
@@ -1458,8 +1459,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
 
     conn.execute("""
         INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
-                            open_ports, banners, nmap_cpes, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:ports,:banners,:ncpes,CURRENT_TIMESTAMP,:jid)
+                            open_ports, banners, nmap_cpes, discovery_sources, last_seen, last_scan_id)
+        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:ports,:banners,:ncpes,:ds,CURRENT_TIMESTAMP,:jid)
         ON CONFLICT(ip) DO UPDATE SET
             hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
             mac        = COALESCE(excluded.mac, mac),
@@ -1471,6 +1472,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             open_ports = excluded.open_ports,
             banners    = excluded.banners,
             nmap_cpes  = excluded.nmap_cpes,
+            discovery_sources = COALESCE(NULLIF(excluded.discovery_sources,''), discovery_sources),
             last_seen  = CURRENT_TIMESTAMP,
             last_scan_id = excluded.last_scan_id
     """, {
@@ -1480,6 +1482,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         "ports":   json.dumps(ports),
         "banners": json.dumps(banners),
         "ncpes":   json.dumps(nmap_cpes or []),
+        "ds":      json.dumps(sorted(set(discovery_sources or []))),
         "jid":     job_id,
     })
 
@@ -1622,9 +1625,13 @@ def run_scan(job: dict) -> None:
     if "banner" in phases and profile_obj.allow_banner:
         http_titles, http_probes = phase_http_titles(job_id, banner_results)
 
+    resolved_dns_hosts: set[str] = set()
     for ip in all_ips:
         if ip not in hostname_cache:
-            hostname_cache[ip] = resolve_hostname(ip)
+            hn = resolve_hostname(ip)
+            hostname_cache[ip] = hn
+            if hn:
+                resolved_dns_hosts.add(ip)
 
     for ip in all_ips:
         mac     = alive_hosts.get(ip, "")
@@ -1650,22 +1657,44 @@ def run_scan(job: dict) -> None:
 
         nmap_cpes = br.get("nmap_cpes", [])
         hostname  = br.get("hostname", "") or hostname_cache.get(ip, "")
+        sources: list[str] = []
+        if ip in passive_hosts:
+            sources.append("passive_mdns_or_arp")
+        if ip in alive_hosts:
+            sm = (job.get("scan_mode") or "auto")
+            sources.append(f"discovery_{sm}")
+            if alive_hosts.get(ip):
+                sources.append("mac_from_discovery")
+        if ports:
+            sources.append("open_ports_detected")
+        if br.get("hostname"):
+            sources.append("hostname_from_nmap_or_banner")
+        if ip in resolved_dns_hosts:
+            sources.append("hostname_from_dns_mdns_netbios")
+        if http_titles.get(ip):
+            sources.append("http_title_probe")
+        if http_probes.get(ip):
+            sources.append("http_probe_blob")
 
         # Apply enrichment data — fills in MAC, hostname, vendor for cross-subnet hosts
         enrich = enrichment_map.get(ip, {})
         if enrich:
+            sources.append("enrichment_source")
             # Enrichment MAC wins if we didn't get one from ARP (cross-subnet case)
             if not mac and enrich.get("mac"):
                 mac = enrich["mac"]
+                sources.append("mac_from_enrichment")
             # Enrichment hostname wins if scanner got nothing
             if not hostname and enrich.get("hostname"):
                 hostname = enrich["hostname"]
+                sources.append("hostname_from_enrichment")
 
         with db_conn() as conn:
             asset = upsert_asset(
                 conn, job_id, ip, mac, ports, banners, nmap_cpes,
                 http_titles=http_titles.get(ip, {}),
                 http_probe=http_probes.get(ip),
+                discovery_sources=sources,
                 hostname=hostname,
             )
             upserted_assets.append(asset)
@@ -1893,6 +1922,11 @@ def main() -> None:
                 log.info("Schema migration: added column scan_jobs.%s", col)
             except Exception:
                 pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN discovery_sources TEXT DEFAULT '[]'")
+            log.info("Schema migration: added column assets.discovery_sources")
+        except Exception:
+            pass
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:

@@ -2364,6 +2364,8 @@ async function openHostPanel(id, ip) {
           <tr><td style="color:var(--tx3);padding:3px 0">CPE</td><td style="color:var(--tx2);word-break:break-all">${esc(a.cpe||'—')}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">First seen</td><td style="color:var(--tx2)">${localTime(a.first_seen)}</td></tr>
           <tr><td style="color:var(--tx3);padding:3px 0">Last seen</td><td style="color:var(--tx2)">${relTime(a.last_seen)}</td></tr>
+          <tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Discovery</td>
+              <td style="color:var(--tx2)">${(a.discovery_sources||[]).length ? esc((a.discovery_sources||[]).join(', ')) : '—'}</td></tr>
           ${a.notes ? `<tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Notes</td><td style="color:var(--tx2)">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>
