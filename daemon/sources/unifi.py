@@ -189,7 +189,12 @@ class UniFiSource(EnrichmentSource):
     # -----------------------------------------------------------------------
     # Data normalization
     # -----------------------------------------------------------------------
-    def _normalize_client(self, client: dict, source_tag: str = "unifi_client") -> dict | None:
+    def _normalize_client(
+        self,
+        client: dict,
+        source_tag: str = "unifi_client",
+        device_names_by_mac: dict[str, str] | None = None,
+    ) -> dict | None:
         """Convert a UniFi client record to our standard enrichment format."""
         ip  = client.get("ip", "")
         mac = (client.get("mac", "") or "").lower()
@@ -222,6 +227,22 @@ class UniFiSource(EnrichmentSource):
         elif "tv"     in device_type: category = "iot"
         elif "media"  in device_type: category = "iot"
 
+        # Connection context (wired switch port / AP association) for host detail panel.
+        sw_mac  = str(client.get("sw_mac", "") or "").strip().lower()
+        sw_port = str(client.get("sw_port", "") or "").strip()
+        ap_mac  = str(client.get("ap_mac", "") or "").strip().lower()
+        ap_name = str(client.get("ap_name", "") or "").strip()
+        if not ap_name and ap_mac and device_names_by_mac:
+            ap_name = device_names_by_mac.get(ap_mac, "")
+        sw_name = ""
+        if sw_mac and device_names_by_mac:
+            sw_name = device_names_by_mac.get(sw_mac, "")
+        connected_via = ""
+        if sw_port and (sw_name or sw_mac):
+            connected_via = f"UniFi switch {(sw_name or sw_mac)} port {sw_port}"
+        elif ap_name or ap_mac:
+            connected_via = f"UniFi AP {(ap_name or ap_mac)}"
+
         return {
             "ip":          ip,
             "mac":         mac,
@@ -234,6 +255,9 @@ class UniFiSource(EnrichmentSource):
             "last_seen":   client.get("last_seen", 0),
             "is_wired":    bool(client.get("is_wired", False)),
             "ap_mac":      client.get("ap_mac", "") or "",
+            "sw_mac":      sw_mac,
+            "sw_port":     sw_port,
+            "connected_via": connected_via,
             "signal":      client.get("signal", None),
             "raw":         client,
         }
@@ -307,19 +331,29 @@ class UniFiSource(EnrichmentSource):
         try:
             self._login()
 
-            # 1. All known clients (includes offline, has user-set names)
+            # 1. Network devices (APs, switches, gateways) for connection labeling
+            devices = self._fetch_network_devices()
+            log.info("UniFi: fetched %d network devices", len(devices))
+            device_names_by_mac: dict[str, str] = {}
+            for d in devices:
+                dmac = str(d.get("mac", "") or "").strip().lower()
+                dname = str(d.get("name", "") or d.get("hostname", "") or d.get("model", "") or "").strip()
+                if dmac and dname:
+                    device_names_by_mac[dmac] = dname
+
+            # 2. All known clients (includes offline, has user-set names)
             known = self._fetch_known_devices()
             log.info("UniFi: fetched %d known clients", len(known))
             for c in known:
-                norm = self._normalize_client(c, "unifi_known")
+                norm = self._normalize_client(c, "unifi_known", device_names_by_mac)
                 if norm and norm["mac"]:
                     results[norm["mac"]] = norm
 
-            # 2. Connected clients (live data — fresher IPs)
+            # 3. Connected clients (live data — fresher IPs + link context)
             connected = self._fetch_clients()
             log.info("UniFi: fetched %d connected clients", len(connected))
             for c in connected:
-                norm = self._normalize_client(c, "unifi_client")
+                norm = self._normalize_client(c, "unifi_client", device_names_by_mac)
                 if not norm:
                     continue
                 key = norm["mac"] or norm["ip"]
@@ -329,6 +363,9 @@ class UniFiSource(EnrichmentSource):
                         "ip":       norm["ip"] or results[key]["ip"],
                         "signal":   norm["signal"],
                         "ap_mac":   norm["ap_mac"],
+                        "sw_mac":   norm.get("sw_mac", ""),
+                        "sw_port":  norm.get("sw_port", ""),
+                        "connected_via": norm.get("connected_via", "") or results[key].get("connected_via", ""),
                         "source":   "unifi_client",
                     })
                     if norm["hostname"] and not results[key]["hostname"]:
@@ -336,9 +373,7 @@ class UniFiSource(EnrichmentSource):
                 else:
                     results[key] = norm
 
-            # 3. Network devices (APs, switches, GW)
-            devices = self._fetch_network_devices()
-            log.info("UniFi: fetched %d network devices", len(devices))
+            # 4. Network devices (APs, switches, GW)
             for d in devices:
                 norm = self._normalize_device(d)
                 if not norm:

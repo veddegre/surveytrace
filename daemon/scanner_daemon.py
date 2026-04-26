@@ -1761,8 +1761,16 @@ def run_scan(job: dict) -> None:
                 elif from_lldp_cdp and enrich.get("description"):
                     connected_via = str(enrich.get("description") or "").strip()
                 elif "unifi" in enrich_src:
+                    unifi_cv = str(enrich.get("connected_via", "") or "").strip()
+                    if unifi_cv:
+                        connected_via = unifi_cv
+                    else:
+                        sw_port = str(enrich.get("sw_port", "") or "").strip()
+                        sw_mac = str(enrich.get("sw_mac", "") or "").strip()
+                        if sw_port and sw_mac:
+                            connected_via = f"UniFi switch {sw_mac} port {sw_port}"
                     ap_mac = str(enrich.get("ap_mac", "") or "").strip()
-                    if ap_mac:
+                    if (not connected_via) and ap_mac:
                         connected_via = f"UniFi AP {ap_mac}"
             if from_firewall_log:
                 sources.append("seen_in_firewall_log")
