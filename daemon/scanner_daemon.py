@@ -647,7 +647,8 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
         return {}
 
     enrichment_map: dict[str, dict] = {}   # ip → best record
-    mac_to_ip: dict[str, str] = {}         # mac → ip for cross-reference
+    source_counts: dict[str, int] = {}     # source_type -> raw records fetched
+    source_applied: dict[str, int] = {}    # source_type -> unique IP records applied
 
     for row in rows:
         source = load_source(dict(row))
@@ -656,20 +657,27 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
         log.info("[job %d] Enrichment: querying source '%s'", job_id, row['source_type'])
         try:
             records = source.fetch_all()
+            source_name = str(row["source_type"])
+            source_counts[source_name] = source_counts.get(source_name, 0) + len(records)
             log.info("[job %d] Enrichment: got %d records from %s",
-                     job_id, len(records), row['source_type'])
+                     job_id, len(records), source_name)
+            applied_here = 0
             for rec in records:
                 ip  = rec.get("ip", "")
-                mac = (rec.get("mac") or "").lower()
                 if ip:
                     enrichment_map[ip] = rec
-                if mac and ip:
-                    mac_to_ip[mac] = ip
+                    applied_here += 1
+            source_applied[source_name] = source_applied.get(source_name, 0) + applied_here
         except Exception as e:
             log_event(conn, job_id, "WARN",
                       f"Enrichment source '{row['source_type']}' error: {e}")
 
     log.info("[job %d] Enrichment: %d total records across all sources", job_id, len(enrichment_map))
+    if source_counts:
+        parts = []
+        for src in sorted(source_counts.keys()):
+            parts.append(f"{src} raw={source_counts[src]} applied={source_applied.get(src, 0)}")
+        log_event(conn, job_id, "INFO", "Enrichment source totals: " + " | ".join(parts))
     return enrichment_map
 
 
@@ -712,7 +720,7 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"flame",              "srv",  "Flame Dashboard"),
     # Media
     (r"jellyfin",           "srv",  "Jellyfin"),
-    (r"plex",               "srv",  "Plex Media Server"),
+    (r"\bplex\b",           "srv",  "Plex Media Server"),
     (r"emby",               "srv",  "Emby"),
     (r"navidrome",          "srv",  "Navidrome"),
     (r"audiobookshelf",     "srv",  "Audiobookshelf"),

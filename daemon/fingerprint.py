@@ -739,7 +739,7 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
 
     # Common Linux server hostnames
     (r"grafana",                      "srv",   ""),
-    (r"plex",                         "srv",   ""),
+    (r"\bplex\b",                     "srv",   ""),
     (r"jellyfin",                     "srv",   ""),
     (r"pihole|adguard",               "srv",   ""),
     (r"homeassistant|home-assistant", "iot",   "Home Assistant"),
