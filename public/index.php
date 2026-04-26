@@ -957,10 +957,15 @@ async function apiPost(url, body) {
         if (!r.ok) {
             if (r.status === 401) {
                 handleAuthRequired();
-            } else {
-                toast('Request failed: HTTP ' + r.status, 'err');
+                return null;
             }
-            return null;
+            // For non-401 errors, return payload so callers can show precise errors.
+            try {
+                return await r.json();
+            } catch (e) {
+                toast('Request failed: HTTP ' + r.status, 'err');
+                return null;
+            }
         }
         return await r.json();
     } catch (e) {
@@ -2581,10 +2586,13 @@ async function initAuthMode() {
     }
 }
 
-initAuthMode();
+async function initApp() {
+    await initAuthMode();
+    // Always load dashboard data first to populate sidebar badges
+    await loadDashboard();
+}
 
-// Always load dashboard data first to populate sidebar badges
-loadDashboard();
+initApp();
 
 // Restore last active tab from session storage
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();

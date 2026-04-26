@@ -533,17 +533,42 @@ def phase_banner(
         timeout_secs   = 1200 if scan_all_tcp else max(60, port_count * 2 + 15)
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
-        nm.scan(
-            hosts=targets,
-            arguments=(
-                "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
-                f"-sV --version-intensity {vi} "
-                f"-p{port_str} "
-                f"--max-rate {effective_rate} "
-                f"--host-timeout {timeout_secs}s "
-                f"--open"
-            ),
+        nmap_args = (
+            "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
+            f"-sV --version-intensity {vi} "
+            f"-p{port_str} "
+            f"--max-rate {effective_rate} "
+            f"--host-timeout {timeout_secs}s "
+            f"--open"
         )
+        with db_conn() as conn:
+            log_event(conn, job_id, "INFO",
+                      f"Phase 3 batch {i//chunk_size + 1}: scanning {len(chunk)} hosts")
+        try:
+            # python-nmap timeout guards against a hung subprocess/read.
+            nm.scan(
+                hosts=targets,
+                arguments=nmap_args,
+                timeout=timeout_secs + 90,
+            )
+        except Exception as e:
+            with db_conn() as conn:
+                log_event(conn, job_id, "WARN",
+                          f"Phase 3 batch timeout/error on {len(chunk)} hosts: {str(e)[:180]}")
+            # Fallback: scan each host in this batch individually so one bad target
+            # does not stall the entire job.
+            for one_host in chunk:
+                try:
+                    nm.scan(
+                        hosts=one_host,
+                        arguments=nmap_args,
+                        timeout=max(45, min(timeout_secs, 180) + 30),
+                    )
+                except Exception as e2:
+                    with db_conn() as conn:
+                        log_event(conn, job_id, "WARN",
+                                  f"Phase 3 host scan failed for {one_host}: {str(e2)[:140]}")
+                    continue
 
         for host in nm.all_hosts():
             open_ports = []

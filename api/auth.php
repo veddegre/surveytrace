@@ -57,4 +57,4 @@ if ($user === 'admin' && password_verify($pass, $hash)) {
     $_SESSION['st_authed_at'] = time();
     st_json(['ok' => true, 'authed' => true]);
 }
-st_json(['ok' => false, 'error' => 'Invalid credentials'], 401);
+st_json(['ok' => false, 'error' => 'Invalid credentials'], 403);
