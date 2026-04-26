@@ -206,7 +206,8 @@ $rate_pps    = max(1, min(100, (int)($body['rate_pps'] ?? 5)));
 $inter_delay = max(0, min(2000, (int)($body['inter_delay'] ?? 200)));
 $priority    = max(1, min(100, (int)($body['priority'] ?? 20)));
 $enabled     = (int)($body['enabled'] ?? 1);
-$paused      = (int)($body['paused'] ?? 0);
+$has_paused  = array_key_exists('paused', $body);
+$paused      = $has_paused ? (int)$body['paused'] : null;
 $notes       = substr(trim($body['notes'] ?? ''), 0, 500);
 $timezone    = trim($body['timezone'] ?? 'UTC');
 // Validate timezone
@@ -256,7 +257,7 @@ if ($id > 0) {
         UPDATE scan_schedules SET
             name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
             profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
-            enabled=?, paused=?, notes=?, timezone=?,
+            enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
             missed_run_policy=?, missed_run_max=?,
             next_run=COALESCE(next_run, ?)
         WHERE id=?
@@ -276,7 +277,7 @@ if ($id > 0) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
-        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, $paused, $notes, $timezone,
+        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone,
         $missed_run_policy, $missed_run_max, $next_run
     ]);
     $id = (int)$db->lastInsertId();

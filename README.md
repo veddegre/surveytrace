@@ -204,27 +204,6 @@ surveytrace/
 
 ## Roadmap
 
-### Phase 4 — Discovery Improvements
-
-Completed:
-- ICMP + TCP SYN ping scan (not just ARP)
-- Scan modes: auto / routed / force (-Pn)
-- Subnet-aware L2 detection
-- Hostname resolution for all hosts including ARP-only
-- mDNS service type detection (Apple Watch, printer, Chromecast etc.)
-- HTTP title grabbing (~80 service patterns)
-- OUI backfill on daemon startup
-- Randomized MAC detection and labeling
-- Per-host discovery source tracking (how was this host found?)
-- DHCP lease import (generic lease files: dnsmasq / ISC / JSON)
-- DNS log import (generic parsers: Pi-hole / dnsmasq / BIND / JSON)
-- LLDP/CDP neighbor discovery (via SNMP enrichment)
-- Switch MAC table import via SNMP (BRIDGE-MIB FDB with ARP correlation)
-- Firewall log import (generic parser modes: KV / JSON / JSONL)
-
-Remaining:
-- (Phase 4 complete)
-
 ### Upcoming
 - **Phase 5**: MAC-first asset identity — track devices across IP changes
 - **Phase 6**: Collector architecture — distributed agents for multi-site scanning
