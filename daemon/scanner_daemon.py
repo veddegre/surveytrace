@@ -537,17 +537,20 @@ def phase_banner(
         # For small target sets, allow a longer envelope so fast_full_tcp still
         # returns open ports reliably even with mixed open/filtered services.
         if profile_obj.name == "fast_full_tcp":
-            timeout_secs = 180 if len(hosts) <= 8 else 90
+            # For tiny scopes (/32, handful of hosts), avoid host-timeout truncation
+            # so we still get reliable open-port enumeration.
+            timeout_secs = 0 if len(hosts) <= 8 else 90
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
+        host_timeout_arg = f" --host-timeout {timeout_secs}s" if timeout_secs > 0 else ""
         nmap_args = (
             "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
             f"-sV --version-intensity {vi} "
             f"-p{port_str} "
             f"--max-rate {effective_rate} "
-            f"--host-timeout {timeout_secs}s "
+            f"{host_timeout_arg} "
             f"--open"
         )
         with db_conn() as conn:
@@ -558,7 +561,7 @@ def phase_banner(
             nm.scan(
                 hosts=targets,
                 arguments=nmap_args,
-                timeout=timeout_secs + 90,
+                timeout=(timeout_secs + 90) if timeout_secs > 0 else 300,
             )
         except Exception as e:
             with db_conn() as conn:
@@ -571,7 +574,7 @@ def phase_banner(
                     nm.scan(
                         hosts=one_host,
                         arguments=nmap_args,
-                        timeout=max(45, min(timeout_secs, 180) + 30),
+                        timeout=max(45, min(timeout_secs, 180) + 30) if timeout_secs > 0 else 300,
                     )
                 except Exception as e2:
                     with db_conn() as conn:
