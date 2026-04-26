@@ -695,6 +695,7 @@ HTTP_TITLE_BATCH   = 20  # concurrent requests (using threads)
 # Map of title keywords → (category, vendor/product)
 TITLE_MAP: list[tuple[str, str, str]] = [
     # Infrastructure / monitoring
+    (r"surveytrace",        "srv",  "SurveyTrace"),
     (r"portainer",          "srv",  "Portainer"),
     (r"uptime.?kuma",       "srv",  "Uptime Kuma"),
     (r"grafana",            "srv",  "Grafana"),

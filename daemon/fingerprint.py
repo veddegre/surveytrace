@@ -738,6 +738,7 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"^HDHR",                        "iot",   "SiliconDust"),
 
     # Common Linux server hostnames
+    (r"surveytrace",                  "srv",   "SurveyTrace"),
     (r"grafana",                      "srv",   ""),
     (r"\bplex\b",                     "srv",   ""),
     (r"jellyfin",                     "srv",   ""),
