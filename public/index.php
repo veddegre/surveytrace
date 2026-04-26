@@ -910,7 +910,14 @@ function hiNav(id) {
 async function api(url) {
     try {
         const r = await fetch(url, {credentials: 'same-origin'});
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) {
+            if (r.status === 401) {
+                toast('Session expired or auth required. Refresh and sign in again.', 'err');
+            } else {
+                toast('API request failed: HTTP ' + r.status, 'err');
+            }
+            throw new Error('HTTP ' + r.status);
+        }
         return await r.json();
     } catch (e) {
         console.error('API error', url, e);
@@ -926,6 +933,14 @@ async function apiPost(url, body) {
             body: JSON.stringify(body),
             credentials: 'same-origin'
         });
+        if (!r.ok) {
+            if (r.status === 401) {
+                toast('Session expired or auth required. Refresh and sign in again.', 'err');
+            } else {
+                toast('Request failed: HTTP ' + r.status, 'err');
+            }
+            return null;
+        }
         return await r.json();
     } catch (e) {
         console.error('POST error', url, e);

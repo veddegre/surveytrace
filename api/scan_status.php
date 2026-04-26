@@ -38,6 +38,20 @@ $job_id    = st_int('job_id');
 $since     = st_int('since_log_id');
 $log_limit = st_int('log_limit', 80, 1, 200);
 
+// Ensure newer scan_jobs columns exist for legacy DBs
+$scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
+$scanJobMigrations = [
+    'scan_mode'  => "TEXT DEFAULT 'auto'",
+    'profile'    => "TEXT DEFAULT 'standard_inventory'",
+    'priority'   => "INTEGER DEFAULT 10",
+    'retry_count'=> "INTEGER DEFAULT 0",
+];
+foreach ($scanJobMigrations as $col => $defn) {
+    if (!in_array($col, $scanJobCols, true)) {
+        $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fetch job row
 // ---------------------------------------------------------------------------
