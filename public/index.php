@@ -2472,12 +2472,17 @@ function firstHttpTitle(rawBanner, httpProbe) {
     return '';
 }
 
+/**
+ * NPM (Nginx Proxy Manager) — only label when evidence is strong.
+ * Avoid: generic "Default Site" titles, bare OpenResty, or plain nginx (false positives).
+ */
 function likelyNpmReverseProxy(allPorts, raw, probe) {
     const set = new Set((allPorts || []).map(Number));
-    const blob = String(raw || '') + '\n' + String(probe || '');
+    const blob = (String(raw || '') + '\n' + String(probe || '')).toLowerCase();
+    // NPM exposes admin on 81 by default — strongest signal with other ports.
     if (set.has(81)) return true;
-    if (/default site/i.test(blob)) return true;
-    if (/nginx[- ]?proxy|nginxproxy|openresty/i.test(blob)) return true;
+    // Explicit product strings from NPM UI / docs / responses
+    if (/nginx[-\s]?proxy[-\s]?manager|nginxproxymanager|nginx proxy manager/.test(blob)) return true;
     return false;
 }
 
@@ -2502,7 +2507,11 @@ function buildFriendlyOpenPortLine(port, rawBanner, httpProbe, allPorts) {
         }
         return title ? `HTTPS (${title})` : (raw ? raw : 'HTTPS');
     }
-    if (port === 81) return 'NPM Proxy Manager (admin UI)';
+    if (port === 81) {
+        return likelyNpmReverseProxy(allPorts, raw, probe)
+            ? 'NPM Proxy Manager (admin UI)'
+            : 'HTTP — port 81';
+    }
 
     if (port === 445) return 'SMB — Windows file sharing';
     if (port === 3389) return 'RDP — Remote Desktop';
@@ -2576,7 +2585,6 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
         if (/minio/i.test(raw + probe)) chips.add('MinIO');
     }
     if (/portainer/i.test(probe)) chips.add('Portainer');
-    if (/nginx[- ]?proxy|nginxproxy/i.test(probe)) chips.add('NPM');
 
     const blob = all.map(pr => String((banners || {})[String(pr)] || '')).join('\n') + '\n' + probe;
     const EXTRA_SIGS = [
