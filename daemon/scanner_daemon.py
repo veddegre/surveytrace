@@ -58,6 +58,7 @@ try:
     import sources.snmp    # noqa: F401
     import sources.dhcp    # noqa: F401
     import sources.dns_logs  # noqa: F401
+    import sources.firewall_logs  # noqa: F401
     import sources.stubs   # noqa: F401
     from sources import load_source
     HAS_ENRICHMENT = True
@@ -1694,10 +1695,22 @@ def run_scan(job: dict) -> None:
             enrich_src = str(enrich.get("source", "") or "").lower()
             from_dhcp = "dhcp" in enrich_src
             from_dns_log = "dns_log" in enrich_src or "dnslogs" in enrich_src
+            from_lldp_cdp = "snmp_lldp:" in enrich_src or "snmp_cdp:" in enrich_src
+            from_switch_fdb = "snmp_fdb:" in enrich_src
+            from_firewall_log = "firewall_log" in enrich_src
+            if from_firewall_log:
+                sources.append("seen_in_firewall_log")
             # Enrichment MAC wins if we didn't get one from ARP (cross-subnet case)
             if not mac and enrich.get("mac"):
                 mac = enrich["mac"]
-                sources.append("mac_from_dhcp_lease" if from_dhcp else "mac_from_enrichment")
+                if from_dhcp:
+                    sources.append("mac_from_dhcp_lease")
+                elif from_switch_fdb:
+                    sources.append("mac_from_switch_fdb")
+                elif from_firewall_log:
+                    sources.append("mac_from_firewall_log")
+                else:
+                    sources.append("mac_from_enrichment")
             # Enrichment hostname wins if scanner got nothing
             if not hostname and enrich.get("hostname"):
                 hostname = enrich["hostname"]
@@ -1705,6 +1718,10 @@ def run_scan(job: dict) -> None:
                     sources.append("hostname_from_dhcp_lease")
                 elif from_dns_log:
                     sources.append("hostname_from_dns_log")
+                elif from_lldp_cdp:
+                    sources.append("hostname_from_lldp_cdp")
+                elif from_firewall_log:
+                    sources.append("hostname_from_firewall_log")
                 else:
                     sources.append("hostname_from_enrichment")
 

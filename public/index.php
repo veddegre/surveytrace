@@ -808,6 +808,7 @@ textarea.finput{resize:vertical;min-height:72px}
       <option value="snmp">SNMP (universal)</option>
       <option value="dhcp_leases">DHCP leases (generic)</option>
       <option value="dns_logs">DNS logs (generic)</option>
+      <option value="firewall_logs">Firewall logs (generic)</option>
       <option value="ms_dns">Microsoft DNS</option>
       <option value="cisco_dna">Cisco DNA Center (stub)</option>
       <option value="meraki">Cisco Meraki (stub)</option>
@@ -1563,6 +1564,13 @@ var SOURCE_FIELDS = {
         {id:'allowed_suffixes', label:'Allowed suffixes (optional)',      type:'text', placeholder:'lan,home.arpa,local', default:''},
         {id:'include_reverse',  label:'Include PTR/reverse lookups (true/false)', type:'text', placeholder:'false', default:'false'},
         {id:'max_age_hours',    label:'Max age hours (0 disables)',       type:'number', placeholder:'168', default:'168'},
+    ],
+    firewall_logs: [
+        {id:'paths',            label:'Firewall log paths (comma-separated)', type:'text', placeholder:'/var/log/filter.log,/var/log/ufw.log', default:'/var/log/filter.log'},
+        {id:'parser',           label:'Parser mode',                          type:'select', options:['auto','kv','jsonl','json'], default:'auto'},
+        {id:'direction',        label:'Direction filter',                      type:'select', options:['any','in','out'], default:'any'},
+        {id:'include_blocked',  label:'Include blocked/denied (true/false)',  type:'text', placeholder:'true', default:'true'},
+        {id:'max_age_hours',    label:'Max age hours (0 disables)',           type:'number', placeholder:'168', default:'168'},
     ],
     ms_dns: [
         {id:'dns_server', label:'DNS server IP',   type:'text', placeholder:'10.0.0.5'},

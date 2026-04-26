@@ -31,6 +31,7 @@ Requires: pip install pysnmp
 from __future__ import annotations
 
 import logging
+import re
 import socket
 from typing import Any
 
@@ -44,6 +45,17 @@ OID_SYS_DESCR   = "1.3.6.1.2.1.1.1.0"
 OID_SYS_LOCATION= "1.3.6.1.2.1.1.6.0"
 OID_ARP_TABLE   = "1.3.6.1.2.1.4.22"   # ipNetToMediaTable
 OID_IF_TABLE    = "1.3.6.1.2.1.2.2"    # interfaces table
+OID_IF_DESCR    = "1.3.6.1.2.1.2.2.1.2"
+OID_DOT1D_FDB_ADDR = "1.3.6.1.2.1.17.4.3.1.1"      # dot1dTpFdbAddress
+OID_DOT1D_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"      # dot1dTpFdbPort
+OID_DOT1D_BASEPORT_IFINDEX = "1.3.6.1.2.1.17.1.4.1.2"  # dot1dBasePortIfIndex
+OID_LLDP_SYSNAME = "1.0.8802.1.1.2.1.4.1.1.9"      # lldpRemSysName
+OID_LLDP_PORTDESC = "1.0.8802.1.1.2.1.4.1.1.8"     # lldpRemPortDesc
+OID_LLDP_MGMT_ADDR = "1.0.8802.1.1.2.1.4.2.1.4"    # lldpRemManAddrTable index carries addr
+OID_CDP_DEVICE_ID = "1.3.6.1.4.1.9.9.23.1.2.1.1.6" # cdpCacheDeviceId
+OID_CDP_DEVICE_PORT = "1.3.6.1.4.1.9.9.23.1.2.1.1.7"
+OID_CDP_PLATFORM = "1.3.6.1.4.1.9.9.23.1.2.1.1.8"
+OID_CDP_ADDRESS = "1.3.6.1.4.1.9.9.23.1.2.1.1.4"   # cdpCacheAddress
 
 
 def _mac_from_oid_index(index_str: str) -> str:
@@ -56,6 +68,62 @@ def _mac_from_oid_index(index_str: str) -> str:
         return ":".join(f"{b:02x}" for b in parts[-6:])
     except (ValueError, IndexError):
         return ""
+
+
+def _clean_text(value: str) -> str:
+    s = (value or "").strip()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _parse_ip_from_numeric_suffix(oid_str: str, base_oid: str) -> str:
+    """Parse IP from OID suffix where trailing bytes encode the address."""
+    if not oid_str.startswith(base_oid + "."):
+        return ""
+    try:
+        nums = [int(x) for x in oid_str[len(base_oid) + 1:].split(".") if x]
+    except ValueError:
+        return ""
+    if len(nums) >= 6 and nums[-5] == 4:
+        octets = nums[-4:]
+        if all(0 <= o <= 255 for o in octets):
+            return ".".join(str(o) for o in octets)
+    return ""
+
+
+def _parse_ip_from_value(value: str) -> str:
+    """Parse SNMP OCTET STRING text forms into IPv4."""
+    s = (value or "").strip()
+    if not s:
+        return ""
+    if s.startswith("0x"):
+        hex_str = re.sub(r"[^0-9a-fA-F]", "", s[2:])
+        if len(hex_str) >= 8:
+            try:
+                octets = [int(hex_str[i:i+2], 16) for i in range(0, 8, 2)]
+                if all(0 <= o <= 255 for o in octets):
+                    return ".".join(str(o) for o in octets)
+            except ValueError:
+                pass
+    nums = [int(x) for x in re.findall(r"\d+", s)]
+    if len(nums) >= 4 and all(0 <= p <= 255 for p in nums[:4]):
+        return ".".join(str(p) for p in nums[:4])
+    return ""
+
+
+def _parse_mac_from_value(value: str) -> str:
+    """Parse SNMP value text into normalized MAC address when possible."""
+    s = (value or "").strip()
+    if not s:
+        return ""
+    if s.startswith("0x"):
+        hex_str = re.sub(r"[^0-9a-fA-F]", "", s[2:])
+        if len(hex_str) >= 12:
+            hex_str = hex_str[:12]
+            return ":".join(hex_str[i:i+2] for i in range(0, 12, 2)).lower()
+    nums = [int(x) for x in re.findall(r"\d+", s)]
+    if len(nums) >= 6 and all(0 <= n <= 255 for n in nums[:6]):
+        return ":".join(f"{n:02x}" for n in nums[:6])
+    return ""
 
 
 @register
@@ -193,6 +261,185 @@ class SNMPSource(EnrichmentSource):
                 continue
         return results
 
+    def _query_lldp_neighbors(self, target: str) -> list[dict]:
+        """Read LLDP remote neighbor info with management IP where available."""
+        out: list[dict] = []
+        sys_rows = self._walk(target, OID_LLDP_SYSNAME)
+        port_rows = self._walk(target, OID_LLDP_PORTDESC)
+        mgmt_rows = self._walk(target, OID_LLDP_MGMT_ADDR)
+        if not (sys_rows or mgmt_rows):
+            return out
+
+        sys_by_key: dict[tuple[int, int, int], str] = {}
+        port_by_key: dict[tuple[int, int, int], str] = {}
+        ip_by_key: dict[tuple[int, int, int], str] = {}
+
+        for oid_str, val in sys_rows:
+            try:
+                suffix = oid_str.split(OID_LLDP_SYSNAME + ".", 1)[1]
+                a, b, c = [int(x) for x in suffix.split(".")[:3]]
+                sys_by_key[(a, b, c)] = _clean_text(val)
+            except Exception:
+                continue
+        for oid_str, val in port_rows:
+            try:
+                suffix = oid_str.split(OID_LLDP_PORTDESC + ".", 1)[1]
+                a, b, c = [int(x) for x in suffix.split(".")[:3]]
+                port_by_key[(a, b, c)] = _clean_text(val)
+            except Exception:
+                continue
+        for oid_str, _ in mgmt_rows:
+            try:
+                suffix = oid_str.split(OID_LLDP_MGMT_ADDR + ".", 1)[1]
+                nums = [int(x) for x in suffix.split(".")]
+                if len(nums) < 8:
+                    continue
+                key = (nums[0], nums[1], nums[2])
+                ip = _parse_ip_from_numeric_suffix(oid_str, OID_LLDP_MGMT_ADDR)
+                if ip:
+                    ip_by_key[key] = ip
+            except Exception:
+                continue
+
+        for key, ip in ip_by_key.items():
+            hostname = sys_by_key.get(key, "")
+            portdesc = port_by_key.get(key, "")
+            out.append({
+                "ip": ip,
+                "hostname": hostname.split(".")[0] if hostname else "",
+                "description": f"LLDP neighbor via {target}" + (f" port {portdesc}" if portdesc else ""),
+                "source": f"snmp_lldp:{target}",
+                "raw": {"key": key, "sysname": hostname, "port": portdesc},
+            })
+        return out
+
+    def _query_cdp_neighbors(self, target: str) -> list[dict]:
+        """Read CDP neighbor cache and return management IP + identity hints."""
+        out: list[dict] = []
+        id_rows = self._walk(target, OID_CDP_DEVICE_ID)
+        port_rows = self._walk(target, OID_CDP_DEVICE_PORT)
+        plat_rows = self._walk(target, OID_CDP_PLATFORM)
+        addr_rows = self._walk(target, OID_CDP_ADDRESS)
+        if not (id_rows or addr_rows):
+            return out
+
+        def key_from_oid(oid: str, base: str) -> str:
+            return oid.split(base + ".", 1)[1] if (base + ".") in oid else ""
+
+        id_by_key: dict[str, str] = {}
+        port_by_key: dict[str, str] = {}
+        plat_by_key: dict[str, str] = {}
+        ip_by_key: dict[str, str] = {}
+
+        for oid_str, val in id_rows:
+            k = key_from_oid(oid_str, OID_CDP_DEVICE_ID)
+            if k:
+                id_by_key[k] = _clean_text(val)
+        for oid_str, val in port_rows:
+            k = key_from_oid(oid_str, OID_CDP_DEVICE_PORT)
+            if k:
+                port_by_key[k] = _clean_text(val)
+        for oid_str, val in plat_rows:
+            k = key_from_oid(oid_str, OID_CDP_PLATFORM)
+            if k:
+                plat_by_key[k] = _clean_text(val)
+        for oid_str, val in addr_rows:
+            k = key_from_oid(oid_str, OID_CDP_ADDRESS)
+            if not k:
+                continue
+            ip = _parse_ip_from_value(val)
+            if ip:
+                ip_by_key[k] = ip
+
+        for key, ip in ip_by_key.items():
+            dev_id = id_by_key.get(key, "")
+            out.append({
+                "ip": ip,
+                "hostname": dev_id.split(".")[0] if dev_id else "",
+                "vendor": plat_by_key.get(key, ""),
+                "description": f"CDP neighbor via {target}" + (f" port {port_by_key.get(key,'')}" if port_by_key.get(key) else ""),
+                "source": f"snmp_cdp:{target}",
+                "raw": {"key": key, "device_id": dev_id, "platform": plat_by_key.get(key, "")},
+            })
+        return out
+
+    def _query_switch_fdb(self, target: str, mac_to_ip: dict[str, str]) -> list[dict]:
+        """
+        Query BRIDGE-MIB forwarding database (FDB) and map MAC -> IP
+        using ARP-correlated MACs where possible.
+        """
+        out: list[dict] = []
+        fdb_addr_rows = self._walk(target, OID_DOT1D_FDB_ADDR)
+        fdb_port_rows = self._walk(target, OID_DOT1D_FDB_PORT)
+        baseport_rows = self._walk(target, OID_DOT1D_BASEPORT_IFINDEX)
+        ifdescr_rows = self._walk(target, OID_IF_DESCR)
+        if not (fdb_addr_rows and fdb_port_rows):
+            return out
+
+        mac_by_suffix: dict[str, str] = {}
+        port_by_suffix: dict[str, str] = {}
+        ifindex_by_baseport: dict[str, str] = {}
+        ifdescr_by_ifindex: dict[str, str] = {}
+
+        for oid_str, val in fdb_addr_rows:
+            if (OID_DOT1D_FDB_ADDR + ".") not in oid_str:
+                continue
+            suffix = oid_str.split(OID_DOT1D_FDB_ADDR + ".", 1)[1]
+            mac = _parse_mac_from_value(val)
+            if not mac:
+                # fallback: dot1d index is often the MAC bytes
+                mac = _mac_from_oid_index(suffix)
+            if mac:
+                mac_by_suffix[suffix] = mac
+
+        for oid_str, val in fdb_port_rows:
+            if (OID_DOT1D_FDB_PORT + ".") not in oid_str:
+                continue
+            suffix = oid_str.split(OID_DOT1D_FDB_PORT + ".", 1)[1]
+            port_by_suffix[suffix] = _clean_text(val)
+
+        for oid_str, val in baseport_rows:
+            if (OID_DOT1D_BASEPORT_IFINDEX + ".") not in oid_str:
+                continue
+            baseport = oid_str.split(OID_DOT1D_BASEPORT_IFINDEX + ".", 1)[1]
+            ifindex_by_baseport[baseport] = _clean_text(val)
+
+        for oid_str, val in ifdescr_rows:
+            if (OID_IF_DESCR + ".") not in oid_str:
+                continue
+            ifindex = oid_str.split(OID_IF_DESCR + ".", 1)[1]
+            ifdescr_by_ifindex[ifindex] = _clean_text(val)
+
+        for suffix, mac in mac_by_suffix.items():
+            ip = mac_to_ip.get(mac, "")
+            if not ip:
+                continue
+            bridge_port = port_by_suffix.get(suffix, "")
+            ifindex = ifindex_by_baseport.get(bridge_port, "")
+            ifdescr = ifdescr_by_ifindex.get(ifindex, "")
+            desc = f"Switch FDB entry via {target}"
+            if ifdescr:
+                desc += f" port {ifdescr}"
+            elif bridge_port:
+                desc += f" bridge-port {bridge_port}"
+            out.append({
+                "ip": ip,
+                "mac": mac,
+                "hostname": "",
+                "vendor": "",
+                "category": "",
+                "vlan": "",
+                "description": desc,
+                "source": f"snmp_fdb:{target}",
+                "raw": {
+                    "mac": mac,
+                    "bridge_port": bridge_port,
+                    "ifindex": ifindex,
+                    "ifdescr": ifdescr,
+                },
+            })
+        return out
+
     def test_connection(self) -> tuple[bool, str]:
         if not self.targets:
             return False, "No SNMP targets configured"
@@ -210,6 +457,7 @@ class SNMPSource(EnrichmentSource):
         Returns enrichment records for every host in those ARP tables.
         """
         results: dict[str, dict] = {}   # keyed by IP
+        mac_to_ip_global: dict[str, str] = {}
 
         for target in self.targets:
             log.info("SNMP: querying ARP table from %s", target)
@@ -221,6 +469,21 @@ class SNMPSource(EnrichmentSource):
             # Walk ARP table
             arp_entries = self._query_arp_table(target)
             log.info("SNMP: got %d ARP entries from %s", len(arp_entries), target)
+            lldp_entries = self._query_lldp_neighbors(target)
+            if lldp_entries:
+                log.info("SNMP: got %d LLDP neighbor entries from %s", len(lldp_entries), target)
+            cdp_entries = self._query_cdp_neighbors(target)
+            if cdp_entries:
+                log.info("SNMP: got %d CDP neighbor entries from %s", len(cdp_entries), target)
+            mac_to_ip_local = {
+                (e.get("mac") or "").lower(): e.get("ip", "")
+                for e in arp_entries
+                if e.get("ip") and e.get("mac")
+            }
+            mac_to_ip_global.update(mac_to_ip_local)
+            fdb_entries = self._query_switch_fdb(target, mac_to_ip_global)
+            if fdb_entries:
+                log.info("SNMP: got %d FDB entries with IP correlation from %s", len(fdb_entries), target)
 
             for entry in arp_entries:
                 ip  = entry.get("ip", "")
@@ -245,6 +508,32 @@ class SNMPSource(EnrichmentSource):
                     "source":      f"snmp:{target}",
                     "raw":         entry,
                 }
+
+            # Merge LLDP/CDP neighbor hints (hostname/vendor) by management IP
+            for entry in (lldp_entries + cdp_entries + fdb_entries):
+                ip = entry.get("ip", "")
+                if not ip:
+                    continue
+                existing = results.get(ip, {
+                    "ip":          ip,
+                    "mac":         "",
+                    "hostname":    "",
+                    "vendor":      "",
+                    "category":    "",
+                    "vlan":        "",
+                    "description": "",
+                    "source":      "",
+                    "raw":         {},
+                })
+                if not existing.get("hostname") and entry.get("hostname"):
+                    existing["hostname"] = entry["hostname"]
+                if not existing.get("vendor") and entry.get("vendor"):
+                    existing["vendor"] = entry["vendor"]
+                if entry.get("description"):
+                    existing["description"] = entry["description"]
+                existing["source"] = entry.get("source") or existing.get("source", "")
+                existing["raw"] = entry.get("raw") or existing.get("raw", {})
+                results[ip] = existing
 
         log.info("SNMP enrichment: %d total records from %d targets",
                  len(results), len(self.targets))

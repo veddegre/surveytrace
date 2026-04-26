@@ -65,6 +65,7 @@ if ($method === 'GET') {
         ['type' => 'snmp',        'label' => 'SNMP (universal)',       'status' => 'ready'],
         ['type' => 'dhcp_leases', 'label' => 'DHCP Leases (generic)',  'status' => 'ready'],
         ['type' => 'dns_logs',    'label' => 'DNS Logs (generic)',     'status' => 'ready'],
+        ['type' => 'firewall_logs','label' => 'Firewall Logs (generic)','status' => 'ready'],
         ['type' => 'ms_dns',      'label' => 'Microsoft DNS',          'status' => 'partial'],
         ['type' => 'cisco_dna',   'label' => 'Cisco DNA Center',       'status' => 'stub'],
         ['type' => 'meraki',      'label' => 'Cisco Meraki',           'status' => 'stub'],
@@ -127,6 +128,20 @@ if (isset($_GET['test'])) {
         ")->execute([$ok, $msg, $id]);
         st_json(['ok' => true, 'message' => $msg]);
     }
+    if ($row['source_type'] === 'firewall_logs') {
+        $paths = trim((string)($config['paths'] ?? ''));
+        if ($paths === '') {
+            st_json(['ok' => false, 'message' => 'No firewall log file paths configured'], 400);
+        }
+        $msg = "Firewall log source configured. Validation runs in daemon at scan time.";
+        $ok  = 1;
+        $db->prepare("
+            UPDATE enrichment_sources
+            SET last_tested=CURRENT_TIMESTAMP, last_test_ok=?, last_test_msg=?
+            WHERE id=?
+        ")->execute([$ok, $msg, $id]);
+        st_json(['ok' => true, 'message' => $msg]);
+    }
 
     if (empty($host)) {
         st_json(['ok' => false, 'message' => 'No host configured for this source'], 400);
@@ -138,6 +153,7 @@ if (isset($_GET['test'])) {
         'snmp'         => 161,
         'dhcp_leases'  => 0,
         'dns_logs'     => 0,
+        'firewall_logs'=> 0,
         'ms_dns'       => 53,
         'cisco_dna'    => 443,
         'meraki'       => 443,
@@ -189,7 +205,7 @@ $label       = substr(trim($body['label'] ?? ''), 0, 100);
 $enabled     = (int)($body['enabled'] ?? 0);
 $priority    = max(1, min(100, (int)($body['priority'] ?? 10)));
 
-$allowed_types = ['unifi','snmp','dhcp_leases','dns_logs','ms_dns','cisco_dna','meraki',
+$allowed_types = ['unifi','snmp','dhcp_leases','dns_logs','firewall_logs','ms_dns','cisco_dna','meraki',
                   'juniper_mist','infoblox','palo_alto'];
 if (!in_array($source_type, $allowed_types)) {
     st_json(['error' => "Unknown source type: $source_type"], 400);
