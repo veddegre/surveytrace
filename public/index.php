@@ -1162,6 +1162,13 @@ function detectServiceHitsFromAsset(asset) {
     const banners = asset.banners || {};
     const httpProbe = String(banners._http || '');
     const ports = asset.open_ports || [];
+    const PORT_HINTS = {
+        3000:'Grafana Homarr dev server', 3001:'Uptime Kuma Gitea dev server',
+        3030:'Homepage dashboard', 5080:'OpenObserve SIP', 5341:'Seq',
+        8086:'InfluxDB', 8088:'Splunk', 8089:'Splunk', 8888:'Jupyter',
+        9000:'Portainer MinIO', 9001:'MinIO', 9090:'Prometheus',
+        9443:'Portainer', 9925:'FastAPI Uvicorn',
+    };
     const SERVICE_SIGS = [
         ['Uptime Kuma', /uptime.?kuma/i],
         ['Zabbix', /zabbix/i],
@@ -1172,6 +1179,14 @@ function detectServiceHitsFromAsset(asset) {
         ['Grafana', /\bgrafana\b/i],
         ['Prometheus', /prometheus/i],
         ['Docker Engine', /docker/i],
+        ['Splunk', /\bsplunk\b/i],
+        ['Jupyter', /\bjupyter\b/i],
+        ['MinIO', /\bminio\b/i],
+        ['InfluxDB', /\binfluxdb?\b/i],
+        ['Werkzeug', /\bwerkzeug\b/i],
+        ['FastAPI', /\bfastapi\b|\buvicorn\b/i],
+        ['Homepage', /\bhomepage\b/i],
+        ['Homarr', /\bhomarr\b/i],
         ['Jellyfin', /jellyfin/i],
         ['Gitea', /\bgitea\b/i],
         ['Nextcloud', /nextcloud/i],
@@ -1184,7 +1199,10 @@ function detectServiceHitsFromAsset(asset) {
         for (const [name, rx] of SERVICE_SIGS) if (rx.test(txt)) hits.add(name);
     };
     scan(httpProbe);
-    for (const p of ports) scan(String(banners[String(p)] || ''));
+    for (const p of ports) {
+        scan(String(banners[String(p)] || ''));
+        scan(String(PORT_HINTS[p] || ''));
+    }
     return Array.from(hits).sort();
 }
 
@@ -2520,6 +2538,14 @@ async function openHostPanel(id, ip) {
         ['Grafana', /\bgrafana\b/i],
         ['Prometheus', /prometheus/i],
         ['Docker Engine', /docker/i],
+        ['Splunk', /\bsplunk\b/i],
+        ['Jupyter', /\bjupyter\b/i],
+        ['MinIO', /\bminio\b/i],
+        ['InfluxDB', /\binfluxdb?\b/i],
+        ['Werkzeug', /\bwerkzeug\b/i],
+        ['FastAPI', /\bfastapi\b|\buvicorn\b/i],
+        ['Homepage', /\bhomepage\b/i],
+        ['Homarr', /\bhomarr\b/i],
         ['Jellyfin', /jellyfin/i],
         ['Gitea', /\bgitea\b/i],
         ['Nextcloud', /nextcloud/i],
@@ -2556,6 +2582,7 @@ async function openHostPanel(id, ip) {
             // Known misleading IANA name — show our hint instead
             serviceLabel = MISLEADING_PORTS[p];
             labelColor   = 'var(--tx3)';
+            addServiceHit(serviceLabel);
         } else if (proto) {
             // Use protocol from banner as fallback
             serviceLabel = proto;
