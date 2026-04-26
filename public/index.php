@@ -1162,48 +1162,7 @@ function detectServiceHitsFromAsset(asset) {
     const banners = asset.banners || {};
     const httpProbe = String(banners._http || '');
     const ports = asset.open_ports || [];
-    const PORT_HINTS = {
-        3000:'Grafana Homarr dev server', 3001:'Uptime Kuma Gitea dev server',
-        3030:'Homepage dashboard', 5080:'OpenObserve SIP', 5341:'Seq',
-        8086:'InfluxDB', 8088:'Splunk', 8089:'Splunk', 8888:'Jupyter',
-        9000:'Portainer MinIO', 9001:'MinIO', 9090:'Prometheus',
-        9443:'Portainer', 9925:'FastAPI Uvicorn',
-    };
-    const SERVICE_SIGS = [
-        ['Uptime Kuma', /uptime.?kuma/i],
-        ['Zabbix', /zabbix/i],
-        ['ntfy', /\bntfy\b/i],
-        ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
-        ['Proxmox VE', /proxmox|pve\./i],
-        ['Portainer', /portainer/i],
-        ['Grafana', /\bgrafana\b/i],
-        ['Prometheus', /prometheus/i],
-        ['Docker Engine', /docker/i],
-        ['Splunk', /\bsplunk\b/i],
-        ['Jupyter', /\bjupyter\b/i],
-        ['MinIO', /\bminio\b/i],
-        ['InfluxDB', /\binfluxdb?\b/i],
-        ['Werkzeug', /\bwerkzeug\b/i],
-        ['FastAPI', /\bfastapi\b|\buvicorn\b/i],
-        ['Homepage', /\bhomepage\b/i],
-        ['Homarr', /\bhomarr\b/i],
-        ['Jellyfin', /jellyfin/i],
-        ['Gitea', /\bgitea\b/i],
-        ['Nextcloud', /nextcloud/i],
-        ['Mastodon', /mastodon/i],
-        ['OpenObserve', /openobserve/i],
-    ];
-    const hits = new Set();
-    const scan = (txt) => {
-        if (!txt) return;
-        for (const [name, rx] of SERVICE_SIGS) if (rx.test(txt)) hits.add(name);
-    };
-    scan(httpProbe);
-    for (const p of ports) {
-        scan(String(banners[String(p)] || ''));
-        scan(String(PORT_HINTS[p] || ''));
-    }
-    return Array.from(hits).sort();
+    return collectDetectedServiceChips(ports, banners, httpProbe);
 }
 
 async function loadAssets(page) {
@@ -2487,6 +2446,154 @@ function debounceFindings() {
 }
 
 // ==========================================================================
+// Host detail — friendly port labels (title + common homelab stacks)
+// ==========================================================================
+function extractBracketTitles(text) {
+    const s = String(text || '');
+    const out = [];
+    const re = /\[([^\]]+)\]/g;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+        const t = m[1].trim();
+        if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+}
+
+function firstHttpTitle(rawBanner, httpProbe) {
+    for (const t of extractBracketTitles(rawBanner)) {
+        if (/^https?$/i.test(t)) continue;
+        return t;
+    }
+    for (const t of extractBracketTitles(httpProbe)) {
+        if (/^https?$/i.test(t)) continue;
+        return t;
+    }
+    return '';
+}
+
+function likelyNpmReverseProxy(allPorts, raw, probe) {
+    const set = new Set((allPorts || []).map(Number));
+    const blob = String(raw || '') + '\n' + String(probe || '');
+    if (set.has(81)) return true;
+    if (/default site/i.test(blob)) return true;
+    if (/nginx[- ]?proxy|nginxproxy|openresty/i.test(blob)) return true;
+    return false;
+}
+
+function buildFriendlyOpenPortLine(port, rawBanner, httpProbe, allPorts) {
+    const raw = String(rawBanner || '');
+    const probe = String(httpProbe || '');
+    const low = raw.toLowerCase();
+    const title = firstHttpTitle(raw, probe);
+    const npm = likelyNpmReverseProxy(allPorts, raw, probe);
+
+    if (port === 80) {
+        if (npm) {
+            const t = title ? `HTTP (${title})` : 'HTTP';
+            return t + ' — NPM reverse proxy';
+        }
+        return title ? `HTTP (${title})` : (raw ? raw : 'HTTP');
+    }
+    if (port === 443) {
+        if (npm) {
+            const t = title ? `HTTPS (${title})` : 'HTTPS';
+            return t + ' — NPM reverse proxy';
+        }
+        return title ? `HTTPS (${title})` : (raw ? raw : 'HTTPS');
+    }
+    if (port === 81) return 'NPM Proxy Manager (admin UI)';
+
+    if (port === 445) return 'SMB — Windows file sharing';
+    if (port === 3389) return 'RDP — Remote Desktop';
+
+    if (port === 3000) {
+        const t = firstHttpTitle(raw, probe);
+        if (/homarr/i.test(raw + probe + t)) return 'Homarr (dashboard)';
+        if (/homepage/i.test(raw + probe + t)) return 'Homepage (dashboard)';
+        if (/grafana/i.test(raw + probe + t)) return 'Grafana';
+        return 'Web dashboard (Homarr / Grafana / dev)';
+    }
+
+    if (port === 5000 && /werkzeug/i.test(low)) return 'Python app (Werkzeug)';
+    if (port === 8080) {
+        const t = firstHttpTitle(raw, probe);
+        if (/it tools/i.test(raw + probe + t)) return 'IT Tools (developer utilities)';
+    }
+    if (port === 8089) {
+        const t = firstHttpTitle(raw, probe);
+        if (/channels/i.test(raw + probe + t)) return 'Channels';
+    }
+    if (port === 8888) {
+        const t = firstHttpTitle(raw, probe);
+        if (/web check/i.test(raw + probe + t)) return 'Web Check';
+    }
+
+    if (port === 9000) return 'Portainer (HTTP)';
+    if (port === 9443) return 'Portainer (HTTPS)';
+
+    const parts = raw.split(' ');
+    const proto = parts[0] || '';
+    const rest = parts.slice(1).join(' ');
+    if (rest) return rest;
+    return proto || 'open';
+}
+
+function collectDetectedServiceChips(ports, banners, httpProbe) {
+    const chips = new Set();
+    const probe = String(httpProbe || '');
+    const all = ports || [];
+    for (const p of all) {
+        const raw = String((banners || {})[String(p)] || '');
+        const low = raw.toLowerCase();
+        if (p === 80 || p === 443 || p === 81) {
+            if (likelyNpmReverseProxy(all, raw, probe)) chips.add('NPM');
+        }
+        if (p === 3389) chips.add('RDP');
+        if (p === 445) chips.add('SMB');
+        if (p === 3000) {
+            const t = firstHttpTitle(raw, probe);
+            if (/homarr/i.test(raw + probe + t)) chips.add('Homarr');
+            else if (/homepage/i.test(raw + probe + t)) chips.add('Homepage');
+            else if (/grafana/i.test(raw + probe + t)) chips.add('Grafana');
+        }
+        if (p === 5000 && /werkzeug/i.test(low)) chips.add('Werkzeug');
+        if (p === 8080) {
+            const t = firstHttpTitle(raw, probe);
+            if (/it tools/i.test(raw + probe + t)) chips.add('IT Tools');
+        }
+        if (p === 8089) {
+            const t = firstHttpTitle(raw, probe);
+            if (/channels/i.test(raw + probe + t)) chips.add('Channels');
+        }
+        if (p === 8888) {
+            const t = firstHttpTitle(raw, probe);
+            if (/web check/i.test(raw + probe + t)) chips.add('Web Check');
+        }
+        if (p === 9000 || p === 9443) chips.add('Portainer');
+        if (/splunk/i.test(raw + probe) && (p === 8088 || p === 8089 || p === 8000)) chips.add('Splunk');
+        if (/jupyter/i.test(raw + probe)) chips.add('Jupyter');
+        if (/minio/i.test(raw + probe)) chips.add('MinIO');
+    }
+    if (/portainer/i.test(probe)) chips.add('Portainer');
+    if (/nginx[- ]?proxy|nginxproxy/i.test(probe)) chips.add('NPM');
+
+    const blob = all.map(pr => String((banners || {})[String(pr)] || '')).join('\n') + '\n' + probe;
+    const EXTRA_SIGS = [
+        ['Zabbix', /zabbix/i], ['ntfy', /\bntfy\b/i],
+        ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
+        ['Proxmox VE', /proxmox|pve\./i], ['Docker Engine', /\bdocker engine\b|docker\/v|\bdockerd\b/i],
+        ['Jellyfin', /jellyfin/i], ['Gitea', /\bgitea\b/i], ['Nextcloud', /nextcloud/i],
+        ['Mastodon', /mastodon/i], ['OpenObserve', /openobserve/i],
+        ['Uptime Kuma', /uptime.?kuma/i], ['InfluxDB', /\binfluxdb?\b/i],
+    ];
+    for (const [name, rx] of EXTRA_SIGS) {
+        if (rx.test(blob)) chips.add(name);
+    }
+    return Array.from(chips).sort();
+}
+
+// ==========================================================================
 // Host detail panel
 // ==========================================================================
 async function openHostPanel(id, ip) {
@@ -2511,93 +2618,26 @@ async function openHostPanel(id, ip) {
     const banners = a.banners || {};
     const httpProbe = String(banners._http || '');
 
+    const hn = String(a.hostname || '').trim();
+    document.getElementById('hp-title').textContent = hn
+        ? `${a.ip} (${a.category || 'unk'} / ${hn})`
+        : `${a.ip} (${a.category || 'unk'})`;
+
     const sevColor = {critical:'var(--red)',high:'#f97316',medium:'var(--amber)',low:'var(--blue)',none:'var(--tx3)'};
 
-    // IANA port names that are commonly wrong in practice
-    const MISLEADING_PORTS = {
-        3000:'Grafana / Homarr / dev server', 3001:'Uptime Kuma / Gitea / dev server',
-        3030:'Homepage dashboard', 5080:'OpenObserve / SIP alt',
-        5341:'Seq log server', 7070:'IPTV proxy / media', 8080:'HTTP app server',
-        8081:'HTTP alt', 8082:'HTTP alt', 8083:'HTTP alt',
-        8086:'InfluxDB / HTTP alt', 8088:'Splunk HEC', 8089:'Splunk management',
-        8101:'HTTP alt', 8181:'HTTP alt', 8383:'App server',
-        8443:'HTTPS alt', 8888:'Jupyter / HTTP alt',
-        9000:'Portainer / Minio / PHP-FPM', 9001:'Minio console',
-        9090:'Prometheus', 9091:'Prometheus pushgateway',
-        9443:'Portainer HTTPS', 9925:'FastAPI / Uvicorn',
-    };
-
-    // Aggregate product signals from per-port banners + merged HTTP probe blob.
-    const SERVICE_SIGS = [
-        ['Uptime Kuma', /uptime.?kuma/i],
-        ['Zabbix', /zabbix/i],
-        ['ntfy', /\bntfy\b/i],
-        ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
-        ['Proxmox VE', /proxmox|pve\./i],
-        ['Portainer', /portainer/i],
-        ['Grafana', /\bgrafana\b/i],
-        ['Prometheus', /prometheus/i],
-        ['Docker Engine', /docker/i],
-        ['Splunk', /\bsplunk\b/i],
-        ['Jupyter', /\bjupyter\b/i],
-        ['MinIO', /\bminio\b/i],
-        ['InfluxDB', /\binfluxdb?\b/i],
-        ['Werkzeug', /\bwerkzeug\b/i],
-        ['FastAPI', /\bfastapi\b|\buvicorn\b/i],
-        ['Homepage', /\bhomepage\b/i],
-        ['Homarr', /\bhomarr\b/i],
-        ['Jellyfin', /jellyfin/i],
-        ['Gitea', /\bgitea\b/i],
-        ['Nextcloud', /nextcloud/i],
-        ['Mastodon', /mastodon/i],
-        ['OpenObserve', /openobserve/i],
-    ];
-    const serviceHits = new Set();
-    const addServiceHit = (txt) => {
-        if (!txt) return;
-        for (const [name, rx] of SERVICE_SIGS) {
-            if (rx.test(txt)) serviceHits.add(name);
-        }
-    };
+    const serviceChips = collectDetectedServiceChips(ports, banners, httpProbe);
 
     const portRows = ports.length ? ports.map(p => {
         const rawBanner = banners[String(p)] || '';
-        // Banner format: "protocol service product version extrainfo"
-        // Split into service name and detail
-        const parts = rawBanner.split(' ');
-        const proto = parts[0] || '';  // e.g. "ssh", "http", "ssl/http"
-        const rest  = parts.slice(1).join(' '); // e.g. "OpenSSH 9.6p1 Ubuntu..."
-
-        // Determine what to show
-        let serviceLabel = '';
-        let detailLabel  = '';
-        let labelColor   = 'var(--tx3)';
-
-        if (rest) {
-            // Real banner detected — show it prominently
-            serviceLabel = rest;
-            labelColor   = 'var(--tx2)';
-            addServiceHit(rest);
-        } else if (MISLEADING_PORTS[p]) {
-            // Known misleading IANA name — show our hint instead
-            serviceLabel = MISLEADING_PORTS[p];
-            labelColor   = 'var(--tx3)';
-            addServiceHit(serviceLabel);
-        } else if (proto) {
-            // Use protocol from banner as fallback
-            serviceLabel = proto;
-            labelColor   = 'var(--tx3)';
-        } else {
-            serviceLabel = 'open';
-            labelColor   = 'var(--tx3)';
-        }
-        addServiceHit(rawBanner);
+        const friendly = buildFriendlyOpenPortLine(p, rawBanner, httpProbe, ports);
 
         return `<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)">
           <span style="font-family:var(--mf);font-size:12px;color:var(--acc);min-width:48px;flex-shrink:0">${p}</span>
-          <div style="min-width:0">
-            <div style="font-size:11px;color:${labelColor};word-break:break-all;line-height:1.4">${esc(serviceLabel)}</div>
-            ${rest && MISLEADING_PORTS[p] ? `<div style="font-size:10px;color:var(--tx3);margin-top:1px">hint: ${esc(MISLEADING_PORTS[p])}</div>` : ''}
+          <div style="min-width:0;flex:1">
+            <div style="font-size:11px;color:var(--tx2);word-break:break-word;line-height:1.45">
+              <span style="color:var(--tx3);font-family:var(--mf)">→</span>
+              ${esc(friendly)}
+            </div>
             ${rawBanner ? `<details style="margin-top:4px"><summary style="cursor:pointer;font-size:10px;color:var(--tx3)">raw banner</summary>
               <div style="margin-top:2px;font-size:10px;color:var(--tx2);font-family:var(--mf);word-break:break-all">${esc(rawBanner)}</div>
             </details>` : ''}
@@ -2605,10 +2645,9 @@ async function openHostPanel(id, ip) {
         </div>`;
     }).join('') : '<div style="color:var(--tx3);font-size:11px;padding:8px 0">No open ports detected</div>';
 
-    addServiceHit(httpProbe);
-    const serviceRows = serviceHits.size
+    const serviceRows = serviceChips.length
         ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${
-            Array.from(serviceHits).sort().map(s =>
+            serviceChips.map(s =>
                 `<span style="font-size:10px;font-family:var(--mf);padding:4px 7px;border:1px solid var(--bd2);border-radius:999px;color:var(--tx)">${esc(s)}</span>`
             ).join('')
           }</div>`
@@ -2624,7 +2663,7 @@ async function openHostPanel(id, ip) {
             <span style="font-size:10px;color:var(--tx3);margin-left:auto">${localDate(f.published)}</span>
           </div>
           <div style="font-size:11px;color:var(--tx2);line-height:1.5">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
-          ${!f.resolved ? `<button class="tbtn" style="font-size:10px;margin-top:4px" onclick="resolveFinding(${f.id},this);loadHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span style="font-size:10px;color:var(--green);font-family:var(--mf)">resolved</span>'}
+          ${!f.resolved ? `<button class="tbtn" style="font-size:10px;margin-top:4px" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span style="font-size:10px;color:var(--green);font-family:var(--mf)">resolved</span>'}
         </div>`).join('') : '<div style="color:var(--tx3);font-size:11px;padding:8px 0">No vulnerabilities found</div>';
 
     document.getElementById('hp-body').innerHTML = `

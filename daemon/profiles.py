@@ -96,12 +96,12 @@ class ScanProfile:
 
 # Minimal set — only the most common services, safe to probe on any network
 PORTS_MINIMAL = [
-    22, 80, 443, 8080, 8443,
+    22, 80, 81, 443, 8080, 8443,
 ]
 
 # Standard set — common services including self-hosted apps
 PORTS_STANDARD = [
-    21, 22, 23, 25, 53, 80, 110, 143, 161, 443, 445, 465, 587, 631,
+    21, 22, 23, 25, 53, 80, 81, 110, 143, 161, 443, 445, 465, 587, 631,
     1433, 1521, 3306, 5432, 6379, 8080, 8443, 9200, 27017,
     902, 903, 2375, 2376, 8006, 8007, 9443, 10051,
     3389, 5900, 5985, 5986,

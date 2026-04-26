@@ -135,7 +135,7 @@ LOG_LEVEL = logging.INFO
 # Safe port list — only these ports are touched in banner phase
 SAFE_PORTS = sorted(set([
     # Standard
-    21, 22, 23, 25, 53, 80, 110, 143, 161, 443, 445, 465, 587, 631,
+    21, 22, 23, 25, 53, 80, 81, 110, 143, 161, 443, 445, 465, 587, 631,
     # Databases
     1433, 1521, 3306, 5432, 5984, 6379, 7474, 9042, 9200, 27017,
     # Virtualization / containers
