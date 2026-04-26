@@ -3,7 +3,7 @@
  * SurveyTrace — /api/feeds.php
  *
  * POST /api/feeds.php?sync=1
- * Body: {"target":"oui"|"webfp"|"all"}
+ * Body: {"target":"nvd"|"oui"|"webfp"|"all"}
  *
  * Runs fingerprint feed sync scripts on demand and returns stdout/stderr.
  */
@@ -19,8 +19,8 @@ if (!isset($_GET['sync'])) {
 }
 
 $target = strtolower(trim((string)($body['target'] ?? 'all')));
-if (!in_array($target, ['oui', 'webfp', 'all'], true)) {
-    st_json(['error' => 'target must be oui, webfp, or all'], 400);
+if (!in_array($target, ['nvd', 'oui', 'webfp', 'all'], true)) {
+    st_json(['error' => 'target must be nvd, oui, webfp, or all'], 400);
 }
 
 $roots = array_values(array_unique(array_filter([
@@ -30,6 +30,7 @@ $roots = array_values(array_unique(array_filter([
 ])));
 
 $want = [];
+if ($target === 'all' || $target === 'nvd') $want[] = 'sync_nvd.py';
 if ($target === 'all' || $target === 'oui') $want[] = 'sync_oui.py';
 if ($target === 'all' || $target === 'webfp') $want[] = 'sync_webfp.py';
 

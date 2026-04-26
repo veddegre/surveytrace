@@ -721,6 +721,10 @@ textarea.finput{resize:vertical;min-height:72px}
           The NVD feed maps CPE strings to CVE IDs for offline vulnerability correlation.
           Run <code style="color:var(--acc)">sync_nvd.py</code> to refresh (auto-runs weekly via cron).
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
+          <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
+        </div>
       </div>
       <div class="card">
         <div class="ct">Fingerprint feed status</div>
@@ -1755,7 +1759,7 @@ async function refreshBadges() {
 }
 
 async function runFeedSync(target) {
-    const btnIds = ['btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
+    const btnIds = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
     btnIds.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
     toast('Starting ' + target + ' feed sync…', 'ok');
     const r = await apiPost('/api/feeds.php?sync=1', {target});
