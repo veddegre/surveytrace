@@ -1825,6 +1825,36 @@ def backfill_oui(conn: sqlite3.Connection) -> int:
     return updated
 
 
+def backfill_proxmox_hostnames(conn: sqlite3.Connection) -> int:
+    """
+    Backfill hostname from stored Proxmox web banners for legacy rows where
+    hostname is still blank.
+    """
+    rows = conn.execute(
+        "SELECT id, ip, hostname, banners FROM assets WHERE (hostname IS NULL OR hostname='')"
+    ).fetchall()
+    updated = 0
+    for row in rows:
+        try:
+            banners = json.loads(row["banners"] or "{}")
+        except Exception:
+            banners = {}
+        found = ""
+        for b in (banners.values() if isinstance(banners, dict) else []):
+            if not isinstance(b, str):
+                continue
+            m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
+            if m:
+                found = m.group(1).strip()
+                break
+        if found:
+            conn.execute("UPDATE assets SET hostname=? WHERE id=?", (found, row["id"]))
+            updated += 1
+    if updated:
+        log.info("Proxmox hostname backfill: updated %d assets", updated)
+    return updated
+
+
 # ---------------------------------------------------------------------------
 # Daemon main loop — job queue with priority, retry, and failure tracking
 # ---------------------------------------------------------------------------
@@ -1867,6 +1897,7 @@ def main() -> None:
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:
         backfill_oui(conn)
+        backfill_proxmox_hostnames(conn)
 
     retry_timers: dict[int, float] = {}  # job_id → time when ready to retry
 
