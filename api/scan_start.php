@@ -132,7 +132,7 @@ $rate_pps    = max(1,    min(50,   (int)($body['rate_pps']    ?? 5)));
 $inter_delay = max(0,    min(2000, (int)($body['inter_delay'] ?? 200)));
 
 // --- Profile -------------------------------------------------------------
-$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'ot_careful'];
+$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
 $profile = in_array($body['profile'] ?? '', $valid_profiles)
     ? $body['profile']
     : 'standard_inventory';

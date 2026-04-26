@@ -1,6 +1,6 @@
 # SurveyTrace
 
-A self-hosted network asset discovery and inventory platform for homelab and small business environments.
+A self-hosted network asset discovery and inventory platform for general-purpose networks.
 
 ## Features
 
@@ -9,7 +9,7 @@ A self-hosted network asset discovery and inventory platform for homelab and sma
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required)
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
-- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, OT Careful
+- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support
 - **Enrichment** — UniFi controller integration, SNMP, DHCP lease import, DNS log import, firewall log import, extensible source plugins
@@ -179,6 +179,7 @@ surveytrace/
 | Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ | ❌ |
 | Deep Scan | Full nmap -sV, SNMP, all ports — requires confirmation | ❌ | ❌ |
 | Full TCP | All TCP ports (-p-) with service detection, high coverage, slower | ❌ | ❌ |
+| Fast Full TCP | All TCP ports (-p-) with lighter/faster service detection | ❌ | ❌ |
 | OT Careful | Passive only, 2pps max rate | ✅ | ✅ |
 
 ## Discovery Modes

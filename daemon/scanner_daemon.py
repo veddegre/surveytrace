@@ -516,7 +516,7 @@ def phase_banner(
     nm  = nmap.PortScanner()
     # Use profile port list if available, fall back to SAFE_PORTS
     profile_obj  = get_profile(job.get("profile", DEFAULT_PROFILE) if job else DEFAULT_PROFILE)
-    scan_all_tcp = (profile_obj.name == "full_tcp")
+    scan_all_tcp = (profile_obj.name in ("full_tcp", "fast_full_tcp"))
     active_ports = profile_obj.port_list if profile_obj.port_list else SAFE_PORTS
     port_str     = "-" if scan_all_tcp else ",".join(str(p) for p in sorted(set(active_ports)))
     delay_s      = inter_delay_ms / 1000.0
@@ -534,7 +534,8 @@ def phase_banner(
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
         port_count     = 65535 if scan_all_tcp else len(active_ports)
         # Keep full-tcp host timeout bounded so progress remains responsive.
-        timeout_secs   = 300 if scan_all_tcp else max(60, port_count * 2 + 15)
+        # 120s is a practical ceiling for /24+ sweeps to avoid long stalls.
+        timeout_secs   = 90 if profile_obj.name == "fast_full_tcp" else (120 if scan_all_tcp else max(60, port_count * 2 + 15))
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
         nmap_args = (

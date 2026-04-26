@@ -413,7 +413,7 @@ textarea.finput{resize:vertical;min-height:72px}
       <div class="card">
         <div class="ct">Scan profile</div>
         <div style="display:grid;gap:8px">
-          <label class="profile-card on" id="prof-standard_inventory">
+          <label class="profile-card on" id="prof-standard_inventory" title="Balanced default: common ports, light banners, CVE correlation">
             <input type="radio" name="scan_profile" value="standard_inventory" checked style="display:none">
             <div class="pc-icon">&#128203;</div>
             <div style="flex:1">
@@ -421,7 +421,7 @@ textarea.finput{resize:vertical;min-height:72px}
               <div class="pc-desc">Common ports, light banner probing, CVE correlation</div>
             </div>
           </label>
-          <label class="profile-card" id="prof-iot_safe">
+          <label class="profile-card" id="prof-iot_safe" title="Safest option: passive-first, no banner probing">
             <input type="radio" name="scan_profile" value="iot_safe" style="display:none">
             <div class="pc-icon">&#128737;</div>
             <div style="flex:1">
@@ -430,7 +430,7 @@ textarea.finput{resize:vertical;min-height:72px}
             </div>
             <div class="pc-badge safe">Safe for IoT</div>
           </label>
-          <label class="profile-card" id="prof-deep_scan">
+          <label class="profile-card" id="prof-deep_scan" title="Deep inspection: more probes, higher traffic, best for targeted investigations">
             <input type="radio" name="scan_profile" value="deep_scan" style="display:none">
             <div class="pc-icon">&#128300;</div>
             <div style="flex:1">
@@ -439,7 +439,7 @@ textarea.finput{resize:vertical;min-height:72px}
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
-          <label class="profile-card" id="prof-full_tcp">
+          <label class="profile-card" id="prof-full_tcp" title="All 65,535 TCP ports with stronger service detection; slowest but deepest coverage">
             <input type="radio" name="scan_profile" value="full_tcp" style="display:none">
             <div class="pc-icon">&#129517;</div>
             <div style="flex:1">
@@ -448,7 +448,16 @@ textarea.finput{resize:vertical;min-height:72px}
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
-          <label class="profile-card" id="prof-ot_careful">
+          <label class="profile-card" id="prof-fast_full_tcp" title="All TCP ports with lighter detection for faster host turnover">
+            <input type="radio" name="scan_profile" value="fast_full_tcp" style="display:none">
+            <div class="pc-icon">&#9889;</div>
+            <div style="flex:1">
+              <div class="pc-name">Fast Full TCP</div>
+              <div class="pc-desc">All TCP ports (-p-) + lighter detection — faster turnover</div>
+            </div>
+            <div class="pc-badge warn">Confirmation required</div>
+          </label>
+          <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: passive-only defaults and strict rate limits">
             <input type="radio" name="scan_profile" value="ot_careful" style="display:none">
             <div class="pc-icon">&#9888;</div>
             <div style="flex:1">
@@ -457,6 +466,10 @@ textarea.finput{resize:vertical;min-height:72px}
             </div>
             <div class="pc-badge safe">Safe for OT</div>
           </label>
+        </div>
+        <div id="profile-help" style="margin-top:10px;padding:10px;border:1px solid var(--bd);border-radius:4px;font-size:12px;color:var(--tx2)">
+          <strong style="color:var(--tx)">Standard Inventory:</strong>
+          Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
         </div>
       </div>
 
@@ -567,6 +580,7 @@ textarea.finput{resize:vertical;min-height:72px}
         <option value="iot_safe">IoT Safe</option>
         <option value="deep_scan">Deep Scan</option>
         <option value="full_tcp">Full TCP</option>
+        <option value="fast_full_tcp">Fast Full TCP</option>
         <option value="ot_careful">OT Careful</option>
       </select>
 
@@ -1290,7 +1304,7 @@ async function startScan() {
     const profileVal  = profileEl ? profileEl.value : 'standard_inventory';
 
     // Confirmation required for dangerous profiles
-    if (['deep_scan', 'full_tcp', 'ot_careful'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
         if (!confirm(`Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`)) return;
     }
 
@@ -2315,6 +2329,40 @@ function filterVulnsByIP(ip) {
 }
 
 // Profile card selection
+const PROFILE_HELP_TEXT = {
+    standard_inventory: {
+        title: 'Standard Inventory',
+        text:  'Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.'
+    },
+    iot_safe: {
+        title: 'IoT Safe',
+        text:  'Passive-first and low risk. No banner probing or aggressive checks. Best for smart-home and sensitive embedded devices.'
+    },
+    deep_scan: {
+        title: 'Deep Scan',
+        text:  'Higher depth and higher traffic. Uses stronger service detection and enrichment for detailed investigations of selected scopes.'
+    },
+    full_tcp: {
+        title: 'Full TCP',
+        text:  'Scans all 65,535 TCP ports with deeper service detection. Highest coverage, longest runtime.'
+    },
+    fast_full_tcp: {
+        title: 'Fast Full TCP',
+        text:  'Scans all TCP ports with lighter detection and shorter host timeouts. Better responsiveness on /24 and larger sweeps.'
+    },
+    ot_careful: {
+        title: 'OT Careful',
+        text:  'Conservative profile for industrial environments. Passive-oriented defaults and strict pacing to minimize disruption risk.'
+    }
+};
+
+function updateProfileHelp(profile) {
+    const box = document.getElementById('profile-help');
+    if (!box) return;
+    const info = PROFILE_HELP_TEXT[profile] || PROFILE_HELP_TEXT.standard_inventory;
+    box.innerHTML = `<strong style="color:var(--tx)">${esc(info.title)}:</strong> ${esc(info.text)}`;
+}
+
 document.querySelectorAll('.profile-card').forEach(card => {
     card.addEventListener('click', () => {
         document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('on'));
@@ -2330,6 +2378,7 @@ document.querySelectorAll('.profile-card').forEach(card => {
                 el.closest('.tr2').style.opacity = allowBanner ? '1' : '0.4';
             }
         });
+        updateProfileHelp(profile);
     });
 });
 

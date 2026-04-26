@@ -10,6 +10,7 @@ Profile hierarchy (safest to most aggressive):
   standard_inventory — limited ports, light banners, common services
   deep_scan          — full nmap -sV, SNMP, CVE correlation
   full_tcp           — all TCP ports (-p-), high coverage, slower
+  fast_full_tcp      — all TCP ports (-p-), faster host turnover, lighter detection
   ot_careful         — passive only, explicit override required for any probing
 
 Each profile is a dict of constraints that the daemon enforces at runtime.
@@ -177,7 +178,7 @@ STANDARD_INVENTORY = ScanProfile(
     description = (
         "Balanced discovery with limited port scanning and light banner "
         "probing. Identifies common services on well-known ports. "
-        "Suitable for office networks, homelab, and most server environments. "
+        "Suitable for general-purpose networks and most server environments. "
         "Not recommended for sensitive IoT or OT environments."
     ),
     icon        = "📋",
@@ -281,6 +282,42 @@ FULL_TCP = ScanProfile(
     safe_for_ot          = False,
 )
 
+FAST_FULL_TCP = ScanProfile(
+    name        = "fast_full_tcp",
+    label       = "Fast Full TCP",
+    description = (
+        "Scans all 65,535 TCP ports with lighter service detection for faster "
+        "host turnover. Designed for broader sweeps where responsiveness matters "
+        "more than deep version fingerprinting accuracy."
+    ),
+    icon        = "⚡",
+
+    allow_arp          = True,
+    allow_icmp         = True,
+    allow_tcp_ping     = True,
+    allow_banner       = True,
+    allow_version_intensity = 2,
+    max_ports          = 65535,
+    port_list          = [],      # scanner_daemon interprets *_full_tcp as -p-
+
+    allow_snmp         = True,
+    allow_ot_probes    = False,
+    allow_mdns         = True,
+    allow_ssdp         = True,
+
+    allow_cve          = True,
+
+    max_rate_pps       = 80,
+    min_delay_ms       = 10,
+    max_rate_pps_cap   = 300,
+    per_host_probe_limit = 0,
+
+    require_confirmation = True,
+    allow_force_mode     = True,
+    safe_for_iot         = False,
+    safe_for_ot          = False,
+)
+
 OT_CAREFUL = ScanProfile(
     name        = "ot_careful",
     label       = "OT Careful",
@@ -329,6 +366,7 @@ PROFILES: dict[str, ScanProfile] = {
     "standard_inventory": STANDARD_INVENTORY,
     "deep_scan":          DEEP_SCAN,
     "full_tcp":           FULL_TCP,
+    "fast_full_tcp":      FAST_FULL_TCP,
     "ot_careful":         OT_CAREFUL,
 }
 
@@ -355,7 +393,7 @@ def validate_phases(profile: ScanProfile, requested_phases: list[str]) -> list[s
     if profile.allow_icmp:
         allowed.append("icmp")
 
-    if profile.allow_banner and (profile.port_list or profile.name == "full_tcp"):
+    if profile.allow_banner and (profile.port_list or profile.name in ("full_tcp", "fast_full_tcp")):
         allowed.append("banner")
         allowed.append("fingerprint")
 
