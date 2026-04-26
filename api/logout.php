@@ -10,12 +10,7 @@ require_once __DIR__ . '/db.php';
 st_method('POST');
 
 if (PHP_SAPI !== 'cli') {
-    session_name('st_sess');
-    session_start([
-        'cookie_httponly' => true,
-        'cookie_samesite' => 'Lax',
-        'use_strict_mode' => true,
-    ]);
+    st_session_start();
 
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {

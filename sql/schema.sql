@@ -118,4 +118,5 @@ INSERT OR IGNORE INTO config VALUES
     ('alert_email',     ''),
     ('scan_schedule',   ''),
     ('auth_hash',       ''),  -- bcrypt hash of web UI password
-    ('auth_mode',       'basic');  -- basic | session
+    ('auth_mode',       'basic'),  -- basic | session
+    ('session_timeout_minutes', '480');  -- idle timeout + session cookie max-age (5–10080)

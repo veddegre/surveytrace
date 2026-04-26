@@ -8,12 +8,8 @@
 
 require_once __DIR__ . '/db.php';
 
-session_name('st_sess');
-session_start([
-    'cookie_httponly' => true,
-    'cookie_samesite' => 'Lax',
-    'use_strict_mode' => true,
-]);
+st_session_start();
+st_session_touch_idle();
 
 $db = st_db();
 $mode = strtolower(trim(st_config('auth_mode', 'basic')));
@@ -24,11 +20,13 @@ $hash = st_config('auth_hash');
 $has_auth = !empty($hash);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
+    $timeoutMin = max(5, min(10080, (int)st_config('session_timeout_minutes', '480')));
     st_json([
         'ok' => true,
         'auth_mode' => $mode,
         'requires_auth' => $has_auth,
         'authed' => !empty($_SESSION['st_authed']) || (!$has_auth),
+        'session_timeout_minutes' => $timeoutMin,
     ]);
 }
 

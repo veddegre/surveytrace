@@ -26,12 +26,15 @@ sudo cp "$SRC"/api/enrichment.php      "$DEST/api/"
 sudo cp "$SRC"/api/dashboard.php       "$DEST/api/"
 sudo cp "$SRC"/api/feeds.php           "$DEST/api/"
 sudo cp "$SRC"/api/logout.php          "$DEST/api/"
+sudo cp "$SRC"/api/settings.php        "$DEST/api/"
 sudo cp "$SRC"/api/export.php          "$DEST/api/"
 echo "  API files deployed"
 
 # ---------------------------------------------------------------------------
 # Public (web UI)
 # ---------------------------------------------------------------------------
+sudo mkdir -p "$DEST/public/css"
+sudo cp "$SRC"/public/css/app.css      "$DEST/public/css/"
 sudo cp "$SRC"/public/index.php        "$DEST/public/"
 echo "  Web UI deployed"
 

@@ -47,6 +47,11 @@ function st_db(): PDO {
         $pdo->exec(file_get_contents(ST_SCHEMA));
     }
 
+    // Default for DBs created before session_timeout was added (no-op if row exists)
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('session_timeout_minutes', '480')"
+    );
+
     return $pdo;
 }
 
@@ -70,6 +75,66 @@ function st_config(string $key, string $default = ''): string {
 function st_config_set(string $key, string $value): void {
     st_db()->prepare("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)")
            ->execute([$key, $value]);
+}
+
+// ---------------------------------------------------------------------------
+// PHP session (cookie lifetime + idle timeout)
+// ---------------------------------------------------------------------------
+function st_session_lifetime_seconds(): int {
+    $min = (int)st_config('session_timeout_minutes', '480');
+    return max(5, min(10080, $min)) * 60;
+}
+
+/**
+ * Start the SurveyTrace session with cookie + gc lifetime from config.
+ * Call before reading $_SESSION (except CLI).
+ */
+function st_session_start(): void {
+    if (PHP_SAPI === 'cli' || session_status() === PHP_SESSION_ACTIVE) {
+        return;
+    }
+    $life = st_session_lifetime_seconds();
+    $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    session_set_cookie_params([
+        'lifetime' => $life,
+        'path'     => '/',
+        'secure'   => $secure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    ini_set('session.gc_maxlifetime', (string)$life);
+    session_name('st_sess');
+    session_start([
+        'cookie_httponly' => true,
+        'cookie_samesite' => 'Lax',
+        'use_strict_mode' => true,
+        'gc_maxlifetime'  => $life,
+    ]);
+}
+
+/**
+ * Sliding idle timeout: drop auth if inactive longer than configured lifetime.
+ * Refreshes last-activity time on each request while authenticated.
+ */
+function st_session_touch_idle(): void {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+    if (empty($_SESSION['st_authed'])) {
+        return;
+    }
+    $life = st_session_lifetime_seconds();
+    $at   = (int)($_SESSION['st_authed_at'] ?? 0);
+    if ($at <= 0) {
+        $_SESSION['st_authed_at'] = time();
+        return;
+    }
+    if ((time() - $at) > $life) {
+        $_SESSION = [];
+        session_regenerate_id(true);
+        return;
+    }
+    $_SESSION['st_authed_at'] = time();
 }
 
 // ---------------------------------------------------------------------------
@@ -119,12 +184,8 @@ function st_auth(): void {
     // Allow same-host requests from CLI (daemon health checks)
     if (PHP_SAPI === 'cli') return;
 
-    session_name('st_sess');
-    session_start([
-        'cookie_httponly' => true,
-        'cookie_samesite' => 'Lax',
-        'use_strict_mode' => true,
-    ]);
+    st_session_start();
+    st_session_touch_idle();
 
     // Already authenticated this session
     if (!empty($_SESSION['st_authed'])) return;
