@@ -1288,6 +1288,63 @@ def _version_affected(cve_description: str, detected_version: tuple[int, ...]) -
 
     return True  # couldn't determine — assume affected (conservative)
 
+
+def _should_skip_browser_scoped_cve(description: str, check_cpe: str) -> bool:
+    """
+    NVD sometimes links Mozilla-browser CVEs to broad CPE fragments that also
+    hit unrelated stacks (e.g. Expat issues 'affecting Firefox < 50' matched
+    via python:python). Drop when the prose clearly scopes to Firefox/Thunderbird
+    but the correlated CPE is not a Mozilla browser product.
+    """
+    cpe_l = check_cpe.lower()
+    if any(
+        s in cpe_l
+        for s in (
+            ":mozilla:firefox",
+            ":mozilla:thunderbird",
+            ":mozilla:seamonkey",
+        )
+    ):
+        return False
+    d = description.lower()
+    needles = (
+        "firefox <",
+        "firefox before",
+        "affects firefox",
+        "mozilla firefox",
+        "through firefox",
+        "in firefox ",
+        "thunderbird <",
+        "thunderbird before",
+        "affects thunderbird",
+        "mozilla thunderbird",
+    )
+    return any(n in d for n in needles)
+
+
+def _should_skip_expat_cve_on_python_cpe_only(description: str, check_cpe: str) -> bool:
+    """
+    Expat/libexpat CVEs correlated only from cpe:...:python:... are unreliable:
+    embedded libexpat tracks its own versions, and _version_affected() may
+    mis-compare CPython semver against expat bounds in the same description.
+    Keep the CVE if the text clearly ties to CPython or we have an expat CPE.
+    """
+    cpe_l = check_cpe.lower()
+    if "expat" in cpe_l or "libexpat" in cpe_l:
+        return False
+    if ":python:" not in cpe_l:
+        return False
+    d = description.lower()
+    if "expat" not in d:
+        return False
+    if "cpython" in d or " in cpython" in d or "python's" in d:
+        return False
+    # Wording like "Python before 3.x" (CPython ships pyexpat/expat)
+    if re.search(r"python\s+before\s+3\.", d):
+        return False
+    return True
+
+
 def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
     """
     Match CPE strings against the NVD SQLite database.
@@ -1412,6 +1469,24 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
                 if any(role in desc for role in skip_roles):
                     log.debug("Skipping %s — role-specific CVE not applicable to %s",
                               m["cve_id"], asset.get("ip"))
+                    continue
+
+                if _should_skip_browser_scoped_cve(m.get("description", ""), check_cpe):
+                    log.debug(
+                        "Skipping %s — browser-scoped CVE without Mozilla browser CPE (%s)",
+                        m["cve_id"],
+                        check_cpe,
+                    )
+                    continue
+
+                if _should_skip_expat_cve_on_python_cpe_only(
+                    m.get("description", ""), check_cpe
+                ):
+                    log.debug(
+                        "Skipping %s — Expat CVE on python CPE only (%s)",
+                        m["cve_id"],
+                        check_cpe,
+                    )
                     continue
 
                 all_matches[m["cve_id"]] = m
