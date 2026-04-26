@@ -173,6 +173,7 @@ PYTHON_PKGS=(
     "scapy>=2.5"
     "python-nmap>=0.7"
     "requests>=2.28"
+    "pysnmp>=4.4"
 )
 
 for pkg in "${PYTHON_PKGS[@]}"; do
@@ -182,7 +183,7 @@ done
 ok "Python packages installed"
 
 # Verify critical imports
-"$VENV_DIR/bin/python3" -c "import nmap; import scapy; import requests" 2>/dev/null && \
+"$VENV_DIR/bin/python3" -c "import nmap; import scapy; import requests; import pysnmp" 2>/dev/null && \
     ok "Python imports verified" || \
     warn "One or more Python imports failed — check $VENV_DIR/bin/pip list"
 

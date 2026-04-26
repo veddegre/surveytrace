@@ -132,7 +132,13 @@ class SNMPSource(EnrichmentSource):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
-        self.targets   = config.get("targets", [])
+        raw_targets = config.get("targets", [])
+        if isinstance(raw_targets, str):
+            self.targets = [t.strip() for t in raw_targets.split(",") if t.strip()]
+        elif isinstance(raw_targets, list):
+            self.targets = [str(t).strip() for t in raw_targets if str(t).strip()]
+        else:
+            self.targets = []
         self.community = config.get("community", "public")
         self.version   = config.get("version", "2c")
         self.port      = int(config.get("port", 161))
@@ -457,6 +463,9 @@ class SNMPSource(EnrichmentSource):
         Returns enrichment records for every host in those ARP tables.
         """
         results: dict[str, dict] = {}   # keyed by IP
+        if not self._has_pysnmp():
+            log.warning("pysnmp not installed — SNMP enrichment unavailable")
+            return []
         mac_to_ip_global: dict[str, str] = {}
 
         for target in self.targets:
