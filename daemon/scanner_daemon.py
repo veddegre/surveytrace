@@ -1920,12 +1920,52 @@ def backfill_proxmox_hostnames(conn: sqlite3.Connection) -> int:
     return updated
 
 
+def recover_stale_running_jobs(conn: sqlite3.Connection) -> int:
+    """
+    On daemon startup, mark any leftover 'running' jobs as aborted.
+    These can happen if the daemon/service restarts mid-scan.
+    """
+    rows = conn.execute(
+        "SELECT id FROM scan_jobs WHERE status='running'"
+    ).fetchall()
+    if not rows:
+        return 0
+
+    recovered = 0
+    recovered_ids: list[int] = []
+    for row in rows:
+        jid = int(row["id"])
+        conn.execute("""
+            UPDATE scan_jobs
+            SET status='aborted',
+                finished_at=CURRENT_TIMESTAMP,
+                error_msg=COALESCE(error_msg,'') ||
+                          CASE WHEN COALESCE(error_msg,'')='' THEN '' ELSE ' | ' END ||
+                          'Daemon restarted while scan was running'
+            WHERE id=? AND status='running'
+        """, (jid,))
+        try:
+            log_event(conn, jid, "WARN", "Job auto-aborted after daemon restart")
+        except Exception:
+            pass
+        recovered += 1
+        recovered_ids.append(jid)
+
+    if recovered:
+        log.warning(
+            "Recovered %d stale running job(s) from previous daemon session: %s",
+            recovered, ",".join(str(x) for x in recovered_ids)
+        )
+    return recovered
+
+
 # ---------------------------------------------------------------------------
 # Daemon main loop — job queue with priority, retry, and failure tracking
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     log.info("SurveyTrace scanner daemon starting (db: %s)", DB_PATH)
+    log.info("Daemon startup marker: pid=%d ts=%s", os.getpid(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Load synced fingerprint feeds if present
@@ -1966,6 +2006,7 @@ def main() -> None:
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:
+        recover_stale_running_jobs(conn)
         backfill_oui(conn)
         backfill_proxmox_hostnames(conn)
 
