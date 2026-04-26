@@ -418,8 +418,6 @@ class SNMPSource(EnrichmentSource):
 
         for suffix, mac in mac_by_suffix.items():
             ip = mac_to_ip.get(mac, "")
-            if not ip:
-                continue
             bridge_port = port_by_suffix.get(suffix, "")
             ifindex = ifindex_by_baseport.get(bridge_port, "")
             ifdescr = ifdescr_by_ifindex.get(ifindex, "")
@@ -492,7 +490,11 @@ class SNMPSource(EnrichmentSource):
             mac_to_ip_global.update(mac_to_ip_local)
             fdb_entries = self._query_switch_fdb(target, mac_to_ip_global)
             if fdb_entries:
-                log.info("SNMP: got %d FDB entries with IP correlation from %s", len(fdb_entries), target)
+                fdb_with_ip = sum(1 for e in fdb_entries if e.get("ip"))
+                log.info(
+                    "SNMP: got %d FDB entries from %s (%d correlated to IP)",
+                    len(fdb_entries), target, fdb_with_ip
+                )
 
             for entry in arp_entries:
                 ip  = entry.get("ip", "")

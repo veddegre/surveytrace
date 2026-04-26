@@ -648,9 +648,10 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
     if not rows:
         return {}
 
-    enrichment_map: dict[str, dict] = {}   # ip → best record
+    enrichment_map: dict[str, dict] = {}   # ip or "mac:<addr>" -> best record
     source_counts: dict[str, int] = {}     # source_type -> raw records fetched
     source_applied: dict[str, int] = {}    # source_type -> unique IP records applied
+    source_applied_mac: dict[str, int] = {}  # source_type -> unique MAC-only records applied
 
     for row in rows:
         source = load_source(dict(row))
@@ -664,12 +665,18 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
             log.info("[job %d] Enrichment: got %d records from %s",
                      job_id, len(records), source_name)
             applied_here = 0
+            applied_mac_here = 0
             for rec in records:
                 ip  = rec.get("ip", "")
+                mac = (rec.get("mac") or "").strip().lower()
                 if ip:
                     enrichment_map[ip] = rec
                     applied_here += 1
+                elif mac:
+                    enrichment_map[f"mac:{mac}"] = rec
+                    applied_mac_here += 1
             source_applied[source_name] = source_applied.get(source_name, 0) + applied_here
+            source_applied_mac[source_name] = source_applied_mac.get(source_name, 0) + applied_mac_here
         except Exception as e:
             log_event(conn, job_id, "WARN",
                       f"Enrichment source '{row['source_type']}' error: {e}")
@@ -678,7 +685,10 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
     if source_counts:
         parts = []
         for src in sorted(source_counts.keys()):
-            parts.append(f"{src} raw={source_counts[src]} applied={source_applied.get(src, 0)}")
+            parts.append(
+                f"{src} raw={source_counts[src]} applied_ip={source_applied.get(src, 0)} "
+                f"applied_mac={source_applied_mac.get(src, 0)}"
+            )
         log_event(conn, job_id, "INFO", "Enrichment source totals: " + " | ".join(parts))
     return enrichment_map
 
@@ -1698,6 +1708,8 @@ def run_scan(job: dict) -> None:
 
         # Apply enrichment data — fills in MAC, hostname, vendor for cross-subnet hosts
         enrich = enrichment_map.get(ip, {})
+        if (not enrich) and mac:
+            enrich = enrichment_map.get(f"mac:{str(mac).strip().lower()}", {})
         if enrich:
             sources.append("enrichment_source")
             enrich_src = str(enrich.get("source", "") or "").lower()
