@@ -12,7 +12,7 @@ A self-hosted network asset discovery and inventory platform for homelab and sma
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support
-- **Enrichment** — UniFi controller integration, SNMP, DHCP lease import, extensible source plugins
+- **Enrichment** — UniFi controller integration, SNMP, DHCP lease import, DNS log import, extensible source plugins
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
@@ -156,6 +156,7 @@ surveytrace/
 │       ├── unifi.py        UniFi controller
 │       ├── snmp.py         SNMP polling
 │       ├── dhcp.py         Generic DHCP lease import
+│       ├── dns_logs.py     Generic DNS log import
 │       └── stubs.py        Plugin stubs (Cisco, Meraki, etc.)
 ├── public/
 │   └── index.php           Single-page web UI
@@ -192,6 +193,7 @@ surveytrace/
 | UniFi | Pulls client list, hostnames, device info from UniFi controller | ✅ Available |
 | SNMP | Polls routers/switches for ARP tables and interface data | ✅ Available |
 | DHCP Leases (generic) | Imports hostnames/MACs from router DHCP lease files (dnsmasq/ISC/JSON) | ✅ Available |
+| DNS Logs (generic) | Imports host hints from DNS query logs (Pi-hole/dnsmasq/BIND/JSON) | ✅ Available |
 | Cisco DNA Center | Network device inventory | 🔧 Stub |
 | Cisco Meraki | Cloud-managed network devices | 🔧 Stub |
 | Juniper Mist | Cloud-managed wireless | 🔧 Stub |
@@ -213,9 +215,9 @@ Completed:
 - Randomized MAC detection and labeling
 - Per-host discovery source tracking (how was this host found?)
 - DHCP lease import (generic lease files: dnsmasq / ISC / JSON)
+- DNS log import (generic parsers: Pi-hole / dnsmasq / BIND / JSON)
 
 Remaining:
-- DNS log import
 - LLDP/CDP neighbor discovery
 - Switch MAC table import via SNMP
 - Firewall log import

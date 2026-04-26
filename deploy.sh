@@ -46,6 +46,7 @@ sudo cp "$SRC"/daemon/sources/__init__.py  "$DEST/daemon/sources/" 2>/dev/null |
 sudo cp "$SRC"/daemon/sources/unifi.py     "$DEST/daemon/sources/" 2>/dev/null || true
 sudo cp "$SRC"/daemon/sources/snmp.py      "$DEST/daemon/sources/" 2>/dev/null || true
 sudo cp "$SRC"/daemon/sources/dhcp.py      "$DEST/daemon/sources/" 2>/dev/null || true
+sudo cp "$SRC"/daemon/sources/dns_logs.py  "$DEST/daemon/sources/" 2>/dev/null || true
 sudo cp "$SRC"/daemon/sources/stubs.py     "$DEST/daemon/sources/" 2>/dev/null || true
 
 # sync_nvd.py only if it exists (large script, less frequently changed)

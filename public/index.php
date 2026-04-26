@@ -807,6 +807,7 @@ textarea.finput{resize:vertical;min-height:72px}
       <option value="unifi">UniFi / UDM</option>
       <option value="snmp">SNMP (universal)</option>
       <option value="dhcp_leases">DHCP leases (generic)</option>
+      <option value="dns_logs">DNS logs (generic)</option>
       <option value="ms_dns">Microsoft DNS</option>
       <option value="cisco_dna">Cisco DNA Center (stub)</option>
       <option value="meraki">Cisco Meraki (stub)</option>
@@ -1555,6 +1556,13 @@ var SOURCE_FIELDS = {
         {id:'paths',           label:'Lease file paths (comma-separated)', type:'text', placeholder:'/var/lib/misc/dnsmasq.leases', default:'/var/lib/misc/dnsmasq.leases'},
         {id:'format',          label:'Lease format',                       type:'select', options:['auto','dnsmasq','isc','json'], default:'auto'},
         {id:'include_expired', label:'Include expired leases (true/false)', type:'text', placeholder:'false', default:'false'},
+    ],
+    dns_logs: [
+        {id:'paths',            label:'DNS log paths (comma-separated)', type:'text', placeholder:'/var/log/pihole/pihole.log,/var/log/dnsmasq.log', default:'/var/log/pihole/pihole.log'},
+        {id:'parser',           label:'Parser mode',                      type:'select', options:['auto','pihole','dnsmasq','bind','jsonl','json'], default:'auto'},
+        {id:'allowed_suffixes', label:'Allowed suffixes (optional)',      type:'text', placeholder:'lan,home.arpa,local', default:''},
+        {id:'include_reverse',  label:'Include PTR/reverse lookups (true/false)', type:'text', placeholder:'false', default:'false'},
+        {id:'max_age_hours',    label:'Max age hours (0 disables)',       type:'number', placeholder:'168', default:'168'},
     ],
     ms_dns: [
         {id:'dns_server', label:'DNS server IP',   type:'text', placeholder:'10.0.0.5'},
