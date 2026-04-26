@@ -847,7 +847,7 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"Grandstream",                 "voi",  "grandstream:gxp"),
     (r"Polycom",                     "voi",  "polycom:realpresence"),
     (r"Yealink",                     "voi",  "yealink:sip"),
-    (r"Cisco IP Phone|SEP[0-9A-F]",  "voi",  "cisco:ip_phone"),
+    (r"Cisco IP Phone|SEP[0-9A-F]{12}",  "voi",  "cisco:ip_phone"),
     (r"Asterisk",                    "voi",  "digium:asterisk"),
     (r"FreeSWITCH",                  "voi",  "freeswitch:freeswitch"),
 

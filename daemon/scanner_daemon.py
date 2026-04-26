@@ -1440,12 +1440,16 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         hit = _classify_http_probe_blob(http_probe)
         if hit:
             cat_hit, prod = hit
-            if prod and (not fp.get("vendor") or cat_hit == "voi"):
+            current_vendor = (fp.get("vendor") or "").strip().lower()
+            current_cpe = (fp.get("cpe") or "").lower()
+            weak_vendor = current_vendor in {"cisco", "cisco voip", "unknown"}
+            weak_cpe = "cisco:ip_phone" in current_cpe or current_cpe.endswith(":sip:*")
+            if prod and (not fp.get("vendor") or cat_hit == "voi" or weak_vendor or weak_cpe):
                 fp["vendor"] = prod
             if cat_hit == "voi":
                 fp["category"] = "voi"
             elif port_cat_effective not in ("hv", "ot") and fp["category"] in (
-                "unk", "srv", "ws", "net", "",
+                "unk", "srv", "ws", "net", "voi", "",
             ):
                 fp["category"] = cat_hit
         elif port_cat_effective not in ("hv", "ot"):
