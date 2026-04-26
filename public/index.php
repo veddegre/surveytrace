@@ -806,6 +806,7 @@ textarea.finput{resize:vertical;min-height:72px}
     <select class="finp" id="esrc-type" style="width:100%;margin-bottom:10px" onchange="updateSourceFields()">
       <option value="unifi">UniFi / UDM</option>
       <option value="snmp">SNMP (universal)</option>
+      <option value="dhcp_leases">DHCP leases (generic)</option>
       <option value="ms_dns">Microsoft DNS</option>
       <option value="cisco_dna">Cisco DNA Center (stub)</option>
       <option value="meraki">Cisco Meraki (stub)</option>
@@ -1549,6 +1550,11 @@ var SOURCE_FIELDS = {
         {id:'community', label:'Community string',                     type:'text',   placeholder:'public',       default:'public'},
         {id:'version',   label:'SNMP version',                        type:'select', options:['2c','3'],          default:'2c'},
         {id:'port',      label:'Port',                                 type:'number', placeholder:'161',           default:'161'},
+    ],
+    dhcp_leases: [
+        {id:'paths',           label:'Lease file paths (comma-separated)', type:'text', placeholder:'/var/lib/misc/dnsmasq.leases', default:'/var/lib/misc/dnsmasq.leases'},
+        {id:'format',          label:'Lease format',                       type:'select', options:['auto','dnsmasq','isc','json'], default:'auto'},
+        {id:'include_expired', label:'Include expired leases (true/false)', type:'text', placeholder:'false', default:'false'},
     ],
     ms_dns: [
         {id:'dns_server', label:'DNS server IP',   type:'text', placeholder:'10.0.0.5'},

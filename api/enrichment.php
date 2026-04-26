@@ -63,6 +63,7 @@ if ($method === 'GET') {
     $available_types = [
         ['type' => 'unifi',       'label' => 'UniFi / UDM',          'status' => 'ready'],
         ['type' => 'snmp',        'label' => 'SNMP (universal)',       'status' => 'ready'],
+        ['type' => 'dhcp_leases', 'label' => 'DHCP Leases (generic)',  'status' => 'ready'],
         ['type' => 'ms_dns',      'label' => 'Microsoft DNS',          'status' => 'partial'],
         ['type' => 'cisco_dna',   'label' => 'Cisco DNA Center',       'status' => 'stub'],
         ['type' => 'meraki',      'label' => 'Cisco Meraki',           'status' => 'stub'],
@@ -97,6 +98,20 @@ if (isset($_GET['test'])) {
     // For now return a placeholder — full implementation via Python subprocess
     $config = json_decode($row['config_json'] ?? '{}', true) ?: [];
     $host   = trim($config['host'] ?? '');
+    if ($row['source_type'] === 'dhcp_leases') {
+        $paths = trim((string)($config['paths'] ?? ''));
+        if ($paths === '') {
+            st_json(['ok' => false, 'message' => 'No lease file paths configured'], 400);
+        }
+        $msg = "DHCP lease source configured. Validation runs in daemon at scan time.";
+        $ok  = 1;
+        $db->prepare("
+            UPDATE enrichment_sources
+            SET last_tested=CURRENT_TIMESTAMP, last_test_ok=?, last_test_msg=?
+            WHERE id=?
+        ")->execute([$ok, $msg, $id]);
+        st_json(['ok' => true, 'message' => $msg]);
+    }
 
     if (empty($host)) {
         st_json(['ok' => false, 'message' => 'No host configured for this source'], 400);
@@ -106,6 +121,7 @@ if (isset($_GET['test'])) {
     $default_ports = [
         'unifi'        => 443,
         'snmp'         => 161,
+        'dhcp_leases'  => 0,
         'ms_dns'       => 53,
         'cisco_dna'    => 443,
         'meraki'       => 443,
@@ -157,7 +173,7 @@ $label       = substr(trim($body['label'] ?? ''), 0, 100);
 $enabled     = (int)($body['enabled'] ?? 0);
 $priority    = max(1, min(100, (int)($body['priority'] ?? 10)));
 
-$allowed_types = ['unifi','snmp','ms_dns','cisco_dna','meraki',
+$allowed_types = ['unifi','snmp','dhcp_leases','ms_dns','cisco_dna','meraki',
                   'juniper_mist','infoblox','palo_alto'];
 if (!in_array($source_type, $allowed_types)) {
     st_json(['error' => "Unknown source type: $source_type"], 400);

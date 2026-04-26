@@ -56,6 +56,7 @@ from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE
 try:
     import sources.unifi   # noqa: F401
     import sources.snmp    # noqa: F401
+    import sources.dhcp    # noqa: F401
     import sources.stubs   # noqa: F401
     from sources import load_source
     HAS_ENRICHMENT = True
@@ -1680,14 +1681,16 @@ def run_scan(job: dict) -> None:
         enrich = enrichment_map.get(ip, {})
         if enrich:
             sources.append("enrichment_source")
+            enrich_src = str(enrich.get("source", "") or "").lower()
+            from_dhcp = "dhcp" in enrich_src
             # Enrichment MAC wins if we didn't get one from ARP (cross-subnet case)
             if not mac and enrich.get("mac"):
                 mac = enrich["mac"]
-                sources.append("mac_from_enrichment")
+                sources.append("mac_from_dhcp_lease" if from_dhcp else "mac_from_enrichment")
             # Enrichment hostname wins if scanner got nothing
             if not hostname and enrich.get("hostname"):
                 hostname = enrich["hostname"]
-                sources.append("hostname_from_enrichment")
+                sources.append("hostname_from_dhcp_lease" if from_dhcp else "hostname_from_enrichment")
 
         with db_conn() as conn:
             asset = upsert_asset(
