@@ -1133,6 +1133,10 @@ def fingerprint(
             # protocol signals (e.g., RDP/SMB, hypervisor, OT).
             if banner_cat == "prn" and port_cat in ("ws", "srv", "hv", "ot"):
                 skip_generic_banner = True
+            # If protocol signals already indicate Windows workstation/server traits,
+            # avoid downgrading CPE to generic web stack software.
+            elif port_cat == "ws" and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
+                skip_generic_banner = True
             if port_set & {8006, 8007} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
                 skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
             elif port_set & {902, 903} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
@@ -1174,5 +1178,7 @@ def fingerprint(
         result["os_guess"] = m.group(1)
     elif m := re.search(r"(Ubuntu|Debian|CentOS|Rocky|Alma|Fedora|Arch)", combined, re.I):
         result["os_guess"] = m.group(1)
+    elif port_cat == "ws" and (3389 in port_set or 445 in port_set or 5985 in port_set or 5986 in port_set):
+        result["os_guess"] = "Windows"
 
     return result
