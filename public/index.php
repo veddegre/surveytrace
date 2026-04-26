@@ -776,13 +776,14 @@ function hiNav(id) {
 // ==========================================================================
 // Fetch helper
 // ==========================================================================
-async function api(url) {
+async function api(url, opts) {
+    const quiet = !!(opts && opts.quiet);
     try {
         const r = await fetch(url, {credentials: 'same-origin'});
         if (!r.ok) {
             if (r.status === 401) {
                 handleAuthRequired();
-            } else {
+            } else if (!quiet) {
                 toast('API request failed: HTTP ' + r.status, 'err');
             }
             throw new Error('HTTP ' + r.status);
@@ -1177,7 +1178,7 @@ function startPoll(jobId) {
 }
 
 async function pollJob(jobId) {
-    const d = await api(`/api/scan_status.php?job_id=${jobId}&since_log_id=${logSinceId}&log_limit=100`);
+    const d = await api(`/api/scan_status.php?job_id=${jobId}&since_log_id=${logSinceId}&log_limit=100`, {quiet:true});
     if (!d || !d.job) return;
 
     const job = d.job;
@@ -1219,7 +1220,7 @@ async function pollJob(jobId) {
         if (currentTab === 'dash') loadDashboard();
         // Check if another job is queued and auto-start polling it
         setTimeout(async () => {
-            const next = await api('/api/scan_status.php?log_limit=1');
+            const next = await api('/api/scan_status.php?log_limit=1', {quiet:true});
             if (next && next.job && next.job.status === 'running') {
                 activeJobId = next.job.id;
                 showScanRunning(activeJobId);
@@ -1233,7 +1234,7 @@ async function pollJob(jobId) {
 }
 
 async function loadScanStatus() {
-    const d = await api('/api/scan_status.php?log_limit=50');
+    const d = await api('/api/scan_status.php?log_limit=50', {quiet:true});
     if (!d) return;
     if (d.job) {
         if (d.job.status === 'running' || d.job.status === 'queued') {
@@ -1247,7 +1248,7 @@ async function loadScanStatus() {
 
 async function loadScanHistory(history) {
     if (!history) {
-        const d = await api('/api/scan_status.php?log_limit=1');
+        const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});
         history = d ? d.history : [];
     }
     const statColors = {done:'var(--green)', failed:'var(--red)', aborted:'var(--amber)', running:'var(--acc)', queued:'var(--tx3)'};
