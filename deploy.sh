@@ -62,6 +62,8 @@ echo "  Daemon files deployed"
 # ---------------------------------------------------------------------------
 if id surveytrace >/dev/null 2>&1; then
   sudo usermod -aG surveytrace www-data 2>/dev/null || true
+  # venv must be writable by app user for pip installs/upgrades
+  sudo chown -R surveytrace:surveytrace "$DEST/venv" 2>/dev/null || true
   # Parent dirs must be traversable for web-triggered script execution
   sudo chmod 755 "$DEST" 2>/dev/null || true
   sudo chmod 755 "$DEST/venv" "$DEST/venv/bin" 2>/dev/null || true
