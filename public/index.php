@@ -783,6 +783,7 @@ var themeMediaListener = null;
 var execPreviousTab = null;
 var feedSyncInProgress = false;
 var feedSyncActiveTarget = null;
+var feedSyncPollTimer = null;
 
 // ==========================================================================
 // Nav
@@ -1948,9 +1949,8 @@ async function runFeedSync(target) {
         });
     };
 
-    finalizeSyncUi();
-    
     if (!r) {
+        finalizeSyncUi();
         feedSyncLastOutput = '[client] Feed sync request failed (no response)';
         toast('Feed sync request failed', 'err');
         if (target === 'nvd' || target === 'all') {
@@ -1967,16 +1967,10 @@ async function runFeedSync(target) {
         }
         return;
     }
-    const lines = [];
-    lines.push(`target=${target} ok=${!!r.ok}`);
-    for (const res of (r.results || [])) {
-        lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
-        lines.push((res.output || '').trim() || '(no output)');
-    }
-    feedSyncLastOutput = lines.join('\n');
     if (!r.ok) {
-        const msg = (r.results && r.results.find(x => !x.ok)?.output) || r.error || 'Sync failed';
-        toast(msg.slice(0, 120), 'err');
+        finalizeSyncUi();
+        const msg = r.error || 'Sync failed';
+        toast(String(msg).slice(0, 120), 'err');
         if (target === 'nvd' || target === 'all') {
             if (nvdStatus) {
                 nvdStatus.className = 'sync-status err';
@@ -1993,22 +1987,35 @@ async function runFeedSync(target) {
         return;
     }
 
-    const names = (r.results || []).map(x => x.script.replace('.py', '')).join(', ');
-    toast('Feed sync complete: ' + names, 'ok');
-    if (target === 'nvd' || target === 'all') {
-        if (nvdStatus) {
-            nvdStatus.className = 'sync-status ok';
-            nvdStatus.textContent = 'Sync complete.';
+    toast('Feed sync started in background', 'ok');
+    if (feedSyncPollTimer) clearInterval(feedSyncPollTimer);
+    feedSyncPollTimer = setInterval(async () => {
+        const s = await api('/api/feeds.php?status=1', {quiet:true});
+        if (!s) return;
+        if (s.output) feedSyncLastOutput = s.output;
+        if (s.running) return;
+
+        clearInterval(feedSyncPollTimer);
+        feedSyncPollTimer = null;
+        finalizeSyncUi();
+
+        const ok = !!s.sync_ok;
+        if (target === 'nvd' || target === 'all') {
+            if (nvdStatus) {
+                nvdStatus.className = ok ? 'sync-status ok' : 'sync-status err';
+                nvdStatus.textContent = ok ? 'Sync complete.' : 'Sync failed. See output for details.';
+            }
         }
-    }
-    if (target === 'oui' || target === 'webfp' || target === 'all') {
-        if (fpStatus) {
-            fpStatus.className = 'sync-status ok';
-            fpStatus.textContent = 'Sync complete.';
+        if (target === 'oui' || target === 'webfp' || target === 'all') {
+            if (fpStatus) {
+                fpStatus.className = ok ? 'sync-status ok' : 'sync-status err';
+                fpStatus.textContent = ok ? 'Sync complete.' : 'Sync failed. See output for details.';
+            }
         }
-    }
-    await loadDashboard(); // refresh status timestamps/counts in Settings
-    openFeedSyncOutput();
+        toast(ok ? 'Feed sync complete' : 'Feed sync failed', ok ? 'ok' : 'err');
+        await loadDashboard();
+        openFeedSyncOutput();
+    }, 2000);
 }
 
 function openFeedSyncOutput() {
