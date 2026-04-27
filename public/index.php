@@ -544,6 +544,15 @@
           <input class="finp" type="number" id="st-session-timeout-min" min="5" max="10080" step="1" style="width:120px" value="480">
           <button class="btnp" type="button" onclick="saveSessionTimeout()">Save</button>
         </div>
+        <label class="flbl" style="margin-top:12px">Extra routed safe ports (comma-separated)</label>
+        <div style="font-size:11px;color:var(--tx3);line-height:1.6;margin-bottom:6px">
+          Added only to routed <code style="color:var(--acc)">fast_full_tcp</code> safe-port scans.
+          Example: <code style="color:var(--acc)">10000,15672,11434</code>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="finp" type="text" id="st-extra-safe-ports" style="min-width:280px;flex:1" placeholder="10000,15672,11434">
+          <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
+        </div>
       </div>
       <div class="card">
         <div class="ct">NVD feed status</div>
@@ -1577,6 +1586,8 @@ async function loadUiSettings() {
     if (!d || !d.ok) return;
     const inp = document.getElementById('st-session-timeout-min');
     if (inp) inp.value = String(d.session_timeout_minutes);
+    const extra = document.getElementById('st-extra-safe-ports');
+    if (extra) extra.value = String(d.extra_safe_ports || '');
 }
 
 async function saveSessionTimeout() {
@@ -1588,6 +1599,18 @@ async function saveSessionTimeout() {
     if (r && r.ok) {
         if (inp) inp.value = String(r.session_timeout_minutes);
         toast('Session timeout updated', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function saveExtraSafePorts() {
+    const inp = document.getElementById('st-extra-safe-ports');
+    const raw = String(inp && inp.value ? inp.value : '').trim();
+    const r = await apiPost('/api/settings.php', { extra_safe_ports: raw });
+    if (r && r.ok) {
+        if (inp) inp.value = String(r.extra_safe_ports || '');
+        toast('Extra routed safe ports updated', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
     }

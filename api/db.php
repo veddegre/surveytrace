@@ -51,6 +51,9 @@ function st_db(): PDO {
     $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('session_timeout_minutes', '480')"
     );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('extra_safe_ports', '')"
+    );
 
     return $pdo;
 }

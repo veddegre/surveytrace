@@ -119,4 +119,5 @@ INSERT OR IGNORE INTO config VALUES
     ('scan_schedule',   ''),
     ('auth_hash',       ''),  -- bcrypt hash of web UI password
     ('auth_mode',       'basic'),  -- basic | session
-    ('session_timeout_minutes', '480');  -- idle timeout + session cookie max-age (5–10080)
+    ('session_timeout_minutes', '480'),  -- idle timeout + session cookie max-age (5–10080)
+    ('extra_safe_ports', '');  -- comma-separated additional ports for routed fast_full_tcp safe scan

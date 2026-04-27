@@ -230,6 +230,32 @@ def db_conn() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+def _load_extra_safe_ports() -> list[int]:
+    """
+    Load optional comma/space-separated extra safe ports from config.extra_safe_ports.
+    Returns sorted deduped valid ports in [1, 65535].
+    """
+    try:
+        with db_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM config WHERE key='extra_safe_ports'"
+            ).fetchone()
+    except Exception:
+        return []
+    raw = str(row["value"] if row and row["value"] is not None else "").strip()
+    if not raw:
+        return []
+    out: set[int] = set()
+    for tok in re.split(r"[\s,]+", raw):
+        tok = tok.strip()
+        if not tok or not tok.isdigit():
+            continue
+        p = int(tok)
+        if 1 <= p <= 65535:
+            out.add(p)
+    return sorted(out)
+
+
 def log_event(conn: sqlite3.Connection, job_id: int, level: str, message: str, ip: str = "") -> None:
     conn.execute(
         "INSERT INTO scan_log (job_id, level, ip, message) VALUES (?,?,?,?)",
@@ -521,6 +547,25 @@ def phase_banner(
     port_str     = "-" if scan_all_tcp else ",".join(str(p) for p in sorted(set(active_ports)))
     delay_s      = inter_delay_ms / 1000.0
 
+    scan_mode = (job.get("scan_mode") or "auto") if job else "auto"
+    routed_mode = (scan_mode == "routed")
+    routed_fast_full_lite = (routed_mode and profile_obj.name == "fast_full_tcp")
+
+    # Routed/VPN + full 65k scans often timeout before producing useful inventory.
+    # For fast_full_tcp in routed mode, use a broad but finite safe-port set so
+    # reachable services are actually discovered.
+    if routed_fast_full_lite:
+        extra_ports = _load_extra_safe_ports()
+        active_ports = sorted(set(SAFE_PORTS + extra_ports))
+        port_str = ",".join(str(p) for p in sorted(set(active_ports)))
+        scan_all_tcp = False
+        with db_conn() as conn:
+            log_event(
+                conn, job_id, "INFO",
+                f"Routed fast_full_tcp: using {len(set(active_ports))} safe ports "
+                f"(base {len(SAFE_PORTS)} + extra {len(extra_ports)}) (not -p-) for reliable reachability"
+            )
+
     # Batch sizing:
     # - full_tcp stays host-by-host (most conservative).
     # - fast_full_tcp can batch on larger target sets to improve throughput.
@@ -528,6 +573,10 @@ def phase_banner(
     if scan_all_tcp:
         if profile_obj.name == "fast_full_tcp" and len(hosts) > 32:
             chunk_size = 8
+        elif profile_obj.name == "fast_full_tcp" and routed_mode and len(hosts) > 1:
+            # Routed links are often high-latency/filtered; small batching improves
+            # throughput without completely hiding per-host progress.
+            chunk_size = 2
         else:
             chunk_size = 1
     else:
@@ -550,12 +599,24 @@ def phase_banner(
             # - tiny scopes: keep high reliability
             # - medium scopes: balanced
             # - larger sweeps (/24-ish): shorter per-host cap for forward progress
-            if len(hosts) <= 8:
-                timeout_secs = 180
-            elif len(hosts) <= 64:
-                timeout_secs = 90
+            if routed_mode:
+                # Routed/VPN paths: fail filtered hosts faster to avoid 3+ minute
+                # stalls per host when nothing is reachable from this vantage point.
+                if len(hosts) <= 8:
+                    # For small confirmed-alive sets (phase 3 pass 1), keep a
+                    # fuller envelope so known responders can still yield ports.
+                    timeout_secs = 180
+                elif len(hosts) <= 64:
+                    timeout_secs = 45
+                else:
+                    timeout_secs = 20
             else:
-                timeout_secs = 30
+                if len(hosts) <= 8:
+                    timeout_secs = 180
+                elif len(hosts) <= 64:
+                    timeout_secs = 90
+                else:
+                    timeout_secs = 30
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
