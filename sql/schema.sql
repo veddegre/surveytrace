@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     finished_at  DATETIME,
     hosts_found  INTEGER DEFAULT 0,
     hosts_scanned INTEGER DEFAULT 0,
+    summary_json TEXT,
     error_msg    TEXT,
     created_by   TEXT DEFAULT 'web'
 );

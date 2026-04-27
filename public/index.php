@@ -463,6 +463,23 @@
     </div>
   </div>
 
+  <div id="scan-hist-detail-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:101;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:760px;max-height:88vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+        <div style="font-family:var(--mf);font-size:12px;color:var(--acc)" id="scan-hist-detail-title">Scan detail</div>
+        <button class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
+      </div>
+      <div id="scan-hist-detail-meta" style="font-family:var(--mf);font-size:11px;color:var(--tx3);margin-bottom:8px"></div>
+      <div id="scan-hist-detail-summary" style="font-family:var(--mf);font-size:11px;color:var(--tx2);margin-bottom:10px"></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
+          <tbody id="scan-hist-detail-assets"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
     <div class="sth" style="margin:0">Scan schedules</div>
     <button class="btnp" style="font-size:12px" onclick="openSchedModal()">+ New schedule</button>
@@ -1269,10 +1286,13 @@ async function loadScanHistory(history) {
       <td class="mono" style="font-size:10px">${esc(j.target_cidr)}</td>
       <td><span style="color:${statColors2[j.status]||'var(--tx2)'};font-family:var(--mf);font-size:10px">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div style="font-family:var(--mf);font-size:9px;color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
       <td style="font-family:var(--mf);font-size:9px;color:var(--tx3)">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
-      <td class="mono">${j.hosts_found||0}</td>
+      <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
       <td class="mono" style="font-size:10px">${fmtDuration(j.duration_secs)}</td>
       <td class="mono" style="font-size:10px">${localDate(j.finished_at)}</td>
-      <td>${['queued','retrying'].includes(j.status)?`<button class="tbtn" style="font-size:9px;color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn" style="font-size:9px" onclick="retryJob(${j.id})">Retry</button>`:''}</td>
+      <td style="white-space:nowrap">
+        <button class="tbtn" style="font-size:9px" onclick="openScanHistDetail(${j.id})">Details</button>
+        ${['queued','retrying'].includes(j.status)?`<button class="tbtn" style="font-size:9px;color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn" style="font-size:9px" onclick="retryJob(${j.id})">Retry</button>`:''}
+      </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">No previous scans</td></tr>';
 }
 
@@ -1367,6 +1387,81 @@ async function retryJob(id) {
     const r = await apiPost('/api/scan_start.php', {retry_job_id: id});
     if (r && r.job_id) { toast('Job #' + r.job_id + ' queued (retry)', 'ok'); loadScanHistory(); }
     else toast((r && r.error) || 'Retry failed', 'err');
+}
+
+function closeScanHistDetailModal() {
+    const bg = document.getElementById('scan-hist-detail-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function renderScanSummary(summary) {
+    if (!summary || typeof summary !== 'object') {
+        return '<span style="color:var(--tx3)">No summary snapshot recorded for this run.</span>';
+    }
+    const topPorts = Array.isArray(summary.top_ports) ? summary.top_ports : [];
+    const cats = summary.categories && typeof summary.categories === 'object'
+        ? Object.entries(summary.categories).map(([k,v]) => `${k}:${v}`).join(', ')
+        : '';
+    const portText = topPorts.length
+        ? topPorts.slice(0, 6).map(p => `${p.port}(${p.hosts})`).join(', ')
+        : '—';
+    return `
+      <div>Profile: <b>${esc(summary.profile || '—')}</b> &nbsp;|&nbsp; Mode: <b>${esc(summary.scan_mode || '—')}</b></div>
+      <div style="margin-top:3px">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
+      <div style="margin-top:3px">Top ports: <span class="mono">${esc(portText)}</span></div>
+      <div style="margin-top:3px">Categories: <span class="mono">${esc(cats || '—')}</span></div>
+    `;
+}
+
+async function openScanHistDetail(id) {
+    const bg = document.getElementById('scan-hist-detail-bg');
+    const title = document.getElementById('scan-hist-detail-title');
+    const meta = document.getElementById('scan-hist-detail-meta');
+    const sum = document.getElementById('scan-hist-detail-summary');
+    const tbody = document.getElementById('scan-hist-detail-assets');
+    if (!bg || !title || !meta || !sum || !tbody) return;
+    bg.style.display = 'flex';
+    title.textContent = 'Scan #' + id + ' detail';
+    meta.textContent = 'Loading…';
+    sum.innerHTML = '';
+    tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+
+    const d = await api('/api/scan_history.php?id=' + encodeURIComponent(id), {quiet:true});
+    if (!d || !d.job) {
+        meta.textContent = 'Could not load scan details';
+        tbody.innerHTML = '<tr><td colspan="6" class="loading">No data</td></tr>';
+        return;
+    }
+
+    const j = d.job;
+    title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
+    meta.innerHTML = `
+      Target: <span class="mono">${esc(j.target_cidr || '—')}</span>
+      &nbsp;|&nbsp; Status: <b>${esc(j.status || '—')}</b>
+      &nbsp;|&nbsp; Started: ${esc(localTime(j.started_at))}
+      &nbsp;|&nbsp; Finished: ${esc(localTime(j.finished_at))}
+      &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
+    `;
+    sum.innerHTML = renderScanSummary(j.summary);
+
+    const assets = Array.isArray(d.assets) ? d.assets : [];
+    if (!assets.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="loading">No assets recorded for this run</td></tr>';
+        return;
+    }
+    tbody.innerHTML = assets.map(a => {
+        const ports = Array.isArray(a.open_ports) && a.open_ports.length
+            ? a.open_ports.join(', ')
+            : '—';
+        return `<tr>
+          <td class="mono">${esc(a.ip || '')}</td>
+          <td>${esc(a.hostname || '—')}</td>
+          <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
+          <td class="mono" style="font-size:10px">${esc(ports)}</td>
+          <td class="mono" style="font-size:10px">${esc(a.top_cve || '—')}</td>
+          <td class="mono">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
+        </tr>`;
+    }).join('');
 }
 
 // ==========================================================================

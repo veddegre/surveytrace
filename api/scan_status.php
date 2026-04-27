@@ -45,6 +45,7 @@ $scanJobMigrations = [
     'profile'    => "TEXT DEFAULT 'standard_inventory'",
     'priority'   => "INTEGER DEFAULT 10",
     'retry_count'=> "INTEGER DEFAULT 0",
+    'summary_json'=> "TEXT",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -172,11 +173,11 @@ $job['total_log_lines'] = (int)$cstmt->fetchColumn();
 // ---------------------------------------------------------------------------
 $history = $db->query("
     SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
-           created_at, started_at, finished_at, error_msg,
+           created_at, started_at, finished_at, error_msg, summary_json,
            COALESCE(profile, 'standard_inventory') AS profile,
            COALESCE(scan_mode, 'auto') AS scan_mode,
            COALESCE(priority, 10) AS priority,
-           CAST((julianday(COALESCE(finished_at,'now')) - julianday(created_at)) * 86400 AS INTEGER) AS duration_secs
+           CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
     FROM scan_jobs
     ORDER BY id DESC
     LIMIT 30
@@ -202,6 +203,8 @@ st_json([
         $h['retry_count'] = (int)($h['retry_count'] ?? 0);
         $h['priority']    = (int)($h['priority']    ?? 10);
         $h['profile']     = $h['profile'] ?? 'standard_inventory';
+        $h['summary']     = json_decode((string)($h['summary_json'] ?? ''), true) ?: null;
+        unset($h['summary_json']);
         return $h;
     }, $history),
 ]);

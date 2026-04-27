@@ -2207,12 +2207,71 @@ def run_scan(job: dict) -> None:
             """)
 
     # ---- Done ------------------------------------------------------------
+    summary = {
+        "profile": profile_name,
+        "scan_mode": scan_mode,
+        "target_cidr": job.get("target_cidr", ""),
+        "phases": phases,
+        "assets_catalogued": int(scanned),
+        "hosts_found": int(len(all_ips)),
+        "open_findings": 0,
+        "open_ports_total": 0,
+        "top_ports": [],
+        "categories": {},
+    }
+    try:
+        with db_conn() as conn:
+            finding_count = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM findings f
+                JOIN assets a ON a.id = f.asset_id
+                WHERE a.last_scan_id = ? AND f.resolved = 0
+                """,
+                (job_id,),
+            ).fetchone()[0]
+            summary["open_findings"] = int(finding_count or 0)
+
+            rows = conn.execute(
+                "SELECT open_ports, category FROM assets WHERE last_scan_id = ?",
+                (job_id,),
+            ).fetchall()
+            port_counts: dict[int, int] = {}
+            cat_counts: dict[str, int] = {}
+            open_total = 0
+            for row in rows:
+                cat = str(row["category"] or "unk").strip() or "unk"
+                cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                try:
+                    ports = json.loads(row["open_ports"] or "[]")
+                except Exception:
+                    ports = []
+                if not isinstance(ports, list):
+                    ports = []
+                for p in ports:
+                    try:
+                        pi = int(p)
+                    except (TypeError, ValueError):
+                        continue
+                    if pi <= 0 or pi > 65535:
+                        continue
+                    open_total += 1
+                    port_counts[pi] = port_counts.get(pi, 0) + 1
+            summary["open_ports_total"] = int(open_total)
+            summary["top_ports"] = [
+                {"port": p, "hosts": c}
+                for p, c in sorted(port_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+            ]
+            summary["categories"] = dict(sorted(cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8])
+    except Exception as e:
+        log.warning("[job %d] Could not build history summary: %s", job_id, e)
+
     with db_conn() as conn:
         conn.execute("""
             UPDATE scan_jobs
-            SET status='done', finished_at=CURRENT_TIMESTAMP, hosts_scanned=?
+            SET status='done', finished_at=CURRENT_TIMESTAMP, hosts_scanned=?, summary_json=?
             WHERE id=?
-        """, (scanned, job_id))
+        """, (scanned, json.dumps(summary), job_id))
         log_event(conn, job_id, "INFO",
                   f"Scan complete — {scanned} assets catalogued, {len(upserted_assets)} upserted")
 
@@ -2425,6 +2484,7 @@ def main() -> None:
             ("phase_status",   "TEXT DEFAULT '{}'"),
             ("failure_reason", "TEXT"),
             ("label",          "TEXT"),
+            ("summary_json",   "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE scan_jobs ADD COLUMN {col} {defn}")

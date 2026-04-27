@@ -55,6 +55,13 @@ function st_db(): PDO {
         "INSERT OR IGNORE INTO config (key, value) VALUES ('extra_safe_ports', '')"
     );
 
+    // Lightweight schema migration for newer scan history snapshot support
+    try {
+        $pdo->exec("ALTER TABLE scan_jobs ADD COLUMN summary_json TEXT");
+    } catch (Throwable $e) {
+        // no-op: column already exists
+    }
+
     return $pdo;
 }
 
