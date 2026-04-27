@@ -1895,8 +1895,11 @@ async function refreshBadges() {
 
 async function runFeedSync(target) {
     const btnIds = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
+    const activeBtnIds = target === 'all'
+        ? btnIds
+        : [target === 'nvd' ? 'btn-sync-nvd' : target === 'oui' ? 'btn-sync-oui' : 'btn-sync-webfp', 'btn-sync-all'];
     const btnLabels = {};
-    btnIds.forEach(id => {
+    activeBtnIds.forEach(id => {
         const b = document.getElementById(id);
         if (!b) return;
         btnLabels[id] = b.textContent || '';
@@ -1926,7 +1929,7 @@ async function runFeedSync(target) {
     toast('Starting ' + target + ' feed sync…', 'ok');
     feedSyncLastOutput = `[client] ${new Date().toISOString()} — starting ${target} feed sync...`;
     const r = await apiPost('/api/feeds.php?sync=1', {target});
-    btnIds.forEach(id => {
+    activeBtnIds.forEach(id => {
         const b = document.getElementById(id);
         if (!b) return;
         b.disabled = false;
