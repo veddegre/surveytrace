@@ -8,11 +8,11 @@ parse (~seconds per asset) to indexed SQLite query (~microseconds).
 
 Usage:
     python3 sync_nvd.py              # full sync
-    python3 sync_nvd.py --recent     # only CVEs modified in last 120 days
+    python3 sync_nvd.py --recent     # only CVEs modified in last 14 days (default)
     python3 sync_nvd.py --days 30    # only CVEs modified in last N days
     python3 sync_nvd.py --migrate    # one-time import of old nvd_cpe_map.json
 
-Schedule via cron for weekly refresh (installed by setup.sh):
+Schedule via cron for weekly refresh (installed by setup.sh; 14-day window suits weekly runs):
     0 3 * * 0 surveytrace /opt/surveytrace/venv/bin/python3
         /opt/surveytrace/daemon/sync_nvd.py --recent
 
@@ -303,7 +303,7 @@ def update_main_config(now_str: str) -> None:
         log.warning("Could not update main db config: %s", e)
 
 
-def sync(recent_only: bool = False, days: int = 120) -> None:
+def sync(recent_only: bool = False, days: int = 14) -> None:
     conn = open_nvd_db()
 
     mod_start: str | None = None
@@ -499,8 +499,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SurveyTrace NVD sync")
     parser.add_argument("--recent",  action="store_true",
                         help="Incremental: only recently modified CVEs")
-    parser.add_argument("--days",    type=int, default=120,
-                        help="Days back for --recent (default: 120)")
+    parser.add_argument("--days",    type=int, default=14,
+                        help="Days back for --recent (default: 14)")
     parser.add_argument("--migrate", action="store_true",
                         help="Migrate existing nvd_cpe_map.json to SQLite and exit")
     args = parser.parse_args()

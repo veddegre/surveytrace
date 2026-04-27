@@ -269,7 +269,13 @@ function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
         // CVE corpus (hours) and often dies under PHP-FPM request timeouts — CLI
         // users typically pass --recent; the UI must do the same.
         $suffix = basename($script) === 'sync_nvd.py' ? ' --recent' : '';
-        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . $suffix . ' 2>&1';
+        // Same absolute path as touch() in feeds.php so the child always polls
+        // the file we create (avoids DATA_DIR vs realpath mismatches).
+        $envLead = '';
+        if (PHP_OS_FAMILY !== 'Windows') {
+            $envLead = 'FEED_SYNC_CANCEL_PATH=' . escapeshellarg(st_feed_sync_cancel_path()) . ' ';
+        }
+        $cmd = $envLead . escapeshellarg($python) . ' ' . escapeshellarg($script) . $suffix . ' 2>&1';
         $output = [];
         $code = 1;
         exec($cmd, $output, $code);

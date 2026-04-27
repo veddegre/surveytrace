@@ -129,7 +129,7 @@ sudo -u surveytrace /opt/surveytrace/venv/bin/python3 \
     /opt/surveytrace/daemon/sync_nvd.py --recent
 ```
 
-`--recent` uses a rolling window (default **120 days** of NVD “last modified”; override with `--days N`). The in-app “Sync NVD” button runs the same incremental mode (`--recent`) via PHP.
+`--recent` uses a rolling window (default **14 days** of NVD “last modified”; override with `--days N`). The in-app “Sync NVD” button runs the same incremental mode (`--recent`) via PHP.
 
 ### Optional NVD tuning
 
