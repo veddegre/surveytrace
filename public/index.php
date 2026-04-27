@@ -739,7 +739,7 @@
       <div class="modal-title section-title-reset" id="fsync-title">Feed sync output</div>
       <button class="tbtn" onclick="closeFeedSyncOutput()">Close</button>
     </div>
-    <pre id="fsync-out" class="fsync-pre">No sync output yet.</pre>
+    <pre id="fsync-out" class="fsync-pre">Loading last feed sync output…</pre>
   </div>
 </div>
 
@@ -835,7 +835,7 @@ var logSinceId   = 0;
 var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
-var feedSyncLastOutput = 'No sync output yet.';
+var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
 var confirmResolve = null;
@@ -1023,16 +1023,8 @@ async function hydrateFeedSyncFromServer() {
     startFeedSyncStatePolling();
 }
 
-/** When client thinks a sync is in progress but feeds.php says otherwise, clear UI. */
-async function reconcileFeedSyncClientIfServerIdle() {
-    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
-    if (!any) return;
-    const fs = await fetchFeedSyncServerState();
-    if (!fs || fs.running) return;
-    resetFeedSyncClientAfterServerClear();
-}
-
-function appendFeedSyncResultToOutput(target, payload) {
+function formatFeedSyncResultBlock(target, payload) {
+    if (!payload || typeof payload !== 'object') return '';
     const lines = [];
     lines.push(`target=${target} ok=${!!payload.ok}${payload.cancelled ? ' cancelled=1' : ''}`);
     if (payload.cancelled) {
@@ -1046,7 +1038,52 @@ function appendFeedSyncResultToOutput(target, payload) {
         lines.push('\n=== error ===');
         lines.push(String(payload.error));
     }
-    const block = lines.join('\n');
+    return lines.join('\n');
+}
+
+/**
+ * Restores the output panel from feed_sync_result.json (GET feeds?status=1) after reload
+ * or when opening Settings. In-memory text alone is lost on refresh.
+ */
+async function hydrateFeedSyncLastOutputFromServer() {
+    const s = await fetchFeedSyncServerState();
+    if (!s) {
+        feedSyncLastOutput = 'Could not load feed sync status. Try again.';
+        renderFeedSyncOutputPanel();
+        return;
+    }
+    const last = s.last_feed_sync;
+    const reconn = typeof feedSyncLastOutput === 'string' && feedSyncLastOutput.indexOf('reconnected:') !== -1;
+    if (last && typeof last === 'object') {
+        const t = String(last.target || 'all');
+        const block = formatFeedSyncResultBlock(t, last);
+        const fin = parseInt(last.finished_at, 10) || 0;
+        const ts = fin > 0 ? (new Date(fin * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')) : 'unknown time';
+        const head = 'Last feed sync on server (finished ' + ts + ')';
+        if (s.running && reconn) {
+            feedSyncLastOutput = head + '\n' + block + '\n\n' + feedSyncLastOutput;
+        } else {
+            feedSyncLastOutput = head + '\n' + block;
+        }
+    } else if (s.running && reconn) {
+        // No saved result file yet; keep reconnected line from hydrate
+    } else {
+        feedSyncLastOutput = 'No saved feed sync log on the server yet. When a run finishes, it is stored server-side; open this panel after a sync to see it, including after you reload the page.';
+    }
+    renderFeedSyncOutputPanel();
+}
+
+/** When client thinks a sync is in progress but feeds.php says otherwise, clear UI. */
+async function reconcileFeedSyncClientIfServerIdle() {
+    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (!any) return;
+    const fs = await fetchFeedSyncServerState();
+    if (!fs || fs.running) return;
+    resetFeedSyncClientAfterServerClear();
+}
+
+function appendFeedSyncResultToOutput(target, payload) {
+    const block = formatFeedSyncResultBlock(target, payload);
     feedSyncLastOutput = (feedSyncLastOutput ? feedSyncLastOutput + '\n\n' : '') + block;
 }
 
@@ -1130,7 +1167,10 @@ function goTab(name) {
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
         loadDashboard();
-        hydrateFeedSyncFromServer();
+        void (async () => {
+            await hydrateFeedSyncFromServer();
+            await hydrateFeedSyncLastOutputFromServer();
+        })();
     }
 }
 
@@ -3688,6 +3728,7 @@ async function initApp() {
     // Always load dashboard data first to populate sidebar badges
     await loadDashboard();
     await hydrateFeedSyncFromServer();
+    await hydrateFeedSyncLastOutputFromServer();
 }
 
 function toggleDashMode() {
