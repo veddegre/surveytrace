@@ -32,6 +32,7 @@ import logging
 import os
 import sqlite3
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -211,7 +212,7 @@ def _nvd_api_datetime_utc(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000") + "Z"
 
 
-def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -> dict:
+def _fetch_page_http(start_index: int, mod_start: str | None, results_per_page: int) -> dict:
     params: dict = {"startIndex": start_index, "resultsPerPage": results_per_page}
     if mod_start:
         params["lastModStartDate"] = mod_start
@@ -225,6 +226,34 @@ def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=120) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -> dict:
+    """
+    Run the HTTP fetch in a daemon thread so the main thread can poll the UI
+    cancel flag while NIST is slow (otherwise cancel only worked between pages).
+    """
+    err: list[BaseException] = []
+    data: list[dict] = []
+
+    def worker() -> None:
+        try:
+            data.append(_fetch_page_http(start_index, mod_start, results_per_page))
+        except BaseException as e:
+            err.append(e)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    while True:
+        if cancel_requested(DATA_DIR):
+            log.info("NVD sync cancelled during HTTP fetch (UI stop requested).")
+            sys.exit(10)
+        t.join(0.25)
+        if not t.is_alive():
+            break
+    if err:
+        raise err[0]
+    return data[0]
 
 
 def write_batch(conn: sqlite3.Connection, cve_items: list[dict]) -> int:

@@ -14,11 +14,22 @@ function st_feed_sync_cancel_path(): string {
     return ST_DATA_DIR . '/feed_sync_cancel';
 }
 
-function st_feed_sync_cancel_request(): void {
+/** @return bool false if the cancel marker could not be written (permissions / disk) */
+function st_feed_sync_cancel_request(): bool {
     if (!is_dir(ST_DATA_DIR)) {
-        @mkdir(ST_DATA_DIR, 0770, true);
+        if (!@mkdir(ST_DATA_DIR, 0770, true) && !is_dir(ST_DATA_DIR)) {
+            return false;
+        }
     }
-    @touch(st_feed_sync_cancel_path());
+    if (!is_writable(ST_DATA_DIR)) {
+        return false;
+    }
+    $p = st_feed_sync_cancel_path();
+    if (@touch($p) === false) {
+        return false;
+    }
+    @chmod($p, 0660);
+    return is_file($p);
 }
 
 function st_feed_sync_cancel_clear(): void {

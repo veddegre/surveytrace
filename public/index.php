@@ -2436,7 +2436,7 @@ function refreshFpStatusLineAfterEnd(target, errText, okText) {
 async function requestFeedSyncCancel() {
     const r = await apiPost('/api/feeds.php?cancel=1', {});
     if (r && r.ok) {
-        toast('Stop requested — sync will halt after the current fetch step.', 'ok');
+        toast('Stop requested — NVD sync should stop within a few seconds.', 'ok');
     } else {
         toast((r && r.error) ? String(r.error).slice(0, 140) : 'Cancel failed', 'err');
     }

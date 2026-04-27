@@ -47,7 +47,13 @@ if (isset($_GET['cancel'])) {
                     . 'OUI/WebFP-only jobs finish quickly.',
             ], 400);
         }
-        st_feed_sync_cancel_request();
+        if (!st_feed_sync_cancel_request()) {
+            st_json([
+                'ok' => false,
+                'error' => 'Could not write cancel flag under ' . ST_DATA_DIR
+                    . '. Ensure www-data can create files there (same as feed sync state).',
+            ], 500);
+        }
         st_json(['ok' => true, 'cancel_requested' => true]);
     } catch (Throwable $e) {
         error_log('feeds.php cancel: ' . $e->getMessage());
