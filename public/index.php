@@ -10,7 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.2.0') ?>">
 </head>
 <body>
@@ -778,6 +778,7 @@ var loginRequired = false;
 var confirmResolve = null;
 var themeMediaQuery = null;
 var themeMediaListener = null;
+var execPreviousTab = null;
 
 // ==========================================================================
 // Nav
@@ -2814,6 +2815,23 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
+    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',settings:'nsettings',sched:'nsched'};
+
+    if (on) {
+        // Remember where the user was, then switch to dashboard presentation.
+        execPreviousTab = currentTab !== 'dash' ? currentTab : null;
+        goTab('dash');
+        hiNav('ndash');
+        return;
+    }
+
+    // Restore prior tab when exiting executive mode.
+    const restore = (execPreviousTab && document.getElementById('t-' + execPreviousTab))
+        ? execPreviousTab
+        : 'dash';
+    goTab(restore);
+    if (navMap[restore]) hiNav(navMap[restore]);
+    execPreviousTab = null;
 }
 
 initApp();
