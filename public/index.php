@@ -10,7 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.3.0') ?>">
 </head>
 <body>
@@ -22,14 +22,7 @@
   <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.3.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
-  <span class="theme-bar-ctl">
-    <label for="theme-select">Theme</label>
-    <select id="theme-select" class="theme-select" title="Appearance" aria-label="Theme" onchange="setThemeMode(this.value)">
-      <option value="dark">Dark</option>
-      <option value="light">Light</option>
-      <option value="auto">Auto (system)</option>
-    </select>
-  </span>
+  <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
@@ -2845,13 +2838,20 @@ async function initAuthMode() {
 function readThemeModePref() {
     try {
         const raw = localStorage.getItem('st_theme_mode');
-        if (raw === 'light' || raw === 'dark' || raw === 'auto') return raw;
+        if (raw === 'light' || raw === 'dark') return raw;
+        if (raw === 'auto') return 'auto';
     } catch (e) {}
-    return 'dark';
+    return 'auto';
 }
 
 function systemPrefersDark() {
     return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+function effectiveTheme() {
+    const mode = readThemeModePref();
+    if (mode === 'auto') return systemPrefersDark() ? 'dark' : 'light';
+    return mode;
 }
 
 function applyThemeMode(mode) {
@@ -2859,11 +2859,11 @@ function applyThemeMode(mode) {
     document.body.classList.toggle('light-mode', effective === 'light');
 }
 
-function updateThemeSelect() {
-    const sel = document.getElementById('theme-select');
-    if (!sel) return;
-    const mode = readThemeModePref();
-    sel.value = (mode === 'light' || mode === 'auto') ? mode : 'dark';
+function updateThemeToggleLabel() {
+    const btn = document.getElementById('theme-toggle-btn');
+    if (!btn) return;
+    const eff = effectiveTheme();
+    btn.textContent = 'Theme: ' + (eff === 'light' ? 'Light' : 'Dark');
 }
 
 function setupSystemThemeWatcher() {
@@ -2872,7 +2872,7 @@ function setupSystemThemeWatcher() {
     themeMediaListener = () => {
         if (readThemeModePref() === 'auto') {
             applyThemeMode('auto');
-            updateThemeSelect();
+            updateThemeToggleLabel();
         }
     };
     if (themeMediaQuery.addEventListener) {
@@ -2882,18 +2882,18 @@ function setupSystemThemeWatcher() {
     }
 }
 
-function setThemeMode(mode) {
-    if (mode !== 'dark' && mode !== 'light' && mode !== 'auto') return;
-    try { localStorage.setItem('st_theme_mode', mode); } catch (e) {}
-    applyThemeMode(mode);
-    updateThemeSelect();
+function toggleThemeOverride() {
+    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem('st_theme_mode', next); } catch (e) {}
+    applyThemeMode(next);
+    updateThemeToggleLabel();
 }
 
 async function initApp() {
     await initAuthMode();
     const mode = readThemeModePref();
     applyThemeMode(mode);
-    updateThemeSelect();
+    updateThemeToggleLabel();
     setupSystemThemeWatcher();
 
     const execMode = (() => {
