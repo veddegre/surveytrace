@@ -979,7 +979,16 @@ async function fetchFeedSyncServerState() {
 
 async function hydrateFeedSyncFromServer() {
     const fs = await fetchFeedSyncServerState();
-    if (!fs || !fs.running) return;
+    if (!fs) return;
+    const anyClient = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    // Server has no lock — drop stale “Syncing…” / elapsed timer (e.g. finished while
+    // another tab was open, or loadDashboard refreshed Last sync before poll ran).
+    if (!fs.running) {
+        if (anyClient) {
+            resetFeedSyncClientAfterServerClear();
+        }
+        return;
+    }
     const tgt = String(fs.target || '').toLowerCase();
     if (!['nvd', 'oui', 'webfp', 'all'].includes(tgt)) return;
     const startedSec = parseInt(fs.started_at, 10) || 0;
@@ -999,6 +1008,15 @@ async function hydrateFeedSyncFromServer() {
     tickFeedSyncStatusLines();
     renderFeedSyncOutputPanel();
     startFeedSyncStatePolling();
+}
+
+/** When client thinks a sync is in progress but feeds.php says otherwise, clear UI. */
+async function reconcileFeedSyncClientIfServerIdle() {
+    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (!any) return;
+    const fs = await fetchFeedSyncServerState();
+    if (!fs || fs.running) return;
+    resetFeedSyncClientAfterServerClear();
 }
 
 function appendFeedSyncResultToOutput(target, payload) {
@@ -1021,7 +1039,7 @@ function appendFeedSyncResultToOutput(target, payload) {
 
 function startFeedSyncStatePolling() {
     if (feedSyncStatePollTimer !== null) return;
-    feedSyncStatePollTimer = setInterval(async () => {
+    const pollTick = async () => {
         const fs = await fetchFeedSyncServerState();
         if (fs && fs.running) return;
         stopFeedSyncStatePolling();
@@ -1075,7 +1093,9 @@ function startFeedSyncStatePolling() {
         }
 
         await loadDashboard();
-    }, 4000);
+    };
+    feedSyncStatePollTimer = setInterval(() => { void pollTick(); }, 4000);
+    void pollTick();
 }
 
 // ==========================================================================
@@ -1321,6 +1341,9 @@ async function loadDashboard() {
 
     // Check for active scan and update status pill
     updateStatusPill(d.last_scan);
+
+    // Feed sync may have finished without a poll tick (tab switch, or slow 4s interval).
+    void reconcileFeedSyncClientIfServerIdle();
 }
 
 function feedRow(e) {
