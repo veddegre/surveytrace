@@ -73,22 +73,25 @@
 
 <!-- ================================================================ DASHBOARD -->
 <div class="tab" id="t-dash">
+  <div class="dash-actions">
+    <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Executive view: off</button>
+  </div>
   <div class="sgrid" id="dash-stats">
     <div class="sc g"><div class="sl">Total assets</div><div class="sv" id="d-total">—</div><div class="ss" id="d-new">loading…</div></div>
     <div class="sc a"><div class="sl">Unclassified</div><div class="sv" id="d-unk">—</div><div class="ss">needs review</div></div>
     <div class="sc r"><div class="sl">Open CVEs</div><div class="sv" id="d-cves">—</div><div class="ss" id="d-crit">— critical</div></div>
-    <div class="sc"><div class="sl">Last scan</div><div class="sv" id="d-age" style="font-size:16px;color:var(--tx)">—</div><div class="ss" id="d-scan-target">—</div></div>
+    <div class="sc"><div class="sl">Last scan</div><div class="sv sv-sm" id="d-age">—</div><div class="ss" id="d-scan-target">—</div></div>
   </div>
 
   <div class="sgrid" id="dash-cats">
-    <div class="sc"><div class="sl">Servers</div><div class="sv" style="font-size:18px;color:var(--tx)" id="dc-srv">—</div></div>
-    <div class="sc"><div class="sl">Workstations</div><div class="sv" style="font-size:18px;color:var(--tx)" id="dc-ws">—</div></div>
-    <div class="sc"><div class="sl">Network gear</div><div class="sv" style="font-size:18px;color:var(--tx)" id="dc-net">—</div></div>
-    <div class="sc"><div class="sl">IoT / OT / other</div><div class="sv" style="font-size:18px;color:var(--tx)" id="dc-iot">—</div></div>
+    <div class="sc"><div class="sl">Servers</div><div class="sv sv-md" id="dc-srv">—</div></div>
+    <div class="sc"><div class="sl">Workstations</div><div class="sv sv-md" id="dc-ws">—</div></div>
+    <div class="sc"><div class="sl">Network gear</div><div class="sv sv-md" id="dc-net">—</div></div>
+    <div class="sc"><div class="sl">IoT / OT / other</div><div class="sv sv-md" id="dc-iot">—</div></div>
   </div>
 
   <div class="sth">Top vulnerable assets</div>
-  <div class="tbl-wrap" style="margin-bottom:16px">
+  <div class="tbl-wrap mb16">
     <table class="tbl"><thead><tr><th>IP</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
     <tbody id="dash-top-vuln"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
   </div>
@@ -149,8 +152,8 @@
 <div class="tab" id="t-vulns">
   <div class="fbar">
     <input class="finp wide" id="vf-cve" placeholder="Search CVE ID or description…" oninput="debounceFindings()">
-    <input class="finp narrow" id="vf-ip" placeholder="Filter by IP…" oninput="debounceFindings()" style="width:130px">
-    <button class="tbtn" id="vf-clear-ip" onclick="clearIPFilter()" style="display:none;font-size:10px">✕ clear</button>
+    <input class="finp narrow w130" id="vf-ip" placeholder="Filter by IP…" oninput="debounceFindings()">
+    <button class="tbtn btn-xs hide" id="vf-clear-ip" onclick="clearIPFilter()">✕ clear</button>
     <select class="finp narrow" id="vf-sev" onchange="loadFindings(1)">
       <option value="">All severity</option>
       <option value="critical">Critical</option><option value="high">High</option>
@@ -218,63 +221,63 @@
     <div>
       <div class="card">
         <div class="ct">Scan profile</div>
-        <div style="display:grid;gap:8px">
+        <div class="profile-grid">
           <label class="profile-card on" id="prof-standard_inventory" title="Balanced default: common ports, light banners, CVE correlation">
-            <input type="radio" name="scan_profile" value="standard_inventory" checked style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="standard_inventory" checked>
             <div class="pc-icon">&#128203;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">Standard Inventory</div>
               <div class="pc-desc">Common ports, light banner probing, CVE correlation</div>
             </div>
           </label>
           <label class="profile-card" id="prof-iot_safe" title="Safest option: passive-first, no banner probing">
-            <input type="radio" name="scan_profile" value="iot_safe" style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="iot_safe">
             <div class="pc-icon">&#128737;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">IoT Safe</div>
               <div class="pc-desc">Passive only — ARP/ICMP, no port scanning, no banners</div>
             </div>
             <div class="pc-badge safe">Safe for IoT</div>
           </label>
           <label class="profile-card" id="prof-deep_scan" title="Deep inspection: more probes, higher traffic, best for targeted investigations">
-            <input type="radio" name="scan_profile" value="deep_scan" style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="deep_scan">
             <div class="pc-icon">&#128300;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">Deep Scan</div>
               <div class="pc-desc">Full nmap -sV, SNMP, all ports — requires confirmation</div>
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
           <label class="profile-card" id="prof-full_tcp" title="All 65,535 TCP ports with stronger service detection; slowest but deepest coverage">
-            <input type="radio" name="scan_profile" value="full_tcp" style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="full_tcp">
             <div class="pc-icon">&#129517;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">Full TCP</div>
               <div class="pc-desc">All TCP ports (-p-) + service detect — slower, high coverage</div>
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
           <label class="profile-card" id="prof-fast_full_tcp" title="All TCP ports with lighter detection for faster host turnover">
-            <input type="radio" name="scan_profile" value="fast_full_tcp" style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="fast_full_tcp">
             <div class="pc-icon">&#9889;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">Fast Full TCP</div>
               <div class="pc-desc">All TCP ports (-p-) + lighter detection — faster turnover</div>
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
           <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: passive-only defaults and strict rate limits">
-            <input type="radio" name="scan_profile" value="ot_careful" style="display:none">
+            <input class="radio-hidden" type="radio" name="scan_profile" value="ot_careful">
             <div class="pc-icon">&#9888;</div>
-            <div style="flex:1">
+            <div class="profile-copy">
               <div class="pc-name">OT Careful</div>
               <div class="pc-desc">Passive only, 2pps max — safe for industrial networks</div>
             </div>
             <div class="pc-badge safe">Safe for OT</div>
           </label>
         </div>
-        <div id="profile-help" style="margin-top:10px;padding:10px;border:1px solid var(--bd);border-radius:4px;font-size:12px;color:var(--tx2)">
-          <strong style="color:var(--tx)">Standard Inventory:</strong>
+        <div id="profile-help" class="help-box">
+          <strong class="text-strong">Standard Inventory:</strong>
           Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
         </div>
       </div>
@@ -286,7 +289,7 @@
         <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog"><input type="checkbox" id="ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl" style="color:var(--amber)">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog"><input type="checkbox" id="ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
       </div>
       <div class="card">
@@ -296,21 +299,21 @@
             <div class="tl">Auto</div>
             <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
           </div>
-          <input type="radio" name="scan_mode" id="sm-auto" value="auto" checked style="accent-color:var(--acc)">
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-auto" value="auto" checked>
         </div>
         <div class="tr2">
           <div>
             <div class="tl">Routed</div>
             <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
           </div>
-          <input type="radio" name="scan_mode" id="sm-routed" value="routed" style="accent-color:var(--acc)">
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-routed" value="routed">
         </div>
         <div class="tr2">
           <div>
             <div class="tl">Force (-Pn)</div>
-            <div class="tsubl" style="color:var(--amber)">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
+            <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
           </div>
-          <input type="radio" name="scan_mode" id="sm-force" value="force" style="accent-color:var(--acc)">
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-force" value="force">
         </div>
       </div>
       <div class="card">
@@ -318,7 +321,7 @@
         <div class="brow">
           <button class="btnp" id="btn-start" onclick="startScan()">&#9654; Queue scan</button>
         </div>
-        <div id="scan-stats" style="margin-top:8px;font-family:var(--mf);font-size:10px;color:var(--tx3);display:none">
+        <div id="scan-stats" class="scan-stats">
           Hosts found: <span id="ss-found">0</span> &nbsp;·&nbsp;
           Scanned: <span id="ss-scanned">0</span> &nbsp;·&nbsp;
           Elapsed: <span id="ss-elapsed">0s</span>
@@ -328,9 +331,9 @@
   </div>
 
   <!-- Job queue — always visible, primary status view -->
-  <div class="sth" style="margin-top:4px">Job queue</div>
+  <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap">
-    <div id="job-queue" style="display:none;margin-bottom:8px">
+    <div id="job-queue" class="mb8" style="display:none">
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Profile</th><th>Status / Progress</th><th>Priority</th><th>Queued</th><th></th></tr></thead>
@@ -338,11 +341,11 @@
         </table>
       </div>
     </div>
-    <div id="job-queue-empty" style="font-family:var(--mf);font-size:11px;color:var(--tx3);padding:8px 0;margin-bottom:8px">No jobs queued or running</div>
+    <div id="job-queue-empty" class="hint-micro mb8 pad8y">No jobs queued or running</div>
   </div>
 
   <!-- Scan history -->
-  <div class="sth" style="margin-top:4px">Scan history</div>
+  <div class="sth section-top">Scan history</div>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
@@ -354,20 +357,20 @@
 <!-- ================================================================ AUDIT LOG -->
 <div class="tab" id="t-sched">
   <!-- Schedule modal -->
-  <div id="sched-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
-    <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:480px;max-height:90vh;overflow-y:auto">
-      <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:14px" id="sched-title">New schedule</div>
+  <div id="sched-bg" class="modal-bg z100">
+    <div class="modal-card modal-w480">
+      <div class="modal-title mb14" id="sched-title">New schedule</div>
       <input type="hidden" id="sched-id" value="">
       <input type="hidden" id="sched-paused" value="0">
 
       <label class="flbl">Schedule name</label>
-      <input class="finp" id="sched-name" placeholder="Weekly full scan" style="width:100%;margin-bottom:10px">
+      <input class="finp w100 mb10" id="sched-name" placeholder="Weekly full scan">
 
       <label class="flbl">Target CIDR</label>
-      <input class="finp" id="sched-cidr" placeholder="192.168.86.0/24" style="width:100%;margin-bottom:10px">
+      <input class="finp w100 mb10" id="sched-cidr" placeholder="192.168.86.0/24">
 
       <label class="flbl">Cron expression</label>
-      <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap" id="cron-presets">
+      <div class="row-wrap mb6 gap6" id="cron-presets">
         <button class="tbtn" onclick="setCron('@daily')">Daily</button>
         <button class="tbtn" onclick="setCron('@weekly')">Weekly</button>
         <button class="tbtn" onclick="setCron('@monthly')">Monthly</button>
@@ -375,13 +378,13 @@
         <button class="tbtn" onclick="setCron('0 3 * * 1-5')">Weekdays 3am</button>
         <button class="tbtn" onclick="setCron('0 */6 * * *')">Every 6h</button>
       </div>
-      <input class="finp" id="sched-cron" placeholder="0 3 * * 0" style="width:100%;margin-bottom:4px">
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);margin-bottom:10px" id="sched-cron-desc">
+      <input class="finp w100 mb4" id="sched-cron" placeholder="0 3 * * 0">
+      <div class="hint-micro mb10" id="sched-cron-desc">
         Format: minute hour day-of-month month day-of-week
       </div>
 
       <label class="flbl">Profile</label>
-      <select class="finp" id="sched-profile" style="width:100%;margin-bottom:10px">
+      <select class="finp w100 mb10" id="sched-profile">
         <option value="standard_inventory">Standard Inventory</option>
         <option value="iot_safe">IoT Safe</option>
         <option value="deep_scan">Deep Scan</option>
@@ -391,14 +394,14 @@
       </select>
 
       <label class="flbl">Discovery mode</label>
-      <select class="finp" id="sched-mode" style="width:100%;margin-bottom:10px">
+      <select class="finp w100 mb10" id="sched-mode">
         <option value="auto">Auto</option>
         <option value="routed">Routed</option>
         <option value="force">Force (-Pn)</option>
       </select>
 
       <label class="flbl">Timezone</label>
-      <select class="finp" id="sched-tz" style="width:100%;margin-bottom:10px">
+      <select class="finp w100 mb10" id="sched-tz">
         <option value="UTC">UTC</option>
         <option value="America/New_York">America/New_York (ET)</option>
         <option value="America/Chicago">America/Chicago (CT)</option>
@@ -413,44 +416,44 @@
         <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
         <option value="Australia/Sydney">Australia/Sydney (AEST)</option>
       </select>
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);margin-bottom:10px" id="sched-tz-note">
+      <div class="hint-micro mb10" id="sched-tz-note">
         Cron times are interpreted in this timezone
       </div>
 
       <label class="flbl">Exclusions (optional)</label>
-      <textarea class="finp" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="width:100%;height:60px;margin-bottom:10px;resize:vertical"></textarea>
+      <textarea class="finp w100 mb10" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="height:60px;resize:vertical"></textarea>
 
       <label class="flbl">Notes (optional)</label>
-      <input class="finp" id="sched-notes" placeholder="Description or reason for this schedule" style="width:100%;margin-bottom:10px">
+      <input class="finp w100 mb10" id="sched-notes" placeholder="Description or reason for this schedule">
 
       <label class="flbl">If a run is missed (daemon down, pause, etc.)</label>
-      <select class="finp" id="sched-missed-pol" style="width:100%;margin-bottom:6px">
+      <select class="finp w100 mb6" id="sched-missed-pol">
         <option value="run_once">Run one catch-up scan, then resume cadence</option>
         <option value="skip_no_run">Skip scan — only move next run forward</option>
         <option value="run_all">Queue one job per missed slot (capped)</option>
       </select>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <label style="font-family:var(--mf);font-size:11px;color:var(--tx2);white-space:nowrap">Max jobs per wake</label>
-        <input class="finp" type="number" id="sched-missed-max" min="1" max="100" value="5" style="width:72px">
+      <div class="row-wrap mb10 gap10">
+        <label class="status-text nowrap">Max jobs per wake</label>
+        <input class="finp minw72" type="number" id="sched-missed-max" min="1" max="100" value="5">
       </div>
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);margin-bottom:12px">
+      <div class="hint-micro mb12">
         “Run all” uses this cap so a long outage cannot flood the queue.
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-family:var(--mf);font-size:12px;color:var(--tx2)">
+      <label class="row-wrap mb14 gap8" style="font-family:var(--mf);font-size:12px;color:var(--tx2)">
         <input type="checkbox" id="sched-en" checked> Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)
       </label>
 
-      <div style="display:flex;gap:8px">
+      <div class="stack8">
         <button class="btnp" onclick="saveSchedule()">Save schedule</button>
         <button class="tbtn" onclick="closeSchedModal()">Cancel</button>
       </div>
     </div>
   </div>
 
-  <div id="sched-hist-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:101;align-items:center;justify-content:center">
-    <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:560px;max-height:85vh;overflow-y:auto">
-      <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:10px" id="sched-hist-title">Run history</div>
+  <div id="sched-hist-bg" class="modal-bg z101">
+    <div class="modal-card modal-w560">
+      <div class="modal-title mb10" id="sched-hist-title">Run history</div>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr>
@@ -459,18 +462,18 @@
           <tbody id="sched-hist-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
         </table>
       </div>
-      <button class="tbtn" style="margin-top:12px" onclick="closeSchedHistModal()">Close</button>
+      <button class="tbtn mt10" onclick="closeSchedHistModal()">Close</button>
     </div>
   </div>
 
-  <div id="scan-hist-detail-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:101;align-items:center;justify-content:center">
-    <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:760px;max-height:88vh;overflow-y:auto">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
-        <div style="font-family:var(--mf);font-size:12px;color:var(--acc)" id="scan-hist-detail-title">Scan detail</div>
+  <div id="scan-hist-detail-bg" class="modal-bg z101">
+    <div class="modal-card modal-w760">
+      <div class="row-between mb10 gap10">
+        <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
         <button class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
       </div>
-      <div id="scan-hist-detail-meta" style="font-family:var(--mf);font-size:11px;color:var(--tx3);margin-bottom:8px"></div>
-      <div id="scan-hist-detail-summary" style="font-family:var(--mf);font-size:11px;color:var(--tx2);margin-bottom:10px"></div>
+      <div id="scan-hist-detail-meta" class="status-text mb8"></div>
+      <div id="scan-hist-detail-summary" class="help-mono mb10"></div>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
@@ -480,9 +483,9 @@
     </div>
   </div>
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <div class="sth" style="margin:0">Scan schedules</div>
-    <button class="btnp" style="font-size:12px" onclick="openSchedModal()">+ New schedule</button>
+  <div class="row-between mb12">
+    <div class="sth section-title-reset">Scan schedules</div>
+    <button class="btnp btn-sm" onclick="openSchedModal()">+ New schedule</button>
   </div>
 
   <div class="tbl-wrap">
@@ -520,7 +523,7 @@
       <div class="card">
         <div class="ct">Active sources</div>
         <div id="enrich-list"><div class="loading">Loading…</div></div>
-        <div style="margin-top:12px">
+        <div class="mt12">
           <button class="btnp" onclick="openAddSource()">+ Add source</button>
         </div>
       </div>
@@ -532,13 +535,13 @@
       </div>
       <div class="card">
         <div class="ct">How enrichment works</div>
-        <div style="font-size:11px;color:var(--tx2);line-height:1.8">
-          Enrichment sources run as <b style="color:var(--tx)">Phase 3b</b> during each scan.<br>
+        <div class="help-line" style="line-height:1.8">
+          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan.<br>
           They provide MAC addresses, hostnames, and VLAN data that the scanner
           alone can't get — especially for devices across routers.<br><br>
-          <b style="color:var(--tx)">UniFi / UDM</b> — queries your controller for all
+          <b class="text-strong">UniFi / UDM</b> — queries your controller for all
           known clients. Solves MAC lookup for the entire network in one call.<br><br>
-          <b style="color:var(--tx)">SNMP</b> — walks the ARP table of your router/switch.
+          <b class="text-strong">SNMP</b> — walks the ARP table of your router/switch.
           Universal fallback that works with any managed device.
         </div>
       </div>
@@ -552,53 +555,53 @@
     <div>
       <div class="card">
         <div class="ct">Sign-in session</div>
-        <div style="font-size:11px;color:var(--tx2);line-height:1.7;margin-bottom:10px">
+        <div class="help-line mb10">
           Idle timeout for the PHP session cookie after you sign in (session auth) or after the first successful
           basic-auth request. Each API request while signed in resets the idle clock. Range 5 minutes to 7 days.
         </div>
         <label class="flbl">Session idle timeout (minutes)</label>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <div class="row-wrap mt6">
           <input class="finp" type="number" id="st-session-timeout-min" min="5" max="10080" step="1" style="width:120px" value="480">
           <button class="btnp" type="button" onclick="saveSessionTimeout()">Save</button>
         </div>
-        <label class="flbl" style="margin-top:12px">Extra routed safe ports (comma-separated)</label>
-        <div style="font-size:11px;color:var(--tx3);line-height:1.6;margin-bottom:6px">
-          Added only to routed <code style="color:var(--acc)">fast_full_tcp</code> safe-port scans.
-          Example: <code style="color:var(--acc)">10000,15672,11434</code>
+        <label class="flbl mt10">Extra routed safe ports (comma-separated)</label>
+        <div class="help-line mb6 text-dim">
+          Added only to routed <code class="code-accent">fast_full_tcp</code> safe-port scans.
+          Example: <code class="code-accent">10000,15672,11434</code>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="row-wrap">
           <input class="finp" type="text" id="st-extra-safe-ports" style="min-width:280px;flex:1" placeholder="10000,15672,11434">
           <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
         </div>
       </div>
       <div class="card">
         <div class="ct">NVD feed status</div>
-        <div style="font-family:var(--mf);font-size:11px;color:var(--tx2);margin-bottom:10px">
-          Last sync: <span id="nvd-sync-ts" style="color:var(--tx)">—</span>
+        <div class="help-mono mb10">
+          Last sync: <span id="nvd-sync-ts" class="text-strong">—</span>
         </div>
-        <div style="font-size:11px;color:var(--tx2);margin-bottom:10px">
+        <div class="help-line mb10">
           The NVD feed maps CPE strings to CVE IDs for offline vulnerability correlation.
-          Run <code style="color:var(--acc)">sync_nvd.py</code> to refresh (auto-runs weekly via cron).
+          Run <code class="code-accent">sync_nvd.py</code> to refresh (auto-runs weekly via cron).
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <div class="row-wrap mt10">
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
       </div>
       <div class="card">
         <div class="ct">Fingerprint feed status</div>
-        <div style="font-family:var(--mf);font-size:11px;color:var(--tx2);line-height:1.8">
-          OUI last sync: <span id="oui-sync-ts" style="color:var(--tx)">—</span><br>
-          OUI prefixes: <span id="oui-sync-count" style="color:var(--tx)">0</span><br>
-          WebFP last sync: <span id="webfp-sync-ts" style="color:var(--tx)">—</span><br>
-          WebFP rules: <span id="webfp-sync-count" style="color:var(--tx)">0</span>
+        <div class="help-mono">
+          OUI last sync: <span id="oui-sync-ts" class="text-strong">—</span><br>
+          OUI prefixes: <span id="oui-sync-count" class="text-strong">0</span><br>
+          WebFP last sync: <span id="webfp-sync-ts" class="text-strong">—</span><br>
+          WebFP rules: <span id="webfp-sync-count" class="text-strong">0</span>
         </div>
-        <div style="font-size:11px;color:var(--tx2);margin-top:10px">
+        <div class="help-line mt10">
           Source feeds: IEEE OUI CSV + Wappalyzer technologies (synced daily via cron).
-          Run <code style="color:var(--acc)">sync_oui.py</code> and
-          <code style="color:var(--acc)">sync_webfp.py</code> manually any time.
+          Run <code class="code-accent">sync_oui.py</code> and
+          <code class="code-accent">sync_webfp.py</code> manually any time.
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <div class="row-wrap mt10">
           <button class="tbtn" id="btn-sync-oui" onclick="runFeedSync('oui')">Sync OUI now</button>
           <button class="tbtn" id="btn-sync-webfp" onclick="runFeedSync('webfp')">Sync WebFP now</button>
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
@@ -607,25 +610,25 @@
       </div>
       <div class="card">
         <div class="ct">About</div>
-        <div style="font-family:var(--mf);font-size:11px;color:var(--tx2);line-height:1.8">
+        <div class="help-mono">
           SurveyTrace v0.2.0<br>
           PHP + SQLite + Python scanner daemon<br>
-          <span style="color:var(--tx3)">Data stored in data/surveytrace.db</span>
+          <span class="text-dim">Data stored in data/surveytrace.db</span>
         </div>
       </div>
     </div>
     <div>
       <div class="card">
         <div class="ct">Asset categories</div>
-        <table style="width:100%;font-size:11px;font-family:var(--mf)">
-          <tr><td style="padding:3px 0"><span class="cat srv">srv</span></td><td style="color:var(--tx2);padding:3px 6px">Server (Linux, Windows Server)</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat ws">ws</span></td><td style="color:var(--tx2);padding:3px 6px">Workstation / desktop</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat net">net</span></td><td style="color:var(--tx2);padding:3px 6px">Network gear (switch, router, firewall)</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat iot">iot</span></td><td style="color:var(--tx2);padding:3px 6px">IoT device</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat ot">ot</span></td><td style="color:var(--tx2);padding:3px 6px">OT / ICS (PLC, SCADA, HMI)</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat voi">voi</span></td><td style="color:var(--tx2);padding:3px 6px">VoIP phone / PBX</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat prn">prn</span></td><td style="color:var(--tx2);padding:3px 6px">Printer / MFP</td></tr>
-          <tr><td style="padding:3px 0"><span class="cat hv">hv</span></td><td style="color:var(--tx2);padding:3px 6px">Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
+        <table class="table-mini">
+          <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server)</td></tr>
+          <tr><td><span class="cat ws">ws</span></td><td>Workstation / desktop</td></tr>
+          <tr><td><span class="cat net">net</span></td><td>Network gear (switch, router, firewall)</td></tr>
+          <tr><td><span class="cat iot">iot</span></td><td>IoT device</td></tr>
+          <tr><td><span class="cat ot">ot</span></td><td>OT / ICS (PLC, SCADA, HMI)</td></tr>
+          <tr><td><span class="cat voi">voi</span></td><td>VoIP phone / PBX</td></tr>
+          <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
+          <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
         </table>
       </div>
     </div>
@@ -638,17 +641,17 @@
 <div class="toast-wrap" id="toasts"></div>
 
 <!-- Session login modal -->
-<div id="login-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:260;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:20px;width:360px;font-family:var(--sf)">
-    <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:12px">Sign in</div>
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:10px" id="login-msg">
+<div id="login-bg" class="modal-bg z260">
+  <div class="modal-card modal-w360">
+    <div class="modal-title">Sign in</div>
+    <div class="text-muted mb10" id="login-msg">
       Session authentication required.
     </div>
     <label class="flbl">Username</label>
-    <input class="finp" id="login-user" style="width:100%;margin-bottom:10px" value="admin" autocomplete="username">
+    <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
     <label class="flbl">Password</label>
-    <input class="finp" id="login-pass" type="password" style="width:100%;margin-bottom:12px" autocomplete="current-password">
-    <div style="display:flex;gap:8px;justify-content:flex-end">
+    <input class="finp w100 mb12" id="login-pass" type="password" autocomplete="current-password">
+    <div class="row-end">
       <button class="tbtn" onclick="closeLoginModal()">Close</button>
       <button class="btnp" id="btn-login" onclick="submitLogin()">Sign in</button>
     </div>
@@ -656,32 +659,32 @@
 </div>
 
 <!-- Host detail panel -->
-<div id="host-panel" style="display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--bg2);border-left:1px solid var(--bd2);z-index:200;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.3)">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg2);z-index:1">
-    <div style="font-family:var(--mf);font-size:12px;color:var(--acc)" id="hp-title">Host detail</div>
-    <button class="tbtn" onclick="closeHostPanel()" style="font-size:14px;padding:2px 8px">✕</button>
+<div id="host-panel" class="host-panel">
+  <div class="host-panel-head">
+    <div class="host-panel-title" id="hp-title">Host detail</div>
+    <button class="tbtn host-panel-close" onclick="closeHostPanel()">✕</button>
   </div>
-  <div id="hp-body" style="padding:16px"></div>
+  <div id="hp-body" class="host-panel-body"></div>
 </div>
-<div id="host-panel-bg" onclick="closeHostPanel()" style="display:none;position:fixed;inset:0;z-index:199;background:rgba(0,0,0,.2)"></div>
+<div id="host-panel-bg" class="host-panel-backdrop" onclick="closeHostPanel()"></div>
 
 <!-- Feed sync output modal -->
-<div id="fsync-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:210;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:16px;width:min(980px,92vw);max-height:86vh;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-family:var(--mf);font-size:12px;color:var(--acc)" id="fsync-title">Feed sync output</div>
+<div id="fsync-bg" class="modal-bg z210">
+  <div class="modal-card modal-feed">
+    <div class="row-between mb10">
+      <div class="modal-title section-title-reset" id="fsync-title">Feed sync output</div>
       <button class="tbtn" onclick="closeFeedSyncOutput()">Close</button>
     </div>
-    <pre id="fsync-out" style="margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:11px;font-family:var(--mf);color:var(--tx2)">No sync output yet.</pre>
+    <pre id="fsync-out" class="fsync-pre">No sync output yet.</pre>
   </div>
 </div>
 
 <!-- Confirm modal -->
-<div id="confirm-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:215;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:16px;width:min(520px,92vw)">
-    <div id="confirm-title" style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:8px">Confirm action</div>
-    <div id="confirm-msg" style="color:var(--tx2);font-size:12px;line-height:1.45;white-space:pre-wrap;margin-bottom:14px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
+<div id="confirm-bg" class="modal-bg z215">
+  <div class="modal-card modal-confirm">
+    <div id="confirm-title" class="modal-title mb8">Confirm action</div>
+    <div id="confirm-msg" class="text-muted mb14" style="line-height:1.45;white-space:pre-wrap"></div>
+    <div class="row-end">
       <button class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
       <button class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
     </div>
@@ -689,14 +692,14 @@
 </div>
 
 <!-- Enrichment source modal -->
-<div id="esrc-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:24px;width:440px;max-height:80vh;overflow-y:auto;font-family:var(--sf)">
-    <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:14px">
+<div id="esrc-bg" class="modal-bg z100">
+  <div class="modal-card modal-w440">
+    <div class="modal-title mb14">
       <span id="esrc-title">Add enrichment source</span>
     </div>
     <input type="hidden" id="esrc-id" value="0">
     <label class="flbl">Source type</label>
-    <select class="finp" id="esrc-type" style="width:100%;margin-bottom:10px" onchange="updateSourceFields()">
+    <select class="finp w100 mb10" id="esrc-type" onchange="updateSourceFields()">
       <option value="unifi">UniFi / UDM</option>
       <option value="snmp">SNMP (universal)</option>
       <option value="dhcp_leases">DHCP leases (generic)</option>
@@ -708,14 +711,14 @@
       <option value="juniper_mist">Juniper Mist (stub)</option>
     </select>
     <label class="flbl">Label</label>
-    <input class="finp" id="esrc-label" type="text" style="width:100%;margin-bottom:10px" placeholder="e.g. Home UDM">
+    <input class="finp w100 mb10" id="esrc-label" type="text" placeholder="e.g. Home UDM">
     <div id="esrc-fields"></div>
-    <div class="tr2" style="margin-bottom:14px">
+    <div class="tr2 mb14">
       <div><div class="tl">Enabled</div><div class="tsubl">Run this source during scans</div></div>
       <label class="tog"><input type="checkbox" id="esrc-enabled" checked><div class="trk"></div><div class="tth"></div></label>
     </div>
-    <div id="esrc-test-result" style="font-family:var(--mf);font-size:11px;margin-bottom:10px;display:none"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
+    <div id="esrc-test-result" class="help-mono mb10 hide"></div>
+    <div class="row-end">
       <button class="tbtn" onclick="testSource()">Test</button>
       <button class="tbtn" onclick="closeSourceModal()">Cancel</button>
       <button class="btnp" onclick="saveSource()">Save</button>
@@ -724,14 +727,14 @@
 </div>
 
 <!-- Reclassify modal -->
-<div id="modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:24px;width:380px;font-family:var(--sf)">
-    <div style="font-family:var(--mf);font-size:12px;color:var(--acc);margin-bottom:14px">Edit asset — <span id="modal-ip" style="color:var(--tx)"></span></div>
+<div id="modal-bg" class="modal-bg z100">
+  <div class="modal-card modal-w380">
+    <div class="modal-title">Edit asset — <span id="modal-ip" class="text-strong"></span></div>
     <input type="hidden" id="modal-asset-id">
-    <label style="display:block;font-size:11px;color:var(--tx2);font-family:var(--mf);margin-bottom:3px">Hostname</label>
-    <input class="finp" id="modal-hostname" type="text" style="width:100%;margin-bottom:10px">
-    <label style="display:block;font-size:11px;color:var(--tx2);font-family:var(--mf);margin-bottom:3px">Category</label>
-    <select class="finp" id="modal-cat" style="width:100%;margin-bottom:10px">
+    <label class="form-label">Hostname</label>
+    <input class="finp w100 mb10" id="modal-hostname" type="text">
+    <label class="form-label">Category</label>
+    <select class="finp w100 mb10" id="modal-cat">
       <option value="srv">Server</option>
       <option value="ws">Workstation</option>
       <option value="net">Network gear</option>
@@ -742,11 +745,11 @@
       <option value="hv">Hypervisor</option>
       <option value="unk">Unknown</option>
     </select>
-    <label style="display:block;font-size:11px;color:var(--tx2);font-family:var(--mf);margin-bottom:3px">Vendor override</label>
-    <input class="finp" id="modal-vendor" type="text" style="width:100%;margin-bottom:10px" placeholder="Leave blank to keep existing">
-    <label style="display:block;font-size:11px;color:var(--tx2);font-family:var(--mf);margin-bottom:3px">Notes</label>
-    <textarea class="finp" id="modal-notes" style="width:100%;min-height:56px;margin-bottom:14px" placeholder="Optional notes about this asset"></textarea>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
+    <label class="form-label">Vendor override</label>
+    <input class="finp w100 mb10" id="modal-vendor" type="text" placeholder="Leave blank to keep existing">
+    <label class="form-label">Notes</label>
+    <textarea class="finp w100 mb14" id="modal-notes" style="min-height:56px" placeholder="Optional notes about this asset"></textarea>
+    <div class="row-end">
       <button class="tbtn" onclick="closeModal()">Cancel</button>
       <button class="btnp" onclick="saveReclassify()">Save</button>
     </div>
@@ -960,11 +963,11 @@ async function loadDashboard() {
     const tv = d.top_vulnerable || [];
     document.getElementById('dash-top-vuln').innerHTML = tv.length
         ? tv.map(a => `<tr>
-            <td class="mono" style="cursor:pointer;color:var(--acc)" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-            <td style="color:var(--tx)">${esc(a.hostname||'—')}</td>
+            <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+            <td class="text-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
-            <td style="color:var(--tx);font-size:11px">${esc(a.vendor||'—')}</td>
-            <td class="mono" style="font-size:10px">${esc(a.top_cve||'—')}</td>
+            <td class="text-primary" style="font-size:11px">${esc(a.vendor||'—')}</td>
+            <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
             <td class="mono">${a.finding_count}</td>
           </tr>`).join('')
@@ -1034,23 +1037,23 @@ async function loadAssets(page) {
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
         const svcHits = detectServiceHitsFromAsset(a);
         const primaryVendor = a.vendor || '—';
-        let vendorCell = esc(primaryVendor) + (a.model ? '<span style="color:var(--tx2)"> ' + esc(a.model) + '</span>' : '');
+        let vendorCell = esc(primaryVendor) + (a.model ? '<span class="text-secondary"> ' + esc(a.model) + '</span>' : '');
         if (svcHits.length > 1) {
             const extra = svcHits.filter(s => s.toLowerCase() !== String(primaryVendor).toLowerCase());
             if (extra.length) {
-                vendorCell += ` <span style="font-family:var(--mf);font-size:10px;color:var(--tx3)" title="${esc(svcHits.join(', '))}">+${extra.length} services</span>`;
+                vendorCell += ` <span class="status-text" title="${esc(svcHits.join(', '))}">+${extra.length} services</span>`;
             }
         }
         return `<tr>
-          <td class="mono" style="cursor:pointer;color:var(--acc)" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-          <td style="color:var(--tx)">${esc(a.hostname||'—')}</td>
+          <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+          <td class="text-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
-          <td style="color:var(--tx);font-size:11px">${vendorCell}</td>
+          <td class="text-primary" style="font-size:11px">${vendorCell}</td>
           <td><div class="pts">${ports}${more}</div></td>
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
-          <td class="mono" style="font-size:10px">${relTime(a.last_seen)}</td>
-          <td><button class="tbtn" style="font-size:10px" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button></td>
+          <td class="mono mono-sm">${relTime(a.last_seen)}</td>
+          <td><button class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button></td>
         </tr>`;
     }).join('') || '<tr><td colspan="8" class="loading">No assets found</td></tr>';
 
@@ -1083,19 +1086,19 @@ async function loadFindings(page) {
     if (!d) return;
 
     document.getElementById('vuln-tbody').innerHTML = (d.findings || []).map(f => `<tr>
-      <td class="mono" style="font-size:10px">${esc(f.cve_id)}</td>
-      <td class="mono" style="cursor:pointer;color:var(--acc)"
+      <td class="mono mono-sm">${esc(f.cve_id)}</td>
+      <td class="mono click-ip"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.ip)}</td>
-      <td style="color:var(--acc);font-size:11px;cursor:pointer"
+      <td class="click-ip" style="font-size:11px"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.hostname||'—')}</td>
       <td><span class="cat ${esc(f.category||'unk')}">${esc(f.category||'unk')}</span></td>
-      <td style="color:var(--tx2);font-size:11px;max-width:260px">${esc(f.description||'—')}</td>
+      <td class="text-secondary" style="font-size:11px;max-width:260px">${esc(f.description||'—')}</td>
       <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
-      <td class="mono" style="font-size:10px">${localDate(f.published)}</td>
-      <td>${f.resolved ? '<span style="color:var(--green);font-family:var(--mf);font-size:10px">resolved</span>'
-          : `<button class="tbtn" style="font-size:10px" onclick="resolveFinding(${f.id}, this)">Resolve</button>`}</td>
+      <td class="mono mono-sm">${localDate(f.published)}</td>
+      <td>${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
+          : `<button class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button>`}</td>
     </tr>`).join('') || '<tr><td colspan="8" class="loading">No findings</td></tr>';
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
@@ -1282,16 +1285,16 @@ async function loadScanHistory(history) {
     updateQueuePanel(history);
     document.getElementById('scan-hist').innerHTML = (history||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr>
       <td class="mono">#${j.id}</td>
-      <td style="color:var(--tx);font-size:11px">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span style="font-family:var(--mf);font-size:9px;color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
-      <td class="mono" style="font-size:10px">${esc(j.target_cidr)}</td>
-      <td><span style="color:${statColors2[j.status]||'var(--tx2)'};font-family:var(--mf);font-size:10px">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div style="font-family:var(--mf);font-size:9px;color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
-      <td style="font-family:var(--mf);font-size:9px;color:var(--tx3)">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
+      <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
+      <td class="mono font10">${esc(j.target_cidr)}</td>
+      <td><span class="status-chip" style="color:${statColors2[j.status]||'var(--tx2)'}">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div class="text-micro" style="color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
+      <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
-      <td class="mono" style="font-size:10px">${fmtDuration(j.duration_secs)}</td>
-      <td class="mono" style="font-size:10px">${localDate(j.finished_at)}</td>
-      <td style="white-space:nowrap">
-        <button class="tbtn" style="font-size:9px" onclick="openScanHistDetail(${j.id})">Details</button>
-        ${['queued','retrying'].includes(j.status)?`<button class="tbtn" style="font-size:9px;color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn" style="font-size:9px" onclick="retryJob(${j.id})">Retry</button>`:''}
+      <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
+      <td class="mono font10">${localDate(j.finished_at)}</td>
+      <td class="nowrap-cell">
+        <button class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
+        ${['queued','retrying'].includes(j.status)?`<button class="tbtn text-micro" style="color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn text-micro" onclick="retryJob(${j.id})">Retry</button>`:''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">No previous scans</td></tr>';
 }
@@ -1324,29 +1327,29 @@ function updateQueuePanel(history) {
         const pct  = j.progress_pct || 0;
         const isRun = j.status === 'running';
         const msgEl = isRun ? `
-            <div style="font-family:var(--mf);font-size:9px;color:var(--tx3);margin-top:3px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="qmsg-${j.id}">
+            <div class="text-micro" style="margin-top:3px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="qmsg-${j.id}">
               ${j.hosts_found > 0 ? j.hosts_scanned+'/'+ j.hosts_found+' hosts &nbsp;·&nbsp; '+pct+'%' : 'Starting…'}
             </div>
-            <div style="height:3px;background:var(--bg4);border-radius:2px;margin-top:4px;width:200px">
-              <div style="height:3px;background:var(--acc);border-radius:2px;width:${pct}%;transition:width .3s"></div>
+            <div class="track">
+              <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
         return `<tr>
           <td class="mono">#${j.id}</td>
-          <td style="font-size:11px;color:var(--tx)">${esc(j.label||'—')}</td>
-          <td class="mono" style="font-size:10px">${esc(j.target_cidr)}</td>
-          <td style="font-family:var(--mf);font-size:9px;color:var(--tx3)">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
+          <td class="text-primary font11">${esc(j.label||'—')}</td>
+          <td class="mono font10">${esc(j.target_cidr)}</td>
+          <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
           <td>
-            <span style="font-family:var(--mf);font-size:10px;color:${statusColor[j.status]||'var(--tx2)'}">
+            <span class="status-chip" style="color:${statusColor[j.status]||'var(--tx2)'}">
               ${isRun ? '&#9654; running' : j.status}
             </span>
             ${msgEl}
           </td>
-          <td class="mono" style="font-size:10px">${j.priority||10}</td>
-          <td class="mono" style="font-size:10px">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
+          <td class="mono font10">${j.priority||10}</td>
+          <td class="mono font10">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
           <td>
             ${isRun
-              ? `<button class="btnd" style="font-size:9px" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
-              : `<button class="tbtn" style="font-size:9px;color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`}
+              ? `<button class="btnd btn-xxs" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
+              : `<button class="tbtn btn-xxs danger" onclick="cancelJob(${j.id})">Cancel</button>`}
           </td>
         </tr>`;
     }).join('');
@@ -1396,7 +1399,7 @@ function closeScanHistDetailModal() {
 
 function renderScanSummary(summary) {
     if (!summary || typeof summary !== 'object') {
-        return '<span style="color:var(--tx3)">No summary snapshot recorded for this run.</span>';
+        return '<span class="summary-empty">No summary snapshot recorded for this run.</span>';
     }
     const topPorts = Array.isArray(summary.top_ports) ? summary.top_ports : [];
     const cats = summary.categories && typeof summary.categories === 'object'
@@ -1407,9 +1410,9 @@ function renderScanSummary(summary) {
         : '—';
     return `
       <div>Profile: <b>${esc(summary.profile || '—')}</b> &nbsp;|&nbsp; Mode: <b>${esc(summary.scan_mode || '—')}</b></div>
-      <div style="margin-top:3px">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
-      <div style="margin-top:3px">Top ports: <span class="mono">${esc(portText)}</span></div>
-      <div style="margin-top:3px">Categories: <span class="mono">${esc(cats || '—')}</span></div>
+      <div class="summary-line">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
+      <div class="summary-line">Top ports: <span class="mono">${esc(portText)}</span></div>
+      <div class="summary-line">Categories: <span class="mono">${esc(cats || '—')}</span></div>
     `;
 }
 
@@ -1719,34 +1722,34 @@ async function loadEnrichment() {
     const list = d.sources || [];
     document.getElementById('enrich-list').innerHTML = list.length
         ? list.map(s => `
-            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">
-              <div style="flex:1">
-                <div style="color:var(--tx);font-size:12px">${esc(s.label)}</div>
-                <div style="font-family:var(--mf);font-size:10px;color:var(--tx3)">${esc(s.source_type)} · priority ${s.priority}</div>
-                ${s.last_test_msg ? `<div style="font-family:var(--mf);font-size:10px;color:${s.last_test_ok?'var(--green)':'var(--red)'}">${esc(s.last_test_msg)}</div>` : ''}
+            <div class="enrich-row">
+              <div class="grow">
+                <div class="text-primary font11">${esc(s.label)}</div>
+                <div class="status-text">${esc(s.source_type)} · priority ${s.priority}</div>
+                ${s.last_test_msg ? `<div class="status-text" style="color:${s.last_test_ok?'var(--green)':'var(--red)'}">${esc(s.last_test_msg)}</div>` : ''}
               </div>
-              <div style="font-family:var(--mf);font-size:10px;padding:2px 6px;border-radius:2px;background:${s.enabled?'var(--gdim)':'var(--bg4)'};color:${s.enabled?'var(--green)':'var(--tx3)'}">
+              <div class="badge-mini ${s.enabled ? 'badge-on' : 'badge-off'}">
                 ${s.enabled ? 'enabled' : 'disabled'}
               </div>
-              <button class="tbtn" style="font-size:10px"
+              <button class="tbtn btn-xs"
                       data-id="${s.id}" data-type="${esc(s.source_type)}"
                       data-label="${esc(s.label)}" data-enabled="${s.enabled}"
                       data-priority="${s.priority}"
                       data-config="${esc(JSON.stringify(JSON.parse(s.config_json||'{}'))  )}"
                       onclick="editSourceFromBtn(this)">Edit</button>
-              <button class="tbtn" style="font-size:10px;color:var(--red)" onclick="deleteSource(${s.id})">✕</button>
+              <button class="tbtn btn-xs danger" onclick="deleteSource(${s.id})">✕</button>
             </div>`).join('')
-        : '<div style="color:var(--tx3);font-size:11px;font-family:var(--mf);padding:8px 0">No enrichment sources configured. Add one below.</div>';
+        : '<div class="hint-micro pad8y">No enrichment sources configured. Add one below.</div>';
 
     // Available types
     const types = d.available_types || [];
     document.getElementById('enrich-types').innerHTML = types.map(t => `
-        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd)">
-          <div style="flex:1;font-size:12px;color:var(--tx)">${esc(t.label)}</div>
-          <div style="font-family:var(--mf);font-size:10px;padding:2px 6px;border-radius:2px;background:${t.status==='ready'?'var(--gdim)':t.status==='partial'?'var(--adim)':'var(--bg4)'};color:${t.status==='ready'?'var(--green)':t.status==='partial'?'var(--amber)':'var(--tx3)'}">
+        <div class="mini-row">
+          <div class="grow text-primary font11">${esc(t.label)}</div>
+          <div class="badge-mini ${t.status==='ready'?'badge-ready':t.status==='partial'?'badge-partial':'badge-missing'}">
             ${t.status}
           </div>
-          ${t.status==='ready'||t.status==='partial' ? `<button class="tbtn" style="font-size:10px" onclick="openAddSource('${t.type}')">+ Add</button>` : ''}
+          ${t.status==='ready'||t.status==='partial' ? `<button class="tbtn btn-xs" onclick="openAddSource('${t.type}')">+ Add</button>` : ''}
         </div>`).join('');
 }
 
@@ -1758,13 +1761,12 @@ function updateSourceFields(existingConfig) {
         const val = cfg[f.id] !== undefined ? cfg[f.id] : (f.default || '');
         if (f.type === 'select') {
             return `<label class="flbl">${esc(f.label)}</label>
-                    <select class="finp" id="esrc-f-${f.id}" style="width:100%;margin-bottom:10px">
+                    <select class="finp w100 mb10" id="esrc-f-${f.id}">
                       ${f.options.map(o => `<option value="${o}"${o===val?' selected':''}>${o}</option>`).join('')}
                     </select>`;
         }
         return `<label class="flbl">${esc(f.label)}</label>
-                <input class="finp" id="esrc-f-${f.id}" type="${f.type}"
-                       style="width:100%;margin-bottom:10px"
+                <input class="finp w100 mb10" id="esrc-f-${f.id}" type="${f.type}"
                        value="${esc(String(val))}"
                        placeholder="${esc(f.placeholder||'')}">`;
     }).join('');
@@ -1954,17 +1956,17 @@ async function loadSchedules() {
         const isPaused = !!(parseInt(s.paused, 10) || 0);
         const isOn = !!(parseInt(s.enabled, 10) || 0);
         const pausedTag = isPaused
-            ? '<span style="color:var(--amber);font-size:10px;margin-left:6px;font-family:var(--mf)">Paused</span>'
+            ? '<span class="paused-chip">Paused</span>'
             : '';
 
         // next_run is stored as UTC — display as local browser time
-        let nextRun = '<span style="color:var(--tx3)">pending</span>';
+        let nextRun = '<span class="pending">pending</span>';
         if (s.next_run) {
             const nr = new Date(s.next_run + 'Z');  // append Z to treat as UTC
             const secs = s.secs_until_next;
             const timeStr = nr.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
             if (secs <= 0) {
-                nextRun = '<span style="color:var(--amber)">due now</span>';
+                nextRun = '<span class="due-now">due now</span>';
             } else if (secs < 3600) {
                 nextRun = `<span title="${timeStr}">${Math.floor(secs/60)}m</span>`;
             } else if (secs < 86400) {
@@ -1976,41 +1978,38 @@ async function loadSchedules() {
 
         const lastRun   = s.last_run   ? relTime(s.last_run)   : '—';
         const lastStat  = s.last_job_status
-            ? `<span style="color:${statColor[s.last_job_status]||'var(--tx2)'};font-family:var(--mf);font-size:10px">${s.last_job_status}</span>`
-              + (s.last_hosts_found ? ` <span style="font-family:var(--mf);font-size:10px;color:var(--tx3)">${s.last_hosts_found} hosts</span>` : '')
+            ? `<span class="status-text" style="color:${statColor[s.last_job_status]||'var(--tx2)'}">${s.last_job_status}</span>`
+              + (s.last_hosts_found ? ` <span class="status-text">${s.last_hosts_found} hosts</span>` : '')
             : '—';
 
         const pauseResume = isOn
             ? (isPaused
-                ? `<button class="tbtn" style="font-size:9px" onclick="resumeSchedule(${s.id})" title="Resume schedule">Resume</button>`
-                : `<button class="tbtn" style="font-size:9px" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
+                ? `<button class="tbtn btn-xxs" onclick="resumeSchedule(${s.id})" title="Resume schedule">Resume</button>`
+                : `<button class="tbtn btn-xxs" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
             : '';
 
         return `<tr>
-          <td style="color:var(--tx)">${esc(s.name)}${pausedTag}</td>
-          <td class="mono" style="font-size:11px">${esc(s.target_cidr)}</td>
-          <td style="font-family:var(--mf);font-size:11px;color:var(--tx2)">${esc((s.profile||'').replace(/_/g,' '))}</td>
-          <td class="mono" style="font-size:11px">${esc(s.cron_expr)}</td>
-          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)" title="Catch-up when overdue">${missedLbl}</td>
-          <td style="font-family:var(--mf);font-size:11px">${nextRun}</td>
-          <td style="font-family:var(--mf);font-size:11px;color:var(--tx2)">${lastRun}</td>
+          <td class="text-primary">${esc(s.name)}${pausedTag}</td>
+          <td class="mono">${esc(s.target_cidr)}</td>
+          <td class="status-text">${esc((s.profile||'').replace(/_/g,' '))}</td>
+          <td class="mono">${esc(s.cron_expr)}</td>
+          <td class="status-text" title="Catch-up when overdue">${missedLbl}</td>
+          <td class="status-text">${nextRun}</td>
+          <td class="status-text">${lastRun}</td>
           <td>${lastStat}</td>
           <td>
-            <button class="tbtn" style="font-size:10px;font-family:var(--mf);
-              color:${isOn ? 'var(--green)' : 'var(--tx3)'};
-              border-color:${isOn ? 'var(--green)' : 'var(--bd2)'};
-              min-width:52px"
+            <button class="tbtn btn-xs ${isOn ? 'toggle-on' : 'toggle-off'}"
               onclick="toggleSchedule(${s.id})"
               title="${isOn ? 'Click to disable' : 'Click to enable'}">
               ${isOn ? '● ON' : '○ OFF'}
             </button>
           </td>
-          <td style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 8px;max-width:200px">
-            <button class="tbtn" style="font-size:9px" onclick="openSchedHist(${s.id})" title="Run history">Hist</button>
+          <td class="row-actions">
+            <button class="tbtn btn-xxs" onclick="openSchedHist(${s.id})" title="Run history">Hist</button>
             ${pauseResume}
-            <button class="tbtn" style="font-size:10px" onclick="runSchedNow(${s.id})" title="Run now">&#9654;</button>
-            <button class="tbtn" style="font-size:10px" onclick="editSchedule(${s.id})">&#9998;</button>
-            <button class="tbtn" style="font-size:10px;color:var(--red)" onclick="deleteSchedule(${s.id})">&#10005;</button>
+            <button class="tbtn btn-xs" onclick="runSchedNow(${s.id})" title="Run now">&#9654;</button>
+            <button class="tbtn btn-xs" onclick="editSchedule(${s.id})">&#9998;</button>
+            <button class="tbtn btn-xs" style="color:var(--red)" onclick="deleteSchedule(${s.id})">&#10005;</button>
           </td>
         </tr>`;
     }).join('');
@@ -2203,12 +2202,12 @@ async function openSchedHist(id) {
             ? `${parseInt(r.hosts_scanned, 10) || 0}/${parseInt(r.hosts_found, 10) || 0}`
             : '—';
         return `<tr>
-          <td class="mono" style="font-size:11px"><a href="#" onclick="openJobFromHist(${r.id});return false">${r.id}</a></td>
-          <td style="font-family:var(--mf);font-size:10px">${esc(r.status || '')}</td>
-          <td style="font-size:11px;color:var(--tx2)">${esc(r.label || '')}</td>
-          <td style="font-family:var(--mf);font-size:10px">${hosts}</td>
-          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)">${toLoc(r.created_at)}</td>
-          <td style="font-family:var(--mf);font-size:10px;color:var(--tx2)">${toLoc(r.finished_at)}</td>
+          <td class="mono font11"><a href="#" onclick="openJobFromHist(${r.id});return false">${r.id}</a></td>
+          <td class="status-text">${esc(r.status || '')}</td>
+          <td class="text-secondary font11">${esc(r.label || '')}</td>
+          <td class="status-text">${hosts}</td>
+          <td class="status-text">${toLoc(r.created_at)}</td>
+          <td class="status-text">${toLoc(r.finished_at)}</td>
         </tr>`;
     }).join('');
 }
@@ -2600,102 +2599,100 @@ async function openHostPanel(id, ip) {
         const rawBanner = banners[String(p)] || '';
         const friendly = buildFriendlyOpenPortLine(p, rawBanner, httpProbe, ports);
 
-        return `<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)">
-          <span style="font-family:var(--mf);font-size:12px;color:var(--acc);min-width:48px;flex-shrink:0">${p}</span>
-          <div style="min-width:0;flex:1">
-            <div style="font-size:11px;color:var(--tx2);word-break:break-word;line-height:1.45">
-              <span style="color:var(--tx3);font-family:var(--mf)">→</span>
+        return `<div class="hp-port-row">
+          <span class="hp-port-num">${p}</span>
+          <div class="minw0 grow">
+            <div class="hp-port-text">
+              <span class="hp-arrow">→</span>
               ${esc(friendly)}
             </div>
-            ${rawBanner ? `<details style="margin-top:4px"><summary style="cursor:pointer;font-size:10px;color:var(--tx3)">raw banner</summary>
-              <div style="margin-top:2px;font-size:10px;color:var(--tx2);font-family:var(--mf);word-break:break-all">${esc(rawBanner)}</div>
+            ${rawBanner ? `<details class="mt4"><summary class="hp-raw-summary">raw banner</summary>
+              <div class="hp-raw-body">${esc(rawBanner)}</div>
             </details>` : ''}
           </div>
         </div>`;
-    }).join('') : '<div style="color:var(--tx3);font-size:11px;padding:8px 0">No open ports detected</div>';
+    }).join('') : '<div class="hp-empty">No open ports detected</div>';
 
     const serviceRows = serviceChips.length
-        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${
+        ? `<div class="hp-chips">${
             serviceChips.map(s =>
-                `<span style="font-size:10px;font-family:var(--mf);padding:4px 7px;border:1px solid var(--bd2);border-radius:999px;color:var(--tx)">${esc(s)}</span>`
+                `<span class="hp-chip">${esc(s)}</span>`
             ).join('')
           }</div>`
-        : `<div style="color:var(--tx3);font-size:11px;padding:4px 0 12px">No specific app fingerprints detected yet</div>`;
+        : `<div class="hp-empty" style="padding:4px 0 12px">No specific app fingerprints detected yet</div>`;
 
     const findingRows = findings.length ? findings.map(f => `
-        <div style="padding:8px 0;border-bottom:1px solid var(--bd)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-            <span style="font-family:var(--mf);font-size:10px;color:${sevColor[f.severity]||'var(--tx3)'}">
+        <div class="hp-block">
+          <div class="hp-row">
+            <span class="hp-sev" style="color:${sevColor[f.severity]||'var(--tx3)'}">
               ${f.cvss||'?'} ${(f.severity||'').toUpperCase()}
             </span>
-            <span style="font-family:var(--mf);font-size:10px;color:var(--tx3)">${esc(f.cve_id)}</span>
-            <span style="font-size:10px;color:var(--tx3);margin-left:auto">${localDate(f.published)}</span>
+            <span class="hp-cve">${esc(f.cve_id)}</span>
+            <span class="hp-date">${localDate(f.published)}</span>
           </div>
-          <div style="font-size:11px;color:var(--tx2);line-height:1.5">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
-          ${!f.resolved ? `<button class="tbtn" style="font-size:10px;margin-top:4px" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span style="font-size:10px;color:var(--green);font-family:var(--mf)">resolved</span>'}
-        </div>`).join('') : '<div style="color:var(--tx3);font-size:11px;padding:8px 0">No vulnerabilities found</div>';
+          <div class="hp-desc">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
+          ${!f.resolved ? `<button class="tbtn btn-xs mt4" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
+        </div>`).join('') : '<div class="hp-empty">No vulnerabilities found</div>';
 
     document.getElementById('hp-body').innerHTML = `
-      <div style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div class="hp-meta">
+        <div class="hp-meta-title">
           <span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span>
-          <span style="font-size:13px;color:var(--tx)">${esc(a.hostname||'—')}</span>
+          <span class="hp-meta-host">${esc(a.hostname||'—')}</span>
         </div>
-        <table style="width:100%;font-size:11px;font-family:var(--mf)">
-          <tr><td style="color:var(--tx3);padding:3px 0;width:80px">IP</td><td style="color:var(--tx)">${esc(a.ip)}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">MAC</td><td style="color:var(--tx)">
+        <table class="hp-meta-table">
+          <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
+          <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
             ${esc(a.mac||'—')}
             ${a.mac && parseInt(a.mac.split(':')[0],16) & 2 ?
-              '<span style="font-family:var(--mf);font-size:9px;color:var(--tx3);margin-left:6px" title="Locally administered (randomized) MAC — OUI lookup not available">randomized</span>'
+              '<span class="hp-randomized" title="Locally administered (randomized) MAC — OUI lookup not available">randomized</span>'
               : ''}
           </td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">Vendor</td><td style="color:var(--tx)">${esc(a.vendor||'—')}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">OS</td><td style="color:var(--tx)">${esc(a.os_guess||'—')}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">CPE</td><td style="color:var(--tx2);word-break:break-all">${esc(a.cpe||'—')}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Connected via</td>
-              <td style="color:var(--tx2)">${esc(a.connected_via||'—')}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">First seen</td><td style="color:var(--tx2)">${localTime(a.first_seen)}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0">Last seen</td><td style="color:var(--tx2)">${relTime(a.last_seen)}</td></tr>
-          <tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Discovery</td>
-              <td style="color:var(--tx2)">${(a.discovery_sources||[]).length ? esc((a.discovery_sources||[]).join(', ')) : '—'}</td></tr>
-          ${a.notes ? `<tr><td style="color:var(--tx3);padding:3px 0;vertical-align:top">Notes</td><td style="color:var(--tx2)">${esc(a.notes)}</td></tr>` : ''}
+          <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val">${esc(a.vendor||'—')}</td></tr>
+          <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${esc(a.os_guess||'—')}</td></tr>
+          <tr><td class="hp-meta-key">CPE</td><td class="hp-meta-val-dim cpe-break">${esc(a.cpe||'—')}</td></tr>
+          <tr><td class="hp-meta-key">Connected via</td><td class="hp-meta-val-dim">${esc(a.connected_via||'—')}</td></tr>
+          <tr><td class="hp-meta-key">First seen</td><td class="hp-meta-val-dim">${localTime(a.first_seen)}</td></tr>
+          <tr><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>
+          <tr><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${(a.discovery_sources||[]).length ? esc((a.discovery_sources||[]).join(', ')) : '—'}</td></tr>
+          ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>
 
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div class="hp-head">
         Detected services
-        <div style="flex:1;height:1px;background:var(--bd)"></div>
+        <div class="hp-head-line"></div>
       </div>
       ${serviceRows}
 
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div class="hp-head">
         Open ports (${ports.length})
-        <div style="flex:1;height:1px;background:var(--bd)"></div>
+        <div class="hp-head-line"></div>
       </div>
-      <div style="margin-bottom:16px">${portRows}</div>
+      <div class="mb14">${portRows}</div>
 
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div class="hp-head">
         Vulnerabilities (${findings.length})
-        <div style="flex:1;height:1px;background:var(--bd)"></div>
-        ${findings.length ? `<button class="tbtn" style="font-size:10px" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View all</button>` : ''}
+        <div class="hp-head-line"></div>
+        ${findings.length ? `<button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View all</button>` : ''}
       </div>
-      <div style="margin-bottom:16px">${findingRows}</div>
+      <div class="mb14">${findingRows}</div>
 
-      <div style="font-family:var(--mf);font-size:10px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div class="hp-head">
         Port history
-        <div style="flex:1;height:1px;background:var(--bd)"></div>
+        <div class="hp-head-line"></div>
       </div>
-      <div style="margin-bottom:8px">${
+      <div class="mb8">${
         (assetData.asset.port_history||[]).slice(0,5).map(h => `
-          <div style="display:flex;gap:10px;font-family:var(--mf);font-size:10px;padding:4px 0;border-bottom:1px solid var(--bd)">
-            <span style="color:var(--tx3);min-width:100px">${esc((h.seen_at||'').slice(0,16))}</span>
-            <span style="color:var(--tx2)">${(h.ports||[]).join(', ')||'none'}</span>
-          </div>`).join('') || '<div style="color:var(--tx3);font-size:11px;padding:4px 0">No history yet</div>'
+          <div class="hp-history-row">
+            <span class="hp-history-ts">${esc((h.seen_at||'').slice(0,16))}</span>
+            <span class="hp-history-ports">${(h.ports||[]).join(', ')||'none'}</span>
+          </div>`).join('') || '<div class="hp-empty" style="padding:4px 0">No history yet</div>'
       }</div>
 
-      <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btnp" style="font-size:11px" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
-        <button class="tbtn" style="font-size:11px" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
+      <div class="hp-actions">
+        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
+        <button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
       </div>`;
 }
 
@@ -2741,8 +2738,23 @@ async function initAuthMode() {
 
 async function initApp() {
     await initAuthMode();
+    const execMode = (() => {
+        try { return localStorage.getItem('st_exec_mode') === '1'; }
+        catch (e) { return false; }
+    })();
+    document.body.classList.toggle('exec-mode', execMode);
+    const mb = document.getElementById('dash-mode-btn');
+    if (mb) mb.textContent = 'Executive view: ' + (execMode ? 'on' : 'off');
     // Always load dashboard data first to populate sidebar badges
     await loadDashboard();
+}
+
+function toggleDashMode() {
+    const on = !document.body.classList.contains('exec-mode');
+    document.body.classList.toggle('exec-mode', on);
+    try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
+    const mb = document.getElementById('dash-mode-btn');
+    if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
 }
 
 initApp();
