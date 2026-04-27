@@ -81,12 +81,18 @@ def resolve_hostname(ip: str) -> str:
     import socket
     import subprocess
 
-    # 1. Reverse DNS
+    # 1. Reverse DNS (bounded timeout to avoid long resolver stalls)
     try:
-        name = socket.gethostbyaddr(ip)[0]
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(socket.gethostbyaddr, ip)
+            try:
+                name = fut.result(timeout=1.5)[0]
+            except _cf.TimeoutError:
+                name = ""
         if name and name != ip:
             return name.split(".")[0]   # strip domain, keep short name
-    except (socket.herror, socket.gaierror, OSError):
+    except (socket.herror, socket.gaierror, OSError, Exception):
         pass
 
     # 2. mDNS via avahi-resolve (if avahi-utils installed)
@@ -2032,12 +2038,16 @@ def run_scan(job: dict) -> None:
         http_titles, http_probes = phase_http_titles(job_id, banner_results)
 
     resolved_dns_hosts: set[str] = set()
-    for ip in all_ips:
+    for idx, ip in enumerate(sorted(all_ips), start=1):
         if ip not in hostname_cache:
             hn = resolve_hostname(ip)
             hostname_cache[ip] = hn
             if hn:
                 resolved_dns_hosts.add(ip)
+        if idx % 32 == 0 or idx == len(all_ips):
+            with db_conn() as conn:
+                log_event(conn, job_id, "INFO",
+                          f"Hostname resolution progress: {idx}/{len(all_ips)} hosts")
 
     for ip in all_ips:
         mac     = alive_hosts.get(ip, "")
