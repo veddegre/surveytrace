@@ -781,6 +781,8 @@ var confirmResolve = null;
 var themeMediaQuery = null;
 var themeMediaListener = null;
 var execPreviousTab = null;
+var feedSyncInProgress = false;
+var feedSyncActiveTarget = null;
 
 // ==========================================================================
 // Nav
@@ -1894,23 +1896,28 @@ async function refreshBadges() {
 }
 
 async function runFeedSync(target) {
+    if (feedSyncInProgress) {
+        const who = feedSyncActiveTarget ? ` (${feedSyncActiveTarget})` : '';
+        toast('A feed sync is already running' + who + '. Please wait.', 'err');
+        return;
+    }
+    feedSyncInProgress = true;
+    feedSyncActiveTarget = target;
+
     const btnIds = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
-    const activeBtnIds = target === 'all'
-        ? btnIds
-        : [target === 'nvd' ? 'btn-sync-nvd' : target === 'oui' ? 'btn-sync-oui' : 'btn-sync-webfp', 'btn-sync-all'];
+    const busyBtnId = target === 'nvd' ? 'btn-sync-nvd'
+        : target === 'oui' ? 'btn-sync-oui'
+        : target === 'webfp' ? 'btn-sync-webfp'
+        : 'btn-sync-all';
     const btnLabels = {};
-    activeBtnIds.forEach(id => {
+    btnIds.forEach(id => {
         const b = document.getElementById(id);
         if (!b) return;
         btnLabels[id] = b.textContent || '';
         b.disabled = true;
-        b.classList.add('btn-busy');
+        if (id === busyBtnId) b.classList.add('btn-busy');
     });
-    const btnTarget = document.getElementById(
-        target === 'nvd' ? 'btn-sync-nvd' :
-        target === 'oui' ? 'btn-sync-oui' :
-        target === 'webfp' ? 'btn-sync-webfp' : 'btn-sync-all'
-    );
+    const btnTarget = document.getElementById(busyBtnId);
     if (btnTarget) btnTarget.textContent = 'Syncing…';
     const nvdStatus = document.getElementById('sync-status-nvd');
     const fpStatus = document.getElementById('sync-status-fp');
@@ -1929,14 +1936,20 @@ async function runFeedSync(target) {
     toast('Starting ' + target + ' feed sync…', 'ok');
     feedSyncLastOutput = `[client] ${new Date().toISOString()} — starting ${target} feed sync...`;
     const r = await apiPost('/api/feeds.php?sync=1', {target});
-    activeBtnIds.forEach(id => {
-        const b = document.getElementById(id);
-        if (!b) return;
-        b.disabled = false;
-        b.classList.remove('btn-busy');
-        if (btnLabels[id] !== undefined) b.textContent = btnLabels[id];
-    });
+    const finalizeSyncUi = () => {
+        feedSyncInProgress = false;
+        feedSyncActiveTarget = null;
+        btnIds.forEach(id => {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.disabled = false;
+            b.classList.remove('btn-busy');
+            if (btnLabels[id] !== undefined) b.textContent = btnLabels[id];
+        });
+    };
 
+    finalizeSyncUi();
+    
     if (!r) {
         feedSyncLastOutput = '[client] Feed sync request failed (no response)';
         toast('Feed sync request failed', 'err');

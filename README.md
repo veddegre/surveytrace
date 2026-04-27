@@ -9,9 +9,13 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required)
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
+- **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support
+- **Scan history** — per-run history, duration, summary snapshot, and detail view
+- **UI themes** — Dark / Light / Auto mode with persistent preference
+- **Executive dashboard view** — presentation-focused dashboard mode
 - **Enrichment** — UniFi controller integration, SNMP, DHCP lease import, DNS log import, firewall log import, extensible source plugins
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -117,6 +121,11 @@ Feed source links used by these scripts:
 
 Manual sync is also available from the Settings tab (buttons call `POST /api/feeds.php?sync=1`).
 
+Manual sync behavior:
+- Runs one sync action at a time from the UI (prevents overlapping clicks)
+- Shows in-progress/completed/failed status inline in Settings
+- Captures script stdout/stderr in the “View last output” modal
+
 ## Architecture
 
 ```
@@ -140,6 +149,7 @@ surveytrace/
 │   ├── scan_status.php     Job status, progress, audit log tail
 │   ├── scan_abort.php      Job abort/cancel
 │   ├── schedules.php       Schedule management
+│   ├── scan_history.php    Scan run history + per-run detail
 │   ├── enrichment.php      Enrichment source management
 │   ├── dashboard.php       Dashboard stats
 │   ├── feeds.php           Manual feed sync trigger (Settings UI)
@@ -189,6 +199,13 @@ surveytrace/
 | Auto | ARP for same-subnet, ICMP/TCP ping scan for routed | Default — works for most networks |
 | Routed | ICMP/TCP ping scan only — no ARP | Scanning across routers |
 | Force (-Pn) | Scan all IPs regardless of ping response | Hosts with ICMP blocked (UFW etc.) |
+
+## UI Modes and Theme
+
+- **Theme toggle** (top bar): `Dark`, `Light`, `Auto` (follows system `prefers-color-scheme`)
+- **Executive view** (Dashboard): optimized presentation mode for briefing screens
+  - focuses on dashboard content
+  - uses larger typography and cleaner dashboard spacing
 
 ## Enrichment Sources
 
