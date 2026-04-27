@@ -969,11 +969,24 @@ async function fetchFeedSyncServerState() {
         return { running: false, target: '', started_at: 0, last_feed_sync: null };
     }
     const fs = r.feed_sync && typeof r.feed_sync === 'object' ? r.feed_sync : { running: false };
+    const startedAt = parseInt(fs.started_at, 10) || 0;
+    const last = r.last_feed_sync && typeof r.last_feed_sync === 'object' ? r.last_feed_sync : null;
+    let running = !!fs.running;
+    // If the state file is stale but feed_sync_result.json was already written for this
+    // run, treat as done (matches server-side self-heal in st_feed_sync_state_read).
+    if (running && last && startedAt > 0) {
+        const fin = parseInt(last.finished_at, 10) || 0;
+        const st = String(fs.target || '').toLowerCase();
+        const lt = String(last.target || '').toLowerCase();
+        if (fin >= startedAt && st !== '' && st === lt) {
+            running = false;
+        }
+    }
     return {
-        running: !!fs.running,
+        running,
         target: String(fs.target || ''),
-        started_at: parseInt(fs.started_at, 10) || 0,
-        last_feed_sync: r.last_feed_sync && typeof r.last_feed_sync === 'object' ? r.last_feed_sync : null,
+        started_at: startedAt,
+        last_feed_sync: last,
     };
 }
 

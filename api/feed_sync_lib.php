@@ -61,6 +61,21 @@ function st_feed_sync_state_read(): array {
         @unlink($path);
         return ['running' => false];
     }
+    // Result is written when the job finishes; if that happened but unlink of this
+    // state file failed (mixed www-data / surveytrace ownership), self-heal so the
+    // UI and busy checks see "not running".
+    $last = st_feed_sync_last_result_read();
+    if ($last !== null) {
+        $fin = (int)($last['finished_at'] ?? 0);
+        if ($fin > 0 && $started > 0 && $fin >= $started) {
+            $lt = strtolower((string)($last['target'] ?? ''));
+            $st = strtolower((string)($j['target'] ?? ''));
+            if ($lt !== '' && $lt === $st) {
+                st_feed_sync_state_clear();
+                return ['running' => false];
+            }
+        }
+    }
     return [
         'running' => true,
         'target' => (string)($j['target'] ?? ''),
@@ -91,6 +106,11 @@ function st_feed_sync_state_begin(string $target): bool {
         return false;
     }
     $bytes = @file_put_contents($path, $payload, LOCK_EX);
+    if ($bytes !== false) {
+        // Match data/ policy (660): FPM is www-data; worker + cron run as surveytrace
+        // but share group www-data on this dir — avoid 644 so group can read/write.
+        @chmod($path, 0660);
+    }
     return $bytes !== false;
 }
 
@@ -331,7 +351,9 @@ function st_feed_sync_write_result(string $target, array $payload): void {
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         ) ?: '{"ok":false,"error":"json encode failed"}';
     }
-    file_put_contents(ST_DATA_DIR . '/feed_sync_result.json', $enc, LOCK_EX);
+    $outPath = ST_DATA_DIR . '/feed_sync_result.json';
+    file_put_contents($outPath, $enc, LOCK_EX);
+    @chmod($outPath, 0660);
 }
 
 /** @return list<string> */
