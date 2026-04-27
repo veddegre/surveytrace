@@ -17,10 +17,13 @@ import csv
 import json
 import logging
 import re
+import sys
 import urllib.request
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
+
+from feed_sync_cancel import cancel_requested
 
 log = logging.getLogger("oui_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [oui_sync] %(message)s")
@@ -75,6 +78,9 @@ def fetch_csv_rows(url: str) -> list[dict[str, str]]:
 def build_map() -> dict[str, dict[str, str]]:
     out: dict[str, dict[str, str]] = {}
     for label, url in SOURCES:
+        if cancel_requested(DATA_DIR):
+            log.info("OUI sync cancelled — stopping before %s fetch.", label)
+            sys.exit(10)
         log.info("Fetching %s from %s", label, url)
         rows = fetch_csv_rows(url)
         for row in rows:

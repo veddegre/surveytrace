@@ -9,6 +9,22 @@ function st_feed_sync_state_path(): string {
     return ST_DATA_DIR . '/feed_sync_state.json';
 }
 
+/** Empty marker file — sync scripts poll and exit 10 when present. */
+function st_feed_sync_cancel_path(): string {
+    return ST_DATA_DIR . '/feed_sync_cancel';
+}
+
+function st_feed_sync_cancel_request(): void {
+    if (!is_dir(ST_DATA_DIR)) {
+        @mkdir(ST_DATA_DIR, 0770, true);
+    }
+    @touch(st_feed_sync_cancel_path());
+}
+
+function st_feed_sync_cancel_clear(): void {
+    @unlink(st_feed_sync_cancel_path());
+}
+
 /** Long jobs (NVD) can exceed 5 minutes — avoid stale state while still running. */
 function st_feed_sync_state_ttl(): int {
     return 28800; // 8 hours
@@ -49,6 +65,7 @@ function st_feed_sync_state_begin(string $target): bool {
     if (!is_writable(ST_DATA_DIR)) {
         return false;
     }
+    st_feed_sync_cancel_clear();
     $payload = json_encode([
         'running' => true,
         'target' => $target,
@@ -63,6 +80,7 @@ function st_feed_sync_state_begin(string $target): bool {
 
 function st_feed_sync_state_clear(): void {
     @unlink(st_feed_sync_state_path());
+    st_feed_sync_cancel_clear();
 }
 
 function st_feed_sync_last_result_read(): ?array {
@@ -239,12 +257,17 @@ function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
         $output = [];
         $code = 1;
         exec($cmd, $output, $code);
+        $userCancel = ($code === 10);
         $results[] = [
             'script' => basename($script),
-            'ok' => $code === 0,
+            'ok' => $code === 0 || $userCancel,
             'exit_code' => $code,
             'output' => implode("\n", $output),
+            'cancelled' => $userCancel,
         ];
+        if ($userCancel) {
+            return ['ok' => true, 'cancelled' => true, 'results' => $results];
+        }
         if ($code !== 0) {
             $ok = false;
         }

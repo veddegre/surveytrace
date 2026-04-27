@@ -13,10 +13,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import urllib.request
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
+
+from feed_sync_cancel import cancel_requested
 
 log = logging.getLogger("webfp_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [webfp_sync] %(message)s")
@@ -70,6 +73,9 @@ def build_rules() -> list[dict[str, str]]:
     seen: set[tuple[str, str]] = set()
 
     for fn in FILES:
+        if cancel_requested(DATA_DIR):
+            log.info("WebFP sync cancelled — stopping before %s fetch.", fn)
+            sys.exit(10)
         url = f"{BASE}/{fn}"
         log.info("Fetching %s", url)
         doc = fetch_json(url)

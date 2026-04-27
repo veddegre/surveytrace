@@ -2,8 +2,9 @@
 /**
  * SurveyTrace — /api/feeds.php
  *
- * GET  /api/feeds.php?status=1  -> { ok, feed_sync, last_feed_sync? }
- * POST /api/feeds.php?sync=1    Body: {"target":"nvd"|"oui"|"webfp"|"all"}
+ * GET  /api/feeds.php?status=1   -> { ok, feed_sync, last_feed_sync? }
+ * POST /api/feeds.php?sync=1     Body: {"target":"nvd"|"oui"|"webfp"|"all"}
+ * POST /api/feeds.php?cancel=1 -> ask running sync to stop (NVD or "all" only)
  *
  * Sync runs in the background (HTTP returns immediately) so reverse proxies
  * and browsers do not time out on long NVD downloads.
@@ -30,6 +31,29 @@ if (isset($_GET['status'])) {
 
 st_method('POST');
 $body = st_input();
+
+if (isset($_GET['cancel'])) {
+    st_release_session_lock();
+    try {
+        $state = st_feed_sync_state_read();
+        if (!$state['running']) {
+            st_json(['ok' => false, 'error' => 'No feed sync is running.'], 409);
+        }
+        $tgt = strtolower((string)($state['target'] ?? ''));
+        if (!in_array($tgt, ['nvd', 'all'], true)) {
+            st_json([
+                'ok' => false,
+                'error' => 'Cancel only applies while NVD or “Sync all feeds” is running. '
+                    . 'OUI/WebFP-only jobs finish quickly.',
+            ], 400);
+        }
+        st_feed_sync_cancel_request();
+        st_json(['ok' => true, 'cancel_requested' => true]);
+    } catch (Throwable $e) {
+        error_log('feeds.php cancel: ' . $e->getMessage());
+        st_json(['ok' => false, 'error' => 'cancel failed: ' . $e->getMessage()], 500);
+    }
+}
 
 if (!isset($_GET['sync'])) {
     st_json(['error' => 'unsupported operation'], 400);

@@ -39,6 +39,8 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from feed_sync_cancel import cancel_requested
+
 log = logging.getLogger("nvd_sync")
 logging.basicConfig(
     level=logging.INFO,
@@ -284,6 +286,9 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
     )
 
     while True:
+        if cancel_requested(DATA_DIR):
+            log.info("NVD sync cancelled (stop requested from SurveyTrace UI).")
+            sys.exit(10)
         page_num += 1
         log.info("Fetching page %d (startIndex %d, resultsPerPage %d)…",
                  page_num, start_index, page_size)

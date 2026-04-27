@@ -59,6 +59,7 @@ sudo cp "$SRC"/daemon/sources/stubs.py     "$DEST/daemon/sources/" 2>/dev/null |
 
 # Feed sync from the UI: PHP-FPM runs sync in-process; Apache/mod_php spawns this worker.
 sudo cp "$SRC"/daemon/feed_sync_worker.php "$DEST/daemon/"
+sudo cp "$SRC"/daemon/feed_sync_cancel.py "$DEST/daemon/"
 
 # sync_nvd.py only if it exists (large script, less frequently changed)
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
@@ -177,6 +178,7 @@ check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib (required by feeds.php)"
 check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/daemon/feed_sync_worker.php" "feed sync CLI worker (required for non-FPM PHP)"
+check_file "$DEST/daemon/feed_sync_cancel.py" "feed sync cooperative cancel helper"
 check_file "$DEST/daemon/sync_nvd.py" "NVD sync script"
 check_file "$DEST/daemon/sync_oui.py" "OUI sync script"
 check_file "$DEST/daemon/sync_webfp.py" "WebFP sync script"

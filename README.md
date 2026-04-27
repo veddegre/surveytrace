@@ -85,7 +85,7 @@ bash deploy.sh
 `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
 - **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, `settings.php`, etc.
-- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** (needed for Settings → feed sync when PHP is **not** FPM, e.g. classic `mod_php`), and the `sync_*.py` feed scripts
+- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
@@ -165,6 +165,7 @@ Manual sync behavior:
 - Shows in-progress/completed/failed status inline in Settings
 - Captures script stdout/stderr in the “View last output” modal
 - **NVD** from the UI runs `sync_nvd.py --recent` (same incremental idea as the weekly cron); full rebuild is still `sync_nvd.py` without `--recent` on the CLI
+- **Cancel** (NVD or “Sync all” only) touches `data/feed_sync_cancel`; Python exits after the current fetch step — expect **several minutes** for a typical incremental run (longer without an API key or when NIST has a large update batch)
 
 ### Feed sync install paths (optional)
 
@@ -220,6 +221,7 @@ surveytrace/
 │   ├── sync_oui.py         IEEE OUI feed sync
 │   ├── sync_webfp.py       Wappalyzer signature sync
 │   ├── feed_sync_worker.php CLI worker for UI feed sync (non-FPM PHP)
+│   ├── feed_sync_cancel.py Cooperative cancel flag (UI “Cancel sync”)
 │   └── sources/            Enrichment plugins
 │       ├── unifi.py        UniFi controller
 │       ├── snmp.py         SNMP polling

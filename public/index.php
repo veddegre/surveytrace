@@ -643,9 +643,10 @@
         <div class="hint-micro mb8" id="st-nvd-api-key-status"></div>
         <div class="row-wrap mt10">
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
+          <button class="tbtn" type="button" id="btn-cancel-feed-sync" onclick="requestFeedSyncCancel()" disabled>Cancel sync</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">The browser gets an immediate response; sync runs on the server (NVD can take many minutes). Watch the status line for elapsed time; when the job finishes, open <strong>View last output</strong> for full script logs.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">The browser returns immediately; work runs on the server. Incremental NVD sync often takes <strong>several minutes</strong> (10+ is normal when NIST has a large batch of CVE updates in the rolling window, or longer <strong>without an API key</strong> due to rate limits). Use <strong>Cancel sync</strong> to stop after the current fetch step — data already written to <code class="code-accent">nvd.db</code> is kept. If outbound Internet drops, the script retries then errors; run sync again when the link is back.</p>
         <div id="sync-status-nvd" class="sync-status"></div>
       </div>
       <div class="card">
@@ -870,8 +871,9 @@ function buildFeedSyncRunningFooter() {
     if (!feedSyncRunning.nvd && !feedSyncRunning.oui && !feedSyncRunning.webfp && !feedSyncRunning.all) return '';
     const lines = [];
     lines.push('────────────────────────────────────────');
-    lines.push('SERVER JOB STILL RUNNING');
-    lines.push('The API waits for the Python script to exit; stdout/stderr from the script are appended above only after the job finishes.');
+    lines.push('SERVER SYNC IN PROGRESS');
+    lines.push('Script log output is appended above when each Python step finishes (stdout is not streamed live).');
+    lines.push('The browser usually got an immediate HTTP response; work continues on the server.');
     lines.push('');
     if (feedSyncRunning.all && feedSyncStartedAt.all) {
         lines.push('Full feed sync (NVD + OUI + WebFP): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.all));
@@ -887,7 +889,7 @@ function buildFeedSyncRunningFooter() {
         }
     }
     lines.push('');
-    lines.push('This block updates every second while any sync is active.');
+    lines.push('Live tick · ' + new Date().toLocaleTimeString());
     return lines.join('\n');
 }
 
@@ -931,12 +933,16 @@ function ensureFeedSyncUiTimer() {
     if (feedSyncUiTimer !== null) return;
     feedSyncUiTimer = setInterval(() => {
         tickFeedSyncStatusLines();
-        const bg = document.getElementById('fsync-bg');
-        if (bg && bg.style.display === 'flex') renderFeedSyncOutputPanel();
+        const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+        if (any) {
+            // Keep <pre> fresh every second while a job runs (even if modal is closed), so
+            // elapsed + footer text are never stale when the user opens “View last output”.
+            renderFeedSyncOutputPanel();
+        }
     }, 1000);
     tickFeedSyncStatusLines();
-    const bg0 = document.getElementById('fsync-bg');
-    if (bg0 && bg0.style.display === 'flex') renderFeedSyncOutputPanel();
+    const any0 = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (any0) renderFeedSyncOutputPanel();
 }
 
 function stopFeedSyncUiTimerIfIdle() {
@@ -946,8 +952,7 @@ function stopFeedSyncUiTimerIfIdle() {
         clearInterval(feedSyncUiTimer);
         feedSyncUiTimer = null;
     }
-    const bg = document.getElementById('fsync-bg');
-    if (bg && bg.style.display === 'flex') renderFeedSyncOutputPanel();
+    renderFeedSyncOutputPanel();
 }
 
 function stopFeedSyncStatePolling() {
@@ -997,7 +1002,10 @@ async function hydrateFeedSyncFromServer() {
 
 function appendFeedSyncResultToOutput(target, payload) {
     const lines = [];
-    lines.push(`target=${target} ok=${!!payload.ok}`);
+    lines.push(`target=${target} ok=${!!payload.ok}${payload.cancelled ? ' cancelled=1' : ''}`);
+    if (payload.cancelled) {
+        lines.push('(stopped by user — partial data may have been written)');
+    }
     for (const res of (payload.results || [])) {
         lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
         lines.push((res.output || '').trim() || '(no output)');
@@ -1036,10 +1044,15 @@ function startFeedSyncStatePolling() {
         const last = fs.last_feed_sync;
         if (last) {
             appendFeedSyncResultToOutput(doneTarget, last);
-            if (!last.ok && feedSyncTouchesFp(doneTarget)) {
+            if (!last.ok && !last.cancelled && feedSyncTouchesFp(doneTarget)) {
                 fpSyncHadError = true;
             }
-            if (!last.ok) {
+            if (last.cancelled) {
+                toast('Feed sync cancelled.', 'ok');
+                refreshNvdStatusLineAfterEnd(doneTarget, null, 'Cancelled (partial run).');
+                refreshFpStatusLineAfterEnd(doneTarget, null, 'Cancelled (partial run).');
+                openFeedSyncOutput();
+            } else if (!last.ok) {
                 const msg = (last.results && last.results.find(x => !x.ok)?.output) || last.error || 'Sync failed';
                 toast(String(msg).slice(0, 120), 'err');
                 refreshNvdStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
@@ -2353,6 +2366,10 @@ function refreshFeedSyncButtons() {
         b.classList.toggle('btn-busy', !!c.busy);
         b.textContent = c.busy ? 'Syncing…' : (FEED_SYNC_BTN_LABELS[id] || b.textContent);
     });
+    const cancelFeed = document.getElementById('btn-cancel-feed-sync');
+    if (cancelFeed) {
+        cancelFeed.disabled = !(any && (ra.nvd || ra.all));
+    }
 }
 
 function markFeedSyncStart(target) {
@@ -2414,6 +2431,15 @@ function refreshFpStatusLineAfterEnd(target, errText, okText) {
         ? (errText || 'One or more fingerprint feeds had errors. See output.')
         : (okText || 'Sync complete.');
     fpSyncHadError = false;
+}
+
+async function requestFeedSyncCancel() {
+    const r = await apiPost('/api/feeds.php?cancel=1', {});
+    if (r && r.ok) {
+        toast('Stop requested — sync will halt after the current fetch step.', 'ok');
+    } else {
+        toast((r && r.error) ? String(r.error).slice(0, 140) : 'Cancel failed', 'err');
+    }
 }
 
 async function runFeedSync(target) {
