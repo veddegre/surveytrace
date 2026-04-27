@@ -40,7 +40,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from feed_sync_cancel import cancel_requested
+from feed_sync_cancel import cancel_flag_path, cancel_requested
 
 log = logging.getLogger("nvd_sync")
 logging.basicConfig(
@@ -323,10 +323,11 @@ def sync(recent_only: bool = False, days: int = 14) -> None:
     page_size     = RESULTS_PER_PAGE
 
     log.info(
-        "NVD sync: resultsPerPage=%d, api_key=%s, data_dir=%s",
+        "NVD sync: resultsPerPage=%d, api_key=%s, data_dir=%s, cancel_flag=%s",
         page_size,
         "yes" if NVD_API_KEY else "no",
         DATA_DIR,
+        cancel_flag_path(DATA_DIR),
     )
 
     while True:

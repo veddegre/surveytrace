@@ -264,37 +264,49 @@ function st_feed_sync_resolve(string $target): ?array {
 function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
     $results = [];
     $ok = true;
-    foreach ($scriptPaths as $script) {
-        // Match weekly cron: incremental only. Plain sync_nvd.py pulls the entire
-        // CVE corpus (hours) and often dies under PHP-FPM request timeouts — CLI
-        // users typically pass --recent; the UI must do the same.
-        $suffix = basename($script) === 'sync_nvd.py' ? ' --recent' : '';
-        // Same absolute path as touch() in feeds.php so the child always polls
-        // the file we create (avoids DATA_DIR vs realpath mismatches).
-        $envLead = '';
+    // Child must inherit this; shell-prefixed VAR=value in exec() is unreliable on
+    // some PHP/sh builds. putenv applies to the whole PHP process until restored.
+    $cancelPath = st_feed_sync_cancel_path();
+    $prevFeSyncCancel = false;
+    if (PHP_OS_FAMILY !== 'Windows') {
+        $prevFeSyncCancel = getenv('FEED_SYNC_CANCEL_PATH');
+        putenv('FEED_SYNC_CANCEL_PATH=' . $cancelPath);
+    }
+    try {
+        foreach ($scriptPaths as $script) {
+            // Match weekly cron: incremental only. Plain sync_nvd.py pulls the entire
+            // CVE corpus (hours) and often dies under PHP-FPM request timeouts — CLI
+            // users typically pass --recent; the UI must do the same.
+            $suffix = basename($script) === 'sync_nvd.py' ? ' --recent' : '';
+            $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . $suffix . ' 2>&1';
+            $output = [];
+            $code = 1;
+            exec($cmd, $output, $code);
+            $userCancel = ($code === 10);
+            $results[] = [
+                'script' => basename($script),
+                'ok' => $code === 0 || $userCancel,
+                'exit_code' => $code,
+                'output' => implode("\n", $output),
+                'cancelled' => $userCancel,
+            ];
+            if ($userCancel) {
+                return ['ok' => true, 'cancelled' => true, 'results' => $results];
+            }
+            if ($code !== 0) {
+                $ok = false;
+            }
+        }
+        return ['ok' => $ok, 'results' => $results];
+    } finally {
         if (PHP_OS_FAMILY !== 'Windows') {
-            $envLead = 'FEED_SYNC_CANCEL_PATH=' . escapeshellarg(st_feed_sync_cancel_path()) . ' ';
-        }
-        $cmd = $envLead . escapeshellarg($python) . ' ' . escapeshellarg($script) . $suffix . ' 2>&1';
-        $output = [];
-        $code = 1;
-        exec($cmd, $output, $code);
-        $userCancel = ($code === 10);
-        $results[] = [
-            'script' => basename($script),
-            'ok' => $code === 0 || $userCancel,
-            'exit_code' => $code,
-            'output' => implode("\n", $output),
-            'cancelled' => $userCancel,
-        ];
-        if ($userCancel) {
-            return ['ok' => true, 'cancelled' => true, 'results' => $results];
-        }
-        if ($code !== 0) {
-            $ok = false;
+            if ($prevFeSyncCancel === false || $prevFeSyncCancel === '') {
+                putenv('FEED_SYNC_CANCEL_PATH');
+            } else {
+                putenv('FEED_SYNC_CANCEL_PATH=' . $prevFeSyncCancel);
+            }
         }
     }
-    return ['ok' => $ok, 'results' => $results];
 }
 
 function st_feed_sync_write_result(string $target, array $payload): void {
