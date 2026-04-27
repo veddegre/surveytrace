@@ -588,6 +588,7 @@
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
+        <div id="sync-status-nvd" class="sync-status"></div>
       </div>
       <div class="card">
         <div class="ct">Fingerprint feed status</div>
@@ -608,6 +609,7 @@
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
+        <div id="sync-status-fp" class="sync-status"></div>
       </div>
       <div class="card">
         <div class="ct">About</div>
@@ -1893,14 +1895,60 @@ async function refreshBadges() {
 
 async function runFeedSync(target) {
     const btnIds = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
-    btnIds.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+    const btnLabels = {};
+    btnIds.forEach(id => {
+        const b = document.getElementById(id);
+        if (!b) return;
+        btnLabels[id] = b.textContent || '';
+        b.disabled = true;
+        b.classList.add('btn-busy');
+    });
+    const btnTarget = document.getElementById(
+        target === 'nvd' ? 'btn-sync-nvd' :
+        target === 'oui' ? 'btn-sync-oui' :
+        target === 'webfp' ? 'btn-sync-webfp' : 'btn-sync-all'
+    );
+    if (btnTarget) btnTarget.textContent = 'Syncing…';
+    const nvdStatus = document.getElementById('sync-status-nvd');
+    const fpStatus = document.getElementById('sync-status-fp');
+    if (target === 'nvd' || target === 'all') {
+        if (nvdStatus) {
+            nvdStatus.className = 'sync-status run';
+            nvdStatus.textContent = 'Sync in progress…';
+        }
+    }
+    if (target === 'oui' || target === 'webfp' || target === 'all') {
+        if (fpStatus) {
+            fpStatus.className = 'sync-status run';
+            fpStatus.textContent = 'Sync in progress…';
+        }
+    }
     toast('Starting ' + target + ' feed sync…', 'ok');
+    feedSyncLastOutput = `[client] ${new Date().toISOString()} — starting ${target} feed sync...`;
     const r = await apiPost('/api/feeds.php?sync=1', {target});
-    btnIds.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+    btnIds.forEach(id => {
+        const b = document.getElementById(id);
+        if (!b) return;
+        b.disabled = false;
+        b.classList.remove('btn-busy');
+        if (btnLabels[id] !== undefined) b.textContent = btnLabels[id];
+    });
 
     if (!r) {
         feedSyncLastOutput = '[client] Feed sync request failed (no response)';
         toast('Feed sync request failed', 'err');
+        if (target === 'nvd' || target === 'all') {
+            if (nvdStatus) {
+                nvdStatus.className = 'sync-status err';
+                nvdStatus.textContent = 'Sync failed (no response).';
+            }
+        }
+        if (target === 'oui' || target === 'webfp' || target === 'all') {
+            if (fpStatus) {
+                fpStatus.className = 'sync-status err';
+                fpStatus.textContent = 'Sync failed (no response).';
+            }
+        }
         return;
     }
     const lines = [];
@@ -1913,12 +1961,36 @@ async function runFeedSync(target) {
     if (!r.ok) {
         const msg = (r.results && r.results.find(x => !x.ok)?.output) || r.error || 'Sync failed';
         toast(msg.slice(0, 120), 'err');
+        if (target === 'nvd' || target === 'all') {
+            if (nvdStatus) {
+                nvdStatus.className = 'sync-status err';
+                nvdStatus.textContent = 'Sync failed. See output for details.';
+            }
+        }
+        if (target === 'oui' || target === 'webfp' || target === 'all') {
+            if (fpStatus) {
+                fpStatus.className = 'sync-status err';
+                fpStatus.textContent = 'Sync failed. See output for details.';
+            }
+        }
         openFeedSyncOutput();
         return;
     }
 
     const names = (r.results || []).map(x => x.script.replace('.py', '')).join(', ');
     toast('Feed sync complete: ' + names, 'ok');
+    if (target === 'nvd' || target === 'all') {
+        if (nvdStatus) {
+            nvdStatus.className = 'sync-status ok';
+            nvdStatus.textContent = 'Sync complete.';
+        }
+    }
+    if (target === 'oui' || target === 'webfp' || target === 'all') {
+        if (fpStatus) {
+            fpStatus.className = 'sync-status ok';
+            fpStatus.textContent = 'Sync complete.';
+        }
+    }
     await loadDashboard(); // refresh status timestamps/counts in Settings
     openFeedSyncOutput();
 }
