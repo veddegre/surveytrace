@@ -231,7 +231,11 @@ function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
     $results = [];
     $ok = true;
     foreach ($scriptPaths as $script) {
-        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' 2>&1';
+        // Match weekly cron: incremental only. Plain sync_nvd.py pulls the entire
+        // CVE corpus (hours) and often dies under PHP-FPM request timeouts — CLI
+        // users typically pass --recent; the UI must do the same.
+        $suffix = basename($script) === 'sync_nvd.py' ? ' --recent' : '';
+        $cmd = escapeshellarg($python) . ' ' . escapeshellarg($script) . $suffix . ' 2>&1';
         $output = [];
         $code = 1;
         exec($cmd, $output, $code);
