@@ -397,6 +397,8 @@
         <option value="fast_full_tcp">Fast Full TCP</option>
         <option value="ot_careful">OT Careful</option>
       </select>
+      <div id="sched-profile-help" class="help-box mb8"></div>
+      <div id="sched-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber)"></div>
 
       <label class="flbl">Discovery mode</label>
       <select class="finp w100 mb10" id="sched-mode">
@@ -2483,28 +2485,37 @@ async function openSchedModal(s) {
         }
     }
 
-    const rp = s ? (parseInt(s.rate_pps, 10) || 5) : 5;
-    document.getElementById('sched-pps').value = String(Math.max(1, Math.min(50, rp)));
-    document.getElementById('sched-pps-val').textContent = document.getElementById('sched-pps').value + ' pps';
-    const idel = s ? (parseInt(s.inter_delay, 10) || 200) : 200;
-    document.getElementById('sched-delay').value = String(Math.max(0, Math.min(2000, idel)));
-    document.getElementById('sched-delay-val').textContent = document.getElementById('sched-delay').value + ' ms';
     document.getElementById('sched-priority').value = String(s ? (parseInt(s.priority, 10) || 20) : 20);
 
-    const defPh = ['passive','icmp','banner','fingerprint','cve'];
-    let pArr = defPh;
-    if (s && s.phases) {
-        try {
-            pArr = typeof s.phases === 'string' ? JSON.parse(s.phases) : (Array.isArray(s.phases) ? s.phases : defPh);
-        } catch (e) {
-            pArr = defPh;
+    if (!s) {
+        applySchedProfileDefaults(document.getElementById('sched-profile').value);
+    } else {
+        const rp = parseInt(s.rate_pps, 10) || 5;
+        document.getElementById('sched-pps').value = String(Math.max(1, Math.min(50, rp)));
+        document.getElementById('sched-pps-val').textContent = document.getElementById('sched-pps').value + ' pps';
+        const idel = parseInt(s.inter_delay, 10) || 200;
+        document.getElementById('sched-delay').value = String(Math.max(0, Math.min(2000, idel)));
+        document.getElementById('sched-delay-val').textContent = document.getElementById('sched-delay').value + ' ms';
+
+        const defPh = ['passive','icmp','banner','fingerprint','cve'];
+        let pArr = defPh;
+        if (s.phases) {
+            try {
+                pArr = typeof s.phases === 'string' ? JSON.parse(s.phases) : (Array.isArray(s.phases) ? s.phases : defPh);
+            } catch (e) {
+                pArr = defPh;
+            }
         }
+        if (!Array.isArray(pArr)) pArr = defPh;
+        ['passive','icmp','banner','fingerprint','snmp','ot','cve'].forEach(p => {
+            const el = document.getElementById('sched-ph-' + p);
+            if (el) el.checked = pArr.includes(p);
+        });
+        const prof = document.getElementById('sched-profile').value;
+        updateSchedProfileHelp(prof);
+        updateSchedProfileWarn(prof);
+        syncSchedPhaseRowOpacityFromProfile();
     }
-    if (!Array.isArray(pArr)) pArr = defPh;
-    ['passive','icmp','banner','fingerprint','snmp','ot','cve'].forEach(p => {
-        const el = document.getElementById('sched-ph-' + p);
-        if (el) el.checked = pArr.includes(p);
-    });
 
     await refreshSchedEnrichmentPicker(parseSchedEnrichmentIds(s));
     updateCronDesc();
@@ -2590,8 +2601,10 @@ async function saveSchedule() {
     const profileVal = payload.profile;
     if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
-            `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`,
-            {title: 'High-impact scan profile', okText: 'Proceed'}
+            `Profile "${profileVal}" can generate significant network traffic and is meant for controlled use.\n\n` +
+            `You are saving a recurring schedule — each run will repeat with these settings until you change or disable it.\n\n` +
+            `Save this schedule?`,
+            {title: 'Confirm high-impact scheduled scan', okText: 'Save schedule'}
         );
         if (!ok) return;
         payload.confirmed = true;
@@ -2874,6 +2887,109 @@ document.querySelectorAll('.profile-card').forEach(card => {
         });
         updateProfileHelp(profile);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Schedule modal — profile presets (aligned with manual Scan tab)
+// ---------------------------------------------------------------------------
+const SCHED_HIGH_IMPACT_PROFILES = ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
+const SCHED_PROFILE_RATE_DEFAULTS = {
+    iot_safe:             { pps: 2,  delay: 500 },
+    ot_careful:           { pps: 1,  delay: 1000 },
+    standard_inventory:   { pps: 5,  delay: 200 },
+    deep_scan:            { pps: 50, delay: 50 },
+    full_tcp:             { pps: 50, delay: 25 },
+    fast_full_tcp:        { pps: 50, delay: 10 },
+};
+
+function applySchedProfileDefaults(profile) {
+    const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
+    ['sched-ph-banner', 'sched-ph-fingerprint', 'sched-ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.checked = allowBanner;
+            const tr = el.closest('.tr2');
+            if (tr) tr.style.opacity = allowBanner ? '1' : '0.4';
+        }
+    });
+    const passive = document.getElementById('sched-ph-passive');
+    const icmp = document.getElementById('sched-ph-icmp');
+    if (passive) passive.checked = true;
+    if (icmp) icmp.checked = true;
+    const snmpEl = document.getElementById('sched-ph-snmp');
+    const otEl = document.getElementById('sched-ph-ot');
+    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+        if (snmpEl) snmpEl.checked = true;
+        if (otEl) otEl.checked = false;
+    } else {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = false;
+    }
+    const rdef = SCHED_PROFILE_RATE_DEFAULTS[profile] || SCHED_PROFILE_RATE_DEFAULTS.standard_inventory;
+    const pps = Math.max(1, Math.min(50, rdef.pps));
+    const del = Math.max(0, Math.min(2000, rdef.delay));
+    const ppsEl = document.getElementById('sched-pps');
+    const delEl = document.getElementById('sched-delay');
+    const ppsVal = document.getElementById('sched-pps-val');
+    const delVal = document.getElementById('sched-delay-val');
+    if (ppsEl) ppsEl.value = String(pps);
+    if (ppsVal) ppsVal.textContent = pps + ' pps';
+    if (delEl) delEl.value = String(del);
+    if (delVal) delVal.textContent = del + ' ms';
+
+    const modeEl = document.getElementById('sched-mode');
+    if (modeEl && (profile === 'iot_safe' || profile === 'ot_careful') && modeEl.value === 'force') {
+        modeEl.value = 'auto';
+        toast('Discovery mode set to Auto — this profile does not allow Force (-Pn).', 'ok');
+    }
+    if (!['iot_safe', 'ot_careful'].includes(profile)) {
+        ['sched-ph-banner', 'sched-ph-fingerprint', 'sched-ph-cve'].forEach(id => {
+            const el = document.getElementById(id);
+            const tr = el && el.closest('.tr2');
+            if (tr) tr.style.opacity = '1';
+        });
+    }
+    updateSchedProfileHelp(profile);
+    updateSchedProfileWarn(profile);
+}
+
+function updateSchedProfileHelp(profile) {
+    const box = document.getElementById('sched-profile-help');
+    if (!box) return;
+    const info = PROFILE_HELP_TEXT[profile] || PROFILE_HELP_TEXT.standard_inventory;
+    box.innerHTML = `<strong style="color:var(--tx)">${esc(info.title)}:</strong> ${esc(info.text)}`;
+}
+
+function updateSchedProfileWarn(profile) {
+    const w = document.getElementById('sched-profile-warn');
+    if (!w) return;
+    if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
+        w.style.display = 'block';
+        const lines = {
+            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
+            ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
+        };
+        w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');
+    } else {
+        w.style.display = 'none';
+        w.innerHTML = '';
+    }
+}
+
+function syncSchedPhaseRowOpacityFromProfile() {
+    const profile = document.getElementById('sched-profile')?.value || 'standard_inventory';
+    const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
+    ['sched-ph-banner', 'sched-ph-fingerprint', 'sched-ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        const tr = el && el.closest('.tr2');
+        if (tr) tr.style.opacity = allowBanner ? '1' : '0.4';
+    });
+}
+
+document.getElementById('sched-profile')?.addEventListener('change', function() {
+    applySchedProfileDefaults(this.value);
 });
 
 function clearIPFilter() {
