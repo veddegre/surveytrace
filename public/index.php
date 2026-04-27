@@ -301,7 +301,7 @@
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
-          <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: passive-only defaults and strict rate limits">
+          <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: read-only OT probes on by default; strict rate limits">
             <input class="radio-hidden" type="radio" name="scan_profile" value="ot_careful">
             <div class="pc-icon">&#9888;</div>
             <div class="profile-copy">
@@ -364,7 +364,10 @@
   <!-- Schedule modal -->
   <div id="sched-bg" class="modal-bg z100">
     <div class="modal-card modal-w560">
-      <div class="modal-title mb14" id="sched-title">New schedule</div>
+      <div class="row-between mb14" style="gap:12px;align-items:center">
+        <div class="modal-title" style="margin-bottom:0" id="sched-title">New schedule</div>
+        <button type="button" class="modal-close-x" onclick="closeSchedModal()" title="Close without saving" aria-label="Close without saving">×</button>
+      </div>
       <input type="hidden" id="sched-id" value="">
       <input type="hidden" id="sched-paused" value="0">
 
@@ -2519,7 +2522,14 @@ async function openSchedModal(s) {
 
     await refreshSchedEnrichmentPicker(parseSchedEnrichmentIds(s));
     updateCronDesc();
-    document.getElementById('sched-bg').style.display = 'flex';
+    const schedBg = document.getElementById('sched-bg');
+    schedBg.style.display = 'flex';
+    const schedCard = schedBg.querySelector('.modal-card');
+    if (schedCard) {
+        const top = () => { schedCard.scrollTop = 0; };
+        top();
+        requestAnimationFrame(top);
+    }
 }
 
 function closeSchedModal() {
@@ -2859,7 +2869,7 @@ const PROFILE_HELP_TEXT = {
     },
     ot_careful: {
         title: 'OT Careful',
-        text:  'Conservative profile for industrial environments. Passive-oriented defaults and strict pacing to minimize disruption risk.'
+        text:  'Conservative profile for industrial environments. Passive-oriented defaults and strict pacing to minimize disruption risk. New schedules default read-only OT protocol probes on — clear the toggle for passive-only.'
     }
 };
 
@@ -2885,6 +2895,18 @@ document.querySelectorAll('.profile-card').forEach(card => {
                 el.closest('.tr2').style.opacity = allowBanner ? '1' : '0.4';
             }
         });
+        const snmpScan = document.getElementById('ph-snmp');
+        const otScan = document.getElementById('ph-ot');
+        if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+            if (snmpScan) snmpScan.checked = true;
+            if (otScan) otScan.checked = false;
+        } else if (profile === 'ot_careful') {
+            if (snmpScan) snmpScan.checked = false;
+            if (otScan) otScan.checked = true;
+        } else {
+            if (snmpScan) snmpScan.checked = false;
+            if (otScan) otScan.checked = false;
+        }
         updateProfileHelp(profile);
     });
 });
@@ -2921,6 +2943,9 @@ function applySchedProfileDefaults(profile) {
     if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
         if (snmpEl) snmpEl.checked = true;
         if (otEl) otEl.checked = false;
+    } else if (profile === 'ot_careful') {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = true;
     } else {
         if (snmpEl) snmpEl.checked = false;
         if (otEl) otEl.checked = false;

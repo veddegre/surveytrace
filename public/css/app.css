@@ -333,6 +333,14 @@ body.light-mode .modal-card{box-shadow:0 12px 40px rgba(0,0,0,.12)}
 .modal-title{
   font-family:var(--sf);font-size:15px;font-weight:700;color:var(--tx);letter-spacing:.02em;margin-bottom:14px
 }
+.modal-close-x{
+  flex-shrink:0;width:36px;height:36px;margin:0 -6px 0 4px;padding:0;
+  border:none;border-radius:var(--radius);background:transparent;color:var(--tx3);
+  font-family:var(--sf);font-size:22px;font-weight:400;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:color .12s,background .12s
+}
+.modal-close-x:hover{color:var(--tx);background:var(--bg3)}
+body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .text-muted{color:var(--tx2);font-size:13px}
 .text-micro{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .status-chip{
