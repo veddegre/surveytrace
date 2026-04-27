@@ -48,9 +48,20 @@ logging.basicConfig(
     format="%(asctime)s [nvd_sync] %(message)s",
 )
 
-DATA_DIR     = Path(__file__).parent.parent / "data"
+# Resolve so cancel flag path matches PHP (ST_DATA_DIR) even if this script is symlinked.
+DATA_DIR     = Path(__file__).resolve().parent.parent / "data"
 NVD_DB_PATH  = DATA_DIR / "nvd.db"
 MAIN_DB_PATH = DATA_DIR / "surveytrace.db"
+
+
+def sleep_interruptible(total_seconds: float, chunk: float = 0.5) -> None:
+    """Sleep up to total_seconds but exit quickly if UI cancel is requested."""
+    end = time.monotonic() + max(0.0, total_seconds)
+    while time.monotonic() < end:
+        if cancel_requested(DATA_DIR):
+            log.info("NVD sync cancelled during wait/sleep (UI stop requested).")
+            sys.exit(10)
+        time.sleep(min(chunk, end - time.monotonic()))
 
 NVD_API_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
@@ -258,7 +269,10 @@ def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -
 
 def write_batch(conn: sqlite3.Connection, cve_items: list[dict]) -> int:
     written = 0
-    for item in cve_items:
+    for i, item in enumerate(cve_items):
+        if i % 25 == 0 and cancel_requested(DATA_DIR):
+            log.info("NVD sync cancelled during DB write (%d CVEs written this page so far).", written)
+            sys.exit(10)
         cve_row, frags = parse_cve(item)
         if not cve_row["cve_id"]:
             continue
@@ -309,9 +323,10 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
     page_size     = RESULTS_PER_PAGE
 
     log.info(
-        "NVD sync: resultsPerPage=%d, api_key=%s",
+        "NVD sync: resultsPerPage=%d, api_key=%s, data_dir=%s",
         page_size,
         "yes" if NVD_API_KEY else "no",
+        DATA_DIR,
     )
 
     while True:
@@ -341,7 +356,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
                     )
                     fail_streak = 0
                     page_num -= 1
-                    time.sleep(3)
+                    sleep_interruptible(3)
                     continue
                 if start_index == 0:
                     fail_streak += 1
@@ -353,7 +368,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
                     if fail_streak >= max_fail_same:
                         log.error("Aborting after %d failures at startIndex 0.", fail_streak)
                         sys.exit(1)
-                    time.sleep(min(30 * fail_streak, 300))
+                    sleep_interruptible(min(30 * fail_streak, 300))
                     continue
                 log.warning(
                     "404 at startIndex %d — treating as end of feed (NVD offset limit or empty tail). %s",
@@ -382,7 +397,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
                         e.code,
                     )
                     sys.exit(1)
-                time.sleep(wait)
+                sleep_interruptible(wait)
                 continue
 
             fail_streak += 1
@@ -390,7 +405,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
             if fail_streak >= max_fail_same:
                 log.error("Aborting after %d consecutive errors.", fail_streak)
                 sys.exit(1)
-            time.sleep(30)
+            sleep_interruptible(30)
             continue
         except Exception as e:
             fail_streak += 1
@@ -398,7 +413,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
             if fail_streak >= max_fail_same:
                 log.error("Aborting after %d consecutive errors.", fail_streak)
                 sys.exit(1)
-            time.sleep(30)
+            sleep_interruptible(30)
             continue
 
         if total_results is None:
@@ -421,7 +436,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
         start_index += len(cve_items)
         if start_index >= total_results:
             break
-        time.sleep(RATE_SLEEP)
+        sleep_interruptible(RATE_SLEEP)
 
     if total_results is not None and start_index < total_results:
         log.warning(

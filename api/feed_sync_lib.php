@@ -11,7 +11,12 @@ function st_feed_sync_state_path(): string {
 
 /** Empty marker file — sync scripts poll and exit 10 when present. */
 function st_feed_sync_cancel_path(): string {
-    return ST_DATA_DIR . '/feed_sync_cancel';
+    $base = ST_DATA_DIR;
+    $rp = @realpath($base);
+    if ($rp !== false) {
+        $base = $rp;
+    }
+    return $base . '/feed_sync_cancel';
 }
 
 /** @return bool false if the cancel marker could not be written (permissions / disk) */

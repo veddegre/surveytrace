@@ -28,7 +28,7 @@ from feed_sync_cancel import cancel_requested
 log = logging.getLogger("oui_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [oui_sync] %(message)s")
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUT_PATH = DATA_DIR / "oui_map.json"
 MAIN_DB_PATH = DATA_DIR / "surveytrace.db"
 

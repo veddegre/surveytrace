@@ -24,7 +24,7 @@ from feed_sync_cancel import cancel_requested
 log = logging.getLogger("webfp_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [webfp_sync] %(message)s")
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUT_PATH = DATA_DIR / "webfp_rules.json"
 MAIN_DB_PATH = DATA_DIR / "surveytrace.db"
 BASE = "https://raw.githubusercontent.com/developit/wappalyzer/master/src/technologies"
