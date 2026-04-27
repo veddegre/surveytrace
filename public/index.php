@@ -441,7 +441,7 @@
         “Run all” uses this cap so a long outage cannot flood the queue.
       </div>
 
-      <label class="row-wrap mb14 gap8" style="font-family:var(--mf);font-size:12px;color:var(--tx2)">
+      <label class="row-wrap mb14 gap8" style="font-family:var(--mf);font-size:13px;color:var(--tx2)">
         <input type="checkbox" id="sched-en" checked> Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)
       </label>
 
@@ -974,7 +974,7 @@ async function loadDashboard() {
             <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
             <td class="text-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
-            <td class="text-primary" style="font-size:11px">${esc(a.vendor||'—')}</td>
+            <td class="text-primary" style="font-size:12px">${esc(a.vendor||'—')}</td>
             <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
             <td class="mono">${a.finding_count}</td>
@@ -1056,7 +1056,7 @@ async function loadAssets(page) {
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
-          <td class="text-primary" style="font-size:11px">${vendorCell}</td>
+          <td class="text-primary" style="font-size:12px">${vendorCell}</td>
           <td><div class="pts">${ports}${more}</div></td>
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
@@ -1098,11 +1098,11 @@ async function loadFindings(page) {
       <td class="mono click-ip"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.ip)}</td>
-      <td class="click-ip" style="font-size:11px"
+      <td class="click-ip" style="font-size:12px"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.hostname||'—')}</td>
       <td><span class="cat ${esc(f.category||'unk')}">${esc(f.category||'unk')}</span></td>
-      <td class="text-secondary" style="font-size:11px;max-width:260px">${esc(f.description||'—')}</td>
+      <td class="text-secondary" style="font-size:12px;max-width:260px">${esc(f.description||'—')}</td>
       <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
       <td class="mono mono-sm">${localDate(f.published)}</td>
       <td>${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
@@ -1473,8 +1473,8 @@ async function openScanHistDetail(id) {
           <td class="mono">${esc(a.ip || '')}</td>
           <td>${esc(a.hostname || '—')}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
-          <td class="mono" style="font-size:10px">${esc(ports)}</td>
-          <td class="mono" style="font-size:10px">${esc(a.top_cve || '—')}</td>
+          <td class="mono" style="font-size:11px">${esc(ports)}</td>
+          <td class="mono" style="font-size:11px">${esc(a.top_cve || '—')}</td>
           <td class="mono">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
         </tr>`;
     }).join('');
