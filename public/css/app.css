@@ -122,13 +122,33 @@ body.light-mode .tbl-wrap{box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .tbl tr.selected td{background:var(--bg4)}
 .mono{font-family:var(--mf);color:var(--tx)}
 
-/* Severity badges */
-.sev{font-family:var(--mf);font-size:12px;padding:2px 7px;border-radius:2px;white-space:nowrap}
-.sev.critical{background:var(--rdim);color:var(--red)}
-.sev.high{background:var(--odim);color:var(--orange)}
-.sev.medium{background:var(--adim);color:var(--amber)}
-.sev.low{background:var(--bdim2);color:var(--blue)}
-.sev.none{background:var(--bg4);color:var(--tx3)}
+/* CVSS / severity chips — slightly larger, softer text, light border for legibility (no harsh glow). */
+.sev{
+  font-family:var(--mf);
+  font-size:13px;
+  font-weight:600;
+  line-height:1.25;
+  padding:4px 9px;
+  border-radius:4px;
+  white-space:nowrap;
+  letter-spacing:.02em;
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 1px 0 rgba(0,0,0,.12);
+}
+.sev.critical{background:var(--rdim);color:#f0c4c6;border-color:rgba(223,111,114,.28)}
+.sev.high{background:var(--odim);color:#f0d4b8;border-color:rgba(199,134,74,.28)}
+.sev.medium{background:var(--adim);color:#ead9a8;border-color:rgba(217,162,78,.25)}
+.sev.low{background:var(--bdim2);color:#c8dcf5;border-color:rgba(94,176,255,.22)}
+.sev.none{background:var(--bg4);color:var(--tx2);border-color:rgba(255,255,255,.06);box-shadow:none}
+body.light-mode .sev{
+  border-color:rgba(0,0,0,.1);
+  box-shadow:0 1px 0 rgba(0,0,0,.06);
+}
+body.light-mode .sev.critical{background:var(--rdim);color:#7f1d1d;border-color:rgba(183,71,78,.35)}
+body.light-mode .sev.high{background:var(--odim);color:#8a4a12;border-color:rgba(176,106,46,.35)}
+body.light-mode .sev.medium{background:var(--adim);color:#6b5210;border-color:rgba(163,111,36,.35)}
+body.light-mode .sev.low{background:var(--bdim2);color:#1e4d7a;border-color:rgba(47,95,167,.3)}
+body.light-mode .sev.none{color:var(--tx2);border-color:rgba(0,0,0,.08);box-shadow:none}
 .profile-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--bd);border-radius:var(--radius);cursor:pointer;transition:border-color .15s, background .15s}
 .profile-card:hover{border-color:var(--acc)}
 .profile-card.on{border-color:var(--acc);background:var(--adim2)}
@@ -368,24 +388,9 @@ body.light-mode .modal-card{box-shadow:0 12px 40px rgba(0,0,0,.12)}
 .hp-block{padding:8px 0;border-bottom:1px solid var(--bd)}
 .hp-row{display:flex;align-items:center;gap:8px;margin-bottom:3px}
 .hp-sev{font-family:var(--mf);font-size:11px}
-.hp-cve{font-size:11px}
-/* CVE IDs: bright on dark UI + red glow; dark red on light UI with subtle lift */
-.cve-id{
-  font-family:var(--mf);
-  font-weight:600;
-  letter-spacing:.02em;
-  color:#f4f6f9;
-  text-shadow:
-    0 0 10px rgba(220,38,38,.95),
-    0 0 3px rgba(185,28,28,.9),
-    0 1px 2px rgba(0,0,0,.85);
-}
-body.light-mode .cve-id{
-  color:#7f1d1d;
-  text-shadow:
-    0 0 0 1px rgba(255,255,255,.95),
-    0 1px 2px rgba(220,38,38,.4);
-}
+/* Host panel: same severity palette as .sev, slightly tighter so the row fits. */
+.hp-sev-chip{font-size:11px;padding:3px 7px;font-weight:600}
+.hp-cve{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .hp-date{font-size:11px;color:var(--tx3);margin-left:auto}
 .hp-desc{font-size:12px;color:var(--tx2);line-height:1.5}
 .hp-head{font-family:var(--mf);font-size:11px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px}

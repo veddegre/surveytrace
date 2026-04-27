@@ -1144,7 +1144,7 @@ async function loadDashboard() {
             <td class="text-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
             <td class="text-primary" style="font-size:12px">${esc(a.vendor||'—')}</td>
-            <td class="mono mono-sm">${cveLabel(a.top_cve)}</td>
+            <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
             <td class="mono">${a.finding_count}</td>
           </tr>`).join('')
@@ -1263,7 +1263,7 @@ async function loadFindings(page) {
     if (!d) return;
 
     document.getElementById('vuln-tbody').innerHTML = (d.findings || []).map(f => `<tr>
-      <td class="mono mono-sm">${cveLabel(f.cve_id)}</td>
+      <td class="mono mono-sm">${esc(f.cve_id)}</td>
       <td class="mono click-ip"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.ip)}</td>
@@ -1643,7 +1643,7 @@ async function openScanHistDetail(id) {
           <td>${esc(a.hostname || '—')}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
           <td class="mono" style="font-size:11px">${esc(ports)}</td>
-          <td class="mono" style="font-size:11px">${cveLabel(a.top_cve)}</td>
+          <td class="mono" style="font-size:11px">${esc(a.top_cve || '—')}</td>
           <td class="mono">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
         </tr>`;
     }).join('');
@@ -1718,13 +1718,6 @@ function esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function enc(s) { return encodeURIComponent(s || ''); }
-
-/** CVE ID in tables / host panel: high-contrast styling (see .cve-id in app.css). */
-function cveLabel(raw) {
-    const v = String(raw || '').trim();
-    if (!v || v === '—') return '<span class="text-dim">—</span>';
-    return '<span class="cve-id">' + esc(v) + '</span>';
-}
 
 function sevClass(cvss) {
     const v = parseFloat(cvss);
@@ -2890,8 +2883,6 @@ async function openHostPanel(id, ip) {
         ? `${a.ip} (${a.category || 'unk'} / ${hn})`
         : `${a.ip} (${a.category || 'unk'})`;
 
-    const sevColor = {critical:'var(--red)',high:'#f97316',medium:'var(--amber)',low:'var(--blue)',none:'var(--tx3)'};
-
     const serviceChips = collectDetectedServiceChips(ports, banners, httpProbe);
 
     const portRows = ports.length ? ports.map(p => {
@@ -2923,10 +2914,8 @@ async function openHostPanel(id, ip) {
     const findingRows = findings.length ? findings.map(f => `
         <div class="hp-block">
           <div class="hp-row">
-            <span class="hp-sev" style="color:${sevColor[f.severity]||'var(--tx3)'}">
-              ${f.cvss||'?'} ${(f.severity||'').toUpperCase()}
-            </span>
-            <span class="cve-id hp-cve">${esc(f.cve_id)}</span>
+            <span class="sev ${sevClass(f.cvss)} hp-sev-chip">${f.cvss != null ? esc(f.cvss) : '?'} ${esc((f.severity||'').toUpperCase())}</span>
+            <span class="hp-cve">${esc(f.cve_id)}</span>
             <span class="hp-date">${localDate(f.published)}</span>
           </div>
           <div class="hp-desc">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
