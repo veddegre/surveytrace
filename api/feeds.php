@@ -62,9 +62,9 @@ if (!$scripts) {
 $venv_py = $resolved_root . '/venv/bin/python3';
 $python = is_executable($venv_py) ? $venv_py : 'python3';
 
-// NVD sync can exceed several minutes depending on feed size/network.
-// Remove request time limit so manual sync doesn't fail mid-run.
-@set_time_limit(0);
+// Keep sync bounded so a stuck network call does not block the web UI forever.
+// NVD can be slower than OUI/WebFP, so allow a few minutes.
+@set_time_limit(240);
 
 $results = [];
 $ok = true;
