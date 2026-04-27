@@ -644,9 +644,10 @@
         <div class="row-wrap mt10">
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" type="button" id="btn-cancel-feed-sync" onclick="requestFeedSyncCancel()" disabled>Cancel sync</button>
+          <button class="tbtn" type="button" onclick="requestFeedSyncClearStuckState()">Reset sync lock</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">The browser returns immediately; work runs on the server. Incremental NVD sync often takes <strong>several minutes</strong> (10+ is normal when NIST has a large batch of CVE updates in the rolling window, or longer <strong>without an API key</strong> due to rate limits). Use <strong>Cancel sync</strong> to stop after the current fetch step — data already written to <code class="code-accent">nvd.db</code> is kept. If outbound Internet drops, the script retries then errors; run sync again when the link is back.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">The browser returns immediately; work runs on the server. Incremental NVD sync often takes <strong>several minutes</strong> (10+ is normal when NIST has a large batch of CVE updates in the rolling window, or longer <strong>without an API key</strong> due to rate limits). Use <strong>Cancel sync</strong> to stop after the current fetch step — data already written to <code class="code-accent">nvd.db</code> is kept. If you stopped the process on the server (e.g. <code class="code-accent">pkill</code>) and the UI still shows “running”, use <strong>Reset sync lock</strong>. If outbound Internet drops, the script retries then errors; run sync again when the link is back.</p>
         <div id="sync-status-nvd" class="sync-status"></div>
       </div>
       <div class="card">
@@ -2439,6 +2440,32 @@ async function requestFeedSyncCancel() {
         toast('Stop requested — NVD sync should stop within a few seconds.', 'ok');
     } else {
         toast((r && r.error) ? String(r.error).slice(0, 140) : 'Cancel failed', 'err');
+    }
+}
+
+function resetFeedSyncClientAfterServerClear() {
+    feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
+    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+    stopFeedSyncStatePolling();
+    stopFeedSyncUiTimerIfIdle();
+    refreshFeedSyncButtons();
+    tickFeedSyncStatusLines();
+    renderFeedSyncOutputPanel();
+}
+
+async function requestFeedSyncClearStuckState() {
+    if (!(await showConfirmModal(
+        'This removes the server “sync running” flag and the cancel marker. '
+            + 'Use only when no feed sync is actually running (for example after you killed sync scripts on the server). '
+            + 'If a sync is still running, stop it first or use Cancel sync.',
+        { title: 'Reset sync lock', okText: 'Clear server state' }
+    ))) return;
+    const r = await apiPost('/api/feeds.php?clear_sync_state=1', {});
+    if (r && r.ok) {
+        resetFeedSyncClientAfterServerClear();
+        toast('Feed sync lock cleared. You can start a new sync.', 'ok');
+    } else {
+        toast((r && r.error) ? String(r.error).slice(0, 140) : 'Reset failed', 'err');
     }
 }
 

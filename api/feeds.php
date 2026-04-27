@@ -5,6 +5,7 @@
  * GET  /api/feeds.php?status=1   -> { ok, feed_sync, last_feed_sync? }
  * POST /api/feeds.php?sync=1     Body: {"target":"nvd"|"oui"|"webfp"|"all"}
  * POST /api/feeds.php?cancel=1 -> ask running sync to stop (NVD or "all" only)
+ * POST /api/feeds.php?clear_sync_state=1 -> remove stuck feed_sync_state.json (after killing sync on server)
  *
  * Sync runs in the background (HTTP returns immediately) so reverse proxies
  * and browsers do not time out on long NVD downloads.
@@ -58,6 +59,17 @@ if (isset($_GET['cancel'])) {
     } catch (Throwable $e) {
         error_log('feeds.php cancel: ' . $e->getMessage());
         st_json(['ok' => false, 'error' => 'cancel failed: ' . $e->getMessage()], 500);
+    }
+}
+
+if (isset($_GET['clear_sync_state'])) {
+    st_release_session_lock();
+    try {
+        st_feed_sync_state_clear();
+        st_json(['ok' => true, 'cleared' => true]);
+    } catch (Throwable $e) {
+        error_log('feeds.php clear_sync_state: ' . $e->getMessage());
+        st_json(['ok' => false, 'error' => 'clear failed: ' . $e->getMessage()], 500);
     }
 }
 
