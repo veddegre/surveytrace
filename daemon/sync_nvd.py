@@ -20,7 +20,8 @@ Get a free NVD API key at nvd.nist.gov/developers/request-an-api-key
 SurveyTrace reads the key from (1) NVD_API_KEY environment variable, or
 (2) Settings → NVD API key (stored in surveytrace.db), env wins if both are set.
 
-If you see HTTP 404 with resultsPerPage=2000, set NVD_RESULTS_PER_PAGE=1000 (default).
+If you still see HTTP 404 on the first page, set NVD_RESULTS_PER_PAGE lower (e.g. 250)
+or confirm your API key in Settings / NVD_API_KEY env. The sync auto-halves page size on 404 until 128.
 """
 
 from __future__ import annotations
@@ -79,11 +80,11 @@ RATE_SLEEP  = 0.6 if NVD_API_KEY else 6.5
 
 
 def _results_per_page() -> int:
-    # NVD sometimes returns HTTP 404 for resultsPerPage > 1000 (see community reports).
+    # NVD intermittently returns HTTP 404 for large pages; default 500 is conservative.
     try:
-        return max(1, min(2000, int(os.environ.get("NVD_RESULTS_PER_PAGE", "1000"))))
+        return max(1, min(2000, int(os.environ.get("NVD_RESULTS_PER_PAGE", "500"))))
     except ValueError:
-        return 1000
+        return 500
 
 
 RESULTS_PER_PAGE = _results_per_page()
@@ -197,15 +198,15 @@ def parse_cve(item: dict) -> tuple[dict, list[str]]:
     }, list(cpe_set)
 
 
-def fetch_page(start_index: int, mod_start: str | None = None) -> dict:
-    params: dict = {"startIndex": start_index, "resultsPerPage": RESULTS_PER_PAGE}
+def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -> dict:
+    params: dict = {"startIndex": start_index, "resultsPerPage": results_per_page}
     if mod_start:
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000 UTC+00:00")
         params["lastModStartDate"] = mod_start
         params["lastModEndDate"]   = now_str
 
     url     = NVD_API_BASE + "?" + urllib.parse.urlencode(params)
-    headers = {"User-Agent": "SurveyTrace/0.4.0 (self-hosted network scanner)"}
+    headers = {"User-Agent": "SurveyTrace/0.4.0 (self-hosted; +https://github.com/veddegre/surveytrace)"}
     if NVD_API_KEY:
         headers["apiKey"] = NVD_API_KEY
 
@@ -264,16 +265,22 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
     page_num      = 0
     fail_streak   = 0
     max_fail_same = 12
+    page_size     = RESULTS_PER_PAGE
+
+    log.info(
+        "NVD sync: resultsPerPage=%d, api_key=%s",
+        page_size,
+        "yes" if NVD_API_KEY else "no",
+    )
 
     while True:
         page_num += 1
         log.info("Fetching page %d (startIndex %d, resultsPerPage %d)…",
-                 page_num, start_index, RESULTS_PER_PAGE)
+                 page_num, start_index, page_size)
         try:
-            data = fetch_page(start_index, mod_start)
+            data = fetch_page(start_index, mod_start, page_size)
             fail_streak = 0
         except urllib.error.HTTPError as e:
-            # urllib uses "HTTP Error 404: Not Found" — never match the literal "HTTP 404".
             detail = ""
             try:
                 detail = e.read().decode("utf-8", errors="replace")[:300]
@@ -282,12 +289,22 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
             msg = f"HTTP {e.code}: {e.reason}" + (f" — {detail}" if detail else "")
 
             if e.code == 404:
+                if start_index == 0 and page_size > 128:
+                    page_size = max(128, page_size // 2)
+                    log.warning(
+                        "404 on first page — lowering resultsPerPage to %d and retrying (NVD size limits vary).",
+                        page_size,
+                    )
+                    fail_streak = 0
+                    page_num -= 1
+                    time.sleep(3)
+                    continue
                 if start_index == 0:
                     fail_streak += 1
                     log.error(
-                        "NVD returned 404 for the first page (resultsPerPage=%d). "
-                        "Try NVD_RESULTS_PER_PAGE=500, set NVD_API_KEY, or wait and retry. %s",
-                        RESULTS_PER_PAGE, msg,
+                        "NVD still returns 404 at startIndex 0 with resultsPerPage=%d. "
+                        "Check outbound HTTPS, NVD status, API key in Settings, or NVD_API_KEY env. %s",
+                        page_size, msg,
                     )
                     if fail_streak >= max_fail_same:
                         log.error("Aborting after %d failures at startIndex 0.", fail_streak)
@@ -300,7 +317,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
                 )
                 break
 
-            if e.code in (429, 503):
+            if e.code in (403, 429, 503):
                 fail_streak += 1
                 ra = None
                 try:
@@ -315,9 +332,11 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
                 wait = max(wait_hdr, min(30 + 30 * fail_streak, 600))
                 log.warning("HTTP %s — sleeping %ds (%s)", e.code, wait, msg[:160])
                 if fail_streak >= max_fail_same:
-                    log.error("Too many rate-limit responses — get an API key from "
-                              "https://nvd.nist.gov/developers/request-an-api-key "
-                              "and set NVD_API_KEY (10× higher limits).")
+                    log.error(
+                        "Too many HTTP %s responses — add an API key in Settings (or NVD_API_KEY env): "
+                        "https://nvd.nist.gov/developers/request-an-api-key",
+                        e.code,
+                    )
                     sys.exit(1)
                 time.sleep(wait)
                 continue
