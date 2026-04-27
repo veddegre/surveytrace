@@ -209,6 +209,8 @@ body.light-mode .card{box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .finput:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(23,135,251,.22)}
 body.light-mode .finput:focus{box-shadow:0 0 0 2px rgba(0,111,255,.18)}
 textarea.finput{resize:vertical;min-height:72px}
+/* Scan exclusions: placeholder shows 4 example lines — default 72px clips the last */
+textarea#sc-excl{min-height:132px}
 
 /* Toggle switches */
 .tr2{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--bd)}
