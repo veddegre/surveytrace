@@ -757,7 +757,7 @@ def phase_banner(
 
 
 # ---------------------------------------------------------------------------
-# Phase 3b — Enrichment (UniFi, SNMP, DNS, etc.)
+# Phase 3b — Network enrichment (external sources)
 # ---------------------------------------------------------------------------
 def _parse_job_enrichment_ids(job: dict) -> list[int] | None:
     """
@@ -801,7 +801,7 @@ def phase_enrich(
     Enrichment provides MAC addresses, hostnames, VLANs, and vendor data
     that the scanner alone can't get (especially across routers).
 
-    Network I/O (UniFi, SNMP, …) must not run under an open db_conn()
+    Network I/O to external enrichment APIs must not run under an open db_conn()
     transaction — that would block the web UI and other writers for the
     duration of slow external calls.
     """
@@ -2047,7 +2047,7 @@ def run_scan(job: dict) -> None:
                 enrichment_map = {}
             else:
                 with db_conn() as conn:
-                    log_event(conn, job_id, "INFO", "Phase 3b: network enrichment (UniFi/SNMP)")
+                    log_event(conn, job_id, "INFO", "Phase 3b: network enrichment (configured sources)")
                 # phase_enrich does external I/O — must not share db_conn with log_event above
                 enrichment_map = phase_enrich(job_id, enrich_ids) or {}
             if enrichment_map:

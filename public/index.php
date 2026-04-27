@@ -218,6 +218,40 @@
           <input class="rng" type="range" id="sc-delay" min="0" max="2000" step="10" value="200" oninput="document.getElementById('delay-val').textContent=this.value+' ms'">
         </div>
       </div>
+      <div class="card">
+        <div class="ct">Discovery mode</div>
+        <div class="tr2">
+          <div>
+            <div class="tl">Auto</div>
+            <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
+          </div>
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-auto" value="auto" checked>
+        </div>
+        <div class="tr2">
+          <div>
+            <div class="tl">Routed</div>
+            <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
+          </div>
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-routed" value="routed">
+        </div>
+        <div class="tr2">
+          <div>
+            <div class="tl">Force (-Pn)</div>
+            <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
+          </div>
+          <input class="accent-radio" type="radio" name="scan_mode" id="sm-force" value="force">
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Scan phases</div>
+        <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog"><input type="checkbox" id="ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog"><input type="checkbox" id="ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog"><input type="checkbox" id="ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog"><input type="checkbox" id="ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+      </div>
     </div>
     <div>
       <div class="card">
@@ -282,45 +316,10 @@
           Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
         </div>
       </div>
-
-      <div class="card">
-        <div class="ct">Scan phases</div>
-        <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog"><input type="checkbox" id="ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog"><input type="checkbox" id="ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog"><input type="checkbox" id="ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog"><input type="checkbox" id="ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
-      </div>
       <div class="card" id="scan-enrich-card">
         <div class="ct">Network enrichment (this scan)</div>
-        <div class="tsubl" style="margin-bottom:8px">Phase 3b — same sources as <strong>Enrichment</strong>. When every enabled source is on, the job uses the default (same as before). Uncheck UniFi for routed/Tailscale targets, or turn all off to skip enrichment.</div>
+        <div class="tsubl" style="margin-bottom:8px">Phase 3b runs the sources you configure under <strong>Enrichment</strong> (controllers, SNMP, logs, and other integrations). All enabled sources are used by default; uncheck any you want to skip for this job only, or turn all off to skip the phase.</div>
         <div id="scan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
-      </div>
-      <div class="card">
-        <div class="ct">Discovery mode</div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Auto</div>
-            <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
-          </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-auto" value="auto" checked>
-        </div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Routed</div>
-            <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
-          </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-routed" value="routed">
-        </div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Force (-Pn)</div>
-            <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
-          </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-force" value="force">
-        </div>
       </div>
       <div class="card">
         <div class="ct">Launch</div>
@@ -542,13 +541,11 @@
       <div class="card">
         <div class="ct">How enrichment works</div>
         <div class="help-line" style="line-height:1.8">
-          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan.<br>
-          They provide MAC addresses, hostnames, and VLAN data that the scanner
-          alone can't get — especially for devices across routers.<br><br>
-          <b class="text-strong">UniFi / UDM</b> — queries your controller for all
-          known clients. Solves MAC lookup for the entire network in one call.<br><br>
-          <b class="text-strong">SNMP</b> — walks the ARP table of your router/switch.
-          Universal fallback that works with any managed device.
+          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
+          They add hostnames, MACs, VLANs, and other context the scanner may not see on its own — especially across routers or for hosts that barely respond to probes.<br><br>
+          <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
+          <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
+          <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
         </div>
       </div>
     </div>

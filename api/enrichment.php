@@ -2,7 +2,7 @@
 /**
  * SurveyTrace — /api/enrichment.php
  *
- * Manage enrichment sources (UniFi, SNMP, DNS, etc.)
+ * Manage enrichment sources (SNMP, controllers, DHCP/DNS/firewall logs, etc.)
  *
  * GET  /api/enrichment.php           — list all sources
  * POST /api/enrichment.php           — create or update a source
