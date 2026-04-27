@@ -1104,22 +1104,45 @@ async function apiPost(url, body) {
             body: JSON.stringify(body),
             credentials: 'same-origin'
         });
+        const txt = await r.text();
+        let data = null;
+        if (txt && txt.trim()) {
+            try {
+                data = JSON.parse(txt);
+            } catch (e) {
+                console.error('POST non-JSON', url, e, txt.slice(0, 800));
+                const snippet = txt.replace(/\s+/g, ' ').trim().slice(0, 280);
+                if (!r.ok) {
+                    toast('Request failed: HTTP ' + r.status, 'err');
+                } else {
+                    toast('Server returned non-JSON (often a PHP warning before the response)', 'err');
+                }
+                return {
+                    ok: false,
+                    error: 'Non-JSON body (HTTP ' + r.status + '): ' + snippet,
+                    _notJson: true,
+                };
+            }
+        }
         if (!r.ok) {
             if (r.status === 401) {
                 handleAuthRequired();
                 return null;
             }
-            // For non-401 errors, return payload so callers can show precise errors.
-            try {
-                return await r.json();
-            } catch (e) {
-                toast('Request failed: HTTP ' + r.status, 'err');
-                return null;
+            if (data && typeof data === 'object') {
+                return data;
             }
+            toast('Request failed: HTTP ' + r.status, 'err');
+            return { ok: false, error: 'HTTP ' + r.status, _httpError: true };
         }
-        return await r.json();
+        if (data === null || typeof data !== 'object') {
+            toast('Empty response from server', 'err');
+            return { ok: false, error: 'Empty response body', _emptyBody: true };
+        }
+        return data;
     } catch (e) {
         console.error('POST error', url, e);
+        toast('Network error: ' + (e.message || String(e)), 'err');
         return null;
     }
 }

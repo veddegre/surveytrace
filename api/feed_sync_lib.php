@@ -150,6 +150,32 @@ function st_feed_sync_write_result(string $target, array $payload): void {
     );
 }
 
+/** @return list<string> */
+function st_feed_sync_disabled_functions(): array {
+    $df = ini_get('disable_functions');
+    if ($df === false || $df === '') {
+        return [];
+    }
+    return array_values(array_filter(array_map(
+        static fn(string $s): string => strtolower(trim($s)),
+        explode(',', (string)$df)
+    )));
+}
+
+/**
+ * Whether we can launch the CLI worker via shell (Apache mod_php path).
+ */
+function st_feed_sync_shell_available(): bool {
+    $df = st_feed_sync_disabled_functions();
+    if (PHP_OS_FAMILY === 'Windows') {
+        return function_exists('popen')
+            && function_exists('pclose')
+            && !in_array('popen', $df, true)
+            && !in_array('pclose', $df, true);
+    }
+    return function_exists('exec') && !in_array('exec', $df, true);
+}
+
 /**
  * Spawn detached PHP worker (when fastcgi_finish_request is unavailable).
  */
@@ -175,7 +201,7 @@ function st_feed_sync_spawn_worker(string $phpCli, string $workerPath, string $t
         escapeshellarg($root),
         escapeshellarg($log)
     );
-    exec($cmd);
+    @exec($cmd);
 }
 
 /**
