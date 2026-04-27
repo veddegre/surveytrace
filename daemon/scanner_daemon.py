@@ -1725,6 +1725,7 @@ def run_scan(job: dict) -> None:
     job_id    = job["id"]
     cidrs     = [c.strip() for c in job["target_cidr"].split(",")]
     phases    = json.loads(job["phases"] or "[]")
+    scan_mode = job.get("scan_mode", "auto") or "auto"
     rate_pps     = int(job["rate_pps"]    or 5)
     inter_ms     = int(job["inter_delay"] or 200)
 
@@ -1744,6 +1745,12 @@ def run_scan(job: dict) -> None:
 
     # Parse exclusion list (IPs, CIDR ranges, comments)
     excludes: set[str] = set()
+    target_nets: list[ipaddress._BaseNetwork] = []
+    for c in cidrs:
+        try:
+            target_nets.append(ipaddress.ip_network(c, strict=False))
+        except ValueError:
+            continue
     for line in excl_raw.splitlines():
         line = line.split("#")[0].strip()
         if not line:
@@ -1788,7 +1795,6 @@ def run_scan(job: dict) -> None:
     # ---- Phase 2: Host discovery -----------------------------------------
     alive_hosts: dict[str, str] = {}  # ip -> mac
     if "icmp" in phases:
-        scan_mode = job.get("scan_mode", "auto") or "auto"
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
                       f"Phase 2: host discovery (mode={scan_mode})")
@@ -1797,6 +1803,38 @@ def run_scan(job: dict) -> None:
 
     # Merge passive + active discovery
     all_ips = (set(alive_hosts.keys()) | passive_hosts) - excludes
+
+    # Routed full-TCP scans can miss hosts at discovery time (-sn ping scan),
+    # especially over VPN/tunnel paths where ICMP/TCP ping probes are filtered.
+    # For explicit full_tcp/fast_full_tcp in routed mode, seed candidates from
+    # the target CIDR so phase 3 can still attempt real port probing.
+    if profile_obj.name in ("full_tcp", "fast_full_tcp") and scan_mode == "routed":
+        max_seed_hosts = 1024
+        seeded: set[str] = set()
+        for net in target_nets:
+            # Skip very large ranges to avoid explosive full-port scans.
+            host_count = max(0, net.num_addresses - 2)
+            if host_count > max_seed_hosts:
+                with db_conn() as conn:
+                    log_event(
+                        conn, job_id, "WARN",
+                        f"Routed full-TCP seed skipped for {net} ({host_count} hosts > {max_seed_hosts} cap)"
+                    )
+                continue
+            for ip in net.hosts():
+                ip_s = str(ip)
+                if ip_s in excludes:
+                    continue
+                seeded.add(ip_s)
+        add_n = len(seeded - all_ips)
+        if add_n > 0:
+            all_ips |= seeded
+            with db_conn() as conn:
+                log_event(
+                    conn, job_id, "INFO",
+                    f"Routed full-TCP candidate expansion: +{add_n} hosts from target CIDR"
+                )
+
     with db_conn() as conn:
         conn.execute("UPDATE scan_jobs SET hosts_found=? WHERE id=?", (len(all_ips), job_id))
         log_event(conn, job_id, "INFO", f"Discovery complete: {len(all_ips)} unique hosts")
@@ -1826,6 +1864,30 @@ def run_scan(job: dict) -> None:
         except Exception as e:
             log.warning("[job %d] Enrichment phase error (non-fatal): %s", job_id, e)
             enrichment_map = {}
+
+    # Enrichment can discover routed hosts that phase_discovery misses.
+    # Include in-scope enrichment IP keys in the host set before upsert.
+    if enrichment_map:
+        enrich_ips: set[str] = set()
+        for k in enrichment_map.keys():
+            if not isinstance(k, str) or not k or k.startswith("mac:"):
+                continue
+            try:
+                ip_obj = ipaddress.ip_address(k)
+            except ValueError:
+                continue
+            if target_nets and not any(ip_obj in net for net in target_nets):
+                continue
+            if k in excludes:
+                continue
+            enrich_ips.add(k)
+        added = len(enrich_ips - all_ips)
+        if added > 0:
+            all_ips |= enrich_ips
+            with db_conn() as conn:
+                conn.execute("UPDATE scan_jobs SET hosts_found=? WHERE id=?", (len(all_ips), job_id))
+                log_event(conn, job_id, "INFO",
+                          f"Enrichment expanded host set: +{added} in-scope hosts ({len(all_ips)} total)")
 
     # ---- Upsert assets ---------------------------------------------------
     upserted_assets: list[dict] = []
