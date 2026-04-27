@@ -198,12 +198,22 @@ def parse_cve(item: dict) -> tuple[dict, list[str]]:
     }, list(cpe_set)
 
 
+def _nvd_api_datetime_utc(dt: datetime) -> str:
+    """
+    NVD 2.0 requires extended ISO-8601 for lastMod* / pub* parameters, e.g.
+    2021-08-04T13:00:00.000Z — NOT the legacy '... UTC+00:00' string (that yields HTTP 404).
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.000") + "Z"
+
+
 def fetch_page(start_index: int, mod_start: str | None, results_per_page: int) -> dict:
     params: dict = {"startIndex": start_index, "resultsPerPage": results_per_page}
     if mod_start:
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000 UTC+00:00")
         params["lastModStartDate"] = mod_start
-        params["lastModEndDate"]   = now_str
+        params["lastModEndDate"]   = _nvd_api_datetime_utc(datetime.now(timezone.utc))
 
     url     = NVD_API_BASE + "?" + urllib.parse.urlencode(params)
     headers = {"User-Agent": "SurveyTrace/0.4.0 (self-hosted; +https://github.com/veddegre/surveytrace)"}
@@ -254,7 +264,7 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
     mod_start: str | None = None
     if recent_only:
         since     = datetime.now(timezone.utc) - timedelta(days=days)
-        mod_start = since.strftime("%Y-%m-%dT%H:%M:%S.000 UTC+00:00")
+        mod_start = _nvd_api_datetime_utc(since)
         log.info("Incremental sync — CVEs modified since %s", since.date())
     else:
         log.info("Full sync — fetching all CVEs (this takes a while without an API key)")
