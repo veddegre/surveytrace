@@ -798,6 +798,7 @@ const FEED_SYNC_BTN_LABELS = {
 
 var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
 var feedSyncUiTimer = null;
+var feedSyncStatePollTimer = null;
 
 function fmtFeedElapsed(ms) {
     if (ms < 0) ms = 0;
@@ -892,6 +893,64 @@ function stopFeedSyncUiTimerIfIdle() {
     if (bg && bg.style.display === 'flex') renderFeedSyncOutputPanel();
 }
 
+function stopFeedSyncStatePolling() {
+    if (feedSyncStatePollTimer !== null) {
+        clearInterval(feedSyncStatePollTimer);
+        feedSyncStatePollTimer = null;
+    }
+}
+
+async function fetchFeedSyncServerState() {
+    const r = await api('/api/feeds.php?status=1', { quiet: true });
+    if (!r || !r.ok) return { running: false };
+    return r.feed_sync && typeof r.feed_sync === 'object' ? r.feed_sync : { running: false };
+}
+
+async function hydrateFeedSyncFromServer() {
+    const fs = await fetchFeedSyncServerState();
+    if (!fs || !fs.running) return;
+    const tgt = String(fs.target || '').toLowerCase();
+    if (!['nvd', 'oui', 'webfp', 'all'].includes(tgt)) return;
+    const startedSec = parseInt(fs.started_at, 10) || 0;
+    const startedMs = startedSec > 0 ? startedSec * 1000 : Date.now();
+    feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
+    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+    if (tgt === 'all') {
+        feedSyncRunning.all = true;
+        feedSyncStartedAt.all = startedMs;
+    } else {
+        feedSyncRunning[tgt] = true;
+        feedSyncStartedAt[tgt] = startedMs;
+    }
+    feedSyncLastOutput = `[client] ${new Date().toISOString()} — reconnected: a ${tgt} feed sync is still running on the server (e.g. after reload).\nScript output will appear when the job finishes.`;
+    ensureFeedSyncUiTimer();
+    refreshFeedSyncButtons();
+    tickFeedSyncStatusLines();
+    renderFeedSyncOutputPanel();
+    startFeedSyncStatePolling();
+}
+
+function startFeedSyncStatePolling() {
+    if (feedSyncStatePollTimer !== null) return;
+    feedSyncStatePollTimer = setInterval(async () => {
+        const fs = await fetchFeedSyncServerState();
+        if (fs && fs.running) return;
+        stopFeedSyncStatePolling();
+        const was = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+        if (!was) return;
+        feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
+        feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+        stopFeedSyncUiTimerIfIdle();
+        refreshFeedSyncButtons();
+        const nvdEl = document.getElementById('sync-status-nvd');
+        const fpEl = document.getElementById('sync-status-fp');
+        if (nvdEl) { nvdEl.className = 'sync-status'; nvdEl.textContent = ''; }
+        if (fpEl) { fpEl.className = 'sync-status'; fpEl.textContent = ''; }
+        await loadDashboard();
+        toast('Feed sync finished on the server.', 'ok');
+    }, 4000);
+}
+
 // ==========================================================================
 // Nav
 // ==========================================================================
@@ -910,6 +969,8 @@ function goTab(name) {
     if (name === 'settings') {
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
+        loadDashboard();
+        hydrateFeedSyncFromServer();
     }
 }
 
@@ -2009,29 +2070,24 @@ async function refreshBadges() {
 }
 
 function feedSyncConflictReason(target) {
-    if (feedSyncRunning.all) {
-        return 'A full “sync all feeds” run is in progress. Wait for it to finish.';
-    }
-    if (target === 'all') {
-        if (feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp) {
-            return 'A feed sync is already running. Wait for it to finish, or use “Sync all feeds” when nothing else is running.';
-        }
-        return null;
-    }
-    if (target === 'nvd' && feedSyncRunning.nvd) return 'NVD sync is already running.';
-    if (target === 'oui' && feedSyncRunning.oui) return 'OUI sync is already running.';
-    if (target === 'webfp' && feedSyncRunning.webfp) return 'WebFP sync is already running.';
+    const r = feedSyncRunning;
+    if (target === 'nvd' && r.nvd && !r.all) return 'NVD sync is already running.';
+    if (target === 'oui' && r.oui && !r.all) return 'OUI sync is already running.';
+    if (target === 'webfp' && r.webfp && !r.all) return 'WebFP sync is already running.';
+    if (target === 'all' && r.all) return 'A full feed sync is already running.';
+    const any = r.nvd || r.oui || r.webfp || r.all;
+    if (any) return 'A feed sync is already running. Wait for it to finish.';
     return null;
 }
 
 function refreshFeedSyncButtons() {
     const ra = feedSyncRunning;
-    const anySingular = ra.nvd || ra.oui || ra.webfp;
+    const any = ra.nvd || ra.oui || ra.webfp || ra.all;
     const cfg = {
-        'btn-sync-nvd': { disabled: ra.nvd || ra.all, busy: ra.nvd && !ra.all },
-        'btn-sync-oui': { disabled: ra.oui || ra.all, busy: ra.oui && !ra.all },
-        'btn-sync-webfp': { disabled: ra.webfp || ra.all, busy: ra.webfp && !ra.all },
-        'btn-sync-all': { disabled: ra.all || anySingular, busy: !!ra.all },
+        'btn-sync-nvd': { disabled: !!any, busy: ra.nvd && !ra.all },
+        'btn-sync-oui': { disabled: !!any, busy: ra.oui && !ra.all },
+        'btn-sync-webfp': { disabled: !!any, busy: ra.webfp && !ra.all },
+        'btn-sync-all': { disabled: !!any, busy: !!ra.all },
     };
     FEED_SYNC_BTN_IDS.forEach(id => {
         const b = document.getElementById(id);
@@ -2069,6 +2125,8 @@ function markFeedSyncEnd(target) {
     }
     refreshFeedSyncButtons();
     stopFeedSyncUiTimerIfIdle();
+    const anyLeft = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (!anyLeft) stopFeedSyncStatePolling();
 }
 
 function feedSyncTouchesNvd(t) { return t === 'nvd' || t === 'all'; }
@@ -3040,6 +3098,7 @@ async function initApp() {
     if (mb) mb.textContent = 'Executive view: ' + (execMode ? 'on' : 'off');
     // Always load dashboard data first to populate sidebar badges
     await loadDashboard();
+    await hydrateFeedSyncFromServer();
 }
 
 function toggleDashMode() {
