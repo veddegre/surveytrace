@@ -13,6 +13,9 @@
  *   "rate_pps":    5,    // packets/sec per host, 1–50
  *   "inter_delay": 200,  // ms between hosts, 0–2000
  *   "label":       "Weekly full scan"          // optional human label
+ *   "enrichment_source_ids": [1,2] | [] | omitted
+ *                              — optional; omit or null = all enabled sources;
+ *                                [] = skip network enrichment for this scan
  * }
  *
  * Response 200: {"job_id": 42, "status": "queued", "target_cidr": "...", "phases": [...]}
@@ -35,6 +38,7 @@ $scanJobMigrations = [
     'priority'   => "INTEGER DEFAULT 10",
     'retry_count'=> "INTEGER DEFAULT 0",
     'max_retries'=> "INTEGER DEFAULT 2",
+    'enrichment_source_ids' => "TEXT",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -53,11 +57,13 @@ if (!empty($body['retry_job_id'])) {
     if (!$orig) {
         st_json(['error' => 'Job not found or not in failed state'], 404);
     }
+    $enrRetry = $orig['enrichment_source_ids'] ?? null;
+
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'web')
+             scan_mode, profile, priority, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
     ")->execute([
         $orig['target_cidr'],
         $orig['label'] ? $orig['label'] . ' (retry)' : null,
@@ -68,6 +74,7 @@ if (!empty($body['retry_job_id'])) {
         $orig['scan_mode'] ?? 'auto',
         $orig['profile']   ?? 'standard_inventory',
         5,
+        $enrRetry,
     ]);
     st_json(['ok' => true, 'job_id' => (int)$db->lastInsertId(), 'status' => 'queued']);
 }
@@ -166,6 +173,53 @@ $exclusions = implode("\n", array_values($exclusion_lines));
 $label = substr(trim((string)($body['label'] ?? '')), 0, 120);
 
 // ---------------------------------------------------------------------------
+// 4b. Optional per-scan enrichment allowlist (Phase 3b)
+// ---------------------------------------------------------------------------
+// null / key omitted = use all globally enabled sources (default)
+// []          = skip enrichment for this scan
+// [1,3,...]   = only these enrichment_sources rows (must exist)
+$enrichmentIdsJson = null;
+if (array_key_exists('enrichment_source_ids', $body)) {
+    $eraw = $body['enrichment_source_ids'];
+    if ($eraw === null || $eraw === '') {
+        $enrichmentIdsJson = null;
+    } elseif (!is_array($eraw)) {
+        st_json(['error' => 'enrichment_source_ids must be an array or null', 'field' => 'enrichment_source_ids'], 400);
+    } elseif (count($eraw) === 0) {
+        $enrichmentIdsJson = '[]';
+    } else {
+        $ids = [];
+        foreach ($eraw as $x) {
+            $ids[] = (int)$x;
+        }
+        $ids = array_values(array_unique(array_filter($ids, fn ($n) => $n > 0)));
+        if (count($ids) === 0) {
+            $enrichmentIdsJson = '[]';
+        } elseif (count($ids) > 50) {
+            st_json(['error' => 'At most 50 enrichment_source_ids allowed', 'field' => 'enrichment_source_ids'], 400);
+        } else {
+            $hasTable = (bool)$db->query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='enrichment_sources' LIMIT 1"
+            )->fetchColumn();
+            if (!$hasTable) {
+                st_json(['error' => 'Enrichment is not configured yet (no sources table)', 'field' => 'enrichment_source_ids'], 400);
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $vstmt = $db->prepare("SELECT id FROM enrichment_sources WHERE id IN ($placeholders)");
+            $vstmt->execute($ids);
+            $found = array_map('intval', array_column($vstmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
+            sort($found);
+            $want = $ids;
+            sort($want);
+            if ($found !== $want) {
+                st_json(['error' => 'Unknown enrichment source id in enrichment_source_ids', 'field' => 'enrichment_source_ids'], 400);
+            }
+            $enrichmentIdsJson = json_encode(array_values($ids));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 5. Concurrency guard — allow up to 10 queued jobs
 // ---------------------------------------------------------------------------
 $queued_count = (int)$db->query(
@@ -183,8 +237,9 @@ $priority = max(1, min(100, (int)($body['priority'] ?? 10)));
 // 6. Enqueue
 // ---------------------------------------------------------------------------
 $stmt = $db->prepare("
-    INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay, scan_mode, profile, priority, created_by)
-    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, 'web')
+    INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
+        scan_mode, profile, priority, created_by, enrichment_source_ids)
+    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, 'web', :enrids)
 ");
 $stmt->execute([
     ':cidr'   => implode(', ', $validated_cidrs),
@@ -196,6 +251,7 @@ $stmt->execute([
     ':mode'   => $scan_mode,
     ':profile'=> $profile,
     ':priority'=> $priority,
+    ':enrids' => $enrichmentIdsJson,
 ]);
 
 $job_id = (int)$db->lastInsertId();
@@ -207,13 +263,16 @@ $db->prepare("
 ")->execute([
     $job_id,
     sprintf(
-        'Job #%d queued by web — targets: %s | phases: %s | pps: %d | delay: %dms | exclusions: %d lines',
+        'Job #%d queued by web — targets: %s | phases: %s | pps: %d | delay: %dms | exclusions: %d lines%s',
         $job_id,
         implode(', ', $validated_cidrs),
         implode(', ', $phases),
         $rate_pps,
         $inter_delay,
-        count($exclusion_lines)
+        count($exclusion_lines),
+        $enrichmentIdsJson === '[]'
+            ? ' | enrichment: off'
+            : ($enrichmentIdsJson !== null ? ' | enrichment: selected sources' : '')
     ),
 ]);
 
@@ -226,4 +285,7 @@ st_json([
     'inter_delay' => $inter_delay,
     'scan_mode'   => $scan_mode,
     'label'       => $label,
+    'enrichment_source_ids' => $enrichmentIdsJson === null
+        ? null
+        : (json_decode($enrichmentIdsJson, true) ?: []),
 ]);

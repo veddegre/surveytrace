@@ -23,6 +23,7 @@ $scanJobMigrations = [
     'priority'    => "INTEGER DEFAULT 10",
     'retry_count' => "INTEGER DEFAULT 0",
     'summary_json'=> "TEXT",
+    'enrichment_source_ids' => "TEXT",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {

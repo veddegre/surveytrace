@@ -293,6 +293,11 @@
         <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog"><input type="checkbox" id="ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
       </div>
+      <div class="card" id="scan-enrich-card">
+        <div class="ct">Network enrichment (this scan)</div>
+        <div class="tsubl" style="margin-bottom:8px">Phase 3b — same sources as <strong>Enrichment</strong>. When every enabled source is on, the job uses the default (same as before). Uncheck UniFi for routed/Tailscale targets, or turn all off to skip enrichment.</div>
+        <div id="scan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
+      </div>
       <div class="card">
         <div class="ct">Discovery mode</div>
         <div class="tr2">
@@ -1346,6 +1351,8 @@ async function startScan() {
         profile:     profileVal,
         confirmed:   true,
     };
+    const enrSel = scanEnrichmentPayloadField();
+    if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
 
     document.getElementById('btn-start').disabled = true;
     const r = await apiPost('/api/scan_start.php', body);
@@ -1450,6 +1457,53 @@ async function loadScanStatus() {
         }
     }
     loadScanHistory(d.history);
+    refreshScanEnrichmentPicker();
+}
+
+/** Per-scan enrichment toggles; returns undefined = default (all enabled), [] = none, else id subset */
+function scanEnrichmentPayloadField() {
+    const wrap = document.getElementById('scan-enrichment-wrap');
+    if (!wrap || wrap.dataset.ready !== '1') return undefined;
+    const enabledBoxes = wrap.querySelectorAll('input[data-enr-id]');
+    if (!enabledBoxes.length) return undefined;
+    const checked = [];
+    enabledBoxes.forEach(cb => { if (cb.checked) checked.push(parseInt(cb.dataset.enrId, 10)); });
+    if (checked.length === enabledBoxes.length) return undefined;
+    return checked;
+}
+
+async function refreshScanEnrichmentPicker() {
+    const wrap = document.getElementById('scan-enrichment-wrap');
+    if (!wrap) return;
+    wrap.dataset.ready = '0';
+    wrap.innerHTML = '<div class="hint-micro">Loading…</div>';
+    let data;
+    try {
+        data = await api('/api/enrichment.php', {quiet:true});
+    } catch (e) {
+        wrap.innerHTML = '<div class="hint-micro">Could not load enrichment sources</div>';
+        return;
+    }
+    const srcs = (data && data.sources) ? data.sources : [];
+    if (!srcs.length) {
+        wrap.innerHTML = '<div class="hint-micro">No sources configured yet — add them under <strong>Enrichment</strong>.</div>';
+        wrap.dataset.ready = '1';
+        return;
+    }
+    const parts = [];
+    for (const s of srcs) {
+        const en = parseInt(s.enabled, 10) === 1;
+        const id = parseInt(s.id, 10);
+        const label = esc(s.label || s.source_type || '');
+        const typ = esc(s.source_type || '');
+        if (en) {
+            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="tog"><input type="checkbox" data-enr-id="${id}" checked><div class="trk"></div><div class="tth"></div></label></div>`);
+        } else {
+            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="tog"><input type="checkbox" disabled><div class="trk"></div><div class="tth"></div></label></div>`);
+        }
+    }
+    wrap.innerHTML = parts.join('');
+    wrap.dataset.ready = '1';
 }
 
 async function loadScanHistory(history) {

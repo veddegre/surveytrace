@@ -75,7 +75,9 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     hosts_scanned INTEGER DEFAULT 0,
     summary_json TEXT,
     error_msg    TEXT,
-    created_by   TEXT DEFAULT 'web'
+    created_by   TEXT DEFAULT 'web',
+    -- JSON array of enrichment_sources.id, NULL = all enabled; [] = skip phase 3b
+    enrichment_source_ids TEXT
 );
 
 -- -------------------------------------------------------

@@ -759,21 +759,61 @@ def phase_banner(
 # ---------------------------------------------------------------------------
 # Phase 3b — Enrichment (UniFi, SNMP, DNS, etc.)
 # ---------------------------------------------------------------------------
-def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
+def _parse_job_enrichment_ids(job: dict) -> list[int] | None:
+    """
+    Parse scan_jobs.enrichment_source_ids.
+    None  → use all globally enabled sources (default).
+    []    → skip enrichment entirely (handled in run_scan).
+    [...] → only these enrichment_sources.id values (must be enabled).
+    """
+    raw = job.get("enrichment_source_ids")
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, (bytes, memoryview)):
+        raw = raw.decode()
+    if isinstance(raw, str):
+        try:
+            arr = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    elif isinstance(raw, list):
+        arr = raw
+    else:
+        return None
+    if not isinstance(arr, list):
+        return None
+    out: list[int] = []
+    for x in arr:
+        try:
+            out.append(int(x))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def phase_enrich(
+    job_id: int,
+    enrichment_source_ids: list[int] | None = None,
+) -> dict[str, dict]:
     """
     Query all enabled enrichment sources and return a dict of
     {ip: enrichment_record} for use in asset upserts.
     Enrichment provides MAC addresses, hostnames, VLANs, and vendor data
     that the scanner alone can't get (especially across routers).
+
+    Network I/O (UniFi, SNMP, …) must not run under an open db_conn()
+    transaction — that would block the web UI and other writers for the
+    duration of slow external calls.
     """
     if not HAS_ENRICHMENT:
         return {}
 
-    # Load enabled sources from config table
+    # Load enabled sources — short DB transaction only
     try:
-        rows = conn.execute(
-            "SELECT * FROM enrichment_sources WHERE enabled = 1 ORDER BY priority ASC"
-        ).fetchall()
+        with db_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM enrichment_sources WHERE enabled = 1 ORDER BY priority ASC"
+            ).fetchall()
     except sqlite3.OperationalError:
         # Table doesn't exist yet — schema not migrated
         return {}
@@ -781,16 +821,31 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
     if not rows:
         return {}
 
+    row_dicts = [dict(r) for r in rows]
+
+    if enrichment_source_ids is not None:
+        allow = {int(x) for x in enrichment_source_ids}
+        n_before = len(row_dicts)
+        row_dicts = [r for r in row_dicts if int(r["id"]) in allow]
+        if not row_dicts:
+            if n_before > 0:
+                with db_conn() as conn:
+                    log_event(
+                        conn, job_id, "INFO",
+                        "Phase 3b: selected enrichment source id(s) are disabled or unknown; skipping",
+                    )
+            return {}
+
     enrichment_map: dict[str, dict] = {}   # ip or "mac:<addr>" -> best record
     source_counts: dict[str, int] = {}     # source_type -> raw records fetched
     source_applied: dict[str, int] = {}    # source_type -> unique IP records applied
     source_applied_mac: dict[str, int] = {}  # source_type -> unique MAC-only records applied
 
-    for row in rows:
-        source = load_source(dict(row))
+    for row in row_dicts:
+        source = load_source(row)
         if not source:
             continue
-        log.info("[job %d] Enrichment: querying source '%s'", job_id, row['source_type'])
+        log.info("[job %d] Enrichment: querying source '%s'", job_id, row["source_type"])
         try:
             records = source.fetch_all()
             source_name = str(row["source_type"])
@@ -811,8 +866,9 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
             source_applied[source_name] = source_applied.get(source_name, 0) + applied_here
             source_applied_mac[source_name] = source_applied_mac.get(source_name, 0) + applied_mac_here
         except Exception as e:
-            log_event(conn, job_id, "WARN",
-                      f"Enrichment source '{row['source_type']}' error: {e}")
+            with db_conn() as conn:
+                log_event(conn, job_id, "WARN",
+                          f"Enrichment source '{row['source_type']}' error: {e}")
 
     log.info("[job %d] Enrichment: %d total records across all sources", job_id, len(enrichment_map))
     if source_counts:
@@ -822,7 +878,8 @@ def phase_enrich(job_id: int, conn: sqlite3.Connection) -> dict[str, dict]:
                 f"{src} raw={source_counts[src]} applied_ip={source_applied.get(src, 0)} "
                 f"applied_mac={source_applied_mac.get(src, 0)}"
             )
-        log_event(conn, job_id, "INFO", "Enrichment source totals: " + " | ".join(parts))
+        with db_conn() as conn:
+            log_event(conn, job_id, "INFO", "Enrichment source totals: " + " | ".join(parts))
     return enrichment_map
 
 
@@ -1980,9 +2037,19 @@ def run_scan(job: dict) -> None:
     enrichment_map: dict[str, dict] = {}
     if HAS_ENRICHMENT:
         try:
-            with db_conn() as conn:
-                log_event(conn, job_id, "INFO", "Phase 3b: network enrichment (UniFi/SNMP)")
-                enrichment_map = phase_enrich(job_id, conn) or {}
+            enrich_ids = _parse_job_enrichment_ids(job)
+            if enrich_ids is not None and len(enrich_ids) == 0:
+                with db_conn() as conn:
+                    log_event(
+                        conn, job_id, "INFO",
+                        "Phase 3b skipped: no enrichment sources selected for this scan",
+                    )
+                enrichment_map = {}
+            else:
+                with db_conn() as conn:
+                    log_event(conn, job_id, "INFO", "Phase 3b: network enrichment (UniFi/SNMP)")
+                # phase_enrich does external I/O — must not share db_conn with log_event above
+                enrichment_map = phase_enrich(job_id, enrich_ids) or {}
             if enrichment_map:
                 log.info("[job %d] Applying enrichment to %d assets", job_id, len(enrichment_map))
         except Exception as e:
@@ -2485,6 +2552,7 @@ def main() -> None:
             ("failure_reason", "TEXT"),
             ("label",          "TEXT"),
             ("summary_json",   "TEXT"),
+            ("enrichment_source_ids", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE scan_jobs ADD COLUMN {col} {defn}")

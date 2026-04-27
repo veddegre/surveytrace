@@ -46,6 +46,7 @@ $scanJobMigrations = [
     'priority'   => "INTEGER DEFAULT 10",
     'retry_count'=> "INTEGER DEFAULT 0",
     'summary_json'=> "TEXT",
+    'enrichment_source_ids' => "TEXT",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -76,6 +77,14 @@ if (!$job) {
 // Enrich job row
 // ---------------------------------------------------------------------------
 $job['phases'] = json_decode($job['phases'] ?? '[]', true) ?: [];
+
+$enrRaw = $job['enrichment_source_ids'] ?? null;
+if ($enrRaw === null || $enrRaw === '') {
+    $job['enrichment_source_ids'] = null;
+} else {
+    $dec = json_decode((string)$enrRaw, true);
+    $job['enrichment_source_ids'] = is_array($dec) ? $dec : null;
+}
 
 // Progress percentage
 $found   = max(1, (int)$job['hosts_found']);
