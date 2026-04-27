@@ -627,7 +627,7 @@
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">The server runs the full Python job before returning; use the status line for live elapsed time. Script logs appear in <strong>View last output</strong> when the job finishes.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">The browser gets an immediate response; sync runs on the server (NVD can take many minutes). Watch the status line for elapsed time; when the job finishes, open <strong>View last output</strong> for full script logs.</p>
         <div id="sync-status-nvd" class="sync-status"></div>
       </div>
       <div class="card">
@@ -649,7 +649,7 @@
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">Same as NVD: status shows elapsed time while the server job runs; detailed stdout/stderr appears when the job completes.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">Same as NVD: sync runs in the background; status shows elapsed time while it runs. Full stdout/stderr is in <strong>View last output</strong> when complete.</p>
         <div id="sync-status-fp" class="sync-status"></div>
       </div>
     </div>
@@ -941,8 +941,16 @@ function stopFeedSyncStatePolling() {
 
 async function fetchFeedSyncServerState() {
     const r = await api('/api/feeds.php?status=1', { quiet: true });
-    if (!r || !r.ok) return { running: false };
-    return r.feed_sync && typeof r.feed_sync === 'object' ? r.feed_sync : { running: false };
+    if (!r || !r.ok) {
+        return { running: false, target: '', started_at: 0, last_feed_sync: null };
+    }
+    const fs = r.feed_sync && typeof r.feed_sync === 'object' ? r.feed_sync : { running: false };
+    return {
+        running: !!fs.running,
+        target: String(fs.target || ''),
+        started_at: parseInt(fs.started_at, 10) || 0,
+        last_feed_sync: r.last_feed_sync && typeof r.last_feed_sync === 'object' ? r.last_feed_sync : null,
+    };
 }
 
 async function hydrateFeedSyncFromServer() {
@@ -969,6 +977,21 @@ async function hydrateFeedSyncFromServer() {
     startFeedSyncStatePolling();
 }
 
+function appendFeedSyncResultToOutput(target, payload) {
+    const lines = [];
+    lines.push(`target=${target} ok=${!!payload.ok}`);
+    for (const res of (payload.results || [])) {
+        lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
+        lines.push((res.output || '').trim() || '(no output)');
+    }
+    if (payload.error) {
+        lines.push('\n=== error ===');
+        lines.push(String(payload.error));
+    }
+    const block = lines.join('\n');
+    feedSyncLastOutput = (feedSyncLastOutput ? feedSyncLastOutput + '\n\n' : '') + block;
+}
+
 function startFeedSyncStatePolling() {
     if (feedSyncStatePollTimer !== null) return;
     feedSyncStatePollTimer = setInterval(async () => {
@@ -977,16 +1000,49 @@ function startFeedSyncStatePolling() {
         stopFeedSyncStatePolling();
         const was = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
         if (!was) return;
+
+        let doneTarget = 'all';
+        if (feedSyncRunning.all) doneTarget = 'all';
+        else if (feedSyncRunning.nvd) doneTarget = 'nvd';
+        else if (feedSyncRunning.oui) doneTarget = 'oui';
+        else if (feedSyncRunning.webfp) doneTarget = 'webfp';
+        if (fs.last_feed_sync && fs.last_feed_sync.target) {
+            doneTarget = String(fs.last_feed_sync.target);
+        }
+
         feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
         feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
         stopFeedSyncUiTimerIfIdle();
         refreshFeedSyncButtons();
-        const nvdEl = document.getElementById('sync-status-nvd');
-        const fpEl = document.getElementById('sync-status-fp');
-        if (nvdEl) { nvdEl.className = 'sync-status'; nvdEl.textContent = ''; }
-        if (fpEl) { fpEl.className = 'sync-status'; fpEl.textContent = ''; }
+
+        const last = fs.last_feed_sync;
+        if (last) {
+            appendFeedSyncResultToOutput(doneTarget, last);
+            if (!last.ok && feedSyncTouchesFp(doneTarget)) {
+                fpSyncHadError = true;
+            }
+            if (!last.ok) {
+                const msg = (last.results && last.results.find(x => !x.ok)?.output) || last.error || 'Sync failed';
+                toast(String(msg).slice(0, 120), 'err');
+                refreshNvdStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
+                refreshFpStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
+                openFeedSyncOutput();
+            } else {
+                refreshNvdStatusLineAfterEnd(doneTarget, null, 'Sync complete.');
+                refreshFpStatusLineAfterEnd(doneTarget, null, 'Sync complete.');
+                const names = (last.results || []).map(x => String(x.script || '').replace('.py', '')).filter(Boolean).join(', ');
+                toast(names ? ('Feed sync complete: ' + names) : 'Feed sync complete.', 'ok');
+                openFeedSyncOutput();
+            }
+        } else {
+            const nvdEl = document.getElementById('sync-status-nvd');
+            const fpEl = document.getElementById('sync-status-fp');
+            if (nvdEl) { nvdEl.className = 'sync-status'; nvdEl.textContent = ''; }
+            if (fpEl) { fpEl.className = 'sync-status'; fpEl.textContent = ''; }
+            toast('Feed sync finished on the server.', 'ok');
+        }
+
         await loadDashboard();
-        toast('Feed sync finished on the server.', 'ok');
     }, 4000);
 }
 
@@ -2280,14 +2336,13 @@ async function runFeedSync(target) {
         return;
     }
 
-    const lines = [];
-    lines.push(`target=${target} ok=${!!r.ok}`);
-    for (const res of (r.results || [])) {
-        lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
-        lines.push((res.output || '').trim() || '(no output)');
+    if (r.async && r.started) {
+        toast('Feed sync running on the server — NVD can take several minutes. Status updates below.', 'ok');
+        startFeedSyncStatePolling();
+        return;
     }
-    const block = lines.join('\n');
-    feedSyncLastOutput = (feedSyncLastOutput ? feedSyncLastOutput + '\n\n' : '') + block;
+
+    appendFeedSyncResultToOutput(target, r);
 
     markFeedSyncEnd(target);
 
