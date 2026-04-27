@@ -163,7 +163,7 @@ Manual sync is also available from the Settings tab (buttons call `POST /api/fee
 Manual sync behavior:
 - Runs one sync action at a time from the UI (prevents overlapping clicks)
 - Shows in-progress/completed/failed status inline in Settings
-- Captures script stdout/stderr in the “View last output” modal
+- Captures script stdout/stderr in the “Last feed sync log” modal (one `feed_sync_result.json` per completed run)
 - **NVD** from the UI runs `sync_nvd.py --recent` (same incremental idea as the weekly cron); full rebuild is still `sync_nvd.py` without `--recent` on the CLI
 - **Cancel** (NVD or “Sync all” only) touches `data/feed_sync_cancel`; Python exits after the current fetch step — expect **several minutes** for a typical incremental run (longer without an API key or when NIST has a large update batch)
 

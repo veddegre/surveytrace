@@ -615,13 +615,17 @@
         </div>
       </div>
       <div class="card">
-        <div class="ct">NVD feed status</div>
+        <div class="ct">NVD &amp; offline fingerprint feeds</div>
+        <p class="help-line mb10">
+          One server job and one log file per run. The log includes whatever you last ran: NVD only, OUI/WebFP only, or <strong>Sync all</strong> (all scripts in one file: <code class="code-accent">data/feed_sync_result.json</code>).
+        </p>
+
+        <div class="flbl mt2">NVD (CVE / CPE correlation)</div>
         <div class="help-mono mb10">
           Last sync: <span id="nvd-sync-ts" class="text-strong">—</span>
         </div>
-        <div class="help-line mb10">
-          The NVD feed maps CPE strings to CVE IDs for offline vulnerability correlation.
-          Run <code class="code-accent">sync_nvd.py</code> to refresh (auto-runs weekly via cron).
+        <div class="help-line mb10 text-dim" style="font-size:12px">
+          Maps CPE strings to CVE IDs for offline correlation. Refreshed weekly via cron; <code class="code-accent">sync_nvd.py</code> or use the button below.
         </div>
         <label class="flbl">NVD API key (optional)</label>
         <div class="help-line mb6 text-dim">
@@ -645,32 +649,31 @@
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" type="button" id="btn-cancel-feed-sync" onclick="requestFeedSyncCancel()" disabled>Cancel sync</button>
           <button class="tbtn" type="button" onclick="requestFeedSyncClearStuckState()">Reset sync lock</button>
-          <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">The browser returns immediately; work runs on the server. Incremental NVD sync often takes <strong>several minutes</strong> (10+ is normal when NIST has a large batch of CVE updates in the rolling window, or longer <strong>without an API key</strong> due to rate limits). Use <strong>Cancel sync</strong> to stop after the current fetch step — data already written to <code class="code-accent">nvd.db</code> is kept. If you stopped the process on the server (e.g. <code class="code-accent">pkill</code>) and the UI still shows “running”, use <strong>Reset sync lock</strong>. If outbound Internet drops, the script retries then errors; run sync again when the link is back.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">The browser returns immediately. Incremental NVD often takes <strong>several minutes</strong> (10+ is normal for large NIST batches, or longer <strong>without an API key</strong>). <strong>Cancel</strong> stops after the current fetch. If you killed a process on the host and the UI is stuck, <strong>Reset sync lock</strong>. If the network drops, the job retries; run again when the link is back.</p>
         <div id="sync-status-nvd" class="sync-status"></div>
-      </div>
-      <div class="card">
-        <div class="ct">Fingerprint feed status</div>
-        <div class="help-mono">
-          OUI last sync: <span id="oui-sync-ts" class="text-strong">—</span><br>
-          OUI prefixes: <span id="oui-sync-count" class="text-strong">0</span><br>
-          WebFP last sync: <span id="webfp-sync-ts" class="text-strong">—</span><br>
-          WebFP rules: <span id="webfp-sync-count" class="text-strong">0</span>
+
+        <div class="flbl mt12">OUI &amp; WebFP (MAC vendors &amp; web fingerprints)</div>
+        <div class="help-mono mb6">
+          OUI last sync: <span id="oui-sync-ts" class="text-strong">—</span> ·
+          prefixes: <span id="oui-sync-count" class="text-strong">0</span><br>
+          WebFP last sync: <span id="webfp-sync-ts" class="text-strong">—</span> ·
+          rules: <span id="webfp-sync-count" class="text-strong">0</span>
         </div>
-        <div class="help-line mt10">
-          Source feeds: IEEE OUI CSV + Wappalyzer technologies (synced daily via cron).
-          Run <code class="code-accent">sync_oui.py</code> and
-          <code class="code-accent">sync_webfp.py</code> manually any time.
+        <div class="help-line mb10 text-dim" style="font-size:12px">
+          IEEE OUI registries and Wappalyzer technologies (synced daily via cron). <code class="code-accent">sync_oui.py</code> and <code class="code-accent">sync_webfp.py</code> below, or <strong>Sync all feeds</strong> to refresh NVD + OUI + WebFP in one job.
         </div>
-        <div class="row-wrap mt10">
+        <div class="row-wrap">
           <button class="tbtn" id="btn-sync-oui" onclick="runFeedSync('oui')">Sync OUI now</button>
           <button class="tbtn" id="btn-sync-webfp" onclick="runFeedSync('webfp')">Sync WebFP now</button>
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
-          <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">Same as NVD: sync runs in the background; status shows elapsed time while it runs. Full stdout/stderr is in <strong>View last output</strong> when complete.</p>
-        <div id="sync-status-fp" class="sync-status"></div>
+        <div id="sync-status-fp" class="sync-status mt6"></div>
+
+        <div class="row-wrap mt10">
+          <button class="tbtn" type="button" onclick="openFeedSyncOutput()">View last feed sync log</button>
+        </div>
+        <p class="help-line text-dim mt6" style="font-size:12px">Shows the most recent run (whichever set of buttons you used). <strong>Sync all</strong> appends NVD, OUI, and WebFP sections in one file. The same log loads after a page reload.</p>
       </div>
     </div>
     <div>
@@ -736,7 +739,7 @@
 <div id="fsync-bg" class="modal-bg z210">
   <div class="modal-card modal-feed">
     <div class="row-between mb10">
-      <div class="modal-title section-title-reset" id="fsync-title">Feed sync output</div>
+      <div class="modal-title section-title-reset" id="fsync-title">Last feed sync log</div>
       <button class="tbtn" onclick="closeFeedSyncOutput()">Close</button>
     </div>
     <pre id="fsync-out" class="fsync-pre">Loading last feed sync output…</pre>
@@ -937,7 +940,7 @@ function ensureFeedSyncUiTimer() {
         const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
         if (any) {
             // Keep <pre> fresh every second while a job runs (even if modal is closed), so
-            // elapsed + footer text are never stale when the user opens “View last output”.
+            // elapsed + footer text stay fresh when the user opens the feed sync log modal.
             renderFeedSyncOutputPanel();
         }
     }, 1000);
