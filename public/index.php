@@ -11,7 +11,7 @@
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.2.0') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.3.0') ?>">
 </head>
 <body>
 <div class="shell">
@@ -19,10 +19,17 @@
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.2.0' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.3.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
-  <button class="tbtn" id="theme-toggle-btn" onclick="cycleThemeMode()">Theme: Dark</button>
+  <span class="theme-bar-ctl">
+    <label for="theme-select">Theme</label>
+    <select id="theme-select" class="theme-select" title="Appearance" aria-label="Theme" onchange="setThemeMode(this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="auto">Auto (system)</option>
+    </select>
+  </span>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
@@ -614,7 +621,7 @@
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v0.2.0<br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.3.0', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span>
         </div>
@@ -2852,14 +2859,11 @@ function applyThemeMode(mode) {
     document.body.classList.toggle('light-mode', effective === 'light');
 }
 
-function updateThemeToggleLabel() {
-    const btn = document.getElementById('theme-toggle-btn');
-    if (!btn) return;
+function updateThemeSelect() {
+    const sel = document.getElementById('theme-select');
+    if (!sel) return;
     const mode = readThemeModePref();
-    const label = mode === 'auto'
-        ? `Auto (${systemPrefersDark() ? 'Dark' : 'Light'})`
-        : (mode === 'light' ? 'Light' : 'Dark');
-    btn.textContent = 'Theme: ' + label;
+    sel.value = (mode === 'light' || mode === 'auto') ? mode : 'dark';
 }
 
 function setupSystemThemeWatcher() {
@@ -2868,7 +2872,7 @@ function setupSystemThemeWatcher() {
     themeMediaListener = () => {
         if (readThemeModePref() === 'auto') {
             applyThemeMode('auto');
-            updateThemeToggleLabel();
+            updateThemeSelect();
         }
     };
     if (themeMediaQuery.addEventListener) {
@@ -2878,19 +2882,18 @@ function setupSystemThemeWatcher() {
     }
 }
 
-function cycleThemeMode() {
-    const mode = readThemeModePref();
-    const next = mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark';
-    try { localStorage.setItem('st_theme_mode', next); } catch (e) {}
-    applyThemeMode(next);
-    updateThemeToggleLabel();
+function setThemeMode(mode) {
+    if (mode !== 'dark' && mode !== 'light' && mode !== 'auto') return;
+    try { localStorage.setItem('st_theme_mode', mode); } catch (e) {}
+    applyThemeMode(mode);
+    updateThemeSelect();
 }
 
 async function initApp() {
     await initAuthMode();
     const mode = readThemeModePref();
     applyThemeMode(mode);
-    updateThemeToggleLabel();
+    updateThemeSelect();
     setupSystemThemeWatcher();
 
     const execMode = (() => {

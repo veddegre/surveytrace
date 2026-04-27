@@ -55,6 +55,11 @@ body{
 .pill.run .pdot{animation:blink .9s ease-in-out infinite}
 .tbtn{font-family:var(--sf);font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--bd2);background:transparent;color:var(--tx2);cursor:pointer;transition:all .12s}
 .tbtn:hover{border-color:var(--acc);color:var(--tx);background:var(--bg3)}
+.theme-bar-ctl{display:flex;align-items:center;gap:6px}
+.theme-bar-ctl label{font-family:var(--sf);font-size:11px;color:var(--tx2);white-space:nowrap}
+.theme-select{font-family:var(--sf);font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--bd2);background:var(--bg3);color:var(--tx2);min-width:132px;cursor:pointer;transition:border-color .12s,color .12s}
+.theme-select:hover{border-color:var(--acc);color:var(--tx)}
+.theme-select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 2px rgba(95,143,218,.18)}
 
 /* Sidebar */
 .side{background:var(--bg2);border-right:1px solid var(--bd);padding:12px 0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}

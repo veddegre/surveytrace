@@ -7,7 +7,7 @@
 // Always use UTC for all date/time operations regardless of server timezone
 date_default_timezone_set('UTC');
 
-define('ST_VERSION',  '0.2.0');
+define('ST_VERSION',  '0.3.0');
 define('ST_DB_PATH',  dirname(__DIR__) . '/data/surveytrace.db');
 define('ST_SCHEMA',   dirname(__DIR__) . '/sql/schema.sql');
 define('ST_DATA_DIR', dirname(__DIR__) . '/data');
