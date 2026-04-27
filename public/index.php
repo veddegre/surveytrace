@@ -588,6 +588,7 @@
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
+        <p class="help-line text-dim mt6" style="font-size:12px">The server runs the full Python job before returning; use the status line for live elapsed time. Script logs appear in <strong>View last output</strong> when the job finishes.</p>
         <div id="sync-status-nvd" class="sync-status"></div>
       </div>
       <div class="card">
@@ -609,6 +610,7 @@
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
         </div>
+        <p class="help-line text-dim mt6" style="font-size:12px">Same as NVD: status shows elapsed time while the server job runs; detailed stdout/stderr appears when the job completes.</p>
         <div id="sync-status-fp" class="sync-status"></div>
       </div>
       <div class="card">
@@ -781,8 +783,114 @@ var confirmResolve = null;
 var themeMediaQuery = null;
 var themeMediaListener = null;
 var execPreviousTab = null;
-var feedSyncInProgress = false;
-var feedSyncActiveTarget = null;
+/** Which feed syncs are in flight (NVD / OUI / WebFP may run in parallel; "all" is exclusive). */
+var feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
+/** If any OUI/WebFP/all job in the current fingerprint wave failed, set before the wave ends. */
+var fpSyncHadError = false;
+
+const FEED_SYNC_BTN_IDS = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
+const FEED_SYNC_BTN_LABELS = {
+    'btn-sync-nvd': 'Sync NVD now',
+    'btn-sync-oui': 'Sync OUI now',
+    'btn-sync-webfp': 'Sync WebFP now',
+    'btn-sync-all': 'Sync all feeds',
+};
+
+var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+var feedSyncUiTimer = null;
+
+function fmtFeedElapsed(ms) {
+    if (ms < 0) ms = 0;
+    const sec = Math.floor(ms / 1000);
+    if (sec < 60) return 'elapsed ' + sec + 's';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return 'elapsed ' + m + 'm ' + s + 's';
+}
+
+function buildFeedSyncRunningFooter() {
+    if (!feedSyncRunning.nvd && !feedSyncRunning.oui && !feedSyncRunning.webfp && !feedSyncRunning.all) return '';
+    const lines = [];
+    lines.push('────────────────────────────────────────');
+    lines.push('SERVER JOB STILL RUNNING');
+    lines.push('The API waits for the Python script to exit; stdout/stderr from the script are appended above only after the job finishes.');
+    lines.push('');
+    if (feedSyncRunning.all && feedSyncStartedAt.all) {
+        lines.push('Full feed sync (NVD + OUI + WebFP): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.all));
+    } else {
+        if (feedSyncRunning.nvd && feedSyncStartedAt.nvd) {
+            lines.push('NVD (CVE / CPE correlation): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.nvd));
+        }
+        if (feedSyncRunning.oui && feedSyncStartedAt.oui) {
+            lines.push('OUI (MAC vendor prefixes): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.oui));
+        }
+        if (feedSyncRunning.webfp && feedSyncStartedAt.webfp) {
+            lines.push('WebFP (fingerprints): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.webfp));
+        }
+    }
+    lines.push('');
+    lines.push('This block updates every second while any sync is active.');
+    return lines.join('\n');
+}
+
+function renderFeedSyncOutputPanel() {
+    const out = document.getElementById('fsync-out');
+    if (!out) return;
+    const base = feedSyncLastOutput || 'No sync output yet.';
+    const foot = buildFeedSyncRunningFooter();
+    out.textContent = foot ? (base + '\n\n' + foot) : base;
+}
+
+function tickFeedSyncStatusLines() {
+    const nvdEl = document.getElementById('sync-status-nvd');
+    if (nvdEl && (feedSyncRunning.nvd || feedSyncRunning.all)) {
+        nvdEl.className = 'sync-status run';
+        const t0 = feedSyncRunning.all ? feedSyncStartedAt.all : feedSyncStartedAt.nvd;
+        if (t0) {
+            const head = feedSyncRunning.all ? 'Full feed sync (includes NVD)' : 'NVD CVE feed sync';
+            nvdEl.textContent = head + ' — ' + fmtFeedElapsed(Date.now() - t0);
+        }
+    }
+    const fpEl = document.getElementById('sync-status-fp');
+    if (fpEl && (feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all)) {
+        fpEl.className = 'sync-status run';
+        if (feedSyncRunning.all && feedSyncStartedAt.all) {
+            fpEl.textContent = 'OUI + WebFP (full sync) — ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.all);
+        } else {
+            const bits = [];
+            if (feedSyncRunning.oui && feedSyncStartedAt.oui) {
+                bits.push('OUI — ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.oui));
+            }
+            if (feedSyncRunning.webfp && feedSyncStartedAt.webfp) {
+                bits.push('WebFP — ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.webfp));
+            }
+            fpEl.textContent = bits.join('  ·  ');
+        }
+    }
+}
+
+function ensureFeedSyncUiTimer() {
+    if (feedSyncUiTimer !== null) return;
+    feedSyncUiTimer = setInterval(() => {
+        tickFeedSyncStatusLines();
+        const bg = document.getElementById('fsync-bg');
+        if (bg && bg.style.display === 'flex') renderFeedSyncOutputPanel();
+    }, 1000);
+    tickFeedSyncStatusLines();
+    const bg0 = document.getElementById('fsync-bg');
+    if (bg0 && bg0.style.display === 'flex') renderFeedSyncOutputPanel();
+}
+
+function stopFeedSyncUiTimerIfIdle() {
+    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (any) return;
+    if (feedSyncUiTimer !== null) {
+        clearInterval(feedSyncUiTimer);
+        feedSyncUiTimer = null;
+    }
+    const bg = document.getElementById('fsync-bg');
+    if (bg && bg.style.display === 'flex') renderFeedSyncOutputPanel();
+}
 
 // ==========================================================================
 // Nav
@@ -1900,93 +2008,128 @@ async function refreshBadges() {
     if (d) updateSidebarBadges(d.assets?.total, d.findings?.open, d.findings?.by_severity?.critical || 0);
 }
 
-async function runFeedSync(target) {
-    if (feedSyncInProgress) {
-        const who = feedSyncActiveTarget ? ` (${feedSyncActiveTarget})` : '';
-        toast('A feed sync is already running' + who + '. Please wait.', 'err');
-        return;
+function feedSyncConflictReason(target) {
+    if (feedSyncRunning.all) {
+        return 'A full “sync all feeds” run is in progress. Wait for it to finish.';
     }
-    feedSyncInProgress = true;
-    feedSyncActiveTarget = target;
+    if (target === 'all') {
+        if (feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp) {
+            return 'A feed sync is already running. Wait for it to finish, or use “Sync all feeds” when nothing else is running.';
+        }
+        return null;
+    }
+    if (target === 'nvd' && feedSyncRunning.nvd) return 'NVD sync is already running.';
+    if (target === 'oui' && feedSyncRunning.oui) return 'OUI sync is already running.';
+    if (target === 'webfp' && feedSyncRunning.webfp) return 'WebFP sync is already running.';
+    return null;
+}
 
-    const btnIds = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
-    const busyBtnId = target === 'nvd' ? 'btn-sync-nvd'
-        : target === 'oui' ? 'btn-sync-oui'
-        : target === 'webfp' ? 'btn-sync-webfp'
-        : 'btn-sync-all';
-    const btnLabels = {};
-    btnIds.forEach(id => {
+function refreshFeedSyncButtons() {
+    const ra = feedSyncRunning;
+    const anySingular = ra.nvd || ra.oui || ra.webfp;
+    const cfg = {
+        'btn-sync-nvd': { disabled: ra.nvd || ra.all, busy: ra.nvd && !ra.all },
+        'btn-sync-oui': { disabled: ra.oui || ra.all, busy: ra.oui && !ra.all },
+        'btn-sync-webfp': { disabled: ra.webfp || ra.all, busy: ra.webfp && !ra.all },
+        'btn-sync-all': { disabled: ra.all || anySingular, busy: !!ra.all },
+    };
+    FEED_SYNC_BTN_IDS.forEach(id => {
         const b = document.getElementById(id);
         if (!b) return;
-        btnLabels[id] = b.textContent || '';
-        b.disabled = true;
-        if (id === busyBtnId) b.classList.add('btn-busy');
+        const c = cfg[id];
+        b.disabled = c.disabled;
+        b.classList.toggle('btn-busy', !!c.busy);
+        b.textContent = c.busy ? 'Syncing…' : (FEED_SYNC_BTN_LABELS[id] || b.textContent);
     });
-    const btnTarget = document.getElementById(busyBtnId);
-    if (btnTarget) btnTarget.textContent = 'Syncing…';
-    const nvdStatus = document.getElementById('sync-status-nvd');
-    const fpStatus = document.getElementById('sync-status-fp');
-    if (target === 'nvd' || target === 'all') {
-        if (nvdStatus) {
-            nvdStatus.className = 'sync-status run';
-            nvdStatus.textContent = 'Sync in progress…';
-        }
+}
+
+function markFeedSyncStart(target) {
+    const hadFp = feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if ((target === 'oui' || target === 'webfp' || target === 'all') && !hadFp) {
+        fpSyncHadError = false;
     }
-    if (target === 'oui' || target === 'webfp' || target === 'all') {
-        if (fpStatus) {
-            fpStatus.className = 'sync-status run';
-            fpStatus.textContent = 'Sync in progress…';
-        }
+    if (target === 'all') {
+        feedSyncRunning.all = true;
+        feedSyncStartedAt.all = Date.now();
+    } else {
+        feedSyncRunning[target] = true;
+        feedSyncStartedAt[target] = Date.now();
     }
+    refreshFeedSyncButtons();
+    ensureFeedSyncUiTimer();
+}
+
+function markFeedSyncEnd(target) {
+    if (target === 'all') {
+        feedSyncRunning.all = false;
+        feedSyncStartedAt.all = 0;
+    } else {
+        feedSyncRunning[target] = false;
+        feedSyncStartedAt[target] = 0;
+    }
+    refreshFeedSyncButtons();
+    stopFeedSyncUiTimerIfIdle();
+}
+
+function feedSyncTouchesNvd(t) { return t === 'nvd' || t === 'all'; }
+function feedSyncTouchesFp(t) { return t === 'oui' || t === 'webfp' || t === 'all'; }
+
+function refreshNvdStatusLineAfterEnd(target, errText, okText) {
+    const el = document.getElementById('sync-status-nvd');
+    if (!el || !feedSyncTouchesNvd(target)) return;
+    const still = feedSyncRunning.nvd || feedSyncRunning.all;
+    if (still) {
+        tickFeedSyncStatusLines();
+        return;
+    }
+    el.className = errText ? 'sync-status err' : 'sync-status ok';
+    el.textContent = errText || okText || 'Sync complete.';
+}
+
+function refreshFpStatusLineAfterEnd(target, errText, okText) {
+    const el = document.getElementById('sync-status-fp');
+    if (!el || !feedSyncTouchesFp(target)) return;
+    const still = feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    if (still) {
+        tickFeedSyncStatusLines();
+        return;
+    }
+    const useErr = errText || fpSyncHadError;
+    el.className = useErr ? 'sync-status err' : 'sync-status ok';
+    el.textContent = useErr
+        ? (errText || 'One or more fingerprint feeds had errors. See output.')
+        : (okText || 'Sync complete.');
+    fpSyncHadError = false;
+}
+
+async function runFeedSync(target) {
+    const conflict = feedSyncConflictReason(target);
+    if (conflict) {
+        toast(conflict, 'err');
+        return;
+    }
+    markFeedSyncStart(target);
+
     toast('Starting ' + target + ' feed sync…', 'ok');
     feedSyncLastOutput = `[client] ${new Date().toISOString()} — starting ${target} feed sync...`;
     const r = await apiPost('/api/feeds.php?sync=1', {target});
-    const finalizeSyncUi = () => {
-        feedSyncInProgress = false;
-        feedSyncActiveTarget = null;
-        btnIds.forEach(id => {
-            const b = document.getElementById(id);
-            if (!b) return;
-            b.disabled = false;
-            b.classList.remove('btn-busy');
-            if (btnLabels[id] !== undefined) b.textContent = btnLabels[id];
-        });
-    };
 
     if (!r) {
-        finalizeSyncUi();
+        markFeedSyncEnd(target);
+        if (feedSyncTouchesFp(target)) fpSyncHadError = true;
         feedSyncLastOutput = '[client] Feed sync request failed (no response)';
         toast('Feed sync request failed', 'err');
-        if (target === 'nvd' || target === 'all') {
-            if (nvdStatus) {
-                nvdStatus.className = 'sync-status err';
-                nvdStatus.textContent = 'Sync failed (no response).';
-            }
-        }
-        if (target === 'oui' || target === 'webfp' || target === 'all') {
-            if (fpStatus) {
-                fpStatus.className = 'sync-status err';
-                fpStatus.textContent = 'Sync failed (no response).';
-            }
-        }
+        refreshNvdStatusLineAfterEnd(target, 'Sync failed (no response).', null);
+        refreshFpStatusLineAfterEnd(target, 'Sync failed (no response).', null);
         return;
     }
     if (!r.ok) {
-        finalizeSyncUi();
+        markFeedSyncEnd(target);
+        if (feedSyncTouchesFp(target)) fpSyncHadError = true;
         const msg = (r.results && r.results.find(x => !x.ok)?.output) || r.error || 'Sync failed';
         toast(String(msg).slice(0, 120), 'err');
-        if (target === 'nvd' || target === 'all') {
-            if (nvdStatus) {
-                nvdStatus.className = 'sync-status err';
-                nvdStatus.textContent = 'Sync failed. See output for details.';
-            }
-        }
-        if (target === 'oui' || target === 'webfp' || target === 'all') {
-            if (fpStatus) {
-                fpStatus.className = 'sync-status err';
-                fpStatus.textContent = 'Sync failed. See output for details.';
-            }
-        }
+        refreshNvdStatusLineAfterEnd(target, 'Sync failed. See output for details.', null);
+        refreshFpStatusLineAfterEnd(target, 'Sync failed. See output for details.', null);
         openFeedSyncOutput();
         return;
     }
@@ -1997,21 +2140,14 @@ async function runFeedSync(target) {
         lines.push(`\n=== ${res.script} | ok=${!!res.ok} exit=${res.exit_code} ===`);
         lines.push((res.output || '').trim() || '(no output)');
     }
-    feedSyncLastOutput = lines.join('\n');
+    const block = lines.join('\n');
+    feedSyncLastOutput = (feedSyncLastOutput ? feedSyncLastOutput + '\n\n' : '') + block;
 
-    finalizeSyncUi();
-    if (target === 'nvd' || target === 'all') {
-        if (nvdStatus) {
-            nvdStatus.className = 'sync-status ok';
-            nvdStatus.textContent = 'Sync complete.';
-        }
-    }
-    if (target === 'oui' || target === 'webfp' || target === 'all') {
-        if (fpStatus) {
-            fpStatus.className = 'sync-status ok';
-            fpStatus.textContent = 'Sync complete.';
-        }
-    }
+    markFeedSyncEnd(target);
+
+    refreshNvdStatusLineAfterEnd(target, null, 'Sync complete.');
+    refreshFpStatusLineAfterEnd(target, null, 'Sync complete.');
+
     const names = (r.results || []).map(x => x.script.replace('.py', '')).join(', ');
     toast('Feed sync complete: ' + names, 'ok');
     await loadDashboard();
@@ -2020,9 +2156,8 @@ async function runFeedSync(target) {
 
 function openFeedSyncOutput() {
     const bg = document.getElementById('fsync-bg');
-    const out = document.getElementById('fsync-out');
-    if (!bg || !out) return;
-    out.textContent = feedSyncLastOutput || 'No sync output yet.';
+    if (!bg) return;
+    renderFeedSyncOutputPanel();
     bg.style.display = 'flex';
 }
 

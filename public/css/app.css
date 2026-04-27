@@ -60,6 +60,8 @@ body{
 .pill.run .pdot{animation:blink .9s ease-in-out infinite}
 .tbtn{font-family:var(--sf);font-size:13px;font-weight:600;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--bd2);background:var(--bg3);color:var(--tx2);cursor:pointer;transition:background .12s,border-color .12s,color .12s}
 .tbtn:hover{border-color:var(--acc);color:var(--tx);background:var(--bg4)}
+.tbtn:disabled{opacity:.45;cursor:not-allowed}
+.tbtn:disabled:hover{border-color:var(--bd2);color:var(--tx2);background:var(--bg3)}
 
 /* Sidebar */
 .side{background:var(--bg2);border-right:1px solid var(--bd);padding:14px 0;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
@@ -437,11 +439,35 @@ body.light-mode .modal-card{box-shadow:0 12px 40px rgba(0,0,0,.12)}
   margin-top:10px;
   font-family:var(--sf);
   font-size:13px;
+  font-weight:500;
   color:var(--tx2);
+  min-height:1.4em;
 }
-.sync-status.run{color:var(--acc)}
-.sync-status.ok{color:var(--green)}
-.sync-status.err{color:var(--red)}
+.sync-status.run{
+  color:var(--acc);
+  font-weight:600;
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:var(--radius);
+  border:1px solid rgba(23,135,251,.4);
+  background:rgba(23,135,251,.1);
+  animation:syncStatusPulse 2s ease-in-out infinite;
+}
+body.light-mode .sync-status.run{
+  border-color:rgba(0,111,255,.35);
+  background:rgba(0,111,255,.08);
+  animation-name:syncStatusPulseLight;
+}
+@keyframes syncStatusPulse{
+  0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(23,135,251,.12)}
+  50%{opacity:.92;box-shadow:0 0 0 4px rgba(23,135,251,.06)}
+}
+@keyframes syncStatusPulseLight{
+  0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,111,255,.1)}
+  50%{opacity:.92;box-shadow:0 0 0 4px rgba(0,111,255,.05)}
+}
+.sync-status.ok{color:var(--green);font-weight:600}
+.sync-status.err{color:var(--red);font-weight:600}
 .btn-busy{
   opacity:.85;
   position:relative;
