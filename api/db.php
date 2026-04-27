@@ -147,6 +147,17 @@ function st_session_touch_idle(): void {
     $_SESSION['st_authed_at'] = time();
 }
 
+/**
+ * Persist session data and release the session file lock.
+ * Call after authentication is settled so long-running work (e.g. feed sync)
+ * does not block other browser tabs hitting the API with the same session cookie.
+ */
+function st_release_session_lock(): void {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JSON response helper — always exits
 // ---------------------------------------------------------------------------
@@ -198,7 +209,10 @@ function st_auth(): void {
     st_session_touch_idle();
 
     // Already authenticated this session
-    if (!empty($_SESSION['st_authed'])) return;
+    if (!empty($_SESSION['st_authed'])) {
+        st_release_session_lock();
+        return;
+    }
 
     $hash = st_config('auth_hash');
     $mode = strtolower(trim(st_config('auth_mode', 'basic')));
@@ -207,7 +221,10 @@ function st_auth(): void {
     }
 
     // No password configured → open access (first-run / dev)
-    if (empty($hash)) return;
+    if (empty($hash)) {
+        st_release_session_lock();
+        return;
+    }
 
     if ($mode === 'basic') {
         // Check Basic auth credentials
@@ -216,13 +233,16 @@ function st_auth(): void {
         if ($user === 'admin' && password_verify($pass, $hash)) {
             $_SESSION['st_authed']  = true;
             $_SESSION['st_authed_at'] = time();
+            st_release_session_lock();
             return;
         }
+        st_release_session_lock();
         header('WWW-Authenticate: Basic realm="SurveyTrace"');
         st_json(['error' => 'Authentication required', 'auth_mode' => 'basic'], 401);
     }
 
     // Session mode requires explicit login via /api/auth.php
+    st_release_session_lock();
     st_json(['error' => 'Authentication required', 'auth_mode' => 'session'], 401);
 }
 
