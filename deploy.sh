@@ -25,6 +25,8 @@ sudo cp "$SRC"/api/schedules.php       "$DEST/api/"
 sudo cp "$SRC"/api/enrichment.php      "$DEST/api/"
 sudo cp "$SRC"/api/dashboard.php       "$DEST/api/"
 sudo cp "$SRC"/api/feeds.php           "$DEST/api/"
+sudo cp "$SRC"/api/feed_sync_lib.php   "$DEST/api/"
+sudo cp "$SRC"/api/scan_history.php    "$DEST/api/"
 sudo cp "$SRC"/api/logout.php          "$DEST/api/"
 sudo cp "$SRC"/api/settings.php        "$DEST/api/"
 sudo cp "$SRC"/api/export.php          "$DEST/api/"
@@ -54,6 +56,9 @@ sudo cp "$SRC"/daemon/sources/dhcp.py      "$DEST/daemon/sources/" 2>/dev/null |
 sudo cp "$SRC"/daemon/sources/dns_logs.py  "$DEST/daemon/sources/" 2>/dev/null || true
 sudo cp "$SRC"/daemon/sources/firewall_logs.py "$DEST/daemon/sources/" 2>/dev/null || true
 sudo cp "$SRC"/daemon/sources/stubs.py     "$DEST/daemon/sources/" 2>/dev/null || true
+
+# Feed sync from the UI: PHP-FPM runs sync in-process; Apache/mod_php spawns this worker.
+sudo cp "$SRC"/daemon/feed_sync_worker.php "$DEST/daemon/"
 
 # sync_nvd.py only if it exists (large script, less frequently changed)
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
@@ -169,12 +174,20 @@ check_as_user() {
 }
 
 check_file "$DEST/api/feeds.php" "feeds API"
+check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib (required by feeds.php)"
+check_file "$DEST/api/scan_history.php" "scan history API"
+check_file "$DEST/daemon/feed_sync_worker.php" "feed sync CLI worker (required for non-FPM PHP)"
+check_file "$DEST/daemon/sync_nvd.py" "NVD sync script"
 check_file "$DEST/daemon/sync_oui.py" "OUI sync script"
 check_file "$DEST/daemon/sync_webfp.py" "WebFP sync script"
 check_file "$DEST/data/surveytrace.db" "main DB"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
 
 # Effective access checks for web-triggered feed sync path
+check_as_user "www-data" "test -r \"$DEST/daemon/feed_sync_worker.php\"" \
+  "www-data can read feed_sync_worker.php"
+check_as_user "www-data" "test -r \"$DEST/daemon/sync_nvd.py\"" \
+  "www-data can read sync_nvd.py"
 check_as_user "www-data" "test -r \"$DEST/daemon/sync_oui.py\"" \
   "www-data can read sync_oui.py"
 check_as_user "www-data" "test -r \"$DEST/daemon/sync_webfp.py\"" \

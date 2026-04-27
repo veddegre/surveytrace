@@ -627,13 +627,18 @@
         <div class="help-line mb6 text-dim">
           Request a free key at
           <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noopener">nvd.nist.gov</a>
-          for higher rate limits. Stored in the local database (not shown after save).
-          If <code class="code-accent">NVD_API_KEY</code> is set in the server environment, it overrides this field.
+          for higher rate limits. Stored in the local database (never sent back to the browser).
+          If <code class="code-accent">NVD_API_KEY</code> is set in the server environment, it overrides the saved key.
+          To replace a saved key, remove it first, then paste the new one.
         </div>
-        <div class="row-wrap mb6 gap6">
-          <input class="finp" type="password" id="st-nvd-api-key" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste key to save">
-          <button class="btnp" type="button" onclick="saveNvdApiKey()">Save key</button>
-          <button class="tbtn" type="button" onclick="clearNvdApiKey()">Remove key</button>
+        <div id="st-nvd-api-key-row-empty" class="row-wrap mb6 gap6">
+          <input class="finp" type="password" id="st-nvd-api-key" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste NVD API key">
+          <button class="btnp" type="button" id="btn-nvd-key-save" onclick="saveNvdApiKey()">Save key</button>
+        </div>
+        <div id="st-nvd-api-key-row-set" class="row-wrap mb6 gap6 hide">
+          <span class="mono text-strong" id="st-nvd-api-key-masked" title="Key is stored; value is not shown">••••••••••••••••</span>
+          <span class="text-dim" style="font-size:12px">NVD API key saved</span>
+          <button class="tbtn" type="button" id="btn-nvd-key-remove" onclick="clearNvdApiKey()">Remove key</button>
         </div>
         <div class="hint-micro mb8" id="st-nvd-api-key-status"></div>
         <div class="row-wrap mt10">
@@ -1126,7 +1131,12 @@ async function apiPost(url, body) {
                 console.error('POST non-JSON', url, e, txt.slice(0, 800));
                 const snippet = txt.replace(/\s+/g, ' ').trim().slice(0, 280);
                 if (!r.ok) {
-                    toast('Request failed: HTTP ' + r.status, 'err');
+                    toast(
+                        snippet
+                            ? ('Request failed: HTTP ' + r.status + ' — ' + snippet)
+                            : ('Request failed: HTTP ' + r.status),
+                        'err'
+                    );
                 } else {
                     toast('Server returned non-JSON (often a PHP warning before the response)', 'err');
                 }
@@ -1145,8 +1155,16 @@ async function apiPost(url, body) {
             if (data && typeof data === 'object') {
                 return data;
             }
-            toast('Request failed: HTTP ' + r.status, 'err');
-            return { ok: false, error: 'HTTP ' + r.status, _httpError: true };
+            const hint = (txt && txt.trim())
+                ? txt.replace(/\s+/g, ' ').trim().slice(0, 220)
+                : '';
+            toast(
+                hint
+                    ? ('Request failed: HTTP ' + r.status + ' — ' + hint)
+                    : ('Request failed: HTTP ' + r.status + ' (empty body — check PHP / nginx error log)'),
+                'err'
+            );
+            return { ok: false, error: 'HTTP ' + r.status + (hint ? ': ' + hint : ''), _httpError: true };
         }
         if (data === null || typeof data !== 'object') {
             toast('Empty response from server', 'err');
@@ -2048,13 +2066,29 @@ async function loadUiSettings() {
     if (inp) inp.value = String(d.session_timeout_minutes);
     const extra = document.getElementById('st-extra-safe-ports');
     if (extra) extra.value = String(d.extra_safe_ports || '');
-    const nvdInp = document.getElementById('st-nvd-api-key');
-    if (nvdInp) nvdInp.value = '';
+    syncNvdKeyFormVisibility(!!d.nvd_api_key_configured);
     const nvdSt = document.getElementById('st-nvd-api-key-status');
     if (nvdSt) {
         nvdSt.textContent = d.nvd_api_key_configured
-            ? 'A key is saved (hidden). Paste a new key and Save to replace it.'
+            ? 'Use Remove key if you need to paste a different one.'
             : 'No key saved — sync uses the slower public rate limit unless NVD_API_KEY is set on the server.';
+    }
+}
+
+/** Show either the paste+Save row or the masked+Remove row (never both). */
+function syncNvdKeyFormVisibility(configured) {
+    const emptyRow = document.getElementById('st-nvd-api-key-row-empty');
+    const setRow = document.getElementById('st-nvd-api-key-row-set');
+    const inp = document.getElementById('st-nvd-api-key');
+    if (!emptyRow || !setRow) return;
+    if (configured) {
+        emptyRow.classList.add('hide');
+        setRow.classList.remove('hide');
+        if (inp) inp.value = '';
+    } else {
+        setRow.classList.add('hide');
+        emptyRow.classList.remove('hide');
+        if (inp) inp.value = '';
     }
 }
 
@@ -2094,8 +2128,9 @@ async function saveNvdApiKey() {
     const r = await apiPost('/api/settings.php', { nvd_api_key: v });
     if (r && r.ok) {
         if (inp) inp.value = '';
+        syncNvdKeyFormVisibility(true);
         const nvdSt = document.getElementById('st-nvd-api-key-status');
-        if (nvdSt) nvdSt.textContent = 'A key is saved (hidden). Paste a new key and Save to replace it.';
+        if (nvdSt) nvdSt.textContent = 'Use Remove key if you need to paste a different one.';
         toast('NVD API key saved', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
@@ -2106,8 +2141,7 @@ async function clearNvdApiKey() {
     if (!confirm('Remove the stored NVD API key from this server?')) return;
     const r = await apiPost('/api/settings.php', { nvd_api_key_remove: true });
     if (r && r.ok) {
-        const inp = document.getElementById('st-nvd-api-key');
-        if (inp) inp.value = '';
+        syncNvdKeyFormVisibility(false);
         const nvdSt = document.getElementById('st-nvd-api-key-status');
         if (nvdSt) {
             nvdSt.textContent = 'No key saved — sync uses the slower public rate limit unless NVD_API_KEY is set on the server.';
