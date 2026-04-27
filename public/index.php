@@ -652,6 +652,8 @@
         <p class="help-line text-dim mt6" style="font-size:12px">Same as NVD: status shows elapsed time while the server job runs; detailed stdout/stderr appears when the job completes.</p>
         <div id="sync-status-fp" class="sync-status"></div>
       </div>
+    </div>
+    <div>
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
@@ -660,8 +662,6 @@
           <span class="text-dim">Data stored in data/surveytrace.db</span>
         </div>
       </div>
-    </div>
-    <div>
       <div class="card">
         <div class="ct">Asset categories</div>
         <table class="table-mini">
