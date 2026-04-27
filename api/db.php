@@ -168,7 +168,17 @@ function st_json(mixed $data, int $status = 200): never {
         header('X-Content-Type-Options: nosniff');
         header('Cache-Control: no-store');
     }
-    echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
+        | JSON_INVALID_UTF8_SUBSTITUTE;
+    $out = json_encode($data, $flags);
+    if ($out === false) {
+        $out = json_encode([
+            'ok'    => false,
+            'error' => 'Response serialization failed',
+            'detail'=> json_last_error_msg(),
+        ], $flags) ?: '{"ok":false,"error":"json encode failed"}';
+    }
+    echo $out;
     exit;
 }
 

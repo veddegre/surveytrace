@@ -57,9 +57,58 @@ function st_feed_sync_last_result_read(): ?array {
     if (!is_file($p)) {
         return null;
     }
+    $maxBytes = 4 * 1024 * 1024;
+    $sz = @filesize($p);
+    if ($sz !== false && $sz > $maxBytes) {
+        return [
+            'ok' => false,
+            'error' => 'feed_sync_result.json is ' . $sz . ' bytes (over API limit ' . $maxBytes . '); delete or trim it on the server.',
+            'results' => [],
+        ];
+    }
     $raw = @file_get_contents($p);
     $j = json_decode((string)$raw, true);
     return is_array($j) ? $j : null;
+}
+
+/**
+ * Shrink feed_sync_result.json payloads for API responses so status polling
+ * does not OOM or break json_encode when script stdout is huge (e.g. NVD).
+ *
+ * @return array<string, mixed>|null
+ */
+function st_feed_sync_truncate_result_for_api(?array $last, int $maxOutputBytes = 98304): ?array {
+    if ($last === null) {
+        return null;
+    }
+    $copy = $last;
+    if (!empty($copy['results']) && is_array($copy['results'])) {
+        $copy['results'] = array_map(
+            static function ($row) use ($maxOutputBytes): array {
+                if (!is_array($row)) {
+                    return [
+                        'script' => 'unknown',
+                        'ok' => false,
+                        'exit_code' => -1,
+                        'output' => 'invalid row in feed_sync_result.json',
+                    ];
+                }
+                $out = (string)($row['output'] ?? '');
+                $len = strlen($out);
+                if ($len > $maxOutputBytes) {
+                    $row['output'] = substr($out, 0, $maxOutputBytes)
+                        . "\n\n... [truncated for API response: {$len} bytes total; see data/feed_sync_result.json on server]";
+                    $row['output_truncated'] = true;
+                }
+                return $row;
+            },
+            $copy['results']
+        );
+    }
+    if (isset($copy['error']) && is_string($copy['error']) && strlen($copy['error']) > $maxOutputBytes) {
+        $copy['error'] = substr($copy['error'], 0, $maxOutputBytes) . "\n... [truncated]";
+    }
+    return $copy;
 }
 
 /**
@@ -143,11 +192,23 @@ function st_feed_sync_write_result(string $target, array $payload): void {
     if (!is_dir(ST_DATA_DIR)) {
         @mkdir(ST_DATA_DIR, 0770, true);
     }
-    file_put_contents(
-        ST_DATA_DIR . '/feed_sync_result.json',
-        json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        LOCK_EX
+    $enc = json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
     );
+    if ($enc === false) {
+        $enc = json_encode(
+            [
+                'ok' => false,
+                'target' => $target,
+                'results' => [],
+                'error' => 'Could not serialize sync result: ' . json_last_error_msg(),
+                'finished_at' => time(),
+            ],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        ) ?: '{"ok":false,"error":"json encode failed"}';
+    }
+    file_put_contents(ST_DATA_DIR . '/feed_sync_result.json', $enc, LOCK_EX);
 }
 
 /** @return list<string> */
