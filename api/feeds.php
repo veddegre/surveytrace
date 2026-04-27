@@ -45,12 +45,10 @@ try {
     if (!$resolved) {
         st_json([
             'ok' => false,
-            'error' => 'sync scripts not found',
-            'searched_roots' => array_values(array_unique(array_filter([
-                dirname(__DIR__),
-                '/opt/surveytrace',
-                $_SERVER['DOCUMENT_ROOT'] ?? '',
-            ]))),
+            'error' => 'sync scripts not found under any install root (need daemon/sync_*.py). '
+                . 'Set env SURVEYTRACE_ROOT to the app directory if the server layout is unusual.',
+            'searched_roots' => st_feed_sync_install_root_candidates(),
+            'st_data_dir' => ST_DATA_DIR,
         ], 500);
     }
 
@@ -62,7 +60,13 @@ try {
         ], 409);
     }
 
-    st_feed_sync_state_begin($target);
+    if (!st_feed_sync_state_begin($target)) {
+        st_json([
+            'ok' => false,
+            'error' => 'Cannot write feed sync state file under ' . ST_DATA_DIR
+                . '. Ensure this directory exists and is writable by the web server user (e.g. www-data).',
+        ], 500);
+    }
 
     $asyncPayload = [
         'ok' => true,
@@ -115,7 +119,8 @@ try {
             header('Content-Type: application/json; charset=utf-8');
             header('X-Content-Type-Options: nosniff');
             header('Cache-Control: no-store');
-            header('Content-Length: ' . (string)strlen($json));
+            // Intentionally omit Content-Length: zlib.output_compression (or proxies)
+            // may alter the body length and cause an immediate HTTP 500.
         }
         echo $json;
         flush();

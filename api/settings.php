@@ -7,6 +7,8 @@
  *   body may include:
  *   - session_timeout_minutes: int (5..10080)
  *   - extra_safe_ports: comma/space separated ports (1..65535)
+ *   - nvd_api_key: string (optional; NIST UUID key, 30–128 chars) — saved to config; never returned on GET
+ *   - nvd_api_key_remove: truthy — clears stored key
  */
 
 require_once __DIR__ . '/db.php';
@@ -16,11 +18,13 @@ st_auth();
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $m = max(5, min(10080, (int)st_config('session_timeout_minutes', '480')));
     $extra = trim((string)st_config('extra_safe_ports', ''));
+    $nvdKey = trim((string)st_config('nvd_api_key', ''));
     st_json([
         'ok' => true,
         'session_timeout_minutes' => $m,
         'extra_safe_ports' => $extra,
         'auth_mode' => strtolower(trim(st_config('auth_mode', 'basic'))),
+        'nvd_api_key_configured' => $nvdKey !== '',
     ]);
 }
 
@@ -54,6 +58,21 @@ if (array_key_exists('extra_safe_ports', $body)) {
     $norm = implode(',', array_keys($ports));
     st_config_set('extra_safe_ports', $norm);
     $changed['extra_safe_ports'] = $norm;
+}
+
+if (!empty($body['nvd_api_key_remove'])) {
+    st_config_set('nvd_api_key', '');
+    $changed['nvd_api_key_configured'] = false;
+} elseif (array_key_exists('nvd_api_key', $body)) {
+    $nk = trim((string)$body['nvd_api_key']);
+    if ($nk === '') {
+        st_json(['error' => 'nvd_api_key is empty — use nvd_api_key_remove to clear, or paste a key.'], 400);
+    }
+    if (!preg_match('/^[A-Za-z0-9\-]{30,128}$/', $nk)) {
+        st_json(['error' => 'NVD API key format looks wrong (use the UUID from NIST; 30–128 letters, digits, hyphens).'], 400);
+    }
+    st_config_set('nvd_api_key', $nk);
+    $changed['nvd_api_key_configured'] = true;
 }
 
 if (!$changed) {

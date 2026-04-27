@@ -17,7 +17,10 @@ Schedule via cron for weekly refresh (installed by setup.sh):
         /opt/surveytrace/daemon/sync_nvd.py --recent
 
 Get a free NVD API key at nvd.nist.gov/developers/request-an-api-key
-Set as NVD_API_KEY env var to raise rate limit 10x.
+SurveyTrace reads the key from (1) NVD_API_KEY environment variable, or
+(2) Settings → NVD API key (stored in surveytrace.db), env wins if both are set.
+
+If you see HTTP 404 with resultsPerPage=2000, set NVD_RESULTS_PER_PAGE=1000 (default).
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import time
+import urllib.error
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -43,10 +48,45 @@ DATA_DIR     = Path(__file__).parent.parent / "data"
 NVD_DB_PATH  = DATA_DIR / "nvd.db"
 MAIN_DB_PATH = DATA_DIR / "surveytrace.db"
 
-NVD_API_BASE     = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-NVD_API_KEY      = os.environ.get("NVD_API_KEY", "")
-RATE_SLEEP       = 0.6 if NVD_API_KEY else 6.5
-RESULTS_PER_PAGE = 2000
+NVD_API_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+
+
+def _load_nvd_api_key_from_db() -> str:
+    """Key from Settings UI (config table). Ignored if NVD_API_KEY env is set."""
+    if not MAIN_DB_PATH.is_file():
+        return ""
+    try:
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=10) as conn:
+            row = conn.execute(
+                "SELECT value FROM config WHERE key = 'nvd_api_key'"
+            ).fetchone()
+            if row and row[0]:
+                return str(row[0]).strip()
+    except sqlite3.Error as e:
+        log.debug("Could not read nvd_api_key from surveytrace.db: %s", e)
+    return ""
+
+
+def _resolve_nvd_api_key() -> str:
+    env_k = (os.environ.get("NVD_API_KEY") or "").strip()
+    if env_k:
+        return env_k
+    return _load_nvd_api_key_from_db()
+
+
+NVD_API_KEY = _resolve_nvd_api_key()
+RATE_SLEEP  = 0.6 if NVD_API_KEY else 6.5
+
+
+def _results_per_page() -> int:
+    # NVD sometimes returns HTTP 404 for resultsPerPage > 1000 (see community reports).
+    try:
+        return max(1, min(2000, int(os.environ.get("NVD_RESULTS_PER_PAGE", "1000"))))
+    except ValueError:
+        return 1000
+
+
+RESULTS_PER_PAGE = _results_per_page()
 
 NVD_SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -170,8 +210,8 @@ def fetch_page(start_index: int, mod_start: str | None = None) -> dict:
         headers["apiKey"] = NVD_API_KEY
 
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        return json.loads(resp.read())
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 def write_batch(conn: sqlite3.Connection, cve_items: list[dict]) -> int:
@@ -222,19 +262,84 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
     total_results = None
     total_written = 0
     page_num      = 0
+    fail_streak   = 0
+    max_fail_same = 12
 
     while True:
         page_num += 1
-        log.info("Fetching page %d (index %d)…", page_num, start_index)
+        log.info("Fetching page %d (startIndex %d, resultsPerPage %d)…",
+                 page_num, start_index, RESULTS_PER_PAGE)
         try:
             data = fetch_page(start_index, mod_start)
+            fail_streak = 0
+        except urllib.error.HTTPError as e:
+            # urllib uses "HTTP Error 404: Not Found" — never match the literal "HTTP 404".
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            msg = f"HTTP {e.code}: {e.reason}" + (f" — {detail}" if detail else "")
+
+            if e.code == 404:
+                if start_index == 0:
+                    fail_streak += 1
+                    log.error(
+                        "NVD returned 404 for the first page (resultsPerPage=%d). "
+                        "Try NVD_RESULTS_PER_PAGE=500, set NVD_API_KEY, or wait and retry. %s",
+                        RESULTS_PER_PAGE, msg,
+                    )
+                    if fail_streak >= max_fail_same:
+                        log.error("Aborting after %d failures at startIndex 0.", fail_streak)
+                        sys.exit(1)
+                    time.sleep(min(30 * fail_streak, 300))
+                    continue
+                log.warning(
+                    "404 at startIndex %d — treating as end of feed (NVD offset limit or empty tail). %s",
+                    start_index, msg[:200],
+                )
+                break
+
+            if e.code in (429, 503):
+                fail_streak += 1
+                ra = None
+                try:
+                    if e.headers:
+                        ra = e.headers.get("Retry-After")
+                except Exception:
+                    pass
+                try:
+                    wait_hdr = int(ra) if ra else 0
+                except (TypeError, ValueError):
+                    wait_hdr = 0
+                wait = max(wait_hdr, min(30 + 30 * fail_streak, 600))
+                log.warning("HTTP %s — sleeping %ds (%s)", e.code, wait, msg[:160])
+                if fail_streak >= max_fail_same:
+                    log.error("Too many rate-limit responses — get an API key from "
+                              "https://nvd.nist.gov/developers/request-an-api-key "
+                              "and set NVD_API_KEY (10× higher limits).")
+                    sys.exit(1)
+                time.sleep(wait)
+                continue
+
+            fail_streak += 1
+            log.error("HTTP %s at startIndex %d: %s — retrying in 30s", e.code, start_index, msg[:200])
+            if fail_streak >= max_fail_same:
+                log.error("Aborting after %d consecutive errors.", fail_streak)
+                sys.exit(1)
+            time.sleep(30)
+            continue
         except Exception as e:
+            fail_streak += 1
             log.error("API error at index %d: %s — retrying in 30s", start_index, e)
+            if fail_streak >= max_fail_same:
+                log.error("Aborting after %d consecutive errors.", fail_streak)
+                sys.exit(1)
             time.sleep(30)
             continue
 
         if total_results is None:
-            total_results = data.get("totalResults", 0)
+            total_results = int(data.get("totalResults") or 0)
             log.info("Total CVEs in this sync: %d", total_results)
 
         cve_items = [v.get("cve", {}) for v in data.get("vulnerabilities", [])]
@@ -249,10 +354,18 @@ def sync(recent_only: bool = False, days: int = 120) -> None:
         log.info("  %d written this page | %d total | %d%%",
                  written, total_written, pct)
 
-        start_index += RESULTS_PER_PAGE
+        # Advance by actual rows returned (correct for partial last page).
+        start_index += len(cve_items)
         if start_index >= total_results:
             break
         time.sleep(RATE_SLEEP)
+
+    if total_results is not None and start_index < total_results:
+        log.warning(
+            "Stopped before totalResults (%d / %d) — local DB may be incomplete. "
+            "Re-run with --recent or set NVD_API_KEY and retry.",
+            start_index, total_results,
+        )
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     conn.execute("INSERT OR REPLACE INTO sync_meta VALUES ('last_sync', ?)", (now_str,))

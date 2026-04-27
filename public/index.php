@@ -623,6 +623,19 @@
           The NVD feed maps CPE strings to CVE IDs for offline vulnerability correlation.
           Run <code class="code-accent">sync_nvd.py</code> to refresh (auto-runs weekly via cron).
         </div>
+        <label class="flbl">NVD API key (optional)</label>
+        <div class="help-line mb6 text-dim">
+          Request a free key at
+          <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noopener">nvd.nist.gov</a>
+          for higher rate limits. Stored in the local database (not shown after save).
+          If <code class="code-accent">NVD_API_KEY</code> is set in the server environment, it overrides this field.
+        </div>
+        <div class="row-wrap mb6 gap6">
+          <input class="finp" type="password" id="st-nvd-api-key" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste key to save">
+          <button class="btnp" type="button" onclick="saveNvdApiKey()">Save key</button>
+          <button class="tbtn" type="button" onclick="clearNvdApiKey()">Remove key</button>
+        </div>
+        <div class="hint-micro mb8" id="st-nvd-api-key-status"></div>
         <div class="row-wrap mt10">
           <button class="tbtn" id="btn-sync-nvd" onclick="runFeedSync('nvd')">Sync NVD now</button>
           <button class="tbtn" onclick="openFeedSyncOutput()">View last output</button>
@@ -2035,6 +2048,14 @@ async function loadUiSettings() {
     if (inp) inp.value = String(d.session_timeout_minutes);
     const extra = document.getElementById('st-extra-safe-ports');
     if (extra) extra.value = String(d.extra_safe_ports || '');
+    const nvdInp = document.getElementById('st-nvd-api-key');
+    if (nvdInp) nvdInp.value = '';
+    const nvdSt = document.getElementById('st-nvd-api-key-status');
+    if (nvdSt) {
+        nvdSt.textContent = d.nvd_api_key_configured
+            ? 'A key is saved (hidden). Paste a new key and Save to replace it.'
+            : 'No key saved — sync uses the slower public rate limit unless NVD_API_KEY is set on the server.';
+    }
 }
 
 async function saveSessionTimeout() {
@@ -2060,6 +2081,40 @@ async function saveExtraSafePorts() {
         toast('Extra routed safe ports updated', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function saveNvdApiKey() {
+    const inp = document.getElementById('st-nvd-api-key');
+    const v = String(inp && inp.value ? inp.value : '').trim();
+    if (!v) {
+        toast('Paste your NVD API key first', 'err');
+        return;
+    }
+    const r = await apiPost('/api/settings.php', { nvd_api_key: v });
+    if (r && r.ok) {
+        if (inp) inp.value = '';
+        const nvdSt = document.getElementById('st-nvd-api-key-status');
+        if (nvdSt) nvdSt.textContent = 'A key is saved (hidden). Paste a new key and Save to replace it.';
+        toast('NVD API key saved', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function clearNvdApiKey() {
+    if (!confirm('Remove the stored NVD API key from this server?')) return;
+    const r = await apiPost('/api/settings.php', { nvd_api_key_remove: true });
+    if (r && r.ok) {
+        const inp = document.getElementById('st-nvd-api-key');
+        if (inp) inp.value = '';
+        const nvdSt = document.getElementById('st-nvd-api-key-status');
+        if (nvdSt) {
+            nvdSt.textContent = 'No key saved — sync uses the slower public rate limit unless NVD_API_KEY is set on the server.';
+        }
+        toast('NVD API key removed', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Remove failed', 'err');
     }
 }
 

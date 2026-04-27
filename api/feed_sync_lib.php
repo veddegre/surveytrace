@@ -36,16 +36,29 @@ function st_feed_sync_state_read(): array {
     ];
 }
 
-function st_feed_sync_state_begin(string $target): void {
+/**
+ * @return bool false if data directory is missing/unwritable or state file cannot be written
+ */
+function st_feed_sync_state_begin(string $target): bool {
     $path = st_feed_sync_state_path();
     if (!is_dir(ST_DATA_DIR)) {
-        @mkdir(ST_DATA_DIR, 0770, true);
+        if (!@mkdir(ST_DATA_DIR, 0770, true) && !is_dir(ST_DATA_DIR)) {
+            return false;
+        }
     }
-    file_put_contents($path, json_encode([
+    if (!is_writable(ST_DATA_DIR)) {
+        return false;
+    }
+    $payload = json_encode([
         'running' => true,
         'target' => $target,
         'started_at' => time(),
-    ], JSON_UNESCAPED_SLASHES), LOCK_EX);
+    ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($payload === false) {
+        return false;
+    }
+    $bytes = @file_put_contents($path, $payload, LOCK_EX);
+    return $bytes !== false;
 }
 
 function st_feed_sync_state_clear(): void {
@@ -112,14 +125,63 @@ function st_feed_sync_truncate_result_for_api(?array $last, int $maxOutputBytes 
 }
 
 /**
+ * Possible SurveyTrace install roots (directory containing daemon/ and api/).
+ *
+ * @return list<string>
+ */
+function st_feed_sync_install_root_candidates(): array {
+    $roots = [];
+
+    $env = getenv('SURVEYTRACE_ROOT');
+    if (is_string($env) && $env !== '') {
+        $rp = realpath($env);
+        $roots[] = $rp !== false ? $rp : rtrim($env, '/\\');
+    }
+
+    $sf = $_SERVER['SCRIPT_FILENAME'] ?? '';
+    if ($sf !== '' && preg_match('~/api/feeds\.php$~i', str_replace('\\', '/', $sf))) {
+        $parent = dirname($sf);
+        $rp = realpath($parent . DIRECTORY_SEPARATOR . '..');
+        if ($rp !== false) {
+            $roots[] = $rp;
+        }
+    }
+
+    $apiParent = dirname(__DIR__);
+    $rpApi = realpath($apiParent);
+    $roots[] = $rpApi !== false ? $rpApi : $apiParent;
+
+    $roots[] = '/opt/surveytrace';
+
+    $doc = isset($_SERVER['DOCUMENT_ROOT']) ? (string)$_SERVER['DOCUMENT_ROOT'] : '';
+    if ($doc !== '') {
+        $doc = rtrim(str_replace('\\', '/', $doc), '/');
+        if ($doc !== '') {
+            $roots[] = $doc;
+            $parent = dirname($doc);
+            if ($parent !== '' && $parent !== '/' && $parent !== '.') {
+                $rpDoc = realpath($parent);
+                $roots[] = $rpDoc !== false ? $rpDoc : $parent;
+            }
+        }
+    }
+
+    $out = [];
+    foreach ($roots as $r) {
+        $r = trim((string)$r);
+        if ($r === '') {
+            continue;
+        }
+        $out[] = $r;
+    }
+    return array_values(array_unique($out));
+}
+
+/**
  * @return array{root: string, scripts: list<string>, python: string}|null
  */
 function st_feed_sync_resolve(string $target): ?array {
-    $roots = array_values(array_unique(array_filter([
-        dirname(__DIR__),
-        '/opt/surveytrace',
-        $_SERVER['DOCUMENT_ROOT'] ?? '',
-    ])));
+    $roots = st_feed_sync_install_root_candidates();
 
     $want = [];
     if ($target === 'all' || $target === 'nvd') {
