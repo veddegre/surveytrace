@@ -522,13 +522,21 @@ def phase_banner(
     delay_s      = inter_delay_ms / 1000.0
 
     # Batch sizing:
-    # - Full TCP is heavy; run host-by-host so one slow target cannot stall
-    #   progress for an entire /24.
+    # - full_tcp stays host-by-host (most conservative).
+    # - fast_full_tcp can batch on larger target sets to improve throughput.
     # - Standard profiles can safely batch.
-    chunk_size = 1 if scan_all_tcp else 32
+    if scan_all_tcp:
+        if profile_obj.name == "fast_full_tcp" and len(hosts) > 32:
+            chunk_size = 8
+        else:
+            chunk_size = 1
+    else:
+        chunk_size = 32
+    total_batches = max(1, (len(hosts) + chunk_size - 1) // chunk_size)
     for i in range(0, len(hosts), chunk_size):
         chunk = hosts[i:i + chunk_size]
         targets = " ".join(chunk)
+        batch_no = i // chunk_size + 1
 
         # Ensure rate is high enough; full TCP needs a longer timeout envelope.
         effective_rate = max(rate_pps, 50)   # floor of 50 pps on LAN
@@ -538,9 +546,16 @@ def phase_banner(
         # which allowed a single host to stall for the full python-nmap
         # guard window (900s). Use bounded envelopes instead.
         if profile_obj.name == "fast_full_tcp":
-            # Tiny scope (/32-ish): allow more time than normal fast_full_tcp,
-            # but never unbounded.
-            timeout_secs = 180 if len(hosts) <= 8 else 90
+            # Dynamic timeout tiers:
+            # - tiny scopes: keep high reliability
+            # - medium scopes: balanced
+            # - larger sweeps (/24-ish): shorter per-host cap for forward progress
+            if len(hosts) <= 8:
+                timeout_secs = 180
+            elif len(hosts) <= 64:
+                timeout_secs = 90
+            else:
+                timeout_secs = 30
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
@@ -556,7 +571,7 @@ def phase_banner(
         )
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
-                      f"Phase 3 batch {i//chunk_size + 1}: scanning {len(chunk)} hosts")
+                      f"Phase 3 batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts")
         # python-nmap subprocess timeout:
         # - if nmap host-timeout is active, keep a short guard window
         # - keep an upper bound so one target cannot block progress for 15m.
@@ -587,6 +602,14 @@ def phase_banner(
                         log_event(conn, job_id, "WARN",
                                   f"Phase 3 host scan failed for {one_host}: {str(e2)[:140]}")
                     continue
+
+        # Progress heartbeat for long scans — keeps iteration visible in logs.
+        # Log every 8 batches and on the final batch.
+        if batch_no % 8 == 0 or batch_no == total_batches:
+            processed = min(batch_no * chunk_size, len(hosts))
+            with db_conn() as conn:
+                log_event(conn, job_id, "INFO",
+                          f"Phase 3 progress: {processed}/{len(hosts)} hosts processed")
 
         for host in nm.all_hosts():
             open_ports = []
