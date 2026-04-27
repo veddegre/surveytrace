@@ -78,7 +78,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             notes              TEXT DEFAULT '',
             timezone           TEXT DEFAULT 'UTC',
             missed_run_policy  TEXT DEFAULT 'run_once',
-            missed_run_max     INTEGER DEFAULT 5
+            missed_run_max     INTEGER DEFAULT 5,
+            enrichment_source_ids TEXT
         );
     """)
     existing = {row[1] for row in conn.execute("PRAGMA table_info(scan_schedules)")}
@@ -87,9 +88,20 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         ("paused", "INTEGER DEFAULT 0"),
         ("missed_run_policy", "TEXT DEFAULT 'run_once'"),
         ("missed_run_max", "INTEGER DEFAULT 5"),
+        ("enrichment_source_ids", "TEXT"),
     ]:
         if col not in existing:
             conn.execute(f"ALTER TABLE scan_schedules ADD COLUMN {col} {defn}")
+
+    # scan_jobs columns used when enqueueing from a schedule (may predate manual-scan UI)
+    try:
+        job_info = conn.execute("PRAGMA table_info(scan_jobs)").fetchall()
+        if job_info:
+            job_cols = {row[1] for row in job_info}
+            if "enrichment_source_ids" not in job_cols:
+                conn.execute("ALTER TABLE scan_jobs ADD COLUMN enrichment_source_ids TEXT")
+    except sqlite3.OperationalError as e:
+        log.warning("scan_jobs column migration skipped: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -214,11 +226,12 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
     Returns the new job ID.
     """
     label = f"[Scheduled] {schedule['name']}{label_suffix}"
+    enr_ids = schedule.get("enrichment_source_ids")
     conn.execute("""
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, schedule_id, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler')
+             scan_mode, profile, priority, schedule_id, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler', ?)
     """, (
         schedule["target_cidr"],
         label,
@@ -230,6 +243,7 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
         schedule["profile"] or "standard_inventory",
         schedule["priority"] or 20,
         schedule["id"],
+        enr_ids,
     ))
     job_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 

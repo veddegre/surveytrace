@@ -57,17 +57,29 @@ CREATE INDEX IF NOT EXISTS idx_findings_cve ON findings(cve_id);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 
 -- -------------------------------------------------------
--- Scan jobs: queued/running/done jobs dispatched by PHP
+-- Scan jobs: queued/running/done jobs dispatched by PHP / scheduler
+-- (Keep in sync with migrations in api/scan_start.php, dashboard.php,
+--  scanner_daemon.py, and daemon/scheduler_daemon.py.)
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS scan_jobs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     status       TEXT DEFAULT 'queued',
-        -- queued | running | done | aborted | failed
+        -- queued | running | done | aborted | failed | retrying
     target_cidr  TEXT NOT NULL,
+    label        TEXT,
     exclusions   TEXT,           -- newline-separated
-    phases       TEXT,           -- JSON array: ["passive","icmp","banner","fingerprint","cve"]
+    phases       TEXT,           -- JSON array: ["passive","icmp",...]
     rate_pps     INTEGER DEFAULT 5,
     inter_delay  INTEGER DEFAULT 200,
+    scan_mode    TEXT DEFAULT 'auto',
+    profile      TEXT DEFAULT 'standard_inventory',
+    priority     INTEGER DEFAULT 10,
+    retry_count  INTEGER DEFAULT 0,
+    max_retries  INTEGER DEFAULT 2,
+    schedule_id  INTEGER DEFAULT 0,
+    collector_id INTEGER DEFAULT 0,
+    phase_status TEXT DEFAULT '{}',
+    failure_reason TEXT,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at   DATETIME,
     finished_at  DATETIME,
@@ -76,7 +88,7 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     summary_json TEXT,
     error_msg    TEXT,
     created_by   TEXT DEFAULT 'web',
-    -- JSON array of enrichment_sources.id, NULL = all enabled; [] = skip phase 3b
+    -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
     enrichment_source_ids TEXT
 );
 

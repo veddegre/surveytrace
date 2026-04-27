@@ -20,6 +20,21 @@ st_auth();
 
 $db = st_db();
 
+// Jobs enqueued from schedules reference scan_jobs columns added with manual scans — ensure they exist
+$scanJobCols = array_column($db->query('PRAGMA table_info(scan_jobs)')->fetchAll(), 'name');
+foreach ([
+    'scan_mode'              => "TEXT DEFAULT 'auto'",
+    'profile'                => "TEXT DEFAULT 'standard_inventory'",
+    'priority'               => "INTEGER DEFAULT 10",
+    'retry_count'            => "INTEGER DEFAULT 0",
+    'max_retries'            => "INTEGER DEFAULT 2",
+    'enrichment_source_ids'  => 'TEXT',
+] as $col => $defn) {
+    if (!in_array($col, $scanJobCols, true)) {
+        $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
+    }
+}
+
 // Auto-create table if missing
 $db->exec("
     CREATE TABLE IF NOT EXISTS scan_schedules (
@@ -45,7 +60,8 @@ $db->exec("
         notes              TEXT DEFAULT '',
         timezone           TEXT DEFAULT 'UTC',
         missed_run_policy  TEXT DEFAULT 'run_once',
-        missed_run_max     INTEGER DEFAULT 5
+        missed_run_max     INTEGER DEFAULT 5,
+        enrichment_source_ids TEXT
     )
 ");
 
@@ -56,6 +72,7 @@ $schedMigrations = [
     'paused'            => 'INTEGER DEFAULT 0',
     'missed_run_policy' => "TEXT DEFAULT 'run_once'",
     'missed_run_max'    => 'INTEGER DEFAULT 5',
+    'enrichment_source_ids' => 'TEXT',
 ];
 foreach ($schedMigrations as $col => $def) {
     if (!in_array($col, $schedCols, true)) {
@@ -132,8 +149,8 @@ if (isset($_GET['run_now'])) {
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, schedule_id, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web')
+             scan_mode, profile, priority, schedule_id, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
     ")->execute([
         $s['target_cidr'],
         '[Scheduled] ' . $s['name'] . ' (manual)',
@@ -145,6 +162,7 @@ if (isset($_GET['run_now'])) {
         $s['profile'] ?: 'standard_inventory',
         5,   // higher priority than scheduled runs for manual trigger
         $id,
+        $s['enrichment_source_ids'] ?? null,
     ]);
     $job_id = (int)$db->lastInsertId();
 
@@ -200,9 +218,22 @@ $name        = substr(trim($body['name'] ?? ''), 0, 100);
 $cron_expr   = trim($body['cron_expr'] ?? '');
 $target_cidr = trim($body['target_cidr'] ?? '');
 $exclusions  = trim($body['exclusions'] ?? '');
-$profile     = $body['profile'] ?? 'standard_inventory';
-$scan_mode   = $body['scan_mode'] ?? 'auto';
-$rate_pps    = max(1, min(100, (int)($body['rate_pps'] ?? 5)));
+$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
+$profile = in_array($body['profile'] ?? '', $valid_profiles, true)
+    ? $body['profile']
+    : 'standard_inventory';
+if (in_array($profile, ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'], true)
+    && !($body['confirmed'] ?? false)) {
+    st_json([
+        'error' => "Profile '$profile' requires confirmation. Resend with confirmed:true.",
+        'requires_confirmation' => true,
+    ], 400);
+}
+$allowed_modes = ['auto', 'routed', 'force'];
+$scan_mode = in_array($body['scan_mode'] ?? '', $allowed_modes, true)
+    ? $body['scan_mode']
+    : 'auto';
+$rate_pps    = max(1, min(50, (int)($body['rate_pps'] ?? 5)));
 $inter_delay = max(0, min(2000, (int)($body['inter_delay'] ?? 200)));
 $priority    = max(1, min(100, (int)($body['priority'] ?? 20)));
 $enabled     = (int)($body['enabled'] ?? 1);
@@ -222,8 +253,60 @@ if (!in_array($missed_run_policy, $allowedPolicies, true)) {
 }
 $missed_run_max = max(1, min(100, (int)($body['missed_run_max'] ?? 5)));
 
-$phases_raw  = $body['phases'] ?? ["passive","icmp","banner","fingerprint","cve"];
-$phases      = json_encode(is_array($phases_raw) ? $phases_raw : json_decode($phases_raw, true));
+$allowed_phases = ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'];
+$default_phases = ['passive', 'icmp', 'banner', 'fingerprint', 'cve'];
+$requested_phases = $body['phases'] ?? $default_phases;
+if (!is_array($requested_phases)) {
+    $decoded = json_decode((string)$requested_phases, true);
+    $requested_phases = is_array($decoded) ? $decoded : $default_phases;
+}
+$phases_arr = array_values(array_intersect($requested_phases, $allowed_phases));
+if (empty($phases_arr)) {
+    st_json(['error' => 'No valid scan phases specified', 'field' => 'phases'], 400);
+}
+$phases = json_encode($phases_arr);
+
+// Optional per-job enrichment allowlist (same semantics as scan_start.php)
+$enrichmentIdsJson = null;
+if (array_key_exists('enrichment_source_ids', $body)) {
+    $eraw = $body['enrichment_source_ids'];
+    if ($eraw === null || $eraw === '') {
+        $enrichmentIdsJson = null;
+    } elseif (!is_array($eraw)) {
+        st_json(['error' => 'enrichment_source_ids must be an array or null', 'field' => 'enrichment_source_ids'], 400);
+    } elseif (count($eraw) === 0) {
+        $enrichmentIdsJson = '[]';
+    } else {
+        $ids = [];
+        foreach ($eraw as $x) {
+            $ids[] = (int)$x;
+        }
+        $ids = array_values(array_unique(array_filter($ids, fn ($n) => $n > 0)));
+        if (count($ids) === 0) {
+            $enrichmentIdsJson = '[]';
+        } elseif (count($ids) > 50) {
+            st_json(['error' => 'At most 50 enrichment_source_ids allowed', 'field' => 'enrichment_source_ids'], 400);
+        } else {
+            $hasTable = (bool)$db->query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='enrichment_sources' LIMIT 1"
+            )->fetchColumn();
+            if (!$hasTable) {
+                st_json(['error' => 'Enrichment is not configured yet', 'field' => 'enrichment_source_ids'], 400);
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $vstmt = $db->prepare("SELECT id FROM enrichment_sources WHERE id IN ($placeholders)");
+            $vstmt->execute($ids);
+            $found = array_map('intval', array_column($vstmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
+            sort($found);
+            $want = $ids;
+            sort($want);
+            if ($found !== $want) {
+                st_json(['error' => 'Unknown enrichment source id in enrichment_source_ids', 'field' => 'enrichment_source_ids'], 400);
+            }
+            $enrichmentIdsJson = json_encode(array_values($ids));
+        }
+    }
+}
 
 if (!$name)        st_json(['error' => 'name is required'],        400);
 if (!$cron_expr)   st_json(['error' => 'cron_expr is required'],   400);
@@ -258,14 +341,14 @@ if ($id > 0) {
             name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
             profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
             enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
-            missed_run_policy=?, missed_run_max=?,
+            missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
             next_run=COALESCE(next_run, ?)
         WHERE id=?
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases,
         $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
         $enabled, $paused, $notes, $timezone,
-        $missed_run_policy, $missed_run_max,
+        $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
         $next_run, $id
     ]);
 } else {
@@ -273,12 +356,12 @@ if ($id > 0) {
         INSERT INTO scan_schedules
             (name, cron_expr, target_cidr, exclusions, phases, profile,
              scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone,
-             missed_run_policy, missed_run_max, next_run)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             missed_run_policy, missed_run_max, next_run, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
         $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone,
-        $missed_run_policy, $missed_run_max, $next_run
+        $missed_run_policy, $missed_run_max, $next_run, $enrichmentIdsJson
     ]);
     $id = (int)$db->lastInsertId();
 }

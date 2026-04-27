@@ -12,11 +12,11 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
-- **Scheduling** — cron-based scheduled scans with timezone support
+- **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
 - **Scan history** — per-run history, duration, summary snapshot, and detail view
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
-- **Enrichment** — UniFi controller integration, SNMP, DHCP lease import, DNS log import, firewall log import, extensible source plugins
+- **Enrichment** — optional Phase 3b metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
@@ -83,6 +83,17 @@ bash deploy.sh
 ```
 
 `deploy.sh` copies updated files to `/opt/surveytrace` and restarts both daemons automatically.
+
+SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
+
+## Changelog
+
+### 0.4.0
+
+- **Per-scan enrichment** — `POST /api/scan_start.php` accepts optional `enrichment_source_ids` (omit = all enabled, `[]` = skip Phase 3b, `[id,…]` = subset). Stored on `scan_jobs` and honored by `scanner_daemon.py`.
+- **Scanner** — Phase 3b no longer holds a SQLite write transaction during slow external enrichment calls (avoids UI/API stalls during UniFi or SNMP timeouts).
+- **Schedules** — `scan_schedules` gains `enrichment_source_ids`; schedule UI and `POST /api/schedules.php` align with manual scan options (phases, `rate_pps` / `inter_delay`, priority, enrichment subset, profile confirmation for high-impact profiles). Scheduler enqueues jobs with the same fields.
+- **Schema** — `sql/schema.sql` `scan_jobs` expanded to match migrated production columns; `dashboard.php` / `schedules.php` migrations cover any straggler columns on first request.
 
 ## NVD Database Setup
 

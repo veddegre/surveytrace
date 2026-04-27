@@ -165,7 +165,7 @@ def fetch_page(start_index: int, mod_start: str | None = None) -> dict:
         params["lastModEndDate"]   = now_str
 
     url     = NVD_API_BASE + "?" + urllib.parse.urlencode(params)
-    headers = {"User-Agent": "SurveyTrace/0.3.0 (self-hosted network scanner)"}
+    headers = {"User-Agent": "SurveyTrace/0.4.0 (self-hosted network scanner)"}
     if NVD_API_KEY:
         headers["apiKey"] = NVD_API_KEY
 

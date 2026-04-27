@@ -11,7 +11,7 @@
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.3.0') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.4.0') ?>">
 </head>
 <body>
 <div class="shell">
@@ -19,7 +19,7 @@
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.3.0' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.4.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -363,7 +363,7 @@
 <div class="tab" id="t-sched">
   <!-- Schedule modal -->
   <div id="sched-bg" class="modal-bg z100">
-    <div class="modal-card modal-w480">
+    <div class="modal-card modal-w560">
       <div class="modal-title mb14" id="sched-title">New schedule</div>
       <input type="hidden" id="sched-id" value="">
       <input type="hidden" id="sched-paused" value="0">
@@ -405,6 +405,38 @@
         <option value="force">Force (-Pn)</option>
       </select>
 
+      <label class="flbl">Rate limiting</label>
+      <div class="rr">
+        <label class="flbl">Max packets/sec per host</label>
+        <div class="rv"><span>1</span><span id="sched-pps-val">5 pps</span><span>50</span></div>
+        <input class="rng" type="range" id="sched-pps" min="1" max="50" step="1" value="5"
+          oninput="document.getElementById('sched-pps-val').textContent=this.value+' pps'">
+      </div>
+      <div class="rr mb10">
+        <label class="flbl">Inter-host delay</label>
+        <div class="rv"><span>0</span><span id="sched-delay-val">200 ms</span><span>2000</span></div>
+        <input class="rng" type="range" id="sched-delay" min="0" max="2000" step="10" value="200"
+          oninput="document.getElementById('sched-delay-val').textContent=this.value+' ms'">
+      </div>
+
+      <label class="flbl">Job priority in queue</label>
+      <div class="hint-micro mb4">1 = highest, 100 = lowest. Default 20 for scheduled runs.</div>
+      <input class="finp w100 mb10" type="number" id="sched-priority" min="1" max="100" value="20">
+
+      <label class="flbl">Scan phases</label>
+      <div class="hint-micro mb6">Same as the Scan tab — pick at least one.</div>
+      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP / mDNS — no active probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP discovery</div></div><label class="tog"><input type="checkbox" id="sched-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">Safe TCP port list</div></div><label class="tog"><input type="checkbox" id="sched-ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banners → CPE</div></div><label class="tog"><input type="checkbox" id="sched-ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="sched-ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only OT probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2 mb10"><div><div class="tl">CVE correlation</div><div class="tsubl">Local NVD match</div></div><label class="tog"><input type="checkbox" id="sched-ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+
+      <label class="flbl">Network enrichment (Phase 3b)</label>
+      <div class="hint-micro mb6">Same sources as <strong>Enrichment</strong> — matches the Scan tab; all enabled on = default.</div>
+      <div id="sched-enrichment-wrap" data-ready="0" class="mb10"><div class="hint-micro">Sources load when you open this form.</div></div>
+
       <label class="flbl">Timezone</label>
       <select class="finp w100 mb10" id="sched-tz">
         <option value="UTC">UTC</option>
@@ -426,7 +458,7 @@
       </div>
 
       <label class="flbl">Exclusions (optional)</label>
-      <textarea class="finp w100 mb10" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="height:60px;resize:vertical"></textarea>
+      <textarea class="finp w100 mb10" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="min-height:100px;resize:vertical"></textarea>
 
       <label class="flbl">Notes (optional)</label>
       <input class="finp w100 mb10" id="sched-notes" placeholder="Description or reason for this schedule">
@@ -618,7 +650,7 @@
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.3.0', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.4.0', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span>
         </div>
@@ -2358,7 +2390,69 @@ async function loadSchedules() {
     }).join('');
 }
 
-function openSchedModal(s) {
+function parseSchedEnrichmentIds(s) {
+    if (!s) return null;
+    const raw = s.enrichment_source_ids;
+    if (raw === undefined || raw === null || raw === '') return null;
+    if (Array.isArray(raw)) return raw;
+    try {
+        const j = JSON.parse(String(raw));
+        return Array.isArray(j) ? j : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function refreshSchedEnrichmentPicker(selectedIds) {
+    const wrap = document.getElementById('sched-enrichment-wrap');
+    if (!wrap) return;
+    wrap.dataset.ready = '0';
+    wrap.innerHTML = '<div class="hint-micro">Loading…</div>';
+    let data;
+    try {
+        data = await api('/api/enrichment.php', {quiet:true});
+    } catch (e) {
+        wrap.innerHTML = '<div class="hint-micro">Could not load enrichment sources</div>';
+        return;
+    }
+    const srcs = (data && data.sources) ? data.sources : [];
+    if (!srcs.length) {
+        wrap.innerHTML = '<div class="hint-micro">No sources configured — add them under Enrichment.</div>';
+        wrap.dataset.ready = '1';
+        return;
+    }
+    const parts = [];
+    for (const src of srcs) {
+        const en = parseInt(src.enabled, 10) === 1;
+        const id = parseInt(src.id, 10);
+        const label = esc(src.label || src.source_type || '');
+        const typ = esc(src.source_type || '');
+        let checked = true;
+        if (en) {
+            if (selectedIds === null) checked = true;
+            else if (Array.isArray(selectedIds) && selectedIds.length === 0) checked = false;
+            else if (Array.isArray(selectedIds)) checked = selectedIds.includes(id);
+            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="tog"><input type="checkbox" data-enr-id="${id}" ${checked ? 'checked' : ''}><div class="trk"></div><div class="tth"></div></label></div>`);
+        } else {
+            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="tog"><input type="checkbox" disabled><div class="trk"></div><div class="tth"></div></label></div>`);
+        }
+    }
+    wrap.innerHTML = parts.join('');
+    wrap.dataset.ready = '1';
+}
+
+function schedEnrichmentPayloadField() {
+    const wrap = document.getElementById('sched-enrichment-wrap');
+    if (!wrap || wrap.dataset.ready !== '1') return undefined;
+    const enabledBoxes = wrap.querySelectorAll('input[data-enr-id]');
+    if (!enabledBoxes.length) return undefined;
+    const checked = [];
+    enabledBoxes.forEach(cb => { if (cb.checked) checked.push(parseInt(cb.dataset.enrId, 10)); });
+    if (checked.length === enabledBoxes.length) return undefined;
+    return checked;
+}
+
+async function openSchedModal(s) {
     document.getElementById('sched-id').value    = s ? s.id : '';
     document.getElementById('sched-title').textContent = s ? 'Edit schedule' : 'New schedule';
     document.getElementById('sched-name').value  = s ? s.name : '';
@@ -2378,10 +2472,8 @@ function openSchedModal(s) {
     if (pz) pz.value = s ? (parseInt(s.paused, 10) || 0) : 0;
     const tzSel = document.getElementById('sched-tz');
     if (tzSel) {
-        // Try to default to browser timezone for new schedules
         const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         tzSel.value = s ? (s.timezone||'UTC') : (browserTz||'UTC');
-        // If browser TZ not in list, add it
         if (tzSel.value !== (s ? (s.timezone||'UTC') : (browserTz||'UTC'))) {
             const opt = document.createElement('option');
             opt.value = browserTz;
@@ -2390,6 +2482,31 @@ function openSchedModal(s) {
             tzSel.value = browserTz;
         }
     }
+
+    const rp = s ? (parseInt(s.rate_pps, 10) || 5) : 5;
+    document.getElementById('sched-pps').value = String(Math.max(1, Math.min(50, rp)));
+    document.getElementById('sched-pps-val').textContent = document.getElementById('sched-pps').value + ' pps';
+    const idel = s ? (parseInt(s.inter_delay, 10) || 200) : 200;
+    document.getElementById('sched-delay').value = String(Math.max(0, Math.min(2000, idel)));
+    document.getElementById('sched-delay-val').textContent = document.getElementById('sched-delay').value + ' ms';
+    document.getElementById('sched-priority').value = String(s ? (parseInt(s.priority, 10) || 20) : 20);
+
+    const defPh = ['passive','icmp','banner','fingerprint','cve'];
+    let pArr = defPh;
+    if (s && s.phases) {
+        try {
+            pArr = typeof s.phases === 'string' ? JSON.parse(s.phases) : (Array.isArray(s.phases) ? s.phases : defPh);
+        } catch (e) {
+            pArr = defPh;
+        }
+    }
+    if (!Array.isArray(pArr)) pArr = defPh;
+    ['passive','icmp','banner','fingerprint','snmp','ot','cve'].forEach(p => {
+        const el = document.getElementById('sched-ph-' + p);
+        if (el) el.checked = pArr.includes(p);
+    });
+
+    await refreshSchedEnrichmentPicker(parseSchedEnrichmentIds(s));
     updateCronDesc();
     document.getElementById('sched-bg').style.display = 'flex';
 }
@@ -2429,7 +2546,7 @@ async function editSchedule(id) {
     const d = await api('/api/schedules.php');
     if (!d) return;
     const s = d.schedules.find(s => s.id === id);
-    if (s) openSchedModal(s);
+    if (s) await openSchedModal(s);
 }
 
 async function saveSchedule() {
@@ -2437,6 +2554,17 @@ async function saveSchedule() {
     let mx = parseInt(document.getElementById('sched-missed-max')?.value || '5', 10);
     if (mx < 1) mx = 1;
     if (mx > 100) mx = 100;
+    const schedPhKeys = ['passive','icmp','banner','fingerprint','snmp','ot','cve'];
+    const phases = [];
+    schedPhKeys.forEach(p => {
+        if (document.getElementById('sched-ph-' + p)?.checked) phases.push(p);
+    });
+    if (!phases.length) { toast('Select at least one scan phase', 'err'); return; }
+
+    let pr = parseInt(document.getElementById('sched-priority')?.value || '20', 10);
+    if (pr < 1) pr = 1;
+    if (pr > 100) pr = 100;
+
     const payload = {
         id:          id ? parseInt(id) : 0,
         name:        document.getElementById('sched-name').value.trim(),
@@ -2451,7 +2579,24 @@ async function saveSchedule() {
         paused:      parseInt(document.getElementById('sched-paused')?.value || '0', 10) || 0,
         missed_run_policy: document.getElementById('sched-missed-pol')?.value || 'run_once',
         missed_run_max: mx,
+        phases:      phases,
+        rate_pps:    parseInt(document.getElementById('sched-pps')?.value || '5', 10) || 5,
+        inter_delay: parseInt(document.getElementById('sched-delay')?.value || '200', 10) || 0,
+        priority:    pr,
     };
+    const enrSel = schedEnrichmentPayloadField();
+    if (enrSel !== undefined) payload.enrichment_source_ids = enrSel;
+
+    const profileVal = payload.profile;
+    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
+        const ok = await showConfirmModal(
+            `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`,
+            {title: 'High-impact scan profile', okText: 'Proceed'}
+        );
+        if (!ok) return;
+        payload.confirmed = true;
+    }
+
     if (!payload.name)        { toast('Name is required', 'err'); return; }
     if (!payload.target_cidr) { toast('Target CIDR is required', 'err'); return; }
     if (!payload.cron_expr)   { toast('Cron expression is required', 'err'); return; }

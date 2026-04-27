@@ -20,13 +20,18 @@ $db = st_db();
 // Ensure newer scan_jobs columns exist for legacy databases
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
 $scanJobMigrations = [
-    'scan_mode'   => "TEXT DEFAULT 'auto'",
-    'profile'     => "TEXT DEFAULT 'standard_inventory'",
-    'priority'    => "INTEGER DEFAULT 10",
-    'retry_count' => "INTEGER DEFAULT 0",
-    'max_retries' => "INTEGER DEFAULT 2",
-    'label'       => "TEXT",
-    'summary_json'=> "TEXT",
+    'scan_mode'              => "TEXT DEFAULT 'auto'",
+    'profile'                => "TEXT DEFAULT 'standard_inventory'",
+    'priority'               => "INTEGER DEFAULT 10",
+    'retry_count'            => "INTEGER DEFAULT 0",
+    'max_retries'            => "INTEGER DEFAULT 2",
+    'label'                  => "TEXT",
+    'summary_json'           => "TEXT",
+    'schedule_id'            => "INTEGER DEFAULT 0",
+    'collector_id'           => "INTEGER DEFAULT 0",
+    'phase_status'           => "TEXT DEFAULT '{}'",
+    'failure_reason'         => "TEXT",
+    'enrichment_source_ids'  => "TEXT",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
