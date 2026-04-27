@@ -1873,14 +1873,6 @@ def run_scan(job: dict) -> None:
         if http_probes.get(ip):
             banners["_http"] = http_probes[ip][:8000]
 
-        # Only record assets we have actual evidence for:
-        # - Has a MAC address (ARP response = definitive Layer 2 proof)
-        # - Has at least one open port (responded to a probe)
-        # - Was seen passively (mDNS/ARP sniff)
-        # In force mode, skip IPs that showed no sign of life
-        if not mac and not ports and ip not in passive_hosts:
-            continue
-
         nmap_cpes = br.get("nmap_cpes", [])
         hostname  = br.get("hostname", "") or hostname_cache.get(ip, "")
         connected_via = ""
@@ -1965,6 +1957,15 @@ def run_scan(job: dict) -> None:
                     sources.append("hostname_from_firewall_log")
                 else:
                     sources.append("hostname_from_enrichment")
+
+        # Only record assets we have actual evidence for:
+        # - Has a MAC address (ARP/discovery/enrichment)
+        # - Has at least one open port
+        # - Was seen passively (mDNS/ARP sniff)
+        # - Has enrichment evidence for this IP/MAC
+        # For routed scans, enrichment may be the only positive signal.
+        if not mac and not ports and ip not in passive_hosts and not enrich:
+            continue
 
         with db_conn() as conn:
             asset = upsert_asset(
