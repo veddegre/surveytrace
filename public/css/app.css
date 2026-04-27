@@ -122,7 +122,7 @@ body.light-mode .tbl-wrap{box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .tbl tr.selected td{background:var(--bg4)}
 .mono{font-family:var(--mf);color:var(--tx)}
 
-/* CVSS / severity chips — slightly larger, softer text, light border for legibility (no harsh glow). */
+/* CVSS / severity chips — light border, no glow. Light mode: mono. Dark mode: sans + larger for 8/B legibility. */
 .sev{
   font-family:var(--mf);
   font-size:13px;
@@ -140,6 +140,19 @@ body.light-mode .tbl-wrap{box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .sev.medium{background:var(--adim);color:#ead9a8;border-color:rgba(217,162,78,.25)}
 .sev.low{background:var(--bdim2);color:#c8dcf5;border-color:rgba(94,176,255,.22)}
 .sev.none{background:var(--bg4);color:var(--tx2);border-color:rgba(255,255,255,.06);box-shadow:none}
+/* Dark: UI sans + tabular nums — digits (e.g. 8) read clearly vs letters (B) vs IBM Plex Mono at small sizes. */
+body:not(.light-mode) .sev{
+  font-family:var(--sf);
+  font-size:14px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.04em;
+}
+body:not(.light-mode) .sev.critical{color:#ffe8ea;border-color:rgba(252,165,165,.4)}
+body:not(.light-mode) .sev.high{color:#fff1e0;border-color:rgba(253,186,116,.38)}
+body:not(.light-mode) .sev.medium{color:#fffbeb;border-color:rgba(253,224,71,.28)}
+body:not(.light-mode) .sev.low{color:#e8f6ff;border-color:rgba(125,211,252,.35)}
+body:not(.light-mode) .sev.none{color:var(--tx);border-color:rgba(255,255,255,.1)}
 body.light-mode .sev{
   border-color:rgba(0,0,0,.1);
   box-shadow:0 1px 0 rgba(0,0,0,.06);
@@ -390,6 +403,13 @@ body.light-mode .modal-card{box-shadow:0 12px 40px rgba(0,0,0,.12)}
 .hp-sev{font-family:var(--mf);font-size:11px}
 /* Host panel: same severity palette as .sev, slightly tighter so the row fits. */
 .hp-sev-chip{font-size:11px;padding:3px 7px;font-weight:600}
+body:not(.light-mode) .hp-sev-chip{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.04em;
+}
 .hp-cve{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .hp-date{font-size:11px;color:var(--tx3);margin-left:auto}
 .hp-desc{font-size:12px;color:var(--tx2);line-height:1.5}
