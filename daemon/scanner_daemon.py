@@ -1872,7 +1872,41 @@ def run_scan(job: dict) -> None:
     if "banner" in phases or "fingerprint" in phases:
         with db_conn() as conn:
             log_event(conn, job_id, "INFO", "Phase 3: banner grab / fingerprinting")
-        banner_results = phase_banner(job_id, sorted(all_ips), rate_pps, inter_ms, job=job)
+        # Scan ordering matters for operator feedback on larger/routed ranges:
+        # prioritize discovery-confirmed alive hosts first, then the rest.
+        alive_first = [ip for ip in alive_hosts.keys() if ip in all_ips]
+        rest = [ip for ip in all_ips if ip not in alive_hosts]
+        try:
+            alive_first.sort(key=lambda s: ipaddress.ip_address(s))
+            rest.sort(key=lambda s: ipaddress.ip_address(s))
+        except ValueError:
+            alive_first.sort()
+            rest.sort()
+        ordered_hosts = alive_first + rest
+        if ordered_hosts:
+            with db_conn() as conn:
+                log_event(
+                    conn, job_id, "INFO",
+                    f"Phase 3 ordering: {len(alive_first)} discovery-confirmed hosts first, {len(rest)} fallback hosts"
+                )
+        # Two-pass strategy:
+        # 1) Scan discovery-confirmed hosts first (small set => richer timeout tier).
+        # 2) Scan fallback CIDR-expanded hosts after, optimized for throughput.
+        banner_results = {}
+        if alive_first:
+            with db_conn() as conn:
+                log_event(conn, job_id, "INFO",
+                          f"Phase 3 pass 1: scanning {len(alive_first)} confirmed-alive hosts")
+            banner_results.update(
+                phase_banner(job_id, alive_first, rate_pps, inter_ms, job=job)
+            )
+        if rest:
+            with db_conn() as conn:
+                log_event(conn, job_id, "INFO",
+                          f"Phase 3 pass 2: scanning {len(rest)} fallback hosts")
+            banner_results.update(
+                phase_banner(job_id, rest, rate_pps, inter_ms, job=job)
+            )
 
     # ---- Phase 3b: Enrichment -------------------------------------------
     # Must run BEFORE the upsert loop so enrichment data is available per-host
