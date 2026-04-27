@@ -10,7 +10,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.2.0') ?>">
 </head>
 <body>
@@ -22,6 +22,7 @@
   <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.2.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
+  <button class="tbtn" id="theme-toggle-btn" onclick="cycleThemeMode()">Theme: Dark</button>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
@@ -775,6 +776,8 @@ var feedSyncLastOutput = 'No sync output yet.';
 var authMode = 'basic';
 var loginRequired = false;
 var confirmResolve = null;
+var themeMediaQuery = null;
+var themeMediaListener = null;
 
 // ==========================================================================
 // Nav
@@ -2736,8 +2739,64 @@ async function initAuthMode() {
     }
 }
 
+function readThemeModePref() {
+    try {
+        const raw = localStorage.getItem('st_theme_mode');
+        if (raw === 'light' || raw === 'dark' || raw === 'auto') return raw;
+    } catch (e) {}
+    return 'dark';
+}
+
+function systemPrefersDark() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+function applyThemeMode(mode) {
+    const effective = (mode === 'auto') ? (systemPrefersDark() ? 'dark' : 'light') : mode;
+    document.body.classList.toggle('light-mode', effective === 'light');
+}
+
+function updateThemeToggleLabel() {
+    const btn = document.getElementById('theme-toggle-btn');
+    if (!btn) return;
+    const mode = readThemeModePref();
+    const label = mode === 'auto'
+        ? `Auto (${systemPrefersDark() ? 'Dark' : 'Light'})`
+        : (mode === 'light' ? 'Light' : 'Dark');
+    btn.textContent = 'Theme: ' + label;
+}
+
+function setupSystemThemeWatcher() {
+    if (!window.matchMedia) return;
+    themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    themeMediaListener = () => {
+        if (readThemeModePref() === 'auto') {
+            applyThemeMode('auto');
+            updateThemeToggleLabel();
+        }
+    };
+    if (themeMediaQuery.addEventListener) {
+        themeMediaQuery.addEventListener('change', themeMediaListener);
+    } else if (themeMediaQuery.addListener) {
+        themeMediaQuery.addListener(themeMediaListener);
+    }
+}
+
+function cycleThemeMode() {
+    const mode = readThemeModePref();
+    const next = mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark';
+    try { localStorage.setItem('st_theme_mode', next); } catch (e) {}
+    applyThemeMode(next);
+    updateThemeToggleLabel();
+}
+
 async function initApp() {
     await initAuthMode();
+    const mode = readThemeModePref();
+    applyThemeMode(mode);
+    updateThemeToggleLabel();
+    setupSystemThemeWatcher();
+
     const execMode = (() => {
         try { return localStorage.getItem('st_exec_mode') === '1'; }
         catch (e) { return false; }
