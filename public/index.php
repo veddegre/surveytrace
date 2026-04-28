@@ -112,7 +112,8 @@
 <!-- ================================================================ ASSETS -->
 <div class="tab" id="t-assets">
   <div class="fbar">
-    <input class="finp wide" id="af-q" placeholder="Search IP, hostname, vendor, MAC…" oninput="debounceAssets()">
+    <input class="finp wide" id="af-q" placeholder="Search IP, hostname, vendor, MAC… (numeric device id + Enter filters by device)" autocomplete="off"
+      oninput="debounceAssets()" onkeydown="assetMainSearchKeydown(event)">
     <select class="finp narrow" id="af-cat" onchange="loadAssets(1)">
       <option value="">All types</option>
       <option value="srv">Server</option><option value="ws">Workstation</option>
@@ -134,19 +135,10 @@
     </select>
     <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
     <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
-  </div>
-  <div class="fbar" id="af-device-field" style="margin-top:-2px">
-    <span class="text-secondary" style="font-size:12px;font-weight:600;white-space:nowrap;align-self:center">Device</span>
-    <div style="position:relative;flex:1;min-width:180px;max-width:420px">
-      <input class="finp wide" id="af-devq" style="width:100%" placeholder="Search devices (id, MAC, IP on device…) — pick from list or type numeric id + Enter" autocomplete="off"
-        oninput="debounceAssetDeviceSearch()" onfocus="debounceAssetDeviceSearch()" onkeydown="assetDeviceSearchKeydown(event)">
-      <div id="af-device-suggest" class="hide af-device-suggest" role="listbox"></div>
-    </div>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, and device filter">Clear filters</button>
   </div>
   <div id="af-device-banner" class="device-filter-banner hide">
     <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
-    <button type="button" class="tbtn btn-xs" onclick="clearAssetDeviceFilter()">Clear device filter</button>
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -1634,55 +1626,12 @@ function sortAssets(col) {
     loadAssets(assetPage);
 }
 
-function hideAssetDeviceSuggest() {
-    const box = document.getElementById('af-device-suggest');
-    if (!box) return;
-    box.classList.add('hide');
-    box.innerHTML = '';
-}
-
-var assetDeviceSearchDebounce = null;
-function debounceAssetDeviceSearch() {
-    clearTimeout(assetDeviceSearchDebounce);
-    assetDeviceSearchDebounce = setTimeout(runAssetDeviceSearch, 280);
-}
-
-async function runAssetDeviceSearch() {
-    const inp = document.getElementById('af-devq');
-    const box = document.getElementById('af-device-suggest');
-    if (!inp || !box) return;
-    const t = inp.value.trim();
-    if (t.length < 1) {
-        hideAssetDeviceSuggest();
-        return;
-    }
-    const d = await api('/api/devices.php?page=1&per_page=12&q=' + enc(t) + '&sort=asset_count&order=desc');
-    if (!d || !box) {
-        hideAssetDeviceSuggest();
-        return;
-    }
-    if (inp.value.trim() !== t) return;
-
-    const devs = d.devices || [];
-    if (!devs.length) {
-        box.innerHTML = '<div class="af-device-suggest-empty text-secondary">No matching devices</div>';
-        box.classList.remove('hide');
-        return;
-    }
-    box.innerHTML = devs.map(dev => {
-        const mac = dev.primary_mac_norm ? esc(dev.primary_mac_norm) : '—';
-        const ips = dev.ip_sample ? esc(dev.ip_sample) : '—';
-        return `<button type="button" onmousedown="event.preventDefault()" onclick="selectDeviceFromAssetSearch(${dev.id})"><span class="mono">#${dev.id}</span> · ${dev.asset_count} addr · <span class="mono mono-sm">${mac}</span><br><span class="text-secondary" style="font-size:11px">${ips}</span></button>`;
-    }).join('');
-    box.classList.remove('hide');
-}
-
-function selectDeviceFromAssetSearch(id) {
+/** Filter Assets to one logical device; clears the main search box so `q` does not fight `device_id`. */
+function applyAssetDeviceFilter(id) {
     const did = parseInt(String(id), 10);
     if (!did) return;
-    hideAssetDeviceSuggest();
-    const inp = document.getElementById('af-devq');
-    if (inp) inp.value = '';
+    const qIn = document.getElementById('af-q');
+    if (qIn) qIn.value = '';
     assetDeviceFilter = did;
     const b = document.getElementById('af-device-banner');
     const idEl = document.getElementById('af-device-banner-id');
@@ -1693,28 +1642,15 @@ function selectDeviceFromAssetSearch(id) {
     loadAssets(1);
 }
 
-function assetDeviceSearchKeydown(e) {
-    if (e.key === 'Enter') {
+function assetMainSearchKeydown(e) {
+    if (e.key !== 'Enter') return;
+    const inp = document.getElementById('af-q');
+    if (!inp) return;
+    const t = inp.value.trim();
+    if (/^\d{1,12}$/.test(t)) {
         e.preventDefault();
-        const t = (document.getElementById('af-devq')?.value || '').trim();
-        if (/^\d+$/.test(t)) {
-            hideAssetDeviceSuggest();
-            selectDeviceFromAssetSearch(parseInt(t, 10));
-        }
+        applyAssetDeviceFilter(parseInt(t, 10));
     }
-    if (e.key === 'Escape') {
-        hideAssetDeviceSuggest();
-    }
-}
-
-function clearAssetDeviceFilter() {
-    assetDeviceFilter = 0;
-    const b = document.getElementById('af-device-banner');
-    if (b) b.classList.add('hide');
-    hideAssetDeviceSuggest();
-    const inp = document.getElementById('af-devq');
-    if (inp) inp.value = '';
-    loadAssets(1);
 }
 
 function clearAllAssetFilters() {
@@ -1731,9 +1667,8 @@ function clearAllAssetFilters() {
     assetDeviceFilter = 0;
     const b = document.getElementById('af-device-banner');
     if (b) b.classList.add('hide');
-    hideAssetDeviceSuggest();
-    const dinp = document.getElementById('af-devq');
-    if (dinp) dinp.value = '';
+    const idEl = document.getElementById('af-device-banner-id');
+    if (idEl) idEl.textContent = '';
     loadAssets(1);
 }
 
@@ -1745,9 +1680,8 @@ function viewDeviceAssets(did) {
         idEl.textContent = String(assetDeviceFilter);
         b.classList.remove('hide');
     }
-    hideAssetDeviceSuggest();
-    const dinp = document.getElementById('af-devq');
-    if (dinp) dinp.value = '';
+    const qIn = document.getElementById('af-q');
+    if (qIn) qIn.value = '';
     goTab('assets');
     hiNav('nassets');
     loadAssets(1);
@@ -1821,6 +1755,7 @@ async function loadAssets(page) {
         b.classList.remove('hide');
     } else if (b) {
         b.classList.add('hide');
+        if (idEl) idEl.textContent = '';
     }
 
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
@@ -4225,10 +4160,6 @@ function toggleDashMode() {
     if (navMap[restore]) hiNav(navMap[restore]);
     execPreviousTab = null;
 }
-
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('#af-device-field')) hideAssetDeviceSuggest();
-});
 
 initApp();
 
