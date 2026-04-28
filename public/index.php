@@ -3668,7 +3668,14 @@ async function loadAuthUsers() {
         </td>
       </tr>`).join('')
       : '<tr><td colspan="6" class="text-dim">No users</td></tr>';
-    await Promise.all([loadAuthLive(), loadAuthAudit()]);
+    await loadAuthLive().catch(() => {
+        const liveTbody = document.getElementById('auth-live-tbody');
+        if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+    });
+    await loadAuthAudit().catch(() => {
+        const auditTbody = document.getElementById('auth-audit-tbody');
+        if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+    });
 }
 
 function renderAuditAction(action) {
@@ -3680,41 +3687,49 @@ function renderAuditAction(action) {
 async function loadAuthLive() {
     const tbody = document.getElementById('auth-live-tbody');
     if (!tbody) return;
-    const r = await api('/api/auth.php?audit_live=1');
-    if (!r || !r.ok) {
+    try {
+        const r = await api('/api/auth.php?audit_live=1');
+        if (!r || !r.ok) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+            return;
+        }
+        const rows = Array.isArray(r.live) ? r.live : [];
+        tbody.innerHTML = rows.length ? rows.map(ev => `
+          <tr>
+            <td class="mono-sm">${esc(ev.username_norm || '—')}</td>
+            <td class="mono-sm">${esc(String(ev.failed_count ?? 0))}</td>
+            <td class="mono-sm">${esc(fmtTs(ev.last_failed_at || ''))}</td>
+            <td class="mono-sm">${esc(fmtTs(ev.locked_until || ''))}</td>
+            <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
+          </tr>`).join('')
+          : '<tr><td colspan="5" class="text-dim">No active sign-in failures or lockouts.</td></tr>';
+    } catch (e) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
-        return;
     }
-    const rows = Array.isArray(r.live) ? r.live : [];
-    tbody.innerHTML = rows.length ? rows.map(ev => `
-      <tr>
-        <td class="mono-sm">${esc(ev.username_norm || '—')}</td>
-        <td class="mono-sm">${esc(String(ev.failed_count ?? 0))}</td>
-        <td class="mono-sm">${esc(fmtTs(ev.last_failed_at || ''))}</td>
-        <td class="mono-sm">${esc(fmtTs(ev.locked_until || ''))}</td>
-        <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
-      </tr>`).join('')
-      : '<tr><td colspan="5" class="text-dim">No active sign-in failures or lockouts.</td></tr>';
 }
 
 async function loadAuthAudit() {
     const tbody = document.getElementById('auth-audit-tbody');
     if (!tbody) return;
-    const r = await api('/api/auth.php?audit=1&limit=100');
-    if (!r || !r.ok) {
+    try {
+        const r = await api('/api/auth.php?audit=1&limit=100');
+        if (!r || !r.ok) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+            return;
+        }
+        const rows = Array.isArray(r.audit) ? r.audit : [];
+        tbody.innerHTML = rows.length ? rows.map(ev => `
+          <tr>
+            <td class="mono-sm">${esc(fmtTs(ev.created_at || ''))}</td>
+            <td class="mono-sm">${esc(renderAuditAction(ev.action || ''))}</td>
+            <td class="mono-sm">${esc(ev.actor_username || 'system')}</td>
+            <td class="mono-sm">${esc(ev.target_username || '—')}</td>
+            <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
+          </tr>`).join('')
+          : '<tr><td colspan="5" class="text-dim">No user activity yet.</td></tr>';
+    } catch (e) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
-        return;
     }
-    const rows = Array.isArray(r.audit) ? r.audit : [];
-    tbody.innerHTML = rows.length ? rows.map(ev => `
-      <tr>
-        <td class="mono-sm">${esc(fmtTs(ev.created_at || ''))}</td>
-        <td class="mono-sm">${esc(renderAuditAction(ev.action || ''))}</td>
-        <td class="mono-sm">${esc(ev.actor_username || 'system')}</td>
-        <td class="mono-sm">${esc(ev.target_username || '—')}</td>
-        <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
-      </tr>`).join('')
-      : '<tr><td colspan="5" class="text-dim">No user activity yet.</td></tr>';
 }
 
 async function deleteAuthUser(id, username) {
