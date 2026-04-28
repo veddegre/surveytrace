@@ -16,7 +16,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Scan history** — per-run history, duration, summary snapshot, and detail view
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
-- **System health** — **System** sidebar tab and `GET /api/health.php` (data dir, free space only from `df`—`Available` 1K-blocks × 1024, `LC_ALL=C` + `awk`; PHP `disk_free_space` is not used, DB sizes via `stat`/`filesize` vs PHP, optional systemd, scan queue, last feed job)
+- **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
 - **Enrichment** — optional Phase 3b metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export

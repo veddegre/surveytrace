@@ -2,11 +2,9 @@
 /**
  * SurveyTrace — GET /api/health.php
  *
- * Read-only system status: data paths, disk, DB, services (systemd when available),
- * scan queue, feed sync state, last completed job. Used by the System health tab.
- *
- * Free space: `df -kP` and the same 1K-block “Available” value as plain `df` (× 1024 → bytes).
- * File sizes: `stat` when it matches PHP; PHP’s filesize can misreport in some SAPIs.
+ * Read-only JSON for the System health tab: a quick operational picture (background services,
+ * data directory space, app/NVD files, queue, feeds, and recent jobs). No configuration changes.
+ * Low-level size/disk details live in st_health_* helpers.
  */
 
 require_once __DIR__ . '/db.php';
@@ -337,10 +335,8 @@ $health = [
     'disk' => [
         'data_dir_free_bytes' => null,
         'data_dir_free_human' => null,
-        'source' => 'none', // df | disk_free_space | unavailable
-        'df_path' => null, // realpath used for df (compare with: df -h <path> in SSH)
-        'avail_1k' => null, // 1K-block “Available” (same as plain df) when source is df
-        'hint' => null, // set when free space could not be determined reliably
+        'source' => 'none', // df | unavailable
+        'hint' => null,
     ],
     'database' => [
         'reachable' => true,
@@ -376,20 +372,15 @@ $health = [
     ],
 ];
 
-$dfPathFor = is_dir($dataDir) ? $dataDir : dirname($dataDir);
-$dfRp = @realpath($dfPathFor);
-$health['disk']['df_path'] = $dfRp !== false ? $dfRp : (string) $dfPathFor;
-
 $dfree = st_health_df_free_bytes($dataDir);
 $health['disk']['source'] = 'none';
 if ($dfree !== null) {
     $health['disk']['data_dir_free_bytes'] = $dfree;
     $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($dfree);
     $health['disk']['source'] = 'df';
-    $health['disk']['avail_1k'] = (int) round($dfree / 1024.0);
 } else {
     $health['disk']['source'] = 'unavailable';
-    $health['disk']['hint'] = 'Health uses only `df` (1K “Available” × 1024), not PHP disk space. The web process could not run/parse it (e.g. shell_exec, AppArmor, or as www-data: `LC_ALL=C df -kP` the data path).';
+    $health['disk']['hint'] = 'Free space is not available in this view (server permissions or configuration).';
 }
 
 $appDbBytes = null;

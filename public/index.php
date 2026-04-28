@@ -600,12 +600,13 @@
     <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
   </div>
   <p class="help-line mb16" style="max-width:min(100%, 52rem)">
-    Disk, databases, services, job queue, and feed sync. Where the server allows it, free space and file sizes come from
-    <code class="code-accent">df</code> and <code class="code-accent">stat</code> so the numbers line up with SSH, not a restricted PHP view of the filesystem.
+    Use this view to see whether the installation is in good order: services, disk, DB files, the scan queue, and feed
+    activity. It is <strong>read only</strong> and does not change configuration—use the other tabs for that.
+    <b>Refresh</b> loads the latest snapshot.
   </p>
   <div class="card health-page" style="max-width:min(100%, 960px)">
-    <div class="ct">Status snapshot</div>
-    <div id="health-snapshot"><div class="text-dim">Switch to this tab to load, or press Refresh.</div></div>
+    <div class="ct">Summary</div>
+    <div id="health-snapshot"><div class="text-dim">Select this tab to load, or use Refresh for the latest data.</div></div>
   </div>
 </div>
 
@@ -1442,7 +1443,7 @@ function healthFmtTime(iso) {
 }
 
 /**
- * @param {object} h — GET /api/health.php
+ * @param {object} h — GET /api/health.php (read-only health snapshot for the System health tab)
  */
 function renderHealthHtml(h) {
     const rows = [];
@@ -1452,11 +1453,11 @@ function renderHealthHtml(h) {
 
     const daemon = h.services && h.services.daemon;
     if (daemon) {
-        r('Scanner daemon (systemd)', `<span class="${healthStateClass(daemon.state)}">${esc(daemon.state)}</span> <span class="text-dim">${esc(daemon.detail)}</span>`);
+        r('Scanner daemon (systemd)', `<span class="${healthStateClass(daemon.state)}">${esc(daemon.state)}</span><span class="h-vsep text-dim">${esc(daemon.detail)}</span>`);
     }
     const schedS = h.services && h.services.scheduler;
     if (schedS) {
-        r('Job scheduler (systemd)', `<span class="${healthStateClass(schedS.state)}">${esc(schedS.state)}</span> <span class="text-dim">${esc(schedS.detail)}</span>`);
+        r('Job scheduler (systemd)', `<span class="${healthStateClass(schedS.state)}">${esc(schedS.state)}</span><span class="h-vsep text-dim">${esc(schedS.detail)}</span>`);
     }
 
     r('Data directory', h.data_dir && h.data_dir.writable
@@ -1465,31 +1466,20 @@ function renderHealthHtml(h) {
 
     if (h.disk && h.disk.data_dir_free_human) {
         const low = h.disk.data_dir_free_bytes && h.disk.data_dir_free_bytes < 100 * 1024 * 1024;
-        const k1 = (h.disk.avail_1k != null) ? ` <span class="text-dim">· ${esc(String(h.disk.avail_1k))} 1K-blocks free</span>` : '';
-        const src = h.disk.source === 'df' ? 'df' : (h.disk.source === 'disk_free_space' ? 'PHP' : '');
-        const srcH = src ? ` <span class="text-dim">(${esc(src)})</span>` : '';
-        r('Free space (data dir)', (low
-            ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span> <span class="text-dim">(low)</span>`
-            : esc(h.disk.data_dir_free_human)) + srcH + k1);
+        r('Free space (data dir)', low
+            ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span><span class="h-vsep text-dim">(low)</span>`
+            : esc(h.disk.data_dir_free_human));
     } else if (h.disk && h.disk.source === 'unavailable') {
-        const hint = h.disk.hint ? ` <span class="text-dim" style="font-size:12px;white-space:pre-wrap">${esc(h.disk.hint)}</span>` : '';
-        r('Free space (data dir)', '<span class="hstate-warn">Could not read</span> (see hint below)' + hint);
-    }
-    if (h.disk && h.disk.df_path) {
-        r('Filesystem path (df)', `<span class="mono" style="font-size:12px;word-break:break-all">${esc(h.disk.df_path)}</span> <span class="text-dim">· in SSH: </span><span class="mono" style="font-size:11px">LC_ALL=C df -kP &lt;path&gt;</span> <span class="text-dim">— “Available” × 1024 = bytes; match the 1K-blocks column to plain</span> <span class="mono" style="font-size:11px">df</span>`);
+        r('Free space (data dir)', `<span class="hstate-warn">unavailable</span><span class="h-vsep text-dim">${h.disk.hint ? esc(h.disk.hint) : '—'}</span>`);
     }
 
-    const dbsrc = h.database && h.database.size_source === 'stat' ? 'stat' : (h.database && h.database.size_source === 'filesize' ? 'PHP' : '');
-    const dbExtra = dbsrc ? ` <span class="text-dim">(${esc(dbsrc)})</span>` : '';
     r('App database', h.database && h.database.file_bytes_human
-        ? `<span class="hstate-ok">ok</span> <span class="text-dim">${esc(h.database.file_bytes_human)}</span>${dbExtra}`
+        ? `<span class="hstate-ok">ok</span><span class="h-vsep text-dim">${esc(h.database.file_bytes_human)}</span>`
         : '<span class="hstate-warn">missing or empty</span>');
 
     if (h.nvd) {
-        const nvdsrc = h.nvd.size_source === 'stat' ? 'stat' : (h.nvd.size_source === 'filesize' ? 'PHP' : '');
-        const nvdEx = h.nvd.db_exists && nvdsrc ? ` <span class="text-dim">(${esc(nvdsrc)})</span>` : '';
         const nd = h.nvd.db_exists
-            ? `<span class="hstate-ok">present</span> <span class="text-dim">${esc(h.nvd.db_bytes_human || '')}</span>${nvdEx}`
+            ? `<span class="hstate-ok">present</span><span class="h-vsep text-dim">${esc(h.nvd.db_bytes_human || '')}</span>`
             : '<span class="hstate-warn">not found — run NVD sync in Settings</span>';
         r('NVD database', nd);
         if (h.nvd.last_config_sync) {
@@ -1504,7 +1494,7 @@ function renderHealthHtml(h) {
         const jobW = run > 0
             ? `<span class="hstate-warn">${run} running</span>`
             : '<span class="hstate-ok">none running</span>';
-        r('Scan jobs', `${jobW} <span class="text-dim">· ${qd} queued · ${rt} retrying</span>`);
+        r('Scan jobs', `${jobW}<span class="h-vsep text-dim">${qd} queued · ${rt} retrying</span>`);
     }
 
     if (h.last_completed_scan) {
@@ -1520,7 +1510,7 @@ function renderHealthHtml(h) {
 
     if (h.feeds) {
         if (h.feeds.job_running) {
-            r('Feed sync', `<span class="hstate-warn">running</span> <span class="text-dim">(${esc(h.feeds.job_target || '?')})</span>`);
+            r('Feed sync', `<span class="hstate-warn">running</span><span class="h-vsep text-dim">${esc(h.feeds.job_target || '?')}</span>`);
         } else {
             r('Feed sync', '<span class="hstate-ok">idle</span>');
         }
@@ -1529,7 +1519,7 @@ function renderHealthHtml(h) {
             const ok = fr.ok && !fr.error;
             const tag = fr.cancelled ? 'cancelled' : (ok ? 'ok' : 'failed');
             const cls = ok ? 'hstate-ok' : (fr.cancelled ? 'hstate-warn' : 'hstate-err');
-            r('Last feed job', `<span class="${cls}">${esc(tag)}</span> <span class="text-dim">${esc(fr.target || '—')} · ${esc(new Date(fr.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))}</span>`);
+            r('Last feed job', `<span class="${cls}">${esc(tag)}</span><span class="h-vsep text-dim">${esc(fr.target || '—')} · ${esc(new Date(fr.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))}</span>`);
         }
     }
 
@@ -1537,7 +1527,7 @@ function renderHealthHtml(h) {
     r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
 
     return `<div class="health-panel">${rows.join('')}</div>
-      <p class="help-line text-dim mt8" style="font-size:11px">Free space is only from the shell: <b>Available</b> in 1K-blocks from <code class="code-accent">df -kP</code> × 1024 (the same number as a locale-free <code class="code-accent">df</code>). <code class="code-accent">LC_ALL=C</code> avoids thousands separators. PHP <code class="code-accent">disk_free_space</code> is <em>not</em> used here (it is often wrong in apache2handler). If shell <code class="code-accent">stat</code> disagrees badly with readable file size, the UI uses PHP for file sizes. Services show <strong>unknown</strong> if <code class="code-accent">systemctl</code> is unavailable.</p>`;
+      <p class="help-line text-dim mt8" style="font-size:11px">Figures are a point-in-time picture for monitoring. To act on them, use Scan, Schedules, Enrichment, and Settings.</p>`;
 }
 
 async function loadHealth() {
