@@ -1357,6 +1357,10 @@ function applyRoleAwareUi() {
     if (topSettings) topSettings.style.display = isAdmin ? '' : 'none';
     const topAccess = document.querySelector('button[onclick*="goTab(\'access\')"]');
     if (topAccess) topAccess.style.display = isAdmin ? '' : 'none';
+    ['scan-view-trash', 'scan-view-all'].forEach((id) => {
+        const b = document.getElementById(id);
+        if (b) b.style.display = canScanManage ? '' : 'none';
+    });
 
     const disableByOnclick = (needle, disabled) => {
         document.querySelectorAll(`button[onclick*="${needle}"]`).forEach(btn => {
@@ -2926,6 +2930,12 @@ function updateScanHistoryViewButtons() {
 
 function setScanHistoryView(view) {
     if (!['active', 'trash', 'all'].includes(view)) return;
+    if ((view === 'trash' || view === 'all') && !stRoleCanManageScans()) {
+        scanHistoryView = 'active';
+        updateScanHistoryViewButtons();
+        toast('Only scan editors/admins can view Trash', 'err');
+        return;
+    }
     scanHistoryView = view;
     updateScanHistoryViewButtons();
     void loadScanHistory();
@@ -2948,6 +2958,10 @@ async function saveScanTrashRetentionDays() {
 
 async function loadScanHistory(history) {
     updateScanHistoryViewButtons();
+    if (!stRoleCanManageScans() && scanHistoryView !== 'active') {
+        scanHistoryView = 'active';
+        updateScanHistoryViewButtons();
+    }
     let queueHistory = history;
     if (!queueHistory) {
         const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});

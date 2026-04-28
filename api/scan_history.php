@@ -19,6 +19,11 @@ $compareToId = st_int('compare_to', 0, 0);
 $compareScope = st_str('compare_scope', 'any', ['any', 'target', 'profile', 'both']);
 $view = st_str('view', 'active', ['active', 'trash', 'all']);
 $limit = st_int('limit', 50, 1, 200);
+$currentRole = st_current_role();
+
+if ($view !== 'active' && !in_array($currentRole, ['scan_editor', 'admin'], true)) {
+    st_json(['ok' => false, 'error' => 'Trash/history-all view requires scan_editor or admin role'], 403);
+}
 
 // Ensure history columns exist for older DBs
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
@@ -55,6 +60,9 @@ if ($id > 0) {
     $job = $stmt->fetch();
     if (!$job) {
         st_json(['error' => "Job #$id not found"], 404);
+    }
+    if (!empty($job['deleted_at']) && !in_array($currentRole, ['scan_editor', 'admin'], true)) {
+        st_json(['ok' => false, 'error' => 'Viewing trashed scan details requires scan_editor or admin role'], 403);
     }
 
     $job['phases'] = json_decode((string)($job['phases'] ?? '[]'), true) ?: [];
