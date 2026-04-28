@@ -13,7 +13,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
-- **Scan history** — dedicated **Scan history** sidebar page: job queue, finished runs, and a debounced filter by **scan label**, target CIDR, or job id (`GET /api/scan_history.php` with **`q`**, up to **`limit=200`**; see `api/scan_history.php`). From a run’s **Details** modal, click a catalogued host row to jump to **Devices** (when `device_id` is set) or **Assets** host detail by IP. **Scan control** remains the page to queue new jobs.
+- **Scan history** — dedicated **Scan history** sidebar page: job queue, finished runs, Active/Trash views, and a debounced filter by **scan label**, target CIDR, or job id (`GET /api/scan_history.php` with **`q`**, up to **`limit=200`**; see `api/scan_history.php`). From a run’s **Details** modal, click a catalogued host row to jump to **Devices** (when `device_id` is set) or **Assets** host detail by IP. **Scan control** remains the page to queue new jobs.
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
 - **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
@@ -102,7 +102,7 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ### Unreleased
 
-- **Scan history workflow** — dedicated **Scan history** page plus queue visibility on both **Scan control** and **Scan history**; history rows support **Details**, **Re-run**, and **Delete** actions.
+- **Scan history workflow** — dedicated **Scan history** page plus queue visibility on both **Scan control** and **Scan history**; history rows support **Details**, **Re-run**, and trash lifecycle actions.
 - **Historical run evidence** — per-scan snapshots stored in **`scan_asset_snapshots`** and **`scan_finding_snapshots`**; scan detail prefers snapshots, falls back to legacy `last_scan_id`, then `port_history` for older runs.
 - **Run comparisons** — scan detail now computes diffs (hosts, ports, CVEs) versus previous run or a selected prior run (`compare_to`), with optional scope filters (`any`, `target`, `profile`, `both`).
 - **Host/device drift views** — host detail includes per-scan change history (new/closed ports, new/resolved CVEs); device detail aggregates scan history across linked assets and can jump directly to run details.
@@ -112,7 +112,13 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **MFA usability improvements** — QR code enrollment, copyable setup URI, recovery code panel with copy/download/print actions, and modal-based MFA disable flow.
 - **Dedicated Access control page** — authentication mode, OIDC/breakglass settings, password policy, local user management, and auth/audit views moved out of Settings into a single admin page.
 - **Account + operator audit scope** — historical user audit now includes auth events, account lifecycle events (create/update/delete/reset), and scan/schedule operator actions (queue/re-run/delete/run-now/pause/resume/toggle).
-- **Planned next hardening** — replace hard delete with **soft delete** for scan runs, add a **Trash** view in Scan History, and auto-purge trashed runs after a configurable retention window (e.g. `scan_trash_retention_days`) as the immediate next phase.
+
+### 0.6.1
+
+- **Phase 7 delivered — scan delete hardening**: scan delete now uses a trash lifecycle (**move to trash**, **restore**, **admin-only permanent delete**) with retention-based automatic purge.
+- **Trash retention controls** — configurable retention (`scan_trash_retention_days`) is exposed in **Settings** and enforced by scheduler-side purge logic.
+- **Scan history trash views + RBAC** — Scan History now supports **Active/Trash/All** semantics with role enforcement: viewers are active-only, scan editors/admins can manage trash actions, and admin is required for permanent purge and retention changes.
+- **Audit attribution for trash lifecycle** — added audit events for `scan.job_trashed`, `scan.job_restored`, `scan.job_purged`, and `scan.trash_retention_updated`.
 
 ### 0.6.0
 
@@ -327,22 +333,29 @@ surveytrace/
 ## Roadmap
 
 ### Completed (summary)
+- **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
+- **Phase 2 — Job queue improvements** — multi-job queueing (with priority order), cancel/abort actions, retry support, failure visibility, and queue/history separation in the UI.
+- **Phase 3 — Scheduling core** — `scan_schedules` + scheduler daemon, schedule CRUD/run-now/toggle APIs, schedule UI, timezone-aware cron evaluation, pause/resume controls, and configurable missed-run handling.
+- **Phase 4 — Discovery improvements** — routed-friendly host discovery (`auto`/`routed`/`force`), subnet-aware behavior, broad hostname/service enrichment (including mDNS and HTTP title fingerprints), and startup OUI backfill improvements.
 - **Phase 5 — Device identity** — Logical **`devices`** linked from **`assets`**; scanner + migrations; Devices UI; **`POST /api/devices.php`** merge (logged to **`scan_log`**). Details: **`docs/DEVICE_IDENTITY.md`**. *Not built:* un-merge, split/reassign assets, findings-by-device filter, `device_identifiers` table (optional follow-ons).
+- **Phase 6 — Identity & access** — OIDC-first auth, local accounts + role management, MFA/recovery flows, profile self-service, endpoint RBAC coverage, and expanded account/audit logging.
+- **Phase 7 — Scan delete hardening** — soft delete/trash lifecycle for scan runs, restore flow, admin-only permanent purge, retention-based purge, and audit coverage.
 
 ### Upcoming
-- **Phase 6 — Identity & access (OIDC SSO, local MFA, RBAC)** — **OIDC** for IdP-backed sign-in; **local authentication** (retain or evolve **`basic`** / **`session`**) with optional **MFA** for deployments that skip SSO: **TOTP** (RFC 6238) and **one-time recovery codes** (hashed at rest, single-use, regenerable) so users can regain access without SSO; **WebAuthn** / **FIDO2** (including **passkeys** or roaming security keys) as a **possible** addition if scope and packaging (e.g. Composer + a vetted library) allow — not a fixed commitment in the first cut; **RBAC** with app-defined roles (e.g. full admin, scan operator, read-only inventory, auditor) mapped from IdP **groups/claims** when using SSO and **assigned in-app** for local users; consistent enforcement for **PHP API routes** and UI; **audit attribution** (who queued a scan, changed settings, merged devices). Design so downstream phases reuse the same permission checks rather than a parallel auth model.
-- **Phase 7 — Scan delete hardening (Trash + retention)** — convert scan delete to soft-delete, add a dedicated **Trash** view, support restore and admin-only permanent purge, and add automatic retention purge (e.g. `scan_trash_retention_days`).
 - **Phase 8 — Collector architecture** — `collectors` table; registration + API token auth (scopes informed by **Phase 6** when RBAC is enabled); **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU). **Processing model:** collectors upload scan result payloads/artifacts to the master server; master persists them to an ingest queue/file store; one/few worker processes apply them into assets/findings/history and run fingerprint/CVE enrichment asynchronously (idempotent, chunked submissions, retry-safe).
-- **Phase 9**: Change detection — alerts on new assets, port changes, new CVEs
-- **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring
-- **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire
-- **Phase 12**: Baselines and reporting — snapshot comparisons, scheduled reports
+- **Phase 9**: Change detection — alerts on new assets, port changes, new CVEs; finding lifecycle states (`new`, `active`, `mitigated`, `accepted`, `reopened`) with regression/reopen handling.
+- **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring, and provenance metadata (`source`, `method`, `confidence`) for explainable triage.
+- **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.
+- **Phase 12**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.
 - **Phase 13**: Integrations program —
   - **13.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
   - **13.2 Monitoring/ops:** Zabbix + alert/status mapping
   - **13.3 Infrastructure:** Proxmox, TrueNAS
   - **13.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)
-- **Phase 14**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
+  - **13.5 Data fusion + enrichment:** normalize multi-source vulnerability/advisory data (deduplication, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
+- **Phase 14**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **navigation cleanup** — remove duplicate top-bar shortcuts for pages already present in sidebar navigation (e.g., **Access control** and **Settings**) to reduce clutter; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
+- **Phase 15**: Credentialed collection + checks engine — authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, and remediation guidance metadata.
+- **Phase 16**: Risk operations + governance — composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, and stronger audit/report controls.
 
 ## License
 

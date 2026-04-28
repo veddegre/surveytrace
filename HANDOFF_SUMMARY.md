@@ -2,12 +2,13 @@
 
 Use this as a context starter in a new conversation.
 
-**Release:** **0.6.0** (`ST_VERSION` in `api/db.php`) — identity/auth hardening + profile UX are the headline changes.
+**Release:** **0.6.1** (`ST_VERSION` in `api/db.php`) — includes Phase 7 scan trash + retention hardening.
 
 ## Where things stand
 
+- **Completed foundations (historical + current):** Phases **1-7** are delivered in practical scope (profiles/safety defaults, queueing/retry controls, scheduling core, discovery upgrades, device identity, identity/access hardening, and scan trash/retention hardening).
 - **Phase 5 (device identity)** is **delivered** in-repo: schema + migrations, scanner linkage, APIs, UI, merge, docs. See **`docs/DEVICE_IDENTITY.md`** and the **Phase 5** changelog block in **`README.md`**.
-- **Roadmap:** **`README.md`** — **Phase 6** is **identity & access** (OIDC, **local accounts** with **TOTP** + **recovery codes**, **possible** **WebAuthn/FIDO2/passkeys** if scope allows, RBAC); **Phase 7** is **scan delete hardening** (Trash + retention); **Phase 8** is **collector architecture** (distributed agents / multi-site); **Phase 10** is CVE quality improvements before **Phase 11** asset lifecycle; **Phase 13** is a multi-part integrations program (Grafana, Zabbix, Proxmox, TrueNAS, syslog, plus stubbed connector completion); **Phase 14** includes a **possible** frontend modularization pass to split the growing `public/index.php` into maintainable units. Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
+- **Roadmap:** **`README.md`** — next active work starts at **Phase 8** (collector architecture), then **Phases 9-12** (change lifecycle, CVE/provenance quality, asset lifecycle confidence, and baselines/reporting), **Phase 13** integrations/data-fusion expansion, **Phase 14** UI/navigation cleanup + modularization option, and **Phases 15-16** for credentialed checks and risk-governance operations. Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
 
 ## Session updates (2026-04-27 late)
 
@@ -34,14 +35,21 @@ Use this as a context starter in a new conversation.
 - **Schema updates:** `users` table now includes `must_change_password`, `display_name`, and `email` with startup migrations in `api/db.php`.
 - **Audit expansion:** historical user audit now includes auth + account lifecycle events and scan/schedule operator actions (queue/re-run/delete/run-now/pause/resume/toggle).
 
+## Session updates (2026-04-28 Phase 7 closeout)
+
+- **Scan delete hardening shipped:** `api/scan_delete.php` now supports `action=trash|restore|purge`; default delete path is soft-delete to Trash.
+- **Retention shipped:** `scan_jobs.deleted_at` plus configurable `config.scan_trash_retention_days` (default 30) with scheduler-driven automatic purge in `daemon/scheduler_daemon.py`.
+- **Scan history semantics:** `api/scan_history.php` now supports `view=active|trash|all`; `api/scan_status.php` excludes trashed runs from active queue/history feed.
+- **RBAC rules enforced for Phase 7:** viewers are active-only and cannot view trash/all or trashed details; `scan_editor` can manage scan trash actions; admin is required for permanent purge and retention changes.
+- **Settings/UI updates:** retention setting moved to Settings right column; Scan History includes Active/Trash/All controls with role-aware visibility.
+- **Audit attribution added:** `scan.job_trashed`, `scan.job_restored`, `scan.job_purged`, and `scan.trash_retention_updated`.
+
 ## Next suggested steps
 
 1. **Backfill utility (optional):** best-effort script to populate `scan_asset_snapshots` / `scan_finding_snapshots` for older runs using `port_history` + current findings metadata.
 2. **Diff granularity:** optional host-port pair detail table in scan diff modal (not only unique port list + counts).
-3. **Delete hardening (requested / next phase):** switch to soft delete with a **Trash** view; keep runs for configurable **X days** (e.g. `scan_trash_retention_days`) before automatic purge.
-   - Suggested shape: `scan_jobs.deleted_at` + filter controls (`active` / `trash`) + daemon or scheduler purge task.
-4. **Tests:** add regression tests for auth flows (temporary password -> forced change, local MFA setup/disable, recovery code consumption, admin clear-MFA), plus access-control page regressions (admin/non-admin visibility), and existing scan-history compare/snapshot persistence checks.
-5. **Docs cleanup:** if these ship as a release, move README `Unreleased` bullets into a versioned block and include Access-control page notes and audit-scope expansion in release notes.
+3. **Tests:** add regression tests for Phase 7 trash/restore/purge/retention permissions and auth flows (temporary password -> forced change, local MFA setup/disable, recovery code consumption, admin clear-MFA), plus access-control page regressions (admin/non-admin visibility), and existing scan-history compare/snapshot persistence checks.
+4. **Phase 8 start:** begin collector architecture thin slice (`collectors` table, check-in, job lease, submit, minimal agent loop).
 
 ## Phase 5 — What shipped (reference)
 
