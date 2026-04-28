@@ -681,7 +681,7 @@
 
 <!-- ================================================================ SYSTEM HEALTH -->
 <div class="tab" id="t-health">
-  <div class="row-between mb12" style="max-width:min(100%, 960px)">
+  <div class="row-between mb12">
     <div class="sth section-title-reset">System health</div>
     <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
   </div>
@@ -690,7 +690,7 @@
     activity. It is <strong>read only</strong> and does not change configuration—use the other tabs for that.
     <b>Refresh</b> loads the latest snapshot.
   </p>
-  <div class="card health-page" style="max-width:min(100%, 960px)">
+  <div class="card health-page">
     <div class="ct">Summary</div>
     <div id="health-snapshot"><div class="text-dim">Select this tab to load, or use Refresh for the latest data.</div></div>
   </div>
