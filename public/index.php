@@ -63,6 +63,10 @@
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M4 7h6M7 4v6"/></svg>
     Enrichment
   </div>
+  <div class="ni" id="nhealth" onclick="goTab('health');hiNav('nhealth')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="3" width="2.5" height="5" rx="0.3"/><rect x="4" y="1" width="2.5" height="7" rx="0.3"/><rect x="7" y="2" width="2.5" height="6" rx="0.3"/><rect x="10" y="4" width="2.5" height="4" rx="0.3"/></svg>
+    System health
+  </div>
   <div class="ni" id="nsettings" onclick="goTab('settings');hiNav('nsettings')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
     Settings
@@ -90,9 +94,6 @@
     <div class="sc"><div class="sl">Network gear</div><div class="sv sv-md" id="dc-net">—</div></div>
     <div class="sc"><div class="sl">IoT / OT / other</div><div class="sv sv-md" id="dc-iot">—</div></div>
   </div>
-
-  <div class="sth">System health <button type="button" class="sth-btn" onclick="loadHealth()">&#8635; Refresh</button></div>
-  <div class="mb16" id="dash-health"><div class="text-dim">Loading…</div></div>
 
   <div class="sth">Top vulnerable assets</div>
   <div class="tbl-wrap mb16">
@@ -589,6 +590,22 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ================================================================ SYSTEM HEALTH -->
+<div class="tab" id="t-health">
+  <div class="row-between mb12" style="max-width:min(100%, 960px)">
+    <div class="sth section-title-reset">System health</div>
+    <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
+  </div>
+  <p class="help-line mb16" style="max-width:min(100%, 52rem)">
+    Disk, databases, services, job queue, and feed sync. Where the server allows it, free space and file sizes come from
+    <code class="code-accent">df</code> and <code class="code-accent">stat</code> so the numbers line up with SSH, not a restricted PHP view of the filesystem.
+  </p>
+  <div class="card health-page" style="max-width:min(100%, 960px)">
+    <div class="ct">Status snapshot</div>
+    <div id="health-snapshot"><div class="text-dim">Switch to this tab to load, or press Refresh.</div></div>
   </div>
 </div>
 
@@ -1174,6 +1191,7 @@ function goTab(name) {
     if (name === 'scan')     loadScanStatus();
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
+    if (name === 'health')   loadHealth();
     if (name === 'settings') {
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
@@ -1325,6 +1343,7 @@ async function submitLogin() {
         if (currentTab === 'scan') loadScanStatus();
         if (currentTab === 'sched') loadSchedules();
         if (currentTab === 'enrich' || currentTab === 'settings') loadEnrichment();
+        if (currentTab === 'health') loadHealth();
     } else {
         toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
     }
@@ -1408,8 +1427,6 @@ async function loadDashboard() {
 
     // Feed sync may have finished without a poll tick (tab switch, or slow 4s interval).
     void reconcileFeedSyncClientIfServerIdle();
-
-    void loadHealth();
 }
 
 function healthStateClass(state) {
@@ -1448,18 +1465,24 @@ function renderHealthHtml(h) {
 
     if (h.disk && h.disk.data_dir_free_human) {
         const low = h.disk.data_dir_free_bytes && h.disk.data_dir_free_bytes < 100 * 1024 * 1024;
-        r('Free space (data dir)', low
+        const src = h.disk.source === 'df' ? 'df' : (h.disk.source === 'disk_free_space' ? 'PHP' : '');
+        const srcH = src ? ` <span class="text-dim">(${esc(src)})</span>` : '';
+        r('Free space (data dir)', (low
             ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span> <span class="text-dim">(low)</span>`
-            : esc(h.disk.data_dir_free_human));
+            : esc(h.disk.data_dir_free_human)) + srcH);
     }
 
+    const dbsrc = h.database && h.database.size_source === 'stat' ? 'stat' : (h.database && h.database.size_source === 'filesize' ? 'PHP' : '');
+    const dbExtra = dbsrc ? ` <span class="text-dim">(${esc(dbsrc)})</span>` : '';
     r('App database', h.database && h.database.file_bytes_human
-        ? `<span class="hstate-ok">ok</span> <span class="text-dim">${esc(h.database.file_bytes_human)}</span>`
+        ? `<span class="hstate-ok">ok</span> <span class="text-dim">${esc(h.database.file_bytes_human)}</span>${dbExtra}`
         : '<span class="hstate-warn">missing or empty</span>');
 
     if (h.nvd) {
+        const nvdsrc = h.nvd.size_source === 'stat' ? 'stat' : (h.nvd.size_source === 'filesize' ? 'PHP' : '');
+        const nvdEx = h.nvd.db_exists && nvdsrc ? ` <span class="text-dim">(${esc(nvdsrc)})</span>` : '';
         const nd = h.nvd.db_exists
-            ? `<span class="hstate-ok">present</span> <span class="text-dim">${esc(h.nvd.db_bytes_human || '')}</span>`
+            ? `<span class="hstate-ok">present</span> <span class="text-dim">${esc(h.nvd.db_bytes_human || '')}</span>${nvdEx}`
             : '<span class="hstate-warn">not found — run NVD sync in Settings</span>';
         r('NVD database', nd);
         if (h.nvd.last_config_sync) {
@@ -1507,11 +1530,11 @@ function renderHealthHtml(h) {
     r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
 
     return `<div class="health-panel">${rows.join('')}</div>
-      <p class="help-line text-dim mt8" style="font-size:11px">Services show <strong>unknown</strong> if PHP cannot run <code class="code-accent">systemctl</code> (e.g. shared hosting) — check <code class="code-accent">systemctl status surveytrace-daemon</code> on the server.</p>`;
+      <p class="help-line text-dim mt8" style="font-size:11px">Free space and DB sizes in parentheses (df, stat) match the host shell. Services show <strong>unknown</strong> if PHP cannot run <code class="code-accent">systemctl</code> — on the server use <code class="code-accent">systemctl status surveytrace-daemon</code>.</p>`;
 }
 
 async function loadHealth() {
-    const el = document.getElementById('dash-health');
+    const el = document.getElementById('health-snapshot');
     if (!el) return;
     const h = await api('/api/health.php', { quiet: true });
     if (!h) {
@@ -3859,7 +3882,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -3884,7 +3907,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');

@@ -3,7 +3,10 @@
  * SurveyTrace — GET /api/health.php
  *
  * Read-only system status: data paths, disk, DB, services (systemd when available),
- * scan queue, feed sync state, last completed job. For the dashboard “System health” panel.
+ * scan queue, feed sync state, last completed job. Used by the System health tab.
+ *
+ * Disk and file sizes prefer the host `df` / `stat` commands when shell_exec is allowed
+ * (matches `df -h` in SSH); PHP’s disk_free_space / filesize can misreport in some SAPIs.
  */
 
 require_once __DIR__ . '/db.php';
@@ -147,6 +150,83 @@ function st_health_file_bytes(string $path): ?float {
     return (float) $pos;
 }
 
+function st_health_shell_ok(): bool {
+    if (PHP_OS_FAMILY === 'Windows') {
+        return false;
+    }
+    $df = @ini_get('disable_functions');
+    $list = $df ? array_map('trim', explode(',', $df)) : [];
+    return !in_array('shell_exec', $list, true) && function_exists('shell_exec');
+}
+
+/**
+ * Free bytes on the filesystem for this path, via `df` (shell).
+ * Prefers GNU `df -B1` (1-byte units); falls back to POSIX `df -k` (1024-byte blocks) for macOS/BSD.
+ */
+function st_health_df_free_bytes(string $path): ?float {
+    if (!st_health_shell_ok()) {
+        return null;
+    }
+    $test = is_dir($path) ? $path : dirname($path);
+    $rp = @realpath($test);
+    if ($rp === false) {
+        return null;
+    }
+    $fromLine = function (string $line, int $fieldIdx, float $unitMult): ?float {
+        $parts = preg_split('/\s+/', $line, -1, PREG_SPLIT_NO_EMPTY);
+        if (count($parts) <= $fieldIdx) {
+            return null;
+        }
+        if (!ctype_digit($parts[$fieldIdx])) {
+            return null;
+        }
+        return (float) $parts[$fieldIdx] * $unitMult;
+    };
+    $out = @shell_exec('df -B1 ' . escapeshellarg($rp) . ' 2>/dev/null');
+    if (is_string($out) && trim($out) !== '') {
+        $lines = preg_split("/\R/", trim($out));
+        if (count($lines) >= 2) {
+            $b = $fromLine($lines[1], 3, 1.0);
+            if ($b !== null) {
+                return $b;
+            }
+        }
+    }
+    $outK = @shell_exec('df -k ' . escapeshellarg($rp) . ' 2>/dev/null');
+    if (!is_string($outK) || trim($outK) === '') {
+        return null;
+    }
+    $linesK = preg_split("/\R/", trim($outK));
+    if (count($linesK) < 2) {
+        return null;
+    }
+    return $fromLine($linesK[1], 3, 1024.0);
+}
+
+/** File size via POSIX stat (matches `ls` / `stat` on the host). */
+function st_health_stat_file_bytes(string $path): ?float {
+    if (!st_health_shell_ok() || !is_file($path)) {
+        return null;
+    }
+    $rp = @realpath($path);
+    if ($rp === false) {
+        return null;
+    }
+    if (PHP_OS_FAMILY === 'Darwin') {
+        $out = @shell_exec('stat -f %z ' . escapeshellarg($rp) . ' 2>/dev/null');
+    } else {
+        $out = @shell_exec('stat -c %s ' . escapeshellarg($rp) . ' 2>/dev/null');
+    }
+    if (!is_string($out)) {
+        return null;
+    }
+    $s = trim($out);
+    if ($s === '' || !ctype_digit($s)) {
+        return null;
+    }
+    return (float) $s;
+}
+
 try {
     $db = st_db();
 } catch (Throwable $e) {
@@ -177,16 +257,19 @@ $health = [
     'disk' => [
         'data_dir_free_bytes' => null,
         'data_dir_free_human' => null,
+        'source' => 'none', // df | disk_free_space
     ],
     'database' => [
         'reachable' => true,
         'file_bytes' => null,
         'file_bytes_human' => null,
+        'size_source' => 'none', // stat | filesize | fseek
     ],
     'nvd' => [
         'db_exists' => is_file($nvdDb),
         'db_bytes' => null,
         'db_bytes_human' => null,
+        'size_source' => 'none',
         'last_config_sync' => st_config('nvd_last_sync', ''),
     ],
     'feeds' => [
@@ -210,17 +293,54 @@ $health = [
     ],
 ];
 
-$dfree = st_health_disk_free_bytes($dataDir);
+$dfree = st_health_df_free_bytes($dataDir);
+$health['disk']['source'] = 'none';
 if ($dfree !== null) {
     $health['disk']['data_dir_free_bytes'] = $dfree;
     $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($dfree);
+    $health['disk']['source'] = 'df';
+} else {
+    $phpFree = st_health_disk_free_bytes($dataDir);
+    if ($phpFree !== null) {
+        $health['disk']['data_dir_free_bytes'] = $phpFree;
+        $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($phpFree);
+        $health['disk']['source'] = 'disk_free_space';
+    }
 }
 
-$appDbBytes = is_file($appDb) ? st_health_file_bytes($appDb) : null;
+$appDbBytes = null;
+$health['database']['size_source'] = 'none';
+if (is_file($appDb)) {
+    $health['database']['size_source'] = 'filesize';
+    $st = st_health_stat_file_bytes($appDb);
+    if ($st !== null) {
+        $appDbBytes = $st;
+        $health['database']['size_source'] = 'stat';
+    } else {
+        $appDbBytes = st_health_file_bytes($appDb);
+        if ($appDbBytes === null) {
+            $health['database']['size_source'] = 'none';
+        }
+    }
+}
 $health['database']['file_bytes'] = $appDbBytes;
 $health['database']['file_bytes_human'] = st_health_fmt_bytes($appDbBytes);
 
-$nvdDbBytes = is_file($nvdDb) ? st_health_file_bytes($nvdDb) : null;
+$nvdDbBytes = null;
+$health['nvd']['size_source'] = 'none';
+if (is_file($nvdDb)) {
+    $health['nvd']['size_source'] = 'filesize';
+    $stN = st_health_stat_file_bytes($nvdDb);
+    if ($stN !== null) {
+        $nvdDbBytes = $stN;
+        $health['nvd']['size_source'] = 'stat';
+    } else {
+        $nvdDbBytes = st_health_file_bytes($nvdDb);
+        if ($nvdDbBytes === null) {
+            $health['nvd']['size_source'] = 'none';
+        }
+    }
+}
 $health['nvd']['db_bytes'] = $nvdDbBytes;
 $health['nvd']['db_bytes_human'] = st_health_fmt_bytes($nvdDbBytes);
 

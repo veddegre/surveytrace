@@ -520,6 +520,8 @@ body.light-mode .sync-status.run{
 .sync-status.ok{color:var(--green);font-weight:600}
 .sync-status.err{color:var(--red);font-weight:600}
 
+/* System health tab */
+.health-page .health-panel{max-width:none}
 /* Dashboard system health */
 .health-panel{font-size:13px;line-height:1.45;max-width:720px}
 .health-row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)}
