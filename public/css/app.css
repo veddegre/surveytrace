@@ -472,6 +472,9 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .host-panel-close{font-size:15px;padding:2px 8px}
 .host-panel-body{padding:16px}
 .host-panel-backdrop{display:none;position:fixed;inset:0;z-index:199;background:rgba(0,0,0,.2)}
+.device-panel{z-index:202}
+.device-panel-backdrop{z-index:201}
+.dp-asset-row{cursor:pointer}
 .fsync-pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:12px;font-family:var(--mf);color:var(--tx2)}
 .z100{z-index:100}.z101{z-index:101}.z210{z-index:210}.z215{z-index:215}.z260{z-index:260}
 .gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}

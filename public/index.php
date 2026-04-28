@@ -804,6 +804,16 @@
 </div>
 <div id="host-panel-bg" class="host-panel-backdrop" onclick="closeHostPanel()"></div>
 
+<!-- Device detail panel (logical identity + linked addresses) -->
+<div id="device-panel" class="host-panel device-panel">
+  <div class="host-panel-head">
+    <div class="host-panel-title" id="dp-title">Device</div>
+    <button type="button" class="tbtn host-panel-close" onclick="closeDevicePanel()">✕</button>
+  </div>
+  <div id="dp-body" class="host-panel-body"></div>
+</div>
+<div id="device-panel-bg" class="host-panel-backdrop device-panel-backdrop" onclick="closeDevicePanel()"></div>
+
 <!-- Feed sync output modal -->
 <div id="fsync-bg" class="modal-bg z210">
   <div class="modal-card modal-feed">
@@ -1455,7 +1465,7 @@ async function loadDashboard() {
     document.getElementById('dash-top-vuln').innerHTML = tv.length
         ? tv.map(a => `<tr>
             <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-            <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td>
+            <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
             <td class="text-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
             <td class="text-primary" style="font-size:12px">${esc(a.vendor||'—')}</td>
@@ -1662,7 +1672,7 @@ async function loadDevices(page) {
         const last = dev.last_seen_max ? relTime(dev.last_seen_max) : '—';
         const created = dev.created_at ? relTime(dev.created_at) : '—';
         return `<tr>
-          <td class="mono mono-sm">${dev.id}</td>
+          <td class="mono mono-sm"><span class="click-ip" onclick="openDevicePanel(${dev.id})" title="Device detail">${dev.id}</span></td>
           <td class="mono mono-sm">${mac}</td>
           <td class="mono">${dev.asset_count}</td>
           <td class="mono mono-sm" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ips}">${ips}</td>
@@ -1724,7 +1734,7 @@ async function loadAssets(page) {
         }
         return `<tr>
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-          <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td>
+          <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
           <td class="text-primary" style="font-size:12px">${vendorCell}</td>
@@ -3756,6 +3766,7 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
 // Host detail panel
 // ==========================================================================
 async function openHostPanel(id, ip) {
+    closeDevicePanel();
     document.getElementById('host-panel').style.display = 'block';
     document.getElementById('host-panel-bg').style.display = 'block';
     document.getElementById('hp-title').textContent = ip;
@@ -3829,7 +3840,7 @@ async function openHostPanel(id, ip) {
         </div>
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
-          <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td></tr>
+          <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Logical device overview">${esc(String(a.device_id))}</span>` : '—'}</td></tr>
           <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
             ${esc(a.mac||'—')}
             ${a.mac && parseInt(a.mac.split(':')[0],16) & 2 ?
@@ -3889,8 +3900,91 @@ function closeHostPanel() {
     document.getElementById('host-panel-bg').style.display = 'none';
 }
 
+// ==========================================================================
+// Device detail panel
+// ==========================================================================
+async function openDevicePanel(deviceId) {
+    closeHostPanel();
+    const did = parseInt(String(deviceId), 10);
+    if (!did) return;
+
+    document.getElementById('device-panel').style.display = 'block';
+    document.getElementById('device-panel-bg').style.display = 'block';
+    document.getElementById('dp-body').innerHTML = '<div class="loading">Loading…</div>';
+
+    const data = await api('/api/devices.php?id=' + encodeURIComponent(String(did)));
+    if (!data || !data.device) {
+        document.getElementById('dp-body').innerHTML = '<div class="loading">Device not found</div>';
+        return;
+    }
+
+    const d = data.device;
+    const assets = data.assets || [];
+    const mac = d.primary_mac_norm ? esc(d.primary_mac_norm) : '—';
+    const label = d.label ? esc(d.label) : '—';
+
+    const assetRows = assets.length
+        ? assets.map(a => {
+            const cv = a.top_cvss != null && a.top_cvss !== '' ? esc(String(a.top_cvss)) : '—';
+            return `<tr class="dp-asset-row" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="Open host detail">
+              <td class="mono mono-sm">${esc(a.ip)}</td>
+              <td>${esc(a.hostname || '—')}</td>
+              <td><span class="cat ${esc(a.category || 'unk')}">${esc(a.category || 'unk')}</span></td>
+              <td class="mono mono-sm">${cv}</td>
+              <td class="mono mono-sm">${relTime(a.last_seen)}</td>
+            </tr>`;
+        }).join('')
+        : '<tr><td colspan="5" class="text-secondary" style="padding:10px 0">No linked addresses</td></tr>';
+
+    document.getElementById('dp-body').innerHTML = `
+      <div class="hp-meta">
+        <div class="hp-meta-title">
+          <span class="mono mono-sm">#${did}</span>
+          <span class="hp-meta-host" style="margin-left:8px">${assets.length} address${assets.length === 1 ? '' : 'es'}</span>
+        </div>
+        <table class="hp-meta-table">
+          <tr><td class="hp-meta-key">MAC (norm)</td><td class="hp-meta-val mono">${mac}</td></tr>
+          <tr><td class="hp-meta-key">Label</td><td class="hp-meta-val">${label}</td></tr>
+          <tr><td class="hp-meta-key">Created</td><td class="hp-meta-val-dim">${localTime(d.created_at)}</td></tr>
+          <tr><td class="hp-meta-key">Updated</td><td class="hp-meta-val-dim">${localTime(d.updated_at)}</td></tr>
+        </table>
+      </div>
+      <div class="hp-actions" style="margin-top:12px;margin-bottom:14px">
+        <button type="button" class="btnp btn-xs" onclick="viewDeviceAssets(${did});closeDevicePanel()">View in Assets</button>
+      </div>
+      <div class="hp-head">
+        Linked addresses
+        <div class="hp-head-line"></div>
+      </div>
+      <div class="tbl-wrap" style="margin-bottom:12px">
+        <table class="tbl">
+          <thead><tr>
+            <th>IP</th><th>Hostname</th><th>Type</th><th>CVSS</th><th>Last seen</th>
+          </tr></thead>
+          <tbody>${assetRows}</tbody>
+        </table>
+      </div>
+      <p class="text-secondary" style="font-size:12px;margin:0">Click a row for full host detail (ports, CVEs, history).</p>`;
+
+    const hnHint = (assets[0] && assets[0].hostname) ? String(assets[0].hostname) : '';
+    document.getElementById('dp-title').textContent = hnHint
+        ? `Device #${did} — ${esc(hnHint)}`
+        : `Device #${did}`;
+}
+
+function closeDevicePanel() {
+    const p = document.getElementById('device-panel');
+    const bg = document.getElementById('device-panel-bg');
+    if (p) p.style.display = 'none';
+    if (bg) bg.style.display = 'none';
+}
+
 // close on Escape key
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHostPanel(); });
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    closeDevicePanel();
+    closeHostPanel();
+});
 
 // ==========================================================================
 // Export
