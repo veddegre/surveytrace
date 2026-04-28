@@ -61,8 +61,11 @@ if (!empty($body['retry_job_id'])) {
     }
     $enrRetry = $orig['enrichment_source_ids'] ?? null;
     $origLabel = trim((string)($orig['label'] ?? ''));
+    // Avoid suffix stacking like "(re-run) (re-run) ..." across repeated clones.
+    $baseLabel = preg_replace('/(?:\s*\((?:retry|re-run)\))+$/i', '', $origLabel);
+    $baseLabel = trim((string)$baseLabel);
     $suffix    = (($orig['status'] ?? '') === 'failed') ? ' (retry)' : ' (re-run)';
-    $newLabel  = $origLabel !== '' ? $origLabel . $suffix : null;
+    $newLabel  = $baseLabel !== '' ? $baseLabel . $suffix : null;
 
     $prio = (int)($orig['priority'] ?? 10);
     if ($prio < 1) {
