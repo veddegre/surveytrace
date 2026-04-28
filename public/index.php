@@ -576,7 +576,10 @@
     <div class="modal-card modal-w760">
       <div class="row-between mb10 gap10">
         <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
-        <button class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
+        <div class="row-wrap gap6" style="align-items:center">
+          <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
+          <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
+        </div>
       </div>
       <div id="scan-hist-detail-meta" class="status-text mb8"></div>
       <div id="scan-hist-detail-summary" class="help-mono mb10"></div>
@@ -2108,7 +2111,8 @@ async function loadScanHistory(history) {
     }
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
-    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr>
+    const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
+    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" title="Open scan details" onclick="openScanHistDetail(${j.id})">
       <td class="mono">#${j.id}</td>
       <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2117,9 +2121,9 @@ async function loadScanHistory(history) {
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
       <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10">${localDate(j.finished_at)}</td>
-      <td class="nowrap-cell">
-        <button class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
-        ${['queued','retrying'].includes(j.status)?`<button class="tbtn text-micro" style="color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn text-micro" onclick="retryJob(${j.id})">Retry</button>`:''}
+      <td class="nowrap-cell" onclick="event.stopPropagation()">
+        <button type="button" class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
+        ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" onclick="rerunScanJob(${j.id})">Re-run</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
 }
@@ -2158,7 +2162,7 @@ function updateQueuePanel(history) {
             <div class="track">
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
-        return `<tr>
+        return `<tr class="scan-hist-row" title="Open scan details" onclick="openScanHistDetail(${j.id})">
           <td class="mono">#${j.id}</td>
           <td class="text-primary font11">${esc(j.label||'—')}</td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2171,10 +2175,10 @@ function updateQueuePanel(history) {
           </td>
           <td class="mono font10">${j.priority||10}</td>
           <td class="mono font10">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
-          <td>
+          <td onclick="event.stopPropagation()">
             ${isRun
-              ? `<button class="btnd btn-xxs" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
-              : `<button class="tbtn btn-xxs danger" onclick="cancelJob(${j.id})">Cancel</button>`}
+              ? `<button type="button" class="btnd btn-xxs" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
+              : `<button type="button" class="tbtn btn-xxs danger" onclick="cancelJob(${j.id})">Cancel</button>`}
           </td>
         </tr>`;
     }).join('');
@@ -2210,11 +2214,15 @@ async function cancelJob(id) {
     else toast((r && r.error) || 'Cancel failed', 'err');
 }
 
-async function retryJob(id) {
-    // Clone the failed job as a new queued job
+async function rerunScanJob(id) {
     const r = await apiPost('/api/scan_start.php', {retry_job_id: id});
-    if (r && r.job_id) { toast('Job #' + r.job_id + ' queued (retry)', 'ok'); loadScanHistory(); }
-    else toast((r && r.error) || 'Retry failed', 'err');
+    if (r && r.job_id) {
+        closeScanHistDetailModal();
+        toast('New job #' + r.job_id + ' queued with the same target and options', 'ok');
+        loadScanHistory();
+    } else {
+        toast((r && r.error) || 'Re-run failed', 'err');
+    }
 }
 
 function closeScanHistDetailModal() {
@@ -2274,6 +2282,8 @@ async function openScanHistDetail(id) {
         document.body.appendChild(bg);
     }
     bg.style.display = 'flex';
+    const rerunBtn = document.getElementById('scan-hist-detail-rerun');
+    if (rerunBtn) { rerunBtn.style.display = 'none'; rerunBtn.dataset.jobId = ''; }
     const hint0 = document.getElementById('scan-hist-detail-assets-hint');
     if (hint0) hint0.style.display = 'none';
     title.textContent = 'Scan #' + id + ' detail';
@@ -2289,6 +2299,10 @@ async function openScanHistDetail(id) {
     }
 
     const j = d.job;
+    if (rerunBtn) {
+        rerunBtn.dataset.jobId = String(j.id);
+        rerunBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
+    }
     title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
     meta.innerHTML = `
       Target: <span class="mono">${esc(j.target_cidr || '—')}</span>

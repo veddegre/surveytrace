@@ -12,7 +12,8 @@
  *   "phases":      ["passive","icmp","banner","fingerprint","cve"],
  *   "rate_pps":    5,    // packets/sec per host, 1–50
  *   "inter_delay": 200,  // ms between hosts, 0–2000
- *   "label":       "Weekly full scan"          // optional human label
+ *   "label":       "Weekly full scan",         // optional human label
+ *   "retry_job_id": N                          // optional — clone job N (failed, done, or aborted) into a new queued job
  *   "enrichment_source_ids": [1,2] | [] | omitted
  *                              — optional; omit or null = all enabled sources;
  *                                [] = skip network enrichment for this scan
@@ -47,17 +48,29 @@ foreach ($scanJobMigrations as $col => $defn) {
 }
 
 // ---------------------------------------------------------------------------
-// Retry shortcut — clone a failed job before any validation
+// Retry / re-run shortcut — clone a finished job (failed, done, aborted)
+// before normal validation. POST body: { "retry_job_id": <id> }
 // ---------------------------------------------------------------------------
 if (!empty($body['retry_job_id'])) {
     $orig_id = (int)$body['retry_job_id'];
-    $stmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND status = 'failed'");
+    $stmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND status IN ('failed','done','aborted')");
     $stmt->execute([$orig_id]);
     $orig = $stmt->fetch();
     if (!$orig) {
-        st_json(['error' => 'Job not found or not in failed state'], 404);
+        st_json(['error' => 'Job not found or not eligible for re-run (need failed, done, or aborted)'], 404);
     }
     $enrRetry = $orig['enrichment_source_ids'] ?? null;
+    $origLabel = trim((string)($orig['label'] ?? ''));
+    $suffix    = (($orig['status'] ?? '') === 'failed') ? ' (retry)' : ' (re-run)';
+    $newLabel  = $origLabel !== '' ? $origLabel . $suffix : null;
+
+    $prio = (int)($orig['priority'] ?? 10);
+    if ($prio < 1) {
+        $prio = 1;
+    }
+    if ($prio > 99) {
+        $prio = 99;
+    }
 
     $db->prepare("
         INSERT INTO scan_jobs
@@ -66,14 +79,14 @@ if (!empty($body['retry_job_id'])) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
     ")->execute([
         $orig['target_cidr'],
-        $orig['label'] ? $orig['label'] . ' (retry)' : null,
+        $newLabel,
         $orig['exclusions'],
         $orig['phases'],
         $orig['rate_pps'],
         $orig['inter_delay'],
         $orig['scan_mode'] ?? 'auto',
         $orig['profile']   ?? 'standard_inventory',
-        5,
+        $prio,
         $enrRetry,
     ]);
     st_json(['ok' => true, 'job_id' => (int)$db->lastInsertId(), 'status' => 'queued']);
