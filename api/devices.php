@@ -1,23 +1,146 @@
 <?php
 /**
- * SurveyTrace — GET /api/devices.php
+ * SurveyTrace — /api/devices.php
  *
- * Lists logical devices (stable ids) with aggregate info from linked assets.
+ * GET — list or detail devices (see query params below).
+ * POST — device maintenance (merge).
  *
  * GET query params:
  *   q          — search id, MAC norm, label, or any linked asset IP/hostname
  *   sort       — id | asset_count | last_seen | primary_mac_norm (default: id)
- *   order      — asc | desc (default: desc for id: use asc)
+ *   order      — asc | desc
  *   page       — 1-based (default: 1)
  *   per_page   — 1–200 (default: 50)
  *   id         — if set, return one device plus its assets (no pagination)
+ *
+ * POST JSON body (merge):
+ *   action       — must be "merge"
+ *   survivor_id  — device row that keeps all assets
+ *   merge_ids    — array of other device ids to absorb (deleted after move)
  */
 
 require_once __DIR__ . '/db.php';
 st_auth();
-st_method('GET');
 
 $db = st_db();
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// ---------------------------------------------------------------------------
+// POST — merge devices into one survivor
+// ---------------------------------------------------------------------------
+if ($method === 'POST') {
+    st_method('POST');
+    $body   = st_input();
+    $action = isset($body['action']) ? (string)$body['action'] : '';
+    if ($action !== 'merge') {
+        st_json(['ok' => false, 'error' => 'Unknown action; use action=merge'], 400);
+    }
+
+    $survivor = (int)($body['survivor_id'] ?? 0);
+    if ($survivor <= 0) {
+        st_json(['ok' => false, 'error' => 'survivor_id must be a positive integer'], 400);
+    }
+
+    $mergeRaw = $body['merge_ids'] ?? [];
+    if (!is_array($mergeRaw)) {
+        st_json(['ok' => false, 'error' => 'merge_ids must be a JSON array of device ids'], 400);
+    }
+    $mergeIds = [];
+    foreach ($mergeRaw as $x) {
+        $n = (int)$x;
+        if ($n > 0 && $n !== $survivor) {
+            $mergeIds[$n] = true;
+        }
+    }
+    $mergeIds = array_map('intval', array_keys($mergeIds));
+    if ($mergeIds === []) {
+        st_json(['ok' => false, 'error' => 'merge_ids must list at least one other device id'], 400);
+    }
+    if (count($mergeIds) > 50) {
+        st_json(['ok' => false, 'error' => 'Too many devices in one merge (max 50)'], 400);
+    }
+
+    $chkSurv = $db->prepare('SELECT id, primary_mac_norm FROM devices WHERE id = ?');
+    $chkSurv->execute([$survivor]);
+    $survivorRow = $chkSurv->fetch(PDO::FETCH_ASSOC);
+    if (!$survivorRow) {
+        st_json(['ok' => false, 'error' => 'survivor device not found'], 404);
+    }
+
+    $placeholders = implode(',', array_fill(0, count($mergeIds), '?'));
+    $chkMerge = $db->prepare("SELECT id FROM devices WHERE id IN ($placeholders)");
+    $chkMerge->execute($mergeIds);
+    $foundMerge = array_map('intval', $chkMerge->fetchAll(PDO::FETCH_COLUMN));
+    sort($foundMerge, SORT_NUMERIC);
+    sort($mergeIds, SORT_NUMERIC);
+    if ($foundMerge !== $mergeIds) {
+        st_json(['ok' => false, 'error' => 'One or more merge_ids do not exist'], 404);
+    }
+
+    $cntStmt = $db->prepare("SELECT COUNT(*) FROM assets WHERE device_id IN ($placeholders)");
+    $cntStmt->execute($mergeIds);
+    $assetsUpdated = (int)$cntStmt->fetchColumn();
+
+    try {
+        $db->beginTransaction();
+
+        $macNorm = trim((string)($survivorRow['primary_mac_norm'] ?? ''));
+        if ($macNorm === '') {
+            $macStmt = $db->prepare(
+                "SELECT primary_mac_norm FROM devices WHERE id IN ($placeholders)
+                 AND primary_mac_norm IS NOT NULL AND TRIM(primary_mac_norm) != ''
+                 ORDER BY updated_at DESC LIMIT 1"
+            );
+            $macStmt->execute($mergeIds);
+            $borrow = $macStmt->fetchColumn();
+            if ($borrow !== false && $borrow !== null && trim((string)$borrow) !== '') {
+                $upMac = $db->prepare('UPDATE devices SET primary_mac_norm = ?, updated_at = datetime(\'now\') WHERE id = ?');
+                $upMac->execute([trim((string)$borrow), $survivor]);
+            }
+        }
+
+        $inPlaceholders = implode(',', array_fill(0, count($mergeIds), '?'));
+        $params        = array_merge([$survivor], $mergeIds);
+        $upd           = $db->prepare("UPDATE assets SET device_id = ? WHERE device_id IN ($inPlaceholders)");
+        $upd->execute($params);
+
+        $del = $db->prepare("DELETE FROM devices WHERE id IN ($inPlaceholders)");
+        $del->execute($mergeIds);
+
+        $touch = $db->prepare('UPDATE devices SET updated_at = datetime(\'now\') WHERE id = ?');
+        $touch->execute([$survivor]);
+
+        $msg = sprintf(
+            'Device merge: survivor=%d merged=%s assets_relinked=%d',
+            $survivor,
+            json_encode($mergeIds),
+            $assetsUpdated
+        );
+        $db->prepare(
+            'INSERT INTO scan_log (job_id, level, ip, message) VALUES (NULL, ?, ?, ?)'
+        )->execute(['INFO', '', $msg]);
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        st_json(['ok' => false, 'error' => 'Merge failed: ' . $e->getMessage()], 500);
+    }
+
+    st_json([
+        'ok'             => true,
+        'survivor_id'    => $survivor,
+        'merged_ids'     => $mergeIds,
+        'merged_count'   => count($mergeIds),
+        'assets_updated' => $assetsUpdated,
+    ]);
+}
+
+// ---------------------------------------------------------------------------
+// GET
+// ---------------------------------------------------------------------------
+st_method('GET');
 
 $id = st_int('id', 0, 0, PHP_INT_MAX);
 if ($id > 0) {

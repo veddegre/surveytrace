@@ -3995,6 +3995,12 @@ async function openDevicePanel(deviceId) {
       <div class="hp-actions" style="margin-top:12px;margin-bottom:14px">
         <button type="button" class="btnp btn-xs" onclick="viewDeviceAssets(${did});closeDevicePanel()">View in Assets</button>
       </div>
+      <div class="hp-head" style="margin-top:16px">Merge other devices into this one</div>
+      <p class="text-secondary" style="font-size:12px;line-height:1.45;margin:0 0 10px">All assets on the listed devices are reassigned here; those device rows are removed. A line is written to the audit log. Cannot be undone.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <input type="text" class="finp" id="dp-merge-ids" placeholder="Other device ids, e.g. 12, 18" autocomplete="off" style="min-width:0;flex:1;max-width:280px">
+        <button type="button" class="tbtn" onclick="requestDeviceMerge(${did})">Merge…</button>
+      </div>
       <div class="hp-head">
         Linked addresses
         <div class="hp-head-line"></div>
@@ -4020,6 +4026,41 @@ function closeDevicePanel() {
     const bg = document.getElementById('device-panel-bg');
     if (p) p.style.display = 'none';
     if (bg) bg.style.display = 'none';
+}
+
+async function requestDeviceMerge(survivorId) {
+    const sid = parseInt(String(survivorId), 10);
+    if (!sid) return;
+    const raw = (document.getElementById('dp-merge-ids')?.value || '').trim();
+    const mergeIds = [...new Set(
+        raw.split(/[\s,]+/).map(s => parseInt(s, 10)).filter(n => n > 0 && n !== sid)
+    )];
+    if (!mergeIds.length) {
+        toast('Enter one or more other device ids (comma or space separated).', 'err');
+        return;
+    }
+    const ok = await showConfirmModal(
+        'Merge devices ' + mergeIds.join(', ') + ' into device ' + sid + '?\n\n'
+        + 'All assets on those devices will be reassigned here. The merged device rows will be deleted. This cannot be undone.',
+        { title: 'Merge devices', okText: 'Merge' }
+    );
+    if (!ok) return;
+    const res = await apiPost('/api/devices.php', {
+        action: 'merge',
+        survivor_id: sid,
+        merge_ids: mergeIds,
+    });
+    if (res && res.ok === true) {
+        toast('Merged ' + res.merged_count + ' device(s); ' + res.assets_updated + ' asset(s) updated.', 'ok');
+        if (mergeIds.includes(assetDeviceFilter)) {
+            assetDeviceFilter = sid;
+        }
+        closeDevicePanel();
+        if (currentTab === 'devices') loadDevices(typeof devicePage === 'number' ? devicePage : 1);
+        if (currentTab === 'assets') loadAssets(typeof assetPage === 'number' ? assetPage : 1);
+        return;
+    }
+    toast((res && res.error) ? res.error : 'Merge failed', 'err');
 }
 
 // close on Escape key
