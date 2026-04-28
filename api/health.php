@@ -59,21 +59,92 @@ function st_health_systemd_unit(string $unit): array {
     return $out;
 }
 
-function st_health_fmt_bytes(?int $b): ?string {
-    if ($b === null || $b < 0) {
+/**
+ * Human size without (int) casts — they overflow for multi-GB on 32-bit PHP and
+ * can corrupt filesize/stat results that wrap past 2^31.
+ *
+ * @param int|float|null $bytes
+ */
+function st_health_fmt_bytes($bytes): ?string {
+    if ($bytes === null) {
         return null;
     }
-    if ($b < 1024) {
-        return $b . ' B';
+    $x = (float) $bytes;
+    if ($x < 0.0 || $x > 1.0e21) {
+        return null;
     }
-    $units = ['KB', 'MB', 'GB', 'TB'];
-    $n = (float)$b;
-    $i = 0;
-    while ($n >= 1024 && $i < count($units) - 1) {
-        $n /= 1024;
-        $i++;
+    if ($x < 1024) {
+        return (string) (int) max(0, $x) . ' B';
     }
-    return round($n, $i > 0 ? 1 : 0) . ' ' . $units[$i];
+    $units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+    $e = (int) min(
+        (int) floor(log($x, 1024)),
+        count($units) - 1
+    );
+    if ($e < 0) {
+        $e = 0;
+    }
+    $v = $x / (1024 ** $e);
+    return round($v, $e > 0 ? 1 : 0) . ' ' . $units[$e];
+}
+
+/** Free space on the filesystem that contains this path. Uses float, never (int) cast. */
+function st_health_disk_free_bytes(string $path): ?float {
+    $p = $path;
+    if (is_file($p)) {
+        $p = dirname($p);
+    } elseif (!is_dir($p)) {
+        $p = dirname($p);
+    }
+    $rp = @realpath($p);
+    if ($rp !== false) {
+        $p = $rp;
+    }
+    if (!is_dir($p) || $p === '') {
+        return null;
+    }
+    $v = @disk_free_space($p);
+    if ($v === false) {
+        return null;
+    }
+    $f = (float) $v;
+    return $f >= 0.0 ? $f : null;
+}
+
+/**
+ * File length as float. Avoids 32-bit filesize/ stat wrap. Falls back to fseek+ftell.
+ */
+function st_health_file_bytes(string $path): ?float {
+    if (!is_file($path) || !is_readable($path)) {
+        return null;
+    }
+    clearstatcache(true, $path);
+    $fs = @filesize($path);
+    if ($fs !== false) {
+        // 32-bit PHP can return a negative int for large files; treat as unreliable.
+        if (is_int($fs) && $fs < 0) {
+            $fs = null;
+        } else {
+            return (float) $fs;
+        }
+    }
+    $fh = @fopen($path, 'rb');
+    if ($fh === false) {
+        return null;
+    }
+    if (fseek($fh, 0, SEEK_END) !== 0) {
+        fclose($fh);
+        return null;
+    }
+    $pos = @ftell($fh);
+    fclose($fh);
+    if ($pos === false) {
+        return null;
+    }
+    if (is_int($pos) && $pos < 0) {
+        return null;
+    }
+    return (float) $pos;
 }
 
 try {
@@ -109,12 +180,12 @@ $health = [
     ],
     'database' => [
         'reachable' => true,
-        'file_bytes' => is_file($appDb) ? (int)filesize($appDb) : null,
+        'file_bytes' => null,
         'file_bytes_human' => null,
     ],
     'nvd' => [
         'db_exists' => is_file($nvdDb),
-        'db_bytes' => is_file($nvdDb) ? (int)filesize($nvdDb) : null,
+        'db_bytes' => null,
         'db_bytes_human' => null,
         'last_config_sync' => st_config('nvd_last_sync', ''),
     ],
@@ -139,14 +210,19 @@ $health = [
     ],
 ];
 
-$df = @disk_free_space($dataDir);
-if ($df !== false) {
-    $bi = (int)$df;
-    $health['disk']['data_dir_free_bytes'] = $bi;
-    $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($bi);
+$dfree = st_health_disk_free_bytes($dataDir);
+if ($dfree !== null) {
+    $health['disk']['data_dir_free_bytes'] = $dfree;
+    $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($dfree);
 }
-$health['database']['file_bytes_human'] = st_health_fmt_bytes($health['database']['file_bytes']);
-$health['nvd']['db_bytes_human'] = st_health_fmt_bytes($health['nvd']['db_bytes']);
+
+$appDbBytes = is_file($appDb) ? st_health_file_bytes($appDb) : null;
+$health['database']['file_bytes'] = $appDbBytes;
+$health['database']['file_bytes_human'] = st_health_fmt_bytes($appDbBytes);
+
+$nvdDbBytes = is_file($nvdDb) ? st_health_file_bytes($nvdDb) : null;
+$health['nvd']['db_bytes'] = $nvdDbBytes;
+$health['nvd']['db_bytes_human'] = st_health_fmt_bytes($nvdDbBytes);
 
 $fs = st_feed_sync_state_read();
 $health['feeds']['job_running'] = !empty($fs['running']);
