@@ -141,7 +141,7 @@ $page       = st_int('page',     1,  1);
 $per_page   = st_int('per_page', 50, 1, 200);
 $offset     = ($page - 1) * $per_page;
 
-$valid_sorts = ['ip','hostname','category','top_cvss','last_seen','first_seen','vendor','open_findings'];
+$valid_sorts = ['ip','device_id','hostname','category','top_cvss','last_seen','first_seen','vendor','open_findings'];
 $sort_col    = st_str('sort', 'ip', $valid_sorts);
 $sort_order  = st_str('order', 'asc', ['asc','desc']) === 'desc' ? 'DESC' : 'ASC';
 

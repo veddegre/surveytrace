@@ -17,6 +17,6 @@ SurveyTrace stores **addresses** and **devices** separately:
 - **MAC** — stored as `primary_mac_norm` on `devices` (lowercase 12 hex, no separators) when the address is a **link where L2 is trustworthy** (e.g. same broadcast domain). It is a **strong hint** for future deduplication, not a sole primary key.
 - **Merge and split** across IPs, hostname changes, or conflicting signals are **out of scope** for v1; the schema is ready to attach more identifiers and policies later.
 
-## API
+## API and UI
 
-`GET /api/assets.php` returns `device_id` on list and detail responses (from `a.*` / `decode_asset`).
+`GET /api/assets.php` returns `device_id` on list and detail responses (from `a.*` / `decode_asset`). The web UI shows it in the **Assets** table, **host detail** side panel, **dashboard** top-vulnerable table, and **CSV/JSON export** (`/api/export.php`). Assets can be sorted by `device_id`.

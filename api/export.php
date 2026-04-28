@@ -54,7 +54,7 @@ $where_sql = implode(' AND ', $where);
 
 $stmt = $db->prepare("
     SELECT
-        a.ip, a.hostname, a.mac, a.mac_vendor, a.category,
+        a.ip, a.device_id, a.hostname, a.mac, a.mac_vendor, a.category,
         a.vendor, a.model, a.os_guess, a.cpe,
         a.open_ports, a.top_cve, a.top_cvss,
         (SELECT COUNT(*) FROM findings f WHERE f.asset_id = a.id AND f.resolved = 0) AS open_findings,
@@ -116,7 +116,7 @@ fwrite($out, "\xEF\xBB\xBF");
 
 // Asset header row
 fputcsv($out, [
-    'IP Address', 'Hostname', 'MAC', 'MAC Vendor', 'Category',
+    'IP Address', 'Device ID', 'Hostname', 'MAC', 'MAC Vendor', 'Category',
     'Vendor', 'Model', 'OS Guess', 'CPE',
     'Open Ports', 'Top CVE', 'Top CVSS', 'Severity',
     'Open Findings', 'First Seen', 'Last Seen', 'Notes',
@@ -129,6 +129,8 @@ foreach ($assets as $a) {
 
     fputcsv($out, [
         $a['ip'],
+        isset($a['device_id']) && $a['device_id'] !== '' && $a['device_id'] !== null
+            ? (int)$a['device_id'] : '',
         $a['hostname'] ?? '',
         $a['mac'] ?? '',
         $a['mac_vendor'] ?? '',
@@ -160,6 +162,7 @@ foreach ($assets as $a) {
         foreach ($fstmt->fetchAll() as $f) {
             fputcsv($out, [
                 '',                  // IP (blank — belongs to asset above)
+                '',                  // Device ID
                 '',                  // Hostname
                 '', '', '',          // MAC, MAC Vendor, Category
                 '',                  // Vendor

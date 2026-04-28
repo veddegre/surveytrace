@@ -97,8 +97,8 @@
 
   <div class="sth">Top vulnerable assets</div>
   <div class="tbl-wrap mb16">
-    <table class="tbl"><thead><tr><th>IP</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
-    <tbody id="dash-top-vuln"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+    <table class="tbl"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
+    <tbody id="dash-top-vuln"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody></table>
   </div>
 
   <div class="sth">Recent activity <button class="sth-btn" onclick="loadDashboard()">&#8635; Refresh</button></div>
@@ -123,7 +123,8 @@
       <option value="medium">Medium</option><option value="low">Low</option><option value="none">None</option>
     </select>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
-      <option value="ip">Sort: IP</option><option value="hostname">Hostname</option>
+      <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
+      <option value="hostname">Hostname</option>
       <option value="category">Type</option><option value="top_cvss">CVSS</option>
       <option value="last_seen">Last seen</option><option value="open_findings">CVEs</option>
     </select>
@@ -134,6 +135,7 @@
     <table class="tbl">
       <thead><tr>
         <th onclick="sortAssets('ip')">IP address</th>
+        <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
         <th onclick="sortAssets('category')">Type</th>
         <th>Vendor / model</th>
@@ -143,7 +145,7 @@
         <th onclick="sortAssets('last_seen')">Last seen</th>
         <th>Edit</th>
       </tr></thead>
-      <tbody id="asset-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+      <tbody id="asset-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="pgn">
@@ -1408,6 +1410,7 @@ async function loadDashboard() {
     document.getElementById('dash-top-vuln').innerHTML = tv.length
         ? tv.map(a => `<tr>
             <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+            <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td>
             <td class="text-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
             <td class="text-primary" style="font-size:12px">${esc(a.vendor||'—')}</td>
@@ -1415,7 +1418,7 @@ async function loadDashboard() {
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
             <td class="mono">${a.finding_count}</td>
           </tr>`).join('')
-        : '<tr><td colspan="7" class="loading">No vulnerable assets found</td></tr>';
+        : '<tr><td colspan="8" class="loading">No vulnerable assets found</td></tr>';
 
     // Activity feed
     const act = d.activity || [];
@@ -1584,7 +1587,7 @@ async function loadAssets(page) {
 
     // Show loading state immediately
     document.getElementById('asset-tbody').innerHTML =
-        '<tr><td colspan="9" class="loading">Loading assets…</td></tr>';
+        '<tr><td colspan="10" class="loading">Loading assets…</td></tr>';
 
     const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}`;
     const d   = await api(url);
@@ -1604,6 +1607,7 @@ async function loadAssets(page) {
         }
         return `<tr>
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+          <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
           <td class="text-primary" style="font-size:12px">${vendorCell}</td>
@@ -1613,7 +1617,7 @@ async function loadAssets(page) {
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td><button class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button></td>
         </tr>`;
-    }).join('') || '<tr><td colspan="8" class="loading">No assets found</td></tr>';
+    }).join('') || '<tr><td colspan="10" class="loading">No assets found</td></tr>';
 
     document.getElementById('apgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} assets)`;
     document.getElementById('aprev').disabled = page <= 1;
@@ -3705,6 +3709,7 @@ async function openHostPanel(id, ip) {
         </div>
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
+          <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? esc(String(a.device_id)) : '—'}</td></tr>
           <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
             ${esc(a.mac||'—')}
             ${a.mac && parseInt(a.mac.split(':')[0],16) & 2 ?

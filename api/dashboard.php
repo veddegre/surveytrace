@@ -114,7 +114,7 @@ $scan_history = $db->query("
 // Top 5 most vulnerable assets
 // ---------------------------------------------------------------------------
 $top_vulnerable = $db->query("
-    SELECT a.id, a.ip, a.hostname, a.category, a.vendor, a.top_cve, a.top_cvss,
+    SELECT a.id, a.ip, a.device_id, a.hostname, a.category, a.vendor, a.top_cve, a.top_cvss,
            COUNT(f.id) AS finding_count
     FROM assets a
     JOIN findings f ON f.asset_id = a.id AND f.resolved = 0
@@ -128,6 +128,9 @@ foreach ($top_vulnerable as &$tv) {
     $tv['severity']      = st_severity((float)($tv['top_cvss'] ?? 0));
     $tv['top_cvss']      = (float)($tv['top_cvss'] ?? 0);
     $tv['finding_count'] = (int)$tv['finding_count'];
+    if (isset($tv['device_id']) && $tv['device_id'] !== null && $tv['device_id'] !== '') {
+        $tv['device_id'] = (int)$tv['device_id'];
+    }
 }
 unset($tv);
 
