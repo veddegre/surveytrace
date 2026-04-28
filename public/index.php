@@ -4046,6 +4046,26 @@ async function openHostPanel(id, ip) {
           ${!f.resolved ? `<button class="tbtn btn-xs mt4" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
         </div>`).join('') : '<div class="hp-empty">No vulnerabilities found</div>';
 
+    const scanHistoryRows = (assetData.asset.scan_history || []).length
+        ? (assetData.asset.scan_history || []).map(h => {
+            const ch = h.changes || {};
+            const plusPorts = (ch.new_ports || []).slice(0, 6).join(', ');
+            const minusPorts = (ch.closed_ports || []).slice(0, 6).join(', ');
+            const plusCves = (ch.new_cves || []).slice(0, 4).join(', ');
+            const minusCves = (ch.resolved_cves || []).slice(0, 4).join(', ');
+            const portsTotal = Array.isArray(h.ports) ? h.ports.length : 0;
+            const when = h.finished_at || h.started_at || h.created_at;
+            return `<div class="hp-history-row">
+              <span class="hp-history-ts">#${h.job_id} · ${esc(localDate(when))}</span>
+              <span class="hp-history-ports">${portsTotal} ports · ${h.open_findings || 0} open CVEs</span>
+              ${(plusPorts || minusPorts || plusCves || minusCves) ? `
+                <div class="status-text" style="margin-top:2px">
+                  ${plusPorts ? `+ports ${esc(plusPorts)} ` : ''}${minusPorts ? `-ports ${esc(minusPorts)} ` : ''}${plusCves ? `+CVEs ${esc(plusCves)} ` : ''}${minusCves ? `resolved ${esc(minusCves)}` : ''}
+                </div>` : ''}
+            </div>`;
+        }).join('')
+        : '<div class="hp-empty" style="padding:4px 0">No per-scan history yet</div>';
+
     document.getElementById('hp-body').innerHTML = `
       <div class="hp-meta">
         <div class="hp-meta-title">
@@ -4103,6 +4123,12 @@ async function openHostPanel(id, ip) {
           </div>`).join('') || '<div class="hp-empty" style="padding:4px 0">No history yet</div>'
       }</div>
 
+      <div class="hp-head">
+        Scan change history
+        <div class="hp-head-line"></div>
+      </div>
+      <div class="mb10">${scanHistoryRows}</div>
+
       <div class="hp-actions">
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
         <button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
@@ -4134,6 +4160,7 @@ async function openDevicePanel(deviceId) {
 
     const d = data.device;
     const assets = data.assets || [];
+    const deviceScanHistory = data.scan_history || [];
     const mac = d.primary_mac_norm ? esc(d.primary_mac_norm) : '—';
     const label = d.label ? esc(d.label) : '—';
 
@@ -4149,6 +4176,27 @@ async function openDevicePanel(deviceId) {
             </tr>`;
         }).join('')
         : '<tr><td colspan="5" class="text-secondary" style="padding:10px 0">No linked addresses</td></tr>';
+
+    const scanHistoryRows = deviceScanHistory.length
+        ? deviceScanHistory.map(h => {
+            const ch = h.changes || {};
+            const plusPorts = (ch.new_ports || []).slice(0, 6).join(', ');
+            const minusPorts = (ch.closed_ports || []).slice(0, 6).join(', ');
+            const plusCves = (ch.new_cves || []).slice(0, 4).join(', ');
+            const minusCves = (ch.resolved_cves || []).slice(0, 4).join(', ');
+            const when = h.finished_at || h.started_at || h.created_at;
+            const pCount = Array.isArray(h.ports) ? h.ports.length : 0;
+            return `<div class="hp-history-row">
+              <span class="hp-history-ts">#${h.job_id} · ${esc(localDate(when))}</span>
+              <span class="hp-history-ports">${h.asset_count || 0} assets · ${pCount} ports · ${h.open_findings || 0} open CVEs</span>
+              <button type="button" class="tbtn btn-xs" style="margin-top:3px" onclick="openScanDetailFromDeviceHistory(${h.job_id})">View run details</button>
+              ${(plusPorts || minusPorts || plusCves || minusCves) ? `
+                <div class="status-text" style="margin-top:2px">
+                  ${plusPorts ? `+ports ${esc(plusPorts)} ` : ''}${minusPorts ? `-ports ${esc(minusPorts)} ` : ''}${plusCves ? `+CVEs ${esc(plusCves)} ` : ''}${minusCves ? `resolved ${esc(minusCves)}` : ''}
+                </div>` : ''}
+            </div>`;
+        }).join('')
+        : '<div class="hp-empty" style="padding:4px 0">No device scan history yet</div>';
 
     document.getElementById('dp-body').innerHTML = `
       <div class="hp-meta">
@@ -4184,6 +4232,11 @@ async function openDevicePanel(deviceId) {
           <tbody>${assetRows}</tbody>
         </table>
       </div>
+      <div class="hp-head">
+        Device scan history
+        <div class="hp-head-line"></div>
+      </div>
+      <div class="mb12">${scanHistoryRows}</div>
       <p class="text-secondary" style="font-size:12px;margin:0">Click a row for full host detail (ports, CVEs, history).</p>`;
 
     const hnHint = (assets[0] && assets[0].hostname) ? String(assets[0].hostname) : '';
@@ -4197,6 +4250,16 @@ function closeDevicePanel() {
     const bg = document.getElementById('device-panel-bg');
     if (p) p.style.display = 'none';
     if (bg) bg.style.display = 'none';
+}
+
+function openScanDetailFromDeviceHistory(jobId) {
+    const jid = parseInt(String(jobId), 10);
+    if (!jid) return;
+    closeDevicePanel();
+    goTab('scanhist');
+    hiNav('nscanhist');
+    // Open after tab switch/render settles.
+    setTimeout(() => { void openScanHistDetail(jid); }, 0);
 }
 
 async function requestDeviceMerge(survivorId) {

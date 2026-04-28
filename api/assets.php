@@ -126,6 +126,162 @@ if ($single_id > 0) {
         return $r;
     }, $phstmt->fetchAll());
 
+    // Per-scan host history with change deltas (ports + CVEs)
+    $hstmt = $db->prepare("
+        SELECT
+            sas.job_id,
+            sas.ip,
+            sas.hostname,
+            sas.category,
+            sas.vendor,
+            sas.top_cve,
+            sas.top_cvss,
+            sas.open_ports,
+            sj.status,
+            sj.label,
+            sj.created_at,
+            sj.started_at,
+            sj.finished_at,
+            sj.profile,
+            sj.scan_mode
+        FROM scan_asset_snapshots sas
+        JOIN scan_jobs sj ON sj.id = sas.job_id
+        WHERE sas.asset_id = ?
+        ORDER BY sas.job_id DESC
+        LIMIT 40
+    ");
+    $hstmt->execute([$single_id]);
+    $histRows = $hstmt->fetchAll();
+
+    // Fallback for legacy data before scan_asset_snapshots existed
+    if (!$histRows) {
+        $hstmt = $db->prepare("
+            SELECT
+                ph.scan_id AS job_id,
+                a.ip,
+                a.hostname,
+                a.category,
+                a.vendor,
+                a.top_cve,
+                a.top_cvss,
+                ph.ports AS open_ports,
+                sj.status,
+                sj.label,
+                sj.created_at,
+                sj.started_at,
+                sj.finished_at,
+                sj.profile,
+                sj.scan_mode
+            FROM port_history ph
+            LEFT JOIN assets a ON a.id = ph.asset_id
+            LEFT JOIN scan_jobs sj ON sj.id = ph.scan_id
+            WHERE ph.asset_id = ?
+              AND ph.scan_id IS NOT NULL
+            ORDER BY ph.scan_id DESC, ph.seen_at DESC
+            LIMIT 40
+        ");
+        $hstmt->execute([$single_id]);
+        $histRows = $hstmt->fetchAll();
+    }
+
+    $scanHistory = [];
+    foreach ($histRows as $r) {
+        $jid = (int)($r['job_id'] ?? 0);
+        if ($jid <= 0) continue;
+        if (isset($scanHistory[$jid])) continue;
+        $ports = json_decode((string)($r['open_ports'] ?? '[]'), true);
+        if (!is_array($ports)) $ports = [];
+        $ports = array_values(array_unique(array_map('intval', $ports)));
+        sort($ports, SORT_NUMERIC);
+        $scanHistory[$jid] = [
+            'job_id'      => $jid,
+            'status'      => (string)($r['status'] ?? ''),
+            'label'       => (string)($r['label'] ?? ''),
+            'created_at'  => $r['created_at'] ?? null,
+            'started_at'  => $r['started_at'] ?? null,
+            'finished_at' => $r['finished_at'] ?? null,
+            'profile'     => $r['profile'] ?? null,
+            'scan_mode'   => $r['scan_mode'] ?? null,
+            'ip'          => (string)($r['ip'] ?? ''),
+            'hostname'    => (string)($r['hostname'] ?? ''),
+            'category'    => (string)($r['category'] ?? ''),
+            'vendor'      => (string)($r['vendor'] ?? ''),
+            'top_cve'     => (string)($r['top_cve'] ?? ''),
+            'top_cvss'    => $r['top_cvss'] ?? null,
+            'ports'       => $ports,
+            'cves'        => [],
+            'open_findings' => 0,
+        ];
+    }
+
+    $fhs = $db->prepare("
+        SELECT job_id, cve_id, cvss, severity, COALESCE(resolved,0) AS resolved
+        FROM scan_finding_snapshots
+        WHERE asset_id = ?
+        ORDER BY job_id DESC, cvss DESC
+        LIMIT 1000
+    ");
+    $fhs->execute([$single_id]);
+    foreach ($fhs->fetchAll() as $fr) {
+        $jid = (int)($fr['job_id'] ?? 0);
+        if ($jid <= 0) continue;
+        if (!isset($scanHistory[$jid])) {
+            $scanHistory[$jid] = [
+                'job_id' => $jid,
+                'status' => '',
+                'label' => '',
+                'created_at' => null,
+                'started_at' => null,
+                'finished_at' => null,
+                'profile' => null,
+                'scan_mode' => null,
+                'ip' => (string)($asset['ip'] ?? ''),
+                'hostname' => (string)($asset['hostname'] ?? ''),
+                'category' => (string)($asset['category'] ?? ''),
+                'vendor' => (string)($asset['vendor'] ?? ''),
+                'top_cve' => '',
+                'top_cvss' => null,
+                'ports' => [],
+                'cves' => [],
+                'open_findings' => 0,
+            ];
+        }
+        $scanHistory[$jid]['cves'][] = [
+            'cve_id'   => (string)($fr['cve_id'] ?? ''),
+            'cvss'     => $fr['cvss'] ?? null,
+            'severity' => (string)($fr['severity'] ?? ''),
+            'resolved' => (int)($fr['resolved'] ?? 0),
+        ];
+    }
+
+    usort($scanHistory, fn($a, $b) => ($b['job_id'] <=> $a['job_id']));
+    for ($i = 0; $i < count($scanHistory); $i++) {
+        $cur = $scanHistory[$i];
+        $prev = $scanHistory[$i + 1] ?? null;
+        $curPorts = $cur['ports'] ?? [];
+        $prevPorts = $prev['ports'] ?? [];
+        $curOpen = array_values(array_unique(array_map(
+            fn($x) => (string)$x['cve_id'],
+            array_filter($cur['cves'], fn($x) => (int)($x['resolved'] ?? 0) === 0)
+        )));
+        sort($curOpen, SORT_STRING);
+        $prevOpen = $prev ? array_values(array_unique(array_map(
+            fn($x) => (string)$x['cve_id'],
+            array_filter($prev['cves'], fn($x) => (int)($x['resolved'] ?? 0) === 0)
+        ))) : [];
+        sort($prevOpen, SORT_STRING);
+        $scanHistory[$i]['open_findings'] = count($curOpen);
+        $scanHistory[$i]['changes'] = [
+            'new_ports'      => array_values(array_diff($curPorts, $prevPorts)),
+            'closed_ports'   => array_values(array_diff($prevPorts, $curPorts)),
+            'new_cves'       => array_values(array_diff($curOpen, $prevOpen)),
+            'resolved_cves'  => array_values(array_diff($prevOpen, $curOpen)),
+        ];
+        // Keep payload compact
+        $scanHistory[$i]['cves'] = array_slice($scanHistory[$i]['cves'], 0, 20);
+    }
+    $asset['scan_history'] = array_slice($scanHistory, 0, 20);
+
     st_json(['asset' => $asset]);
 }
 

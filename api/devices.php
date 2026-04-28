@@ -170,10 +170,134 @@ if ($id > 0) {
     }
     unset($r);
 
+    $assetIds = array_values(array_map(fn($r) => (int)$r['id'], $rows));
+    $scanHistory = [];
+    if ($assetIds) {
+        $ph = implode(',', array_fill(0, count($assetIds), '?'));
+
+        $jobMetaStmt = $db->prepare("
+            SELECT DISTINCT
+                sas.job_id,
+                sj.status,
+                sj.label,
+                sj.created_at,
+                sj.started_at,
+                sj.finished_at,
+                sj.profile,
+                sj.scan_mode
+            FROM scan_asset_snapshots sas
+            JOIN scan_jobs sj ON sj.id = sas.job_id
+            WHERE sas.asset_id IN ($ph)
+            ORDER BY sas.job_id DESC
+            LIMIT 60
+        ");
+        $jobMetaStmt->execute($assetIds);
+        foreach ($jobMetaStmt->fetchAll() as $jr) {
+            $jid = (int)($jr['job_id'] ?? 0);
+            if ($jid <= 0) continue;
+            $scanHistory[$jid] = [
+                'job_id' => $jid,
+                'status' => (string)($jr['status'] ?? ''),
+                'label' => (string)($jr['label'] ?? ''),
+                'created_at' => $jr['created_at'] ?? null,
+                'started_at' => $jr['started_at'] ?? null,
+                'finished_at' => $jr['finished_at'] ?? null,
+                'profile' => $jr['profile'] ?? null,
+                'scan_mode' => $jr['scan_mode'] ?? null,
+                'asset_count' => 0,
+                'ports' => [],
+                'open_findings' => 0,
+                'changes' => ['new_ports' => [], 'closed_ports' => [], 'new_cves' => [], 'resolved_cves' => []],
+            ];
+        }
+
+        if ($scanHistory) {
+            $jobIds = array_keys($scanHistory);
+            $jobPh = implode(',', array_fill(0, count($jobIds), '?'));
+
+            $snapStmt = $db->prepare("
+                SELECT job_id, asset_id, open_ports
+                FROM scan_asset_snapshots
+                WHERE job_id IN ($jobPh) AND asset_id IN ($ph)
+                ORDER BY job_id DESC
+            ");
+            $snapStmt->execute(array_merge($jobIds, $assetIds));
+            $portsSeen = [];
+            $assetSeen = [];
+            foreach ($snapStmt->fetchAll() as $sr) {
+                $jid = (int)($sr['job_id'] ?? 0);
+                $aid = (int)($sr['asset_id'] ?? 0);
+                if ($jid <= 0 || !isset($scanHistory[$jid])) continue;
+                if ($aid > 0 && !isset($assetSeen[$jid][$aid])) {
+                    $assetSeen[$jid][$aid] = 1;
+                    $scanHistory[$jid]['asset_count']++;
+                }
+                $ports = json_decode((string)($sr['open_ports'] ?? '[]'), true);
+                if (!is_array($ports)) $ports = [];
+                foreach ($ports as $p) {
+                    $pi = (int)$p;
+                    if ($pi > 0 && $pi <= 65535) {
+                        $portsSeen[$jid][$pi] = 1;
+                    }
+                }
+            }
+            foreach ($portsSeen as $jid => $set) {
+                $arr = array_map('intval', array_keys($set));
+                sort($arr, SORT_NUMERIC);
+                $scanHistory[$jid]['ports'] = $arr;
+            }
+
+            $fStmt = $db->prepare("
+                SELECT job_id, cve_id, resolved
+                FROM scan_finding_snapshots
+                WHERE job_id IN ($jobPh) AND asset_id IN ($ph)
+                ORDER BY job_id DESC
+            ");
+            $fStmt->execute(array_merge($jobIds, $assetIds));
+            $openCves = [];
+            foreach ($fStmt->fetchAll() as $fr) {
+                $jid = (int)($fr['job_id'] ?? 0);
+                if ($jid <= 0 || !isset($scanHistory[$jid])) continue;
+                if ((int)($fr['resolved'] ?? 0) !== 0) continue;
+                $cid = (string)($fr['cve_id'] ?? '');
+                if ($cid !== '') {
+                    $openCves[$jid][$cid] = 1;
+                }
+            }
+            foreach ($openCves as $jid => $set) {
+                $scanHistory[$jid]['open_findings'] = count($set);
+                $scanHistory[$jid]['_open_cves'] = array_keys($set);
+                sort($scanHistory[$jid]['_open_cves'], SORT_STRING);
+            }
+
+            krsort($scanHistory, SORT_NUMERIC);
+            $ordered = array_values($scanHistory);
+            for ($i = 0; $i < count($ordered); $i++) {
+                $cur = $ordered[$i];
+                $prev = $ordered[$i + 1] ?? null;
+                $curPorts = $cur['ports'] ?? [];
+                $prevPorts = $prev['ports'] ?? [];
+                $curCves = $cur['_open_cves'] ?? [];
+                $prevCves = $prev['_open_cves'] ?? [];
+                $ordered[$i]['changes'] = [
+                    'new_ports' => array_values(array_diff($curPorts, $prevPorts)),
+                    'closed_ports' => array_values(array_diff($prevPorts, $curPorts)),
+                    'new_cves' => array_values(array_diff($curCves, $prevCves)),
+                    'resolved_cves' => array_values(array_diff($prevCves, $curCves)),
+                ];
+                unset($ordered[$i]['_open_cves']);
+            }
+            $scanHistory = array_slice($ordered, 0, 25);
+        } else {
+            $scanHistory = [];
+        }
+    }
+
     st_json([
         'device' => $device,
         'assets' => $rows,
         'asset_count' => count($rows),
+        'scan_history' => $scanHistory,
     ]);
 }
 

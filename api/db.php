@@ -78,6 +78,22 @@ function st_db(): PDO {
         )"
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_asset ON scan_asset_snapshots(asset_id, job_id DESC)');
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS scan_finding_snapshots (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+            asset_id    INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            cve_id      TEXT NOT NULL,
+            cvss        REAL,
+            severity    TEXT,
+            resolved    INTEGER DEFAULT 0,
+            captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC)');
 
     st_migrate_device_identity_v1($pdo);
 

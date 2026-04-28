@@ -143,6 +143,24 @@ CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
     captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id);
+CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_asset ON scan_asset_snapshots(asset_id, job_id DESC);
+
+-- -------------------------------------------------------
+-- Per-scan finding snapshot: preserve CVE state per run
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scan_finding_snapshots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+    asset_id    INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    cve_id      TEXT NOT NULL,
+    cvss        REAL,
+    severity    TEXT,
+    resolved    INTEGER DEFAULT 0,
+    captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id);
+CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC);
 
 -- -------------------------------------------------------
 -- Port snapshots: track port changes over time

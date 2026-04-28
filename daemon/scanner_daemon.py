@@ -2463,6 +2463,35 @@ def run_scan(job: dict) -> None:
                     for r in snap_rows
                 ],
             )
+        conn.execute("DELETE FROM scan_finding_snapshots WHERE job_id = ?", (job_id,))
+        finding_rows = conn.execute(
+            """
+            SELECT f.asset_id, f.cve_id, f.cvss, f.severity, COALESCE(f.resolved, 0) AS resolved
+            FROM findings f
+            JOIN assets a ON a.id = f.asset_id
+            WHERE a.last_scan_id = ?
+            """,
+            (job_id,),
+        ).fetchall()
+        if finding_rows:
+            conn.executemany(
+                """
+                INSERT INTO scan_finding_snapshots
+                    (job_id, asset_id, cve_id, cvss, severity, resolved)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        job_id,
+                        int(fr["asset_id"]),
+                        fr["cve_id"],
+                        fr["cvss"],
+                        fr["severity"],
+                        int(fr["resolved"] or 0),
+                    )
+                    for fr in finding_rows
+                ],
+            )
 
         conn.execute("""
             UPDATE scan_jobs
@@ -2718,6 +2747,22 @@ def main() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_asset ON scan_asset_snapshots(asset_id, job_id DESC)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_finding_snapshots (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+                asset_id    INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+                cve_id      TEXT NOT NULL,
+                cvss        REAL,
+                severity    TEXT,
+                resolved    INTEGER DEFAULT 0,
+                captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC)")
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:
