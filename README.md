@@ -54,8 +54,8 @@ sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 \
 sudo useradd -r -s /bin/false -d /opt/surveytrace surveytrace
 
 # Deploy files
-sudo mkdir -p /opt/surveytrace/{daemon,api,public,sql,data}
-sudo cp -r daemon/ api/ public/ sql/ /opt/surveytrace/
+sudo mkdir -p /opt/surveytrace/{daemon,api,public,sql,docs,data}
+sudo cp -r daemon/ api/ public/ sql/ docs/ /opt/surveytrace/
 sudo chown -R surveytrace:surveytrace /opt/surveytrace
 
 # Python environment

@@ -141,8 +141,9 @@ if [[ "$SRC_DIR" != "$INSTALL_DIR" ]]; then
     if command -v rsync &>/dev/null; then
         rsync -a --delete "$SRC_DIR/" "$INSTALL_DIR/"
     else
-        # Explicit subdirectory copy — avoids scp/cp flattening issues
-        for subdir in api daemon public sql; do
+        # Explicit subdirectory copy — avoids scp/cp flattening issues.
+        # Keep in sync with repo layout (api/ holds every PHP endpoint, including devices.php).
+        for subdir in api daemon public sql docs; do
             if [[ -d "$SRC_DIR/$subdir" ]]; then
                 mkdir -p "$INSTALL_DIR/$subdir"
                 cp -r "$SRC_DIR/$subdir/." "$INSTALL_DIR/$subdir/"
