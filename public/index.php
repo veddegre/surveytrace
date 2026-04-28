@@ -2213,39 +2213,39 @@ function updateQueuePanel(history) {
     bindScanHistoryDelegates();
 }
 
-let scanHistoryDelegatesBound = false;
+function handleScanHistoryTableClick(ev) {
+    const t = ev.target instanceof Element ? ev.target : null;
+    if (!t) return;
+
+    const btn = t.closest('button[data-scan-action][data-job-id]');
+    if (btn) {
+        const jid = parseInt(btn.getAttribute('data-job-id') || '0', 10);
+        if (jid <= 0) return;
+        const action = btn.getAttribute('data-scan-action') || '';
+        if (action === 'details') { void openScanHistDetail(jid); return; }
+        if (action === 'rerun')   { void rerunScanJob(jid); return; }
+        if (action === 'abort')   { void abortJobById(jid); return; }
+        if (action === 'cancel')  { void cancelJob(jid); return; }
+        return;
+    }
+
+    if (t.closest('a,input,label,select,textarea')) return;
+    const row = t.closest('tr.scan-hist-row[data-job-id]');
+    if (!row) return;
+    const jid = parseInt(row.getAttribute('data-job-id') || '0', 10);
+    if (jid > 0) void openScanHistDetail(jid);
+}
+
 function bindScanHistoryDelegates() {
-    if (scanHistoryDelegatesBound) return;
-    scanHistoryDelegatesBound = true;
-
-    const handleClick = (ev) => {
-        const t = ev.target instanceof Element ? ev.target : null;
-        if (!t) return;
-
-        const btn = t.closest('button[data-scan-action][data-job-id]');
-        if (btn) {
-            const jid = parseInt(btn.getAttribute('data-job-id') || '0', 10);
-            if (jid <= 0) return;
-            const action = btn.getAttribute('data-scan-action') || '';
-            if (action === 'details') { void openScanHistDetail(jid); return; }
-            if (action === 'rerun')   { void rerunScanJob(jid); return; }
-            if (action === 'abort')   { void abortJobById(jid); return; }
-            if (action === 'cancel')  { void cancelJob(jid); return; }
-            return;
-        }
-
-        if (t.closest('a,input,label,select,textarea')) return;
-        const row = t.closest('tr.scan-hist-row[data-job-id]');
-        if (!row) return;
-        const jid = parseInt(row.getAttribute('data-job-id') || '0', 10);
-        if (jid > 0) void openScanHistDetail(jid);
-    };
-
     ['scan-hist', 'queue-tbody', 'queue-tbody-scan'].forEach((id) => {
         const tbody = document.getElementById(id);
-        if (tbody) tbody.addEventListener('click', handleClick);
+        if (!tbody) return;
+        if (tbody.dataset.scanDelegatesBound === '1') return;
+        tbody.addEventListener('click', handleScanHistoryTableClick);
+        tbody.dataset.scanDelegatesBound = '1';
     });
 }
+bindScanHistoryDelegates();
 
 // ==========================================================================
 // Job queue management
