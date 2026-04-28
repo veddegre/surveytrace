@@ -2125,8 +2125,8 @@ async function loadScanHistory(history) {
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
     document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
-      <td class="mono">#${j.id}</td>
-      <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
+      <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
+      <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
       <td><span class="status-chip" style="color:${statColors2[j.status]||'var(--tx2)'}">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div class="text-micro" style="color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
       <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
@@ -2190,8 +2190,8 @@ function updateQueuePanel(history) {
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
         return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
-          <td class="mono">#${j.id}</td>
-          <td class="text-primary font11">${esc(j.label||'—')}</td>
+          <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
+          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button></td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
           <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
           <td>
@@ -2367,12 +2367,14 @@ async function openScanHistDetail(id) {
         rerunBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
     }
     title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
+    const phasesRan = Array.isArray(j.phases) && j.phases.length ? j.phases.join(', ') : '—';
     meta.innerHTML = `
       Target: <span class="mono">${esc(j.target_cidr || '—')}</span>
       &nbsp;|&nbsp; Status: <b>${esc(j.status || '—')}</b>
       &nbsp;|&nbsp; Started: ${esc(localTime(j.started_at))}
       &nbsp;|&nbsp; Finished: ${esc(localTime(j.finished_at))}
       &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
+      <div style="margin-top:4px">Phases run: <span class="mono">${esc(phasesRan)}</span></div>
     `;
     sum.innerHTML = renderScanSummary(j.summary);
 

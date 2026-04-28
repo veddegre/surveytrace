@@ -81,6 +81,30 @@ if ($id > 0) {
         $assets = $assetsStmt->fetchAll();
     }
 
+    // Second fallback: reconstruct run evidence from port_history snapshots
+    // for this scan id, joined to current asset metadata when available.
+    if (!$assets) {
+        $phStmt = $db->prepare("
+            SELECT
+                COALESCE(a.id, ph.asset_id, 0) AS id,
+                COALESCE(a.ip, '') AS ip,
+                COALESCE(a.hostname, '') AS hostname,
+                COALESCE(a.category, 'unk') AS category,
+                COALESCE(a.vendor, '') AS vendor,
+                COALESCE(a.top_cve, '') AS top_cve,
+                a.top_cvss AS top_cvss,
+                ph.ports AS open_ports,
+                COALESCE(a.device_id, 0) AS device_id
+            FROM port_history ph
+            LEFT JOIN assets a ON a.id = ph.asset_id
+            WHERE ph.scan_id = ?
+            ORDER BY ip ASC, id ASC
+            LIMIT 300
+        ");
+        $phStmt->execute([$id]);
+        $assets = $phStmt->fetchAll();
+    }
+
     $assets = array_map(function($a) {
         $a['open_ports'] = json_decode((string)($a['open_ports'] ?? '[]'), true) ?: [];
         return $a;
