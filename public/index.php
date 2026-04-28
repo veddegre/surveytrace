@@ -804,7 +804,7 @@
       <div class="flbl">Local users and roles</div>
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap mb8">
-        <table class="tbl">
+        <table class="tbl" id="auth-users-table">
           <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Password</th><th>Disabled</th><th>Actions</th></tr></thead>
           <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
         </table>
@@ -834,6 +834,48 @@
           <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
           <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
         </table>
+      </div>
+    </details>
+    <details class="mb10">
+      <summary class="flbl text-secondary">Advanced security and SSO settings</summary>
+      <div class="flbl mt6">Password requirements</div>
+      <div class="row-wrap mb8">
+        <label class="flbl">Minimum length</label>
+        <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
+      </div>
+      <div class="row-wrap mb10">
+        <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
+        <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
+        <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
+        <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
+      </div>
+      <div class="row-wrap mb10">
+        <label class="flbl">Password hashing</label>
+        <select class="finp" id="pp-hash-algo" style="min-width:140px">
+          <option value="argon2id">Argon2id (preferred)</option>
+          <option value="bcrypt">bcrypt</option>
+        </select>
+        <label class="flbl">Max failed attempts</label>
+        <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
+        <label class="flbl">Lockout minutes</label>
+        <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
+      </div>
+      <div class="row-wrap mb12">
+        <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
+      </div>
+
+      <div class="flbl oidc-only">OIDC configuration</div>
+      <div class="profile-grid mb10 oidc-only">
+        <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
+        <input class="finp" id="oidc-client-id" placeholder="Client ID">
+        <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
+        <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
+        <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
+        <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+      </div>
+      <div class="row-wrap mb12 oidc-only">
+        <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+        <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
       </div>
     </details>
   </div>
@@ -955,54 +997,8 @@
       </div>
       <div class="card">
         <div class="ct">Access control moved</div>
-        <div class="help-line mb10">Account, SSO, and audit controls now have a dedicated page.</div>
+        <div class="help-line mb10">Account, SSO, password policy, and audit controls now have a dedicated page.</div>
         <button class="btnp" type="button" onclick="goTab('access');hiNav('naccess')">Open Access control</button>
-      </div>
-
-      <div class="card">
-        <details class="mb10">
-          <summary class="flbl text-secondary">Advanced security and SSO settings</summary>
-          <div class="flbl mt6">Password requirements</div>
-          <div class="row-wrap mb8">
-            <label class="flbl">Minimum length</label>
-            <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
-          </div>
-          <div class="row-wrap mb10">
-            <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
-            <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
-            <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
-            <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
-          </div>
-          <div class="row-wrap mb10">
-            <label class="flbl">Password hashing</label>
-            <select class="finp" id="pp-hash-algo" style="min-width:140px">
-              <option value="argon2id">Argon2id (preferred)</option>
-              <option value="bcrypt">bcrypt</option>
-            </select>
-            <label class="flbl">Max failed attempts</label>
-            <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
-            <label class="flbl">Lockout minutes</label>
-            <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
-          </div>
-          <div class="row-wrap mb12">
-            <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
-          </div>
-
-          <div class="flbl oidc-only">OIDC configuration</div>
-          <div class="profile-grid mb10 oidc-only">
-            <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
-            <input class="finp" id="oidc-client-id" placeholder="Client ID">
-            <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
-            <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
-            <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
-            <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
-          </div>
-          <div class="row-wrap mb12 oidc-only">
-            <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
-            <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
-          </div>
-
-        </details>
       </div>
     </div>
   </div>
@@ -3692,7 +3688,7 @@ async function loadAuthUsers() {
           </select>
         </td>
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
-        <td><label class="stack8"><input type="checkbox" id="u-mcp-${u.id}" ${u.must_change_password ? 'checked' : ''}> <span class="text-secondary">force change</span></label></td>
+        <td><input type="checkbox" id="u-mcp-${u.id}" ${u.must_change_password ? 'checked' : ''} title="Force password change at next sign-in"></td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="user-row-actions">
           <button class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>

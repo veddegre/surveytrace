@@ -438,6 +438,10 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .row-actions{display:flex;flex-wrap:wrap;gap:4px;padding:4px 8px;max-width:200px}
 .user-row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:nowrap}
 .user-row-actions .tbtn{white-space:nowrap}
+#auth-users-table th,#auth-users-table td{padding:8px 8px}
+#auth-users-table .finp{min-width:0;width:100%;padding:6px 8px;font-size:12px}
+#auth-users-table .user-row-actions{justify-content:flex-start;flex-wrap:wrap}
+#auth-users-table .user-row-actions .tbtn{padding:5px 8px}
 .pending{color:var(--tx3)}
 .due-now{color:var(--amber)}
 .paused-chip{color:var(--amber);font-size:11px;margin-left:6px;font-family:var(--mf)}
