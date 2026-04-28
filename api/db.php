@@ -161,6 +161,22 @@ function st_db(): PDO {
         )"
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_auth_login_state_user ON auth_login_state(username_norm)');
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS user_audit_log (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            actor_username   TEXT,
+            target_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            target_username  TEXT,
+            action           TEXT NOT NULL,
+            details_json     TEXT,
+            source_ip        TEXT,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_actor ON user_audit_log(actor_user_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_user_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC)');
 
     // Migrate single legacy password hash into local admin user.
     $userCount = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
@@ -495,6 +511,41 @@ function st_current_user(): array {
         'role' => st_current_role(),
         'must_change_password' => !empty($_SESSION['st_must_change_password']),
     ];
+}
+
+function st_request_ip(): string {
+    return trim((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+}
+
+function st_audit_log(
+    string $action,
+    ?int $actorUserId = null,
+    ?string $actorUsername = null,
+    ?int $targetUserId = null,
+    ?string $targetUsername = null,
+    array $details = []
+): void {
+    try {
+        $actor = st_current_user();
+        $actorId = $actorUserId ?? (($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null);
+        $actorName = $actorUsername ?? (($actor['username'] ?? '') !== '' ? (string)$actor['username'] : null);
+        $payload = $details ? json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
+        st_db()->prepare(
+            "INSERT INTO user_audit_log
+             (actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )->execute([
+            $actorId,
+            $actorName,
+            $targetUserId,
+            $targetUsername,
+            $action,
+            $payload,
+            st_request_ip(),
+        ]);
+    } catch (Throwable $e) {
+        // Keep auth paths resilient even if logging fails.
+    }
 }
 
 function st_require_role(array $allowed): void {

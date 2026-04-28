@@ -8,7 +8,9 @@
  * POST /api/auth.php?mfa_enable=1  -> enable TOTP with {"secret","otp"} (admin)
  * POST /api/auth.php?mfa_disable=1 -> disable TOTP with {"otp"} (admin)
  * GET  /api/auth.php?users=1       -> list local users (admin)
+ * GET  /api/auth.php?audit_live=1  -> current sign-in state (admin, non-historical)
  * POST /api/auth.php?users=1       -> create/update local users (admin)
+ * GET  /api/auth.php?audit=1       -> recent auth/admin audit entries (admin)
  */
 
 require_once __DIR__ . '/db.php';
@@ -134,6 +136,53 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['users'])) {
     st_json(['ok' => true, 'users' => $rows]);
 }
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit'])) {
+    st_auth();
+    st_require_role(['admin']);
+    $limit = (int)($_GET['limit'] ?? 100);
+    $limit = max(10, min(500, $limit));
+    $targetUserId = (int)($_GET['target_user_id'] ?? 0);
+    $sql = "
+        SELECT id, actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip, created_at
+        FROM user_audit_log
+    ";
+    $params = [];
+    if ($targetUserId > 0) {
+        $sql .= " WHERE target_user_id = ? OR actor_user_id = ?";
+        $params[] = $targetUserId;
+        $params[] = $targetUserId;
+    }
+    $sql .= " ORDER BY id DESC LIMIT " . $limit;
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
+    st_release_session_lock();
+    st_json(['ok' => true, 'audit' => $rows]);
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit_live'])) {
+    st_auth();
+    st_require_role(['admin']);
+    $rows = $db->query("
+        SELECT
+            actor_key,
+            username_norm,
+            source_ip,
+            failed_count,
+            first_failed_at,
+            last_failed_at,
+            locked_until
+        FROM auth_login_state
+        WHERE failed_count > 0 OR (locked_until IS NOT NULL AND locked_until <> '')
+        ORDER BY
+            CASE WHEN locked_until IS NOT NULL AND locked_until > datetime('now') THEN 0 ELSE 1 END,
+            last_failed_at DESC
+        LIMIT 200
+    ")->fetchAll();
+    st_release_session_lock();
+    st_json(['ok' => true, 'live' => $rows]);
+}
+
 st_method('POST');
 $body = st_input();
 
@@ -198,6 +247,10 @@ if (isset($_GET['login'])) {
         st_set_session_user((int)$urow['id'], (string)$urow['username'], (string)$urow['role'], $mustChange);
         $db->prepare("UPDATE users SET last_login_at=datetime('now'), updated_at=datetime('now') WHERE id=?")->execute([(int)$urow['id']]);
         st_login_register_success($username, $ip);
+        st_audit_log('auth.login_success', (int)$urow['id'], (string)$urow['username'], (int)$urow['id'], (string)$urow['username'], [
+            'auth_source' => (string)$urow['auth_source'],
+            'mfa_used' => ((int)($urow['mfa_enabled'] ?? 0) === 1),
+        ]);
         st_release_session_lock();
         st_json(['ok' => true, 'authed' => true, 'user' => st_current_user(), 'must_change_password' => $mustChange]);
     }
@@ -206,10 +259,12 @@ if (isset($_GET['login'])) {
     if ($username === 'admin' && !empty($legacyHash) && password_verify($password, $legacyHash)) {
         st_set_session_user(0, 'admin', 'admin', false);
         st_login_register_success($username, $ip);
+        st_audit_log('auth.login_success_legacy_admin', null, 'admin', null, 'admin');
         st_release_session_lock();
         st_json(['ok' => true, 'authed' => true, 'user' => st_current_user()]);
     }
     st_login_register_failure($username, $ip);
+    st_audit_log('auth.login_failure', null, null, null, $username, ['reason' => 'invalid_credentials']);
     st_release_session_lock();
     st_json(['ok' => false, 'error' => 'Invalid credentials'], 403);
 }
@@ -242,6 +297,7 @@ if (isset($_GET['mfa_enable'])) {
     if (!st_verify_totp($secret, $otp)) st_json(['error' => 'invalid OTP code'], 400);
     $db->prepare("UPDATE users SET mfa_enabled=1, mfa_totp_secret=?, updated_at=datetime('now') WHERE id=?")->execute([$secret, $u['id']]);
     $codes = st_replace_recovery_codes($db, $u['id']);
+    st_audit_log('auth.mfa_enable', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
     st_release_session_lock();
     st_json(['ok' => true, 'recovery_codes' => $codes]);
 }
@@ -264,6 +320,7 @@ if (isset($_GET['password_change'])) {
     }
     $db->prepare("UPDATE users SET password_hash=?, must_change_password=0, updated_at=datetime('now') WHERE id=?")
        ->execute([st_password_hash($newPassword), $u['id']]);
+    st_audit_log('auth.password_change_self', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
     st_release_session_lock();
     st_json(['ok' => true]);
 }
@@ -287,6 +344,7 @@ if (isset($_GET['mfa_disable'])) {
     }
     $db->prepare("UPDATE users SET mfa_enabled=0, mfa_totp_secret=NULL, updated_at=datetime('now') WHERE id=?")->execute([$u['id']]);
     $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$u['id']]);
+    st_audit_log('auth.mfa_disable_self', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
     st_release_session_lock();
     st_json(['ok' => true]);
 }
@@ -302,6 +360,7 @@ if (isset($_GET['profile'])) {
     }
     $db->prepare("UPDATE users SET display_name=?, email=?, updated_at=datetime('now') WHERE id=?")
        ->execute([$displayName, $email, $u['id']]);
+    st_audit_log('auth.profile_update_self', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
     st_release_session_lock();
     st_json(['ok' => true, 'display_name' => $displayName, 'email' => $email]);
 }
@@ -314,11 +373,48 @@ if (isset($_GET['users'])) {
     $role = st_normalize_role((string)($body['role'] ?? 'viewer'));
     $password = (string)($body['password'] ?? '');
     $resetMfa = !empty($body['reset_mfa']);
+    $deleteUser = !empty($body['delete_user']);
     $disabled = !empty($body['disabled']) ? 1 : 0;
+    if ($deleteUser) {
+        if ($id <= 0) st_json(['error' => 'id required for delete'], 400);
+        $existingStmt = $db->prepare("SELECT id, username, role, auth_source FROM users WHERE id=? LIMIT 1");
+        $existingStmt->execute([$id]);
+        $existing = $existingStmt->fetch();
+        if (!$existing) st_json(['error' => 'User not found'], 404);
+        $actor = st_current_user();
+        if ((int)$actor['id'] === (int)$id) {
+            st_json(['error' => 'You cannot delete your own account'], 400);
+        }
+        if ((string)$existing['role'] === 'admin') {
+            $activeAdmins = (int)$db->query("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0")->fetchColumn();
+            if ($activeAdmins <= 1) {
+                st_json(['error' => 'Cannot delete the last active admin'], 400);
+            }
+        }
+        $db->prepare("DELETE FROM users WHERE id=?")->execute([$id]);
+        st_audit_log('admin.user_delete', (int)$actor['id'], (string)$actor['username'], (int)$existing['id'], (string)$existing['username'], [
+            'target_role' => (string)$existing['role'],
+            'target_auth_source' => (string)$existing['auth_source'],
+        ]);
+        st_release_session_lock();
+        st_json(['ok' => true, 'id' => $id]);
+    }
     if ($username === '') st_json(['error' => 'username required'], 400);
     if ($id > 0) {
+        $existingStmt = $db->prepare("SELECT username, role, disabled FROM users WHERE id=? LIMIT 1");
+        $existingStmt->execute([$id]);
+        $existing = $existingStmt->fetch();
+        if (!$existing) st_json(['error' => 'User not found'], 404);
         $stmt = $db->prepare("UPDATE users SET username=?, role=?, disabled=?, updated_at=datetime('now') WHERE id=?");
         $stmt->execute([$username, $role, $disabled, $id]);
+        $actor = st_current_user();
+        st_audit_log('admin.user_update', (int)$actor['id'], (string)$actor['username'], $id, $username, [
+            'prev_username' => (string)$existing['username'],
+            'prev_role' => (string)$existing['role'],
+            'prev_disabled' => (int)$existing['disabled'],
+            'new_role' => $role,
+            'new_disabled' => $disabled,
+        ]);
         if ($password !== '') {
             $pwErrors = st_validate_password_strength($password);
             if ($pwErrors) {
@@ -326,10 +422,12 @@ if (isset($_GET['users'])) {
             }
             $db->prepare("UPDATE users SET password_hash=?, must_change_password=1, updated_at=datetime('now') WHERE id=?")
                ->execute([st_password_hash($password), $id]);
+            st_audit_log('admin.user_password_reset', (int)$actor['id'], (string)$actor['username'], $id, $username);
         }
         if ($resetMfa) {
             $db->prepare("UPDATE users SET mfa_enabled=0, mfa_totp_secret=NULL, updated_at=datetime('now') WHERE id=?")->execute([$id]);
             $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$id]);
+            st_audit_log('admin.user_mfa_reset', (int)$actor['id'], (string)$actor['username'], $id, $username);
         }
         st_release_session_lock();
         st_json(['ok' => true, 'id' => $id]);
@@ -344,8 +442,14 @@ if (isset($_GET['users'])) {
         VALUES (?, ?, ?, 'local', ?, 1)
     ");
     $ins->execute([$username, st_password_hash($password), $role, $disabled]);
+    $actor = st_current_user();
+    $newId = (int)$db->lastInsertId();
+    st_audit_log('admin.user_create', (int)$actor['id'], (string)$actor['username'], $newId, $username, [
+        'role' => $role,
+        'disabled' => $disabled,
+    ]);
     st_release_session_lock();
-    st_json(['ok' => true, 'id' => (int)$db->lastInsertId()]);
+    st_json(['ok' => true, 'id' => $newId]);
 }
 
 st_release_session_lock();

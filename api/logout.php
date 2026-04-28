@@ -11,6 +11,14 @@ st_method('POST');
 
 if (PHP_SAPI !== 'cli') {
     st_session_start();
+    $actor = st_current_user();
+    if (($actor['id'] ?? 0) > 0 || ($actor['username'] ?? '') !== '') {
+        st_audit_log(
+            'auth.logout',
+            ($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null,
+            (string)($actor['username'] ?? '')
+        );
+    }
 
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {

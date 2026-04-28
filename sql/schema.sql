@@ -225,6 +225,21 @@ CREATE TABLE IF NOT EXISTS auth_login_state (
 );
 CREATE INDEX IF NOT EXISTS idx_auth_login_state_user ON auth_login_state(username_norm);
 
+CREATE TABLE IF NOT EXISTS user_audit_log (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_username   TEXT,
+    target_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    target_username  TEXT,
+    action           TEXT NOT NULL,
+    details_json     TEXT,
+    source_ip        TEXT,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_user_audit_log_actor ON user_audit_log(actor_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC);
+
 INSERT OR IGNORE INTO config VALUES
     ('nvd_last_sync',   ''),
     ('snmp_community',  'public'),

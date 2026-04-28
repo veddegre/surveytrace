@@ -926,6 +926,22 @@
             </select>
             <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
           </div>
+          <div class="flbl">Live auth operations (non-historical)</div>
+          <div class="hint-micro mb6">Operational view of current failed/locked sign-in state. This is not a permanent history.</div>
+          <div class="tbl-wrap mb8">
+            <table class="tbl">
+              <thead><tr><th>User</th><th>Failed attempts</th><th>Last failed (UTC)</th><th>Locked until (UTC)</th><th>IP</th></tr></thead>
+              <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="flbl">Historical user audit</div>
+          <div class="hint-micro mb6">Persistent trail of sign-ins and account actions.</div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
+              <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </details>
 
         <details class="mb10">
@@ -993,10 +1009,10 @@
       <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
       <label class="flbl">Password</label>
       <input class="finp w100 mb10" id="login-pass" type="password" autocomplete="current-password">
-      <label class="flbl">Authenticator code (if enabled)</label>
-      <input class="finp w100 mb10" id="login-otp" placeholder="123456" autocomplete="one-time-code">
-      <label class="flbl">Recovery code (optional)</label>
-      <input class="finp w100 mb12" id="login-recovery" placeholder="ABCD-1234">
+      <div id="login-mfa-step" class="hide">
+        <label class="flbl">Verification code</label>
+        <input class="finp w100 mb12" id="login-verify-code" placeholder="Authenticator OTP or recovery code" autocomplete="one-time-code">
+      </div>
     </div>
     <div id="login-oidc-fields" class="hide mb12">
       <div class="help-line mb10" id="login-sso-msg">Single sign-on is enabled for this deployment.</div>
@@ -1250,6 +1266,7 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
+var loginNeedsMfaCode = false;
 var csrfToken = '';
 var currentUser = null;
 var currentUserRole = 'admin';
@@ -1335,6 +1352,8 @@ function applyRoleAwareUi() {
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
     disableByOnclick('saveAuthUser(', !isAdmin);
+    disableByOnclick('deleteAuthUser(', !isAdmin);
+    disableByOnclick('resetUserMfa(', !isAdmin);
     disableByOnclick('runFeedSync(', !isAdmin);
     disableByOnclick('requestFeedSyncCancel(', !isAdmin);
     disableByOnclick('requestFeedSyncClearStuckState(', !isAdmin);
@@ -1826,6 +1845,9 @@ function openLoginModal(msg) {
     if (!bg) return;
     const m = document.getElementById('login-msg');
     if (m && msg) m.textContent = msg;
+    loginNeedsMfaCode = false;
+    const vEl = document.getElementById('login-verify-code');
+    if (vEl) vEl.value = '';
     updateLoginModeUI();
     bg.style.display = 'flex';
     const p = document.getElementById('login-pass');
@@ -1836,6 +1858,7 @@ function updateLoginModeUI() {
     const local = document.getElementById('login-local-fields');
     const oidc = document.getElementById('login-oidc-fields');
     const btn = document.getElementById('btn-login');
+    const mfaStep = document.getElementById('login-mfa-step');
     const ssoMsg = document.getElementById('login-sso-msg');
     const ssoBtn = document.getElementById('btn-login-sso');
     const bgBtn = document.getElementById('btn-breakglass-show');
@@ -1843,6 +1866,7 @@ function updateLoginModeUI() {
     if (local) local.classList.toggle('hide', isSso);
     if (oidc) oidc.classList.toggle('hide', !isSso);
     if (btn) btn.classList.toggle('hide', isSso);
+    if (mfaStep) mfaStep.classList.toggle('hide', !loginNeedsMfaCode || isSso);
     if (ssoMsg) ssoMsg.textContent = 'OIDC single sign-on is enabled for this deployment.';
     if (ssoBtn) ssoBtn.textContent = 'Sign in with OIDC';
     if (bgBtn) bgBtn.classList.toggle('hide', !isSso || !breakglassEnabled);
@@ -1883,8 +1907,7 @@ async function submitLogin() {
     if (s && s.csrf_token) csrfToken = s.csrf_token;
     const u = (document.getElementById('login-user')?.value || '').trim();
     const p = document.getElementById('login-pass')?.value || '';
-    const otp = (document.getElementById('login-otp')?.value || '').trim();
-    const recovery = (document.getElementById('login-recovery')?.value || '').trim();
+    const verifyCode = (document.getElementById('login-verify-code')?.value || '').trim();
     if (!u || !p) {
         toast('Enter username and password', 'err');
         return;
@@ -1894,19 +1917,18 @@ async function submitLogin() {
     const r = await apiPost('/api/auth.php?login=1', {
         username: u,
         password: p,
-        otp: otp,
-        recovery_code: recovery
+        otp: verifyCode,
+        recovery_code: verifyCode
     });
     if (btn) btn.disabled = false;
     if (r && r.ok) {
         loginRequired = false;
+        loginNeedsMfaCode = false;
         closeLoginModal();
         const pass = document.getElementById('login-pass');
         if (pass) pass.value = '';
-        const otpEl = document.getElementById('login-otp');
-        if (otpEl) otpEl.value = '';
-        const recEl = document.getElementById('login-recovery');
-        if (recEl) recEl.value = '';
+        const vEl = document.getElementById('login-verify-code');
+        if (vEl) vEl.value = '';
         toast('Signed in', 'ok');
         await initAuthMode();
         loadDashboard();
@@ -1919,8 +1941,10 @@ async function submitLogin() {
         if (currentTab === 'health') loadHealth();
     } else {
         if (r && r.mfa_required) {
-            toast('Enter your authenticator code (or recovery code)', 'err');
-            document.getElementById('login-otp')?.focus();
+            loginNeedsMfaCode = true;
+            updateLoginModeUI();
+            toast('Enter your authenticator code or recovery code', 'ok');
+            document.getElementById('login-verify-code')?.focus();
             return;
         }
         toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
@@ -3612,6 +3636,10 @@ async function loadAuthUsers() {
     const r = await api('/api/auth.php?users=1');
     if (!r || !r.ok) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-dim">Role management unavailable for current account.</td></tr>';
+        const liveTbody = document.getElementById('auth-live-tbody');
+        if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+        const auditTbody = document.getElementById('auth-audit-tbody');
+        if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
         return;
     }
     const users = r.users || [];
@@ -3631,9 +3659,72 @@ async function loadAuthUsers() {
         <td class="user-row-actions">
           <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')" title="Save role/disabled changes and optionally set a temporary password">Edit</button>
           ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id},'${esc(u.username)}')">Clear MFA</button>` : ''}
+          <button class="tbtn btn-xs" onclick="deleteAuthUser(${u.id},'${esc(u.username)}')">Delete</button>
         </td>
       </tr>`).join('')
       : '<tr><td colspan="6" class="text-dim">No users</td></tr>';
+    await Promise.all([loadAuthLive(), loadAuthAudit()]);
+}
+
+function renderAuditAction(action) {
+    const s = String(action || '');
+    if (!s) return 'event';
+    return s.replace(/^admin\./, '').replace(/^auth\./, '').replace(/_/g, ' ');
+}
+
+async function loadAuthLive() {
+    const tbody = document.getElementById('auth-live-tbody');
+    if (!tbody) return;
+    const r = await api('/api/auth.php?audit_live=1');
+    if (!r || !r.ok) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+        return;
+    }
+    const rows = Array.isArray(r.live) ? r.live : [];
+    tbody.innerHTML = rows.length ? rows.map(ev => `
+      <tr>
+        <td class="mono-sm">${esc(ev.username_norm || '—')}</td>
+        <td class="mono-sm">${esc(String(ev.failed_count ?? 0))}</td>
+        <td class="mono-sm">${esc(fmtTs(ev.last_failed_at || ''))}</td>
+        <td class="mono-sm">${esc(fmtTs(ev.locked_until || ''))}</td>
+        <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="5" class="text-dim">No active sign-in failures or lockouts.</td></tr>';
+}
+
+async function loadAuthAudit() {
+    const tbody = document.getElementById('auth-audit-tbody');
+    if (!tbody) return;
+    const r = await api('/api/auth.php?audit=1&limit=100');
+    if (!r || !r.ok) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+        return;
+    }
+    const rows = Array.isArray(r.audit) ? r.audit : [];
+    tbody.innerHTML = rows.length ? rows.map(ev => `
+      <tr>
+        <td class="mono-sm">${esc(fmtTs(ev.created_at || ''))}</td>
+        <td class="mono-sm">${esc(renderAuditAction(ev.action || ''))}</td>
+        <td class="mono-sm">${esc(ev.actor_username || 'system')}</td>
+        <td class="mono-sm">${esc(ev.target_username || '—')}</td>
+        <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="5" class="text-dim">No user activity yet.</td></tr>';
+}
+
+async function deleteAuthUser(id, username) {
+    const ok = await showConfirmModal(
+        `Delete user ${username}? This removes account access and MFA/recovery records.`,
+        { title: 'Delete user account', okText: 'Delete user' }
+    );
+    if (!ok) return;
+    const r = await apiPost('/api/auth.php?users=1', { id, delete_user: true });
+    if (r && r.ok) {
+        toast('User deleted', 'ok');
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'Delete failed', 'err');
+    }
 }
 
 async function saveAuthUser(id, username) {
@@ -3756,10 +3847,10 @@ async function beginMfaSetup() {
                 }
             } else {
                 const err = await qrr.json().catch(() => null);
-                toast((err && err.error) ? err.error : 'Local QR generation unavailable; use setup link or manual secret', 'err');
+                toast((err && err.error) ? err.error : 'Local QR generation unavailable; use setup link or manual secret', 'ok');
             }
         } catch (e) {
-            toast('Local QR generation unavailable; use setup link or manual secret', 'err');
+            toast('Local QR generation unavailable; use setup link or manual secret', 'ok');
         }
     }
     if (copyBtn) {
@@ -3793,7 +3884,7 @@ async function confirmMfaEnable() {
         currentUserMfaEnabled = true;
         updateMfaActionButtons();
         const box = document.getElementById('mfa-setup-box');
-        if (box) box.classList.add('hide');
+        if (box) box.classList.remove('hide');
         const otpEl = document.getElementById('mfa-enable-otp');
         if (otpEl) otpEl.value = '';
         const qr = document.getElementById('mfa-qr');
@@ -3810,7 +3901,7 @@ async function confirmMfaEnable() {
         const recTa = document.getElementById('mfa-recovery-codes');
         if (recTa) recTa.value = pendingRecoveryCodes.join('\n');
         if (recBox) recBox.classList.toggle('hide', pendingRecoveryCodes.length === 0);
-        toast('MFA is now enabled', 'ok');
+        toast(pendingRecoveryCodes.length ? 'MFA is now enabled. Save your recovery codes now.' : 'MFA is now enabled', 'ok');
         loadAuthUsers();
     } else {
         toast((r && r.error) ? r.error : 'Could not enable MFA', 'err');
