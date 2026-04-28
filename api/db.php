@@ -526,6 +526,7 @@ function st_audit_log(
     array $details = []
 ): void {
     try {
+        st_ensure_user_audit_schema();
         $actor = st_current_user();
         $actorId = $actorUserId ?? (($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null);
         $actorName = $actorUsername ?? (($actor['username'] ?? '') !== '' ? (string)$actor['username'] : null);
@@ -546,6 +547,29 @@ function st_audit_log(
     } catch (Throwable $e) {
         // Keep auth paths resilient even if logging fails.
     }
+}
+
+function st_ensure_user_audit_schema(): void {
+    static $ready = false;
+    if ($ready) return;
+    $pdo = st_db();
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS user_audit_log (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            actor_username   TEXT,
+            target_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            target_username  TEXT,
+            action           TEXT NOT NULL,
+            details_json     TEXT,
+            source_ip        TEXT,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_actor ON user_audit_log(actor_user_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_user_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC)');
+    $ready = true;
 }
 
 function st_require_role(array $allowed): void {

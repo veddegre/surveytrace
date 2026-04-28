@@ -18,6 +18,7 @@ require_once __DIR__ . '/db.php';
 st_session_start();
 st_session_touch_idle();
 $db = st_db();
+st_ensure_user_audit_schema();
 
 function st_auth_mode(): string {
     $mode = strtolower(trim(st_config('auth_mode', 'session')));
