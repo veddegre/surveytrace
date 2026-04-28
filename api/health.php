@@ -80,15 +80,13 @@ function st_health_fmt_bytes($bytes): ?string {
         return (string) (int) max(0, $x) . ' B';
     }
     $units = ['KB', 'MB', 'GB', 'TB', 'PB'];
-    $e = (int) min(
-        (int) floor(log($x, 1024)),
-        count($units) - 1
-    );
-    if ($e < 0) {
-        $e = 0;
+    $exp = (int) floor(log($x, 1024));
+    if ($exp < 1) {
+        $exp = 1;
     }
-    $v = $x / (1024 ** $e);
-    return round($v, $e > 0 ? 1 : 0) . ' ' . $units[$e];
+    $ui = min($exp - 1, count($units) - 1);
+    $v = $x / (1024 ** $exp);
+    return round($v, $ui > 0 ? 1 : 0) . ' ' . $units[$ui];
 }
 
 /** Free space on the filesystem that contains this path. Uses float, never (int) cast. */
