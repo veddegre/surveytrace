@@ -805,11 +805,11 @@
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap mb8">
         <table class="tbl" id="auth-users-table">
-          <thead><tr><th>User</th><th>Name</th><th>Email</th><th>Role</th><th>MFA</th><th title="Require password change at next sign-in">Force change</th><th>Disabled</th><th>Actions</th></tr></thead>
-          <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+          <thead><tr><th>User</th><th>Name</th><th>Email</th><th>Role</th><th>MFA</th><th>Disabled</th><th>Actions</th></tr></thead>
+          <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
         </table>
       </div>
-      <div class="hint-micro mb8"><strong>Save</strong> updates fields. <strong>Password…</strong> sets a temporary password. <strong>Force change</strong> requires reset at next sign-in.</div>
+      <div class="hint-micro mb8"><strong>Save</strong> updates fields. <strong>Password</strong> sets a temporary password.</div>
       <div class="row-wrap mb10">
         <input class="finp" id="new-auth-user" placeholder="new username">
         <select class="finp" id="new-auth-role">
@@ -3662,7 +3662,7 @@ async function loadAuthUsers() {
     if (!tbody) return;
     const r = await api('/api/auth.php?users=1');
     if (!r || !r.ok) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-dim">Role management unavailable for current account.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-dim">Role management unavailable for current account.</td></tr>';
         const liveTbody = document.getElementById('auth-live-tbody');
         if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
         const auditTbody = document.getElementById('auth-audit-tbody');
@@ -3683,16 +3683,15 @@ async function loadAuthUsers() {
           </select>
         </td>
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
-        <td><input type="checkbox" id="u-mcp-${u.id}" ${u.must_change_password ? 'checked' : ''} title="Force password change at next sign-in"></td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="user-row-actions">
           <button class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
-          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Pwd…</button>
+          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
           ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
           <button class="tbtn btn-xs" onclick="deleteAuthUser(${u.id})">Delete</button>
         </td>
       </tr>`).join('')
-      : '<tr><td colspan="8" class="text-dim">No users</td></tr>';
+      : '<tr><td colspan="7" class="text-dim">No users</td></tr>';
     void Promise.allSettled([loadAuthLive(), loadAuthAudit()]);
 }
 
@@ -3790,12 +3789,11 @@ async function saveAuthUser(id) {
     const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
-    const mustChangePassword = !!document.getElementById(`u-mcp-${id}`)?.checked;
     if (!username) {
         toast('Username is required', 'err');
         return;
     }
-    pendingUserSave = { id, username, displayName, email, role, disabled, mustChangePassword, requirePassword: false };
+    pendingUserSave = { id, username, displayName, email, role, disabled, requirePassword: false };
     openUserPasswordModal(username);
 }
 
@@ -3860,8 +3858,7 @@ async function submitAuthUserSave() {
         display_name: pendingUserSave.displayName || '',
         email: pendingUserSave.email || '',
         role: pendingUserSave.role,
-        disabled: pendingUserSave.disabled,
-        must_change_password: pendingUserSave.mustChangePassword ? true : false
+        disabled: pendingUserSave.disabled
     };
     if (pendingUserSave.id > 0) body.id = pendingUserSave.id;
     const pwd = document.getElementById('user-pw-new')?.value || '';
@@ -4073,7 +4070,6 @@ async function resetUserMfa(id) {
     const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
-    const mustChangePassword = !!document.getElementById(`u-mcp-${id}`)?.checked;
     const ok = await showConfirmModal(
         `Clear MFA for ${username}? They will need to enroll MFA again at next sign-in.`,
         { title: 'Clear user MFA', okText: 'Clear MFA' }
@@ -4086,7 +4082,6 @@ async function resetUserMfa(id) {
         email: email,
         role,
         disabled,
-        must_change_password: mustChangePassword ? true : false,
         reset_mfa: true
     });
     if (r && r.ok) {
