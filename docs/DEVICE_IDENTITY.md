@@ -19,4 +19,8 @@ SurveyTrace stores **addresses** and **devices** separately:
 
 ## API and UI
 
-`GET /api/assets.php` returns `device_id` on list and detail responses (from `a.*` / `decode_asset`). The web UI shows it in the **Assets** table, **host detail** side panel, **dashboard** top-vulnerable table, and **CSV/JSON export** (`/api/export.php`). Assets can be sorted by `device_id`.
+`GET /api/assets.php` returns `device_id` on list and detail responses (from `a.*` / `decode_asset`). Optional filter **`device_id`** (integer) restricts the list and exports to one logical device.
+
+`GET /api/devices.php` lists devices with aggregate fields (`asset_count`, `last_seen_max`, `ip_sample`) and supports **`?id=N`** for one device plus its linked assets.
+
+The web UI adds a **Devices** tab (browse → **Assets** for a chosen device), and shows `device_id` in the **Assets** table, **host detail** panel, **dashboard** top-vulnerable table, and **CSV/JSON export** (`/api/export.php` honors `device_id` when filtering). Assets can be sorted by `device_id`.

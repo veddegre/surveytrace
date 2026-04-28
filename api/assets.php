@@ -12,7 +12,8 @@
  *   port       — filter assets with this port open (integer)
  *   since_days — only assets seen in last N days
  *   new_only   — "1" = only assets first seen in last 24h
- *   sort       — ip|hostname|category|top_cvss|last_seen|first_seen|vendor (default: ip)
+ *   device_id  — if > 0, only assets for this logical device
+ *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
  *   per_page   — 1–200 (default: 50)
@@ -190,6 +191,12 @@ if ($since_days > 0) {
 
 if ($new_only) {
     $where[]          = "a.first_seen >= datetime('now', '-1 day')";
+}
+
+$device_filter = st_int('device_id', 0, 0, PHP_INT_MAX);
+if ($device_filter > 0) {
+    $where[]           = 'a.device_id = :devid';
+    $params[':devid']  = $device_filter;
 }
 
 $where_sql = implode(' AND ', $where);

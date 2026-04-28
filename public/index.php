@@ -40,6 +40,10 @@
     Assets
     <span class="nb warn" id="nb-assets">—</span>
   </div>
+  <div class="ni" id="ndevices" onclick="goTab('devices');hiNav('ndevices')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 11v1.5M9 11v1.5M4 6h2M8 6h2"/></svg>
+    Devices
+  </div>
   <div class="ni" id="nvulns" onclick="goTab('vulns');hiNav('nvulns')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M7 6v3M7 5h.01"/></svg>
     Vulnerabilities
@@ -131,6 +135,10 @@
     <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
     <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
   </div>
+  <div id="af-device-banner" class="device-filter-banner hide">
+    <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
+    <button type="button" class="tbtn btn-xs" onclick="clearAssetDeviceFilter()">Show all assets</button>
+  </div>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr>
@@ -152,6 +160,39 @@
     <button id="aprev" onclick="loadAssets(assetPage-1)" disabled>&#8592; Prev</button>
     <span id="apgn-info">—</span>
     <button id="anext" onclick="loadAssets(assetPage+1)" disabled>Next &#8594;</button>
+  </div>
+</div>
+
+<!-- ================================================================ DEVICES -->
+<div class="tab" id="t-devices">
+  <div class="fbar">
+    <input class="finp wide" id="df-q" placeholder="Search device id, MAC, label, or linked IP/hostname…" oninput="debounceDevices()">
+    <select class="finp narrow" id="df-sort" onchange="loadDevices(1)">
+      <option value="id">Sort: ID</option>
+      <option value="asset_count">Sort: # assets</option>
+      <option value="last_seen">Sort: Last activity</option>
+      <option value="primary_mac_norm">Sort: MAC</option>
+    </select>
+    <button class="tbtn" onclick="loadDevices(1)" title="Reload">&#8635; Refresh</button>
+  </div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th>ID</th>
+        <th>MAC (norm)</th>
+        <th># Assets</th>
+        <th>IP sample</th>
+        <th>Last activity</th>
+        <th>Created</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="device-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pgn">
+    <button id="dprev" onclick="loadDevices(devicePage-1)" disabled>&#8592; Prev</button>
+    <span id="dpgn-info">—</span>
+    <button id="dnext" onclick="loadDevices(devicePage+1)" disabled>Next &#8594;</button>
   </div>
 </div>
 
@@ -859,6 +900,9 @@ var currentTab   = 'dash';
 var assetPage    = 1;
 var assetSort    = 'ip';
 var assetOrder   = 'asc';
+/** When > 0, assets list is limited to this logical device (from Devices tab). */
+var assetDeviceFilter = 0;
+var devicePage   = 1;
 var vulnPage     = 1;
 var activeJobId  = null;
 var pollTimer    = null;
@@ -1189,6 +1233,7 @@ function goTab(name) {
     try { sessionStorage.setItem('st_tab', name); } catch(e) {}
     if (name === 'dash')     loadDashboard();
     if (name === 'assets')   loadAssets(1);
+    if (name === 'devices')  loadDevices(1);
     if (name === 'vulns')    loadFindings(1);
     if (name === 'logs')     loadLog();
     if (name === 'scan')     loadScanStatus();
@@ -1570,6 +1615,68 @@ function sortAssets(col) {
     loadAssets(assetPage);
 }
 
+function clearAssetDeviceFilter() {
+    assetDeviceFilter = 0;
+    const b = document.getElementById('af-device-banner');
+    if (b) b.classList.add('hide');
+    loadAssets(1);
+}
+
+function viewDeviceAssets(did) {
+    assetDeviceFilter = parseInt(String(did), 10) || 0;
+    const b = document.getElementById('af-device-banner');
+    const idEl = document.getElementById('af-device-banner-id');
+    if (assetDeviceFilter > 0 && b && idEl) {
+        idEl.textContent = String(assetDeviceFilter);
+        b.classList.remove('hide');
+    }
+    goTab('assets');
+    hiNav('nassets');
+    loadAssets(1);
+}
+
+var deviceDebounce = null;
+function debounceDevices() {
+    clearTimeout(deviceDebounce);
+    deviceDebounce = setTimeout(() => loadDevices(1), 350);
+}
+
+async function loadDevices(page) {
+    devicePage = page;
+    const q    = document.getElementById('df-q')?.value    || '';
+    const sort = document.getElementById('df-sort')?.value || 'id';
+    let order  = 'asc';
+    if (sort === 'last_seen' || sort === 'asset_count') {
+        order = 'desc';
+    }
+    document.getElementById('device-tbody').innerHTML =
+        '<tr><td colspan="7" class="loading">Loading devices…</td></tr>';
+
+    const url = `/api/devices.php?page=${page}&per_page=50&q=${enc(q)}&sort=${enc(sort)}&order=${order}`;
+    const d   = await api(url);
+    if (!d) return;
+
+    document.getElementById('device-tbody').innerHTML = (d.devices || []).map(dev => {
+        const mac = dev.primary_mac_norm ? esc(dev.primary_mac_norm) : '—';
+        const ips = dev.ip_sample ? esc(dev.ip_sample) : '—';
+        const last = dev.last_seen_max ? relTime(dev.last_seen_max) : '—';
+        const created = dev.created_at ? relTime(dev.created_at) : '—';
+        return `<tr>
+          <td class="mono mono-sm">${dev.id}</td>
+          <td class="mono mono-sm">${mac}</td>
+          <td class="mono">${dev.asset_count}</td>
+          <td class="mono mono-sm" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ips}">${ips}</td>
+          <td class="mono mono-sm">${last}</td>
+          <td class="mono mono-sm">${created}</td>
+          <td><button type="button" class="tbtn btn-xs" onclick="viewDeviceAssets(${dev.id})">Assets</button></td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="7" class="loading">No devices found</td></tr>';
+
+    document.getElementById('dpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} devices)`;
+    document.getElementById('dprev').disabled = page <= 1;
+    document.getElementById('dnext').disabled = page >= d.pages;
+}
+
 function detectServiceHitsFromAsset(asset) {
     const banners = asset.banners || {};
     const httpProbe = String(banners._http || '');
@@ -1589,7 +1696,17 @@ async function loadAssets(page) {
     document.getElementById('asset-tbody').innerHTML =
         '<tr><td colspan="10" class="loading">Loading assets…</td></tr>';
 
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}`;
+    const b = document.getElementById('af-device-banner');
+    const idEl = document.getElementById('af-device-banner-id');
+    if (assetDeviceFilter > 0 && b && idEl) {
+        idEl.textContent = String(assetDeviceFilter);
+        b.classList.remove('hide');
+    } else if (b) {
+        b.classList.add('hide');
+    }
+
+    const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}`;
     const d   = await api(url);
     if (!d) return;
 
@@ -1619,7 +1736,10 @@ async function loadAssets(page) {
         </tr>`;
     }).join('') || '<tr><td colspan="10" class="loading">No assets found</td></tr>';
 
-    document.getElementById('apgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} assets)`;
+    document.getElementById('apgn-info').textContent =
+        assetDeviceFilter > 0
+            ? `Page ${d.page} of ${d.pages} (${d.total} assets for device ${assetDeviceFilter})`
+            : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
     document.getElementById('aprev').disabled = page <= 1;
     document.getElementById('anext').disabled = page >= d.pages;
 }
@@ -3780,7 +3900,8 @@ function exportAssets(format) {
     const cat  = document.getElementById('af-cat').value;
     const sev  = document.getElementById('af-sev').value;
     const incf = document.getElementById('af-findings')?.checked ? '1' : '0';
-    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}`;
+    const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
+    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}`;
     // Trigger download
     const a = document.createElement('a');
     a.href = url;
@@ -3884,7 +4005,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -3909,7 +4030,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-    const navMap = {dash:'ndash',assets:'nassets',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');

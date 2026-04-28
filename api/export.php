@@ -8,7 +8,8 @@
  *   format   — csv | json (default: csv)
  *   category — filter by category (optional)
  *   severity — filter by severity (optional)
- *   findings — 1 = include findings rows in CSV (default: 0)
+ *   findings  — 1 = include findings rows in CSV (default: 0)
+ *   device_id — if > 0, only assets for this logical device
  */
 
 require_once __DIR__ . '/db.php';
@@ -48,6 +49,12 @@ if ($severity !== '') {
         $params[':slo'] = $lo;
         $params[':shi'] = $hi;
     }
+}
+
+$device_filter = st_int('device_id', 0, 0, PHP_INT_MAX);
+if ($device_filter > 0) {
+    $where[]          = 'a.device_id = :devid';
+    $params[':devid'] = $device_filter;
 }
 
 $where_sql = implode(' AND ', $where);

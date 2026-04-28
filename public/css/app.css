@@ -442,6 +442,7 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .mb16{margin-bottom:16px}
 .w130{width:130px}
 .hide{display:none}
+.device-filter-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0 12px;font-size:13px}
 .profile-grid{display:grid;gap:8px}
 .profile-copy{flex:1}
 .radio-hidden{display:none}
