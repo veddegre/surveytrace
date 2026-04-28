@@ -2124,7 +2124,7 @@ async function loadScanHistory(history) {
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
-    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
+    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details" onclick="openScanHistDetailFromRow(event, ${j.id})">
       <td class="mono">#${j.id}</td>
       <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2133,7 +2133,7 @@ async function loadScanHistory(history) {
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
       <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10">${localDate(j.finished_at)}</td>
-      <td class="nowrap-cell">
+      <td class="nowrap-cell" onclick="event.stopPropagation()">
         <button type="button" class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
         ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" onclick="rerunScanJob(${j.id})">Re-run</button>` : ''}
       </td>
@@ -2189,12 +2189,12 @@ function updateQueuePanel(history) {
             <div class="track">
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
-        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
+        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details" onclick="openScanHistDetailFromRow(event, ${j.id})">
           <td class="mono">#${j.id}</td>
           <td class="text-primary font11">${esc(j.label||'—')}</td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
           <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
-          <td>
+          <td onclick="event.stopPropagation()">
             <span class="status-chip" style="color:${statusColor[j.status]||'var(--tx2)'}">
               ${isRun ? '&#9654; running' : j.status}
             </span>
@@ -2222,6 +2222,13 @@ function wireScanHistoryRowClicks() {
             if (jid > 0) openScanHistDetail(jid);
         };
     });
+}
+
+function openScanHistDetailFromRow(ev, jobId) {
+    const t = ev && ev.target;
+    if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
+    const jid = parseInt(String(jobId), 10);
+    if (jid > 0) openScanHistDetail(jid);
 }
 
 // Delegated fallback: catches clicks even if a row misses direct binding.
