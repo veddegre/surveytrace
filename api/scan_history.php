@@ -17,6 +17,7 @@ $db = st_db();
 $id = st_int('id', 0, 0);
 $compareToId = st_int('compare_to', 0, 0);
 $compareScope = st_str('compare_scope', 'any', ['any', 'target', 'profile', 'both']);
+$view = st_str('view', 'active', ['active', 'trash', 'all']);
 $limit = st_int('limit', 50, 1, 200);
 
 // Ensure history columns exist for older DBs
@@ -28,6 +29,7 @@ $scanJobMigrations = [
     'retry_count' => "INTEGER DEFAULT 0",
     'summary_json'=> "TEXT",
     'enrichment_source_ids' => "TEXT",
+    'deleted_at'  => "DATETIME",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -43,7 +45,7 @@ if ($id > 0) {
                COALESCE(scan_mode, 'auto') AS scan_mode,
                COALESCE(priority, 10) AS priority,
                COALESCE(retry_count, 0) AS retry_count,
-               summary_json,
+               summary_json, deleted_at,
                CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs
         WHERE id = ?
@@ -131,6 +133,7 @@ if ($id > 0) {
              , COALESCE(scan_mode, 'auto') AS scan_mode
         FROM scan_jobs
         WHERE id < ?
+          AND deleted_at IS NULL
           AND status IN ('done','aborted','failed')
         ORDER BY id DESC
         LIMIT 40
@@ -154,6 +157,7 @@ if ($id > 0) {
             SELECT id, label, target_cidr, status, finished_at
             FROM scan_jobs
             WHERE id = ?
+              AND deleted_at IS NULL
             LIMIT 1
         ");
         $cmpStmt->execute([$compareToId]);
@@ -175,6 +179,7 @@ if ($id > 0) {
             SELECT id, label, target_cidr, status, finished_at
             FROM scan_jobs
             WHERE id < ?
+              AND deleted_at IS NULL
               AND status IN ('done','aborted','failed')
               $whereExtra
             ORDER BY id DESC
@@ -297,9 +302,16 @@ if ($qRaw !== '') {
     $likePat = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $qRaw) . '%';
 }
 
+$listWhere = 'WHERE deleted_at IS NULL';
+if ($view === 'trash') {
+    $listWhere = 'WHERE deleted_at IS NOT NULL';
+} elseif ($view === 'all') {
+    $listWhere = 'WHERE 1=1';
+}
+
 if ($likePat !== null) {
     $rows = $db->prepare("
-        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
+        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned, deleted_at,
                created_at, started_at, finished_at, error_msg,
                COALESCE(profile, 'standard_inventory') AS profile,
                COALESCE(scan_mode, 'auto') AS scan_mode,
@@ -308,7 +320,8 @@ if ($likePat !== null) {
                summary_json,
                CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs
-        WHERE (COALESCE(label, '') LIKE :qp1 ESCAPE '\\'
+        $listWhere
+          AND (COALESCE(label, '') LIKE :qp1 ESCAPE '\\'
             OR COALESCE(target_cidr, '') LIKE :qp2 ESCAPE '\\'
             OR CAST(id AS TEXT) LIKE :qp3 ESCAPE '\\')
         ORDER BY id DESC
@@ -321,7 +334,7 @@ if ($likePat !== null) {
     $rows->execute();
 } else {
     $rows = $db->prepare("
-        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
+        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned, deleted_at,
                created_at, started_at, finished_at, error_msg,
                COALESCE(profile, 'standard_inventory') AS profile,
                COALESCE(scan_mode, 'auto') AS scan_mode,
@@ -330,6 +343,7 @@ if ($likePat !== null) {
                summary_json,
                CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs
+        $listWhere
         ORDER BY id DESC
         LIMIT ?
     ");
@@ -348,4 +362,5 @@ $history = array_map(function($r) {
 st_json([
     'ok' => true,
     'history' => $history,
+    'view' => $view,
 ]);

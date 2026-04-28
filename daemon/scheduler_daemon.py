@@ -100,8 +100,69 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             job_cols = {row[1] for row in job_info}
             if "enrichment_source_ids" not in job_cols:
                 conn.execute("ALTER TABLE scan_jobs ADD COLUMN enrichment_source_ids TEXT")
+            if "deleted_at" not in job_cols:
+                conn.execute("ALTER TABLE scan_jobs ADD COLUMN deleted_at DATETIME")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC)")
     except sqlite3.OperationalError as e:
         log.warning("scan_jobs column migration skipped: %s", e)
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('scan_trash_retention_days', '30')")
+
+
+def _hard_delete_scan(conn: sqlite3.Connection, job_id: int) -> None:
+    conn.execute("DELETE FROM scan_log WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM port_history WHERE scan_id = ?", (job_id,))
+    try:
+        conn.execute("DELETE FROM scan_asset_snapshots WHERE job_id = ?", (job_id,))
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("DELETE FROM scan_finding_snapshots WHERE job_id = ?", (job_id,))
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("DELETE FROM scan_jobs WHERE id = ?", (job_id,))
+
+
+def purge_expired_trashed_scans(conn: sqlite3.Connection) -> None:
+    try:
+        retention_days = int(conn.execute(
+            "SELECT value FROM config WHERE key = 'scan_trash_retention_days' LIMIT 1"
+        ).fetchone()[0])
+    except Exception:
+        retention_days = 30
+    retention_days = max(1, min(365, retention_days))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).replace(tzinfo=None)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        """
+        SELECT id, status, deleted_at
+        FROM scan_jobs
+        WHERE deleted_at IS NOT NULL
+          AND deleted_at <= ?
+        ORDER BY id ASC
+        LIMIT 200
+        """,
+        (cutoff_str,),
+    ).fetchall()
+    if not rows:
+        return
+    for row in rows:
+        jid = int(row["id"])
+        _hard_delete_scan(conn, jid)
+        try:
+            conn.execute(
+                """
+                INSERT INTO user_audit_log
+                    (actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip)
+                VALUES
+                    (NULL, 'system', NULL, NULL, 'scan.job_purged',
+                     json_object('job_id', ?, 'previous_status', ?, 'deleted_at', ?, 'retention_days', ?, 'source', 'scheduler_retention'),
+                     '127.0.0.1')
+                """,
+                (jid, row["status"] or "", row["deleted_at"] or "", retention_days),
+            )
+        except sqlite3.OperationalError:
+            pass
+    log.info("Purged %d trashed scan(s) older than %d days", len(rows), retention_days)
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +451,7 @@ def main() -> None:
             now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
             with db_conn() as conn:
+                purge_expired_trashed_scans(conn)
                 # Find all enabled schedules due to run
                 due = conn.execute("""
                     SELECT * FROM scan_schedules

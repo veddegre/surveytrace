@@ -105,10 +105,12 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     hosts_scanned INTEGER DEFAULT 0,
     summary_json TEXT,
     error_msg    TEXT,
+    deleted_at   DATETIME,
     created_by   TEXT DEFAULT 'web',
     -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
     enrichment_source_ids TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC);
 
 -- -------------------------------------------------------
 -- Scan log: full audit trail of every probe sent
@@ -267,5 +269,6 @@ INSERT OR IGNORE INTO config VALUES
     ('password_hash_algo', 'argon2id'),
     ('login_max_attempts', '5'),
     ('login_lockout_minutes', '15'),
+    ('scan_trash_retention_days', '30'),
     ('session_timeout_minutes', '480'),  -- idle timeout + session cookie max-age (5–10080)
     ('extra_safe_ports', '');  -- comma-separated additional ports for routed fast_full_tcp safe scan

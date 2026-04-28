@@ -2,34 +2,80 @@
 /**
  * SurveyTrace — POST /api/scan_delete.php
  *
- * Deletes a historical scan job and associated run evidence.
- * Safety: queued/running/retrying jobs cannot be deleted.
+ * Scan trash lifecycle actions.
+ * - action=trash   (default): soft-delete a historical scan into Trash
+ * - action=restore: restore a trashed scan
+ * - action=purge:   permanently delete a trashed scan and evidence (admin only)
  *
  * Body JSON:
- *   { "job_id": 123 }
+ *   { "job_id": 123, "action": "trash|restore|purge" }
  */
 
 require_once __DIR__ . '/db.php';
 st_auth();
 st_require_role(['scan_editor', 'admin']);
 st_method('POST');
+st_require_csrf();
 
 $db = st_db();
 $actor = st_current_user();
 $jobId = st_int('job_id', 0, 1);
+$action = st_str('action', 'trash', ['trash', 'restore', 'purge']);
 if ($jobId <= 0) {
     st_json(['ok' => false, 'error' => 'job_id is required'], 400);
 }
 
-$stmt = $db->prepare("SELECT id, status FROM scan_jobs WHERE id = ? LIMIT 1");
+$jobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
+if (!in_array('deleted_at', $jobCols, true)) {
+    try {
+        $db->exec("ALTER TABLE scan_jobs ADD COLUMN deleted_at DATETIME");
+    } catch (Throwable $e) {
+        // no-op if migrated concurrently
+    }
+}
+
+$stmt = $db->prepare("SELECT id, status, deleted_at FROM scan_jobs WHERE id = ? LIMIT 1");
 $stmt->execute([$jobId]);
 $job = $stmt->fetch();
 if (!$job) {
     st_json(['ok' => false, 'error' => "Job #$jobId not found"], 404);
 }
 $status = (string)($job['status'] ?? '');
-if (in_array($status, ['queued', 'running', 'retrying'], true)) {
-    st_json(['ok' => false, 'error' => 'Cannot delete queued/running jobs; cancel or abort first'], 409);
+$deletedAt = trim((string)($job['deleted_at'] ?? ''));
+
+if ($action === 'trash') {
+    if (in_array($status, ['queued', 'running', 'retrying'], true)) {
+        st_json(['ok' => false, 'error' => 'Cannot move queued/running jobs to trash; cancel or abort first'], 409);
+    }
+    if ($deletedAt !== '') {
+        st_json(['ok' => true, 'trashed_job_id' => $jobId, 'deleted_at' => $deletedAt, 'already_trashed' => true]);
+    }
+    $db->prepare("UPDATE scan_jobs SET deleted_at = datetime('now') WHERE id = ?")->execute([$jobId]);
+    $newDeletedAt = (string)$db->query("SELECT deleted_at FROM scan_jobs WHERE id = " . (int)$jobId)->fetchColumn();
+    st_audit_log('scan.job_trashed', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'job_id' => $jobId,
+        'previous_status' => $status,
+    ]);
+    st_json(['ok' => true, 'trashed_job_id' => $jobId, 'deleted_at' => $newDeletedAt]);
+}
+
+if ($action === 'restore') {
+    if ($deletedAt === '') {
+        st_json(['ok' => true, 'restored_job_id' => $jobId, 'already_active' => true]);
+    }
+    $db->prepare("UPDATE scan_jobs SET deleted_at = NULL WHERE id = ?")->execute([$jobId]);
+    st_audit_log('scan.job_restored', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'job_id' => $jobId,
+        'previous_status' => $status,
+    ]);
+    st_json(['ok' => true, 'restored_job_id' => $jobId]);
+}
+
+if (st_current_role() !== 'admin') {
+    st_json(['ok' => false, 'error' => 'Admin role required to permanently delete scan data'], 403);
+}
+if ($deletedAt === '') {
+    st_json(['ok' => false, 'error' => 'Scan must be moved to trash before permanent deletion'], 409);
 }
 
 try {
@@ -47,9 +93,9 @@ try {
     st_json(['ok' => false, 'error' => 'Delete failed: ' . $e->getMessage()], 500);
 }
 
-st_audit_log('scan.job_deleted', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+st_audit_log('scan.job_purged', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
     'job_id' => $jobId,
     'previous_status' => $status,
 ]);
-st_json(['ok' => true, 'deleted_job_id' => $jobId]);
+st_json(['ok' => true, 'purged_job_id' => $jobId]);
 

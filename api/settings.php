@@ -45,6 +45,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'password_hash_algo' => st_password_hash_algo(),
         'login_max_attempts' => st_login_max_attempts(),
         'login_lockout_minutes' => st_login_lockout_minutes(),
+        'scan_trash_retention_days' => max(1, min(365, (int)st_config('scan_trash_retention_days', '30'))),
         'nvd_api_key_configured' => $nvdKey !== '',
     ]);
 }
@@ -167,6 +168,22 @@ if (array_key_exists('login_lockout_minutes', $body)) {
     $v = max(1, min(1440, $v));
     st_config_set('login_lockout_minutes', (string)$v);
     $changed['login_lockout_minutes'] = $v;
+}
+
+if (array_key_exists('scan_trash_retention_days', $body)) {
+    $v = (int)$body['scan_trash_retention_days'];
+    $v = max(1, min(365, $v));
+    st_config_set('scan_trash_retention_days', (string)$v);
+    $changed['scan_trash_retention_days'] = $v;
+    $actor = st_current_user();
+    st_audit_log(
+        'scan.trash_retention_updated',
+        (int)($actor['id'] ?? 0),
+        (string)($actor['username'] ?? ''),
+        null,
+        null,
+        ['days' => $v]
+    );
 }
 
 if (!empty($body['nvd_api_key_remove'])) {

@@ -48,6 +48,7 @@ $scanJobMigrations = [
     'retry_count'=> "INTEGER DEFAULT 0",
     'summary_json'=> "TEXT",
     'enrichment_source_ids' => "TEXT",
+    'deleted_at' => "DATETIME",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -59,7 +60,7 @@ foreach ($scanJobMigrations as $col => $defn) {
 // Fetch job row
 // ---------------------------------------------------------------------------
 if ($job_id > 0) {
-    $jstmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ?");
+    $jstmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND deleted_at IS NULL");
     $jstmt->execute([$job_id]);
     $job = $jstmt->fetch();
     if (!$job) {
@@ -67,7 +68,7 @@ if ($job_id > 0) {
     }
 } else {
     // Most recent job of any status
-    $job = $db->query("SELECT * FROM scan_jobs ORDER BY id DESC LIMIT 1")->fetch();
+    $job = $db->query("SELECT * FROM scan_jobs WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1")->fetch();
 }
 
 if (!$job) {
@@ -184,11 +185,13 @@ $job['total_log_lines'] = (int)$cstmt->fetchColumn();
 $history = $db->query("
     SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
            created_at, started_at, finished_at, error_msg, summary_json,
+           deleted_at,
            COALESCE(profile, 'standard_inventory') AS profile,
            COALESCE(scan_mode, 'auto') AS scan_mode,
            COALESCE(priority, 10) AS priority,
            CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
     FROM scan_jobs
+    WHERE deleted_at IS NULL
     ORDER BY id DESC
     LIMIT 30
 ")->fetchAll();

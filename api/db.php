@@ -54,6 +54,9 @@ function st_db(): PDO {
     $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('extra_safe_ports', '')"
     );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('scan_trash_retention_days', '30')"
+    );
 
     // Lightweight schema migration for newer scan history snapshot support
     try {
@@ -61,6 +64,12 @@ function st_db(): PDO {
     } catch (Throwable $e) {
         // no-op: column already exists
     }
+    try {
+        $pdo->exec("ALTER TABLE scan_jobs ADD COLUMN deleted_at DATETIME");
+    } catch (Throwable $e) {
+        // no-op: column already exists
+    }
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC)");
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

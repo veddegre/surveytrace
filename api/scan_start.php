@@ -55,11 +55,11 @@ foreach ($scanJobMigrations as $col => $defn) {
 // ---------------------------------------------------------------------------
 if (!empty($body['retry_job_id'])) {
     $orig_id = (int)$body['retry_job_id'];
-    $stmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND status IN ('failed','done','aborted')");
+    $stmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND status IN ('failed','done','aborted') AND deleted_at IS NULL");
     $stmt->execute([$orig_id]);
     $orig = $stmt->fetch();
     if (!$orig) {
-        st_json(['error' => 'Job not found or not eligible for re-run (need failed, done, or aborted)'], 404);
+        st_json(['error' => 'Job not found or not eligible for re-run (need failed, done, or aborted active scan)'], 404);
     }
     $enrRetry = $orig['enrichment_source_ids'] ?? null;
     $origLabel = trim((string)($orig['label'] ?? ''));

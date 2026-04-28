@@ -492,6 +492,11 @@
 
   <div class="sth section-top">Scan history</div>
   <div class="fbar">
+    <div class="row-wrap gap6">
+      <button type="button" class="tbtn btn-xs" id="scan-view-active" onclick="setScanHistoryView('active')">Active</button>
+      <button type="button" class="tbtn btn-xs" id="scan-view-trash" onclick="setScanHistoryView('trash')">Trash</button>
+      <button type="button" class="tbtn btn-xs" id="scan-view-all" onclick="setScanHistoryView('all')">All</button>
+    </div>
     <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
     <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
   </div>
@@ -658,7 +663,7 @@
         <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
         <div class="row-wrap gap6" style="align-items:center">
           <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
-          <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="deleteScanJob(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Delete</button>
+          <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="scanHistoryPrimaryAction(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Move to trash</button>
           <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
         </div>
       </div>
@@ -995,6 +1000,16 @@
           <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
         </table>
       </div>
+      <div class="card">
+        <div class="ct">Scan trash retention</div>
+        <div class="help-line mb8">
+          Trashed scans are permanently purged after this many days by the scheduler daemon.
+        </div>
+        <div class="row-wrap gap6">
+          <input class="finp" id="scan-trash-retention-days" type="number" min="1" max="365" style="width:80px" title="Days scans stay in Trash before automatic purge">
+          <button type="button" class="tbtn btn-xs" id="scan-trash-retention-save" onclick="saveScanTrashRetentionDays()" title="Save trash retention days (admin)">Save retention</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1312,6 +1327,8 @@ var pendingMfaQrUrl = '';
 var pendingRecoveryCodes = [];
 var mustChangePasswordPending = false;
 var pendingUserSave = null;
+var scanHistoryView = 'active';
+var scanTrashRetentionDays = 30;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -1350,6 +1367,9 @@ function applyRoleAwareUi() {
     disableByOnclick('startScan(', !canScanManage);
     disableByOnclick('rerunScanJob(', !canScanManage);
     disableByOnclick('deleteScanJob(', !canScanManage);
+    disableByOnclick('restoreScanJob(', !canScanManage);
+    disableByOnclick('purgeScanJob(', !isAdmin);
+    disableByOnclick('scanHistoryPrimaryAction(', !canScanManage);
     disableByOnclick('openSchedModal(', !canScanManage);
     disableByOnclick('saveSchedule(', !canScanManage);
     disableByOnclick('runSchedNow(', !canScanManage);
@@ -1371,6 +1391,10 @@ function applyRoleAwareUi() {
     disableByOnclick('openAddSource(', !isAdmin);
     disableByOnclick('saveSource(', !isAdmin);
     disableByOnclick('deleteSource(', !isAdmin);
+    const retentionInput = document.getElementById('scan-trash-retention-days');
+    const retentionSave = document.getElementById('scan-trash-retention-save');
+    if (retentionInput) retentionInput.style.display = isAdmin ? '' : 'none';
+    if (retentionSave) retentionSave.style.display = isAdmin ? '' : 'none';
 }
 
 function updateAccessControlModeVisibility() {
@@ -2891,7 +2915,39 @@ function scanHistSearchQ() {
     return (el.value || '').trim().slice(0, 120);
 }
 
+function updateScanHistoryViewButtons() {
+    ['active', 'trash', 'all'].forEach((view) => {
+        const btn = document.getElementById('scan-view-' + view);
+        if (!btn) return;
+        btn.classList.toggle('toggle-on', scanHistoryView === view);
+        btn.classList.toggle('toggle-off', scanHistoryView !== view);
+    });
+}
+
+function setScanHistoryView(view) {
+    if (!['active', 'trash', 'all'].includes(view)) return;
+    scanHistoryView = view;
+    updateScanHistoryViewButtons();
+    void loadScanHistory();
+}
+
+async function saveScanTrashRetentionDays() {
+    if (!stRoleIsAdmin()) return;
+    const input = document.getElementById('scan-trash-retention-days');
+    if (!input) return;
+    const days = Math.max(1, Math.min(365, parseInt(input.value || String(scanTrashRetentionDays), 10) || 30));
+    input.value = String(days);
+    const r = await apiPost('/api/settings.php', {scan_trash_retention_days: days});
+    if (r && r.ok) {
+        scanTrashRetentionDays = days;
+        toast('Trash retention updated to ' + days + ' day(s)', 'ok');
+    } else {
+        toast((r && r.error) || 'Save retention failed', 'err');
+    }
+}
+
 async function loadScanHistory(history) {
+    updateScanHistoryViewButtons();
     let queueHistory = history;
     if (!queueHistory) {
         const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});
@@ -2902,17 +2958,26 @@ async function loadScanHistory(history) {
     updateQueuePanel(queueHistory);
 
     const q = scanHistSearchQ();
+    const view = scanHistoryView;
     let completedRows;
     if (q) {
-        const hd = await api('/api/scan_history.php?limit=200&q=' + encodeURIComponent(q), {quiet:true});
+        const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view) + '&q=' + encodeURIComponent(q), {quiet:true});
         completedRows = (hd && hd.history) ? hd.history : [];
     } else {
-        completedRows = (queueHistory || []).filter(j => !['queued','running','retrying'].includes(j.status));
+        if (view === 'active') {
+            completedRows = (queueHistory || []).filter(j => !['queued','running','retrying'].includes(j.status));
+        } else {
+            const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view), {quiet:true});
+            completedRows = (hd && hd.history) ? hd.history : [];
+        }
     }
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
-    const canDelete = (st) => ['done', 'aborted', 'failed'].includes(st);
+    const canManage = stRoleCanManageScans();
+    const canTrash = (j) => canManage && ['done', 'aborted', 'failed'].includes(j.status) && !j.deleted_at;
+    const canRestore = (j) => canManage && !!j.deleted_at;
+    const canPurge = (j) => !!j.deleted_at && stRoleIsAdmin();
     document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
       <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
@@ -2924,8 +2989,10 @@ async function loadScanHistory(history) {
       <td class="mono font10">${localDate(j.finished_at)}</td>
       <td class="nowrap-cell">
         <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
-        ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
-        ${canDelete(j.status) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Delete</button>` : ''}
+        ${canRerun(j.status) && !j.deleted_at ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
+        ${canTrash(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Move to trash</button>` : ''}
+        ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
+        ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
     bindScanHistoryDelegates();
@@ -3015,6 +3082,8 @@ function handleScanHistoryTableClick(ev) {
         if (action === 'details') { void openScanHistDetail(jid); return; }
         if (action === 'rerun')   { void rerunScanJob(jid); return; }
         if (action === 'delete')  { void deleteScanJob(jid); return; }
+        if (action === 'restore') { void restoreScanJob(jid); return; }
+        if (action === 'purge')   { void purgeScanJob(jid); return; }
         if (action === 'abort')   { void abortJobById(jid); return; }
         if (action === 'cancel')  { void cancelJob(jid); return; }
         return;
@@ -3101,20 +3170,60 @@ async function deleteScanJob(id) {
     const jid = parseInt(String(id), 10);
     if (!jid) return;
     const ok = await showConfirmModal(
-        `Delete historical scan #${jid}?\n\nThis removes the job record and saved run evidence for that scan.`,
-        {title: 'Delete scan', okText: 'Delete'}
+        `Move scan #${jid} to Trash?\n\nIt can be restored until the retention period expires.`,
+        {title: 'Move scan to trash', okText: 'Move to trash'}
     );
     if (!ok) return;
-    const r = await apiPost('/api/scan_delete.php', {job_id: jid});
+    const r = await apiPost('/api/scan_delete.php', {job_id: jid, action: 'trash'});
     if (r && r.ok) {
         const delBtn = document.getElementById('scan-hist-detail-delete');
         const openId = delBtn ? parseInt(delBtn.dataset.jobId || '0', 10) : 0;
         if (openId === jid) closeScanHistDetailModal(false);
-        toast('Scan #' + jid + ' deleted', 'ok');
+        toast('Scan #' + jid + ' moved to trash', 'ok');
         loadScanHistory();
     } else {
-        toast((r && r.error) || 'Delete failed', 'err');
+        toast((r && r.error) || 'Move to trash failed', 'err');
     }
+}
+
+async function restoreScanJob(id) {
+    const jid = parseInt(String(id), 10);
+    if (!jid) return;
+    const r = await apiPost('/api/scan_delete.php', {job_id: jid, action: 'restore'});
+    if (r && r.ok) {
+        toast('Scan #' + jid + ' restored', 'ok');
+        loadScanHistory();
+    } else {
+        toast((r && r.error) || 'Restore failed', 'err');
+    }
+}
+
+async function purgeScanJob(id) {
+    const jid = parseInt(String(id), 10);
+    if (!jid) return;
+    const ok = await showConfirmModal(
+        `Delete scan #${jid} permanently?\n\nThis permanently removes the job and saved run evidence.`,
+        {title: 'Permanent delete', okText: 'Delete permanently'}
+    );
+    if (!ok) return;
+    const r = await apiPost('/api/scan_delete.php', {job_id: jid, action: 'purge'});
+    if (r && r.ok) {
+        const delBtn = document.getElementById('scan-hist-detail-delete');
+        const openId = delBtn ? parseInt(delBtn.dataset.jobId || '0', 10) : 0;
+        if (openId === jid) closeScanHistDetailModal(false);
+        toast('Scan #' + jid + ' permanently deleted', 'ok');
+        loadScanHistory();
+    } else {
+        toast((r && r.error) || 'Permanent delete failed', 'err');
+    }
+}
+
+function scanHistoryPrimaryAction(id) {
+    const btn = document.getElementById('scan-hist-detail-delete');
+    const action = btn ? (btn.dataset.action || 'trash') : 'trash';
+    if (action === 'restore') return restoreScanJob(id);
+    if (action === 'purge') return purgeScanJob(id);
+    return deleteScanJob(id);
 }
 
 function closeScanHistDetailModal(restoreDevice = true) {
@@ -3264,7 +3373,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     const rerunBtn = document.getElementById('scan-hist-detail-rerun');
     if (rerunBtn) { rerunBtn.style.display = 'none'; rerunBtn.dataset.jobId = ''; }
     const delBtn = document.getElementById('scan-hist-detail-delete');
-    if (delBtn) { delBtn.style.display = 'none'; delBtn.dataset.jobId = ''; }
+    if (delBtn) { delBtn.style.display = 'none'; delBtn.dataset.jobId = ''; delBtn.dataset.action = 'trash'; }
     const hint0 = document.getElementById('scan-hist-detail-assets-hint');
     if (hint0) hint0.style.display = 'none';
     title.textContent = 'Scan #' + id + ' detail';
@@ -3283,13 +3392,17 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     }
 
     const j = d.job;
+    const isTrashed = !!j.deleted_at;
     if (rerunBtn) {
         rerunBtn.dataset.jobId = String(j.id);
-        rerunBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
+        rerunBtn.style.display = (!isTrashed && ['done', 'aborted', 'failed'].includes(j.status)) ? '' : 'none';
     }
     if (delBtn) {
         delBtn.dataset.jobId = String(j.id);
-        delBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
+        delBtn.dataset.action = isTrashed ? (stRoleIsAdmin() ? 'purge' : 'restore') : 'trash';
+        delBtn.textContent = isTrashed ? (stRoleIsAdmin() ? 'Delete permanently' : 'Restore') : 'Move to trash';
+        delBtn.style.color = isTrashed && stRoleIsAdmin() ? 'var(--red)' : '';
+        delBtn.style.display = (stRoleCanManageScans() && ['done', 'aborted', 'failed'].includes(j.status)) ? '' : 'none';
     }
     title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
     const phasesRan = Array.isArray(j.phases) && j.phases.length ? j.phases.join(', ') : '—';
@@ -3299,6 +3412,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
       &nbsp;|&nbsp; Started: ${esc(localTime(j.started_at))}
       &nbsp;|&nbsp; Finished: ${esc(localTime(j.finished_at))}
       &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
+      ${isTrashed ? `&nbsp;|&nbsp; Trashed: <b>${esc(localTime(j.deleted_at))}</b>` : ''}
       <div style="margin-top:4px">Phases run: <span class="mono">${esc(phasesRan)}</span></div>
     `;
     renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
@@ -3605,6 +3719,10 @@ async function loadUiSettings() {
     if (maxAtt) maxAtt.value = String(d.login_max_attempts || 5);
     const lockMin = document.getElementById('pp-lockout-min');
     if (lockMin) lockMin.value = String(d.login_lockout_minutes || 15);
+    scanTrashRetentionDays = Math.max(1, Math.min(365, Number(d.scan_trash_retention_days || 30)));
+    const retention = document.getElementById('scan-trash-retention-days');
+    if (retention) retention.value = String(scanTrashRetentionDays);
+    updateScanHistoryViewButtons();
     await loadAuthUsers();
     updateMfaActionButtons();
 }
