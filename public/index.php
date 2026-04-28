@@ -1106,6 +1106,7 @@
       <div class="mb8">
         <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
       </div>
+      <div id="mfa-qr-status" class="hint-micro mb8"></div>
       <div class="row-wrap mb8">
         <button class="tbtn" type="button" id="mfa-copy-uri-btn">Copy setup URI</button>
       </div>
@@ -3820,6 +3821,7 @@ async function beginMfaSetup() {
     const box = document.getElementById('mfa-setup-box');
     const sec = document.getElementById('mfa-secret');
     const qr = document.getElementById('mfa-qr');
+    const qrStatus = document.getElementById('mfa-qr-status');
     const copyBtn = document.getElementById('mfa-copy-uri-btn');
     const recBox = document.getElementById('mfa-recovery-box');
     const recTa = document.getElementById('mfa-recovery-codes');
@@ -3832,6 +3834,7 @@ async function beginMfaSetup() {
         qr.classList.add('hide');
         qr.src = '';
     }
+    if (qrStatus) qrStatus.textContent = 'Generating local QR code...';
     if (pendingMfaOtpUri) {
         try {
             const headers = {'Content-Type': 'application/json'};
@@ -3842,19 +3845,31 @@ async function beginMfaSetup() {
                 headers: headers,
                 body: JSON.stringify({otpauth_uri: pendingMfaOtpUri})
             });
-            if (qrr.ok) {
+            const ct = (qrr.headers.get('content-type') || '').toLowerCase();
+            if (qrr.ok && ct.includes('image/png')) {
                 const blob = await qrr.blob();
                 pendingMfaQrUrl = URL.createObjectURL(blob);
                 if (qr) {
                     qr.src = pendingMfaQrUrl;
                     qr.classList.remove('hide');
                 }
+                if (qrStatus) qrStatus.textContent = 'Scan this QR with your authenticator app.';
             } else {
+                let msg = 'Local QR generation unavailable; use setup link or manual secret';
                 const err = await qrr.json().catch(() => null);
-                toast((err && err.error) ? err.error : 'Local QR generation unavailable; use setup link or manual secret', 'ok');
+                if (err && err.error) msg = String(err.error);
+                else {
+                    const raw = await qrr.text().catch(() => '');
+                    if (raw && raw.trim()) msg = `QR request failed (HTTP ${qrr.status}): ${raw.replace(/\s+/g, ' ').trim().slice(0, 160)}`;
+                    else msg = `QR request failed (HTTP ${qrr.status})`;
+                }
+                if (qrStatus) qrStatus.textContent = msg;
+                toast(msg, 'err');
             }
         } catch (e) {
-            toast('Local QR generation unavailable; use setup link or manual secret', 'ok');
+            const msg = 'Local QR generation unavailable; use setup link or manual secret';
+            if (qrStatus) qrStatus.textContent = msg;
+            toast(msg, 'err');
         }
     }
     if (copyBtn) {

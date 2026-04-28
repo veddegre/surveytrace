@@ -36,6 +36,9 @@ $qrencode = trim((string)@shell_exec('command -v qrencode 2>/dev/null'));
 if ($qrencode === '') {
     st_json(['error' => 'Local QR generation is unavailable: qrencode is not installed'], 501);
 }
+if (!function_exists('proc_open') || !is_callable('proc_open')) {
+    st_json(['error' => 'Local QR generation is unavailable: proc_open is disabled in PHP'], 501);
+}
 
 $cmd = escapeshellcmd($qrencode) . ' -o - -t PNG -s 6 -l M';
 $descriptors = [
