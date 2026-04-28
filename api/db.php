@@ -850,10 +850,17 @@ function st_same_origin_ok(?string $url): bool {
     if ($hostHdr === '') return false;
     $hostParts = explode(':', $hostHdr, 2);
     $reqHost = $hostParts[0];
-    $reqScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $xfProto = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if (str_contains($xfProto, ',')) {
+        $xfProto = strtolower(trim(explode(',', $xfProto, 2)[0]));
+    }
+    $reqScheme = in_array($xfProto, ['http', 'https'], true)
+        ? $xfProto
+        : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http');
+    $xfPort = trim((string)($_SERVER['HTTP_X_FORWARDED_PORT'] ?? ''));
     $reqPort = isset($hostParts[1]) && ctype_digit($hostParts[1])
         ? (int)$hostParts[1]
-        : (($reqScheme === 'https') ? 443 : 80);
+        : ((ctype_digit($xfPort) && (int)$xfPort > 0) ? (int)$xfPort : (($reqScheme === 'https') ? 443 : 80));
 
     return $srcHost === $reqHost && $srcScheme === $reqScheme && $srcPort === $reqPort;
 }
