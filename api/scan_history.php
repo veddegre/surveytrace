@@ -56,18 +56,35 @@ if ($id > 0) {
     $job['summary'] = json_decode((string)($job['summary_json'] ?? ''), true) ?: null;
     unset($job['summary_json']);
 
-    $assetsStmt = $db->prepare("
-        SELECT id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
-        FROM assets
-        WHERE last_scan_id = ?
-        ORDER BY ip ASC
-        LIMIT 200
+    $snapStmt = $db->prepare("
+        SELECT
+            COALESCE(asset_id, 0) AS id,
+            ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
+        FROM scan_asset_snapshots
+        WHERE job_id = ?
+        ORDER BY ip ASC, id ASC
+        LIMIT 300
     ");
-    $assetsStmt->execute([$id]);
+    $snapStmt->execute([$id]);
+    $assets = $snapStmt->fetchAll();
+
+    // Fallback for older runs created before scan_asset_snapshots existed.
+    if (!$assets) {
+        $assetsStmt = $db->prepare("
+            SELECT id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
+            FROM assets
+            WHERE last_scan_id = ?
+            ORDER BY ip ASC
+            LIMIT 200
+        ");
+        $assetsStmt->execute([$id]);
+        $assets = $assetsStmt->fetchAll();
+    }
+
     $assets = array_map(function($a) {
         $a['open_ports'] = json_decode((string)($a['open_ports'] ?? '[]'), true) ?: [];
         return $a;
-    }, $assetsStmt->fetchAll());
+    }, $assets);
 
     $logStmt = $db->prepare("
         SELECT id, ts, level, ip, message

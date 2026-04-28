@@ -2124,7 +2124,7 @@ async function loadScanHistory(history) {
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
-    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details" onclick="openScanHistDetailFromRow(event, ${j.id})">
+    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono">#${j.id}</td>
       <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2133,12 +2133,12 @@ async function loadScanHistory(history) {
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
       <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10">${localDate(j.finished_at)}</td>
-      <td class="nowrap-cell" onclick="event.stopPropagation()">
-        <button type="button" class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
-        ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" onclick="rerunScanJob(${j.id})">Re-run</button>` : ''}
+      <td class="nowrap-cell">
+        <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
+        ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
-    wireScanHistoryRowClicks();
+    bindScanHistoryDelegates();
 }
 
 // ==========================================================================
@@ -2189,12 +2189,12 @@ function updateQueuePanel(history) {
             <div class="track">
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
-        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details" onclick="openScanHistDetailFromRow(event, ${j.id})">
+        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
           <td class="mono">#${j.id}</td>
           <td class="text-primary font11">${esc(j.label||'—')}</td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
           <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
-          <td onclick="event.stopPropagation()">
+          <td>
             <span class="status-chip" style="color:${statusColor[j.status]||'var(--tx2)'}">
               ${isRun ? '&#9654; running' : j.status}
             </span>
@@ -2204,50 +2204,48 @@ function updateQueuePanel(history) {
           <td class="mono font10">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
           <td>
             ${isRun
-              ? `<button type="button" class="btnd btn-xxs" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
-              : `<button type="button" class="tbtn btn-xxs danger" onclick="cancelJob(${j.id})">Cancel</button>`}
+              ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">&#9632; Abort</button>`
+              : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
           </td>
         </tr>`;
     }).join('');
     queueBlocks.forEach((b) => { b.tbody.innerHTML = rowsHtml; });
-    wireScanHistoryRowClicks();
+    bindScanHistoryDelegates();
 }
 
-function wireScanHistoryRowClicks() {
-    document.querySelectorAll('tr.scan-hist-row[data-job-id]').forEach((row) => {
-        row.onclick = (ev) => {
-            const t = eventElement(ev);
-            if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
-            const jid = parseInt(row.dataset.jobId || '0', 10);
-            if (jid > 0) openScanHistDetail(jid);
-        };
+let scanHistoryDelegatesBound = false;
+function bindScanHistoryDelegates() {
+    if (scanHistoryDelegatesBound) return;
+    scanHistoryDelegatesBound = true;
+
+    const handleClick = (ev) => {
+        const t = ev.target instanceof Element ? ev.target : null;
+        if (!t) return;
+
+        const btn = t.closest('button[data-scan-action][data-job-id]');
+        if (btn) {
+            const jid = parseInt(btn.getAttribute('data-job-id') || '0', 10);
+            if (jid <= 0) return;
+            const action = btn.getAttribute('data-scan-action') || '';
+            if (action === 'details') { void openScanHistDetail(jid); return; }
+            if (action === 'rerun')   { void rerunScanJob(jid); return; }
+            if (action === 'abort')   { void abortJobById(jid); return; }
+            if (action === 'cancel')  { void cancelJob(jid); return; }
+            return;
+        }
+
+        if (t.closest('a,input,label,select,textarea')) return;
+        const row = t.closest('tr.scan-hist-row[data-job-id]');
+        if (!row) return;
+        const jid = parseInt(row.getAttribute('data-job-id') || '0', 10);
+        if (jid > 0) void openScanHistDetail(jid);
+    };
+
+    ['scan-hist', 'queue-tbody', 'queue-tbody-scan'].forEach((id) => {
+        const tbody = document.getElementById(id);
+        if (tbody) tbody.addEventListener('click', handleClick);
     });
 }
-
-function openScanHistDetailFromRow(ev, jobId) {
-    const t = eventElement(ev);
-    if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
-    const jid = parseInt(String(jobId), 10);
-    if (jid > 0) openScanHistDetail(jid);
-}
-
-function eventElement(ev) {
-    if (!ev) return null;
-    const t = ev.target;
-    if (t instanceof Element) return t;
-    return (t && t.parentElement) ? t.parentElement : null;
-}
-
-// Delegated fallback: catches clicks even if a row misses direct binding.
-document.addEventListener('click', (ev) => {
-    const t = eventElement(ev);
-    if (!(t instanceof Element)) return;
-    if (t.closest('button, a, input, label, select, textarea')) return;
-    const row = t.closest('tr.scan-hist-row[data-job-id]');
-    if (!row) return;
-    const jid = parseInt(row.dataset.jobId || '0', 10);
-    if (jid > 0) openScanHistDetail(jid);
-});
 
 // ==========================================================================
 // Job queue management

@@ -2428,6 +2428,42 @@ def run_scan(job: dict) -> None:
         log.warning("[job %d] Could not build history summary: %s", job_id, e)
 
     with db_conn() as conn:
+        # Preserve run-specific evidence so historical scan details remain stable
+        # even after later scans update assets.last_scan_id.
+        snap_rows = conn.execute(
+            """
+            SELECT id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
+            FROM assets
+            WHERE last_scan_id = ?
+            ORDER BY ip ASC
+            """,
+            (job_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM scan_asset_snapshots WHERE job_id = ?", (job_id,))
+        if snap_rows:
+            conn.executemany(
+                """
+                INSERT INTO scan_asset_snapshots
+                    (job_id, asset_id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        job_id,
+                        int(r["id"]) if r["id"] is not None else None,
+                        r["ip"],
+                        r["hostname"],
+                        r["category"],
+                        r["vendor"],
+                        r["top_cve"],
+                        r["top_cvss"],
+                        r["open_ports"],
+                        int(r["device_id"]) if r["device_id"] is not None else None,
+                    )
+                    for r in snap_rows
+                ],
+            )
+
         conn.execute("""
             UPDATE scan_jobs
             SET status='done', finished_at=CURRENT_TIMESTAMP, hosts_scanned=?, summary_json=?
@@ -2665,6 +2701,23 @@ def main() -> None:
             pass
         if migrate_device_identity_v1(conn):
             log.info("Device identity v1: migration completed (devices + assets.device_id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+                asset_id    INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+                ip          TEXT,
+                hostname    TEXT,
+                category    TEXT,
+                vendor      TEXT,
+                top_cve     TEXT,
+                top_cvss    REAL,
+                open_ports  TEXT,
+                device_id   INTEGER REFERENCES devices(id),
+                captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id)")
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:

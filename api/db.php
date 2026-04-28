@@ -61,6 +61,23 @@ function st_db(): PDO {
     } catch (Throwable $e) {
         // no-op: column already exists
     }
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+            asset_id    INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+            ip          TEXT,
+            hostname    TEXT,
+            category    TEXT,
+            vendor      TEXT,
+            top_cve     TEXT,
+            top_cvss    REAL,
+            open_ports  TEXT,
+            device_id   INTEGER REFERENCES devices(id),
+            captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id)');
 
     st_migrate_device_identity_v1($pdo);
 

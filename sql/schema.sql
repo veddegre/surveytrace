@@ -126,6 +126,25 @@ CREATE INDEX IF NOT EXISTS idx_log_job ON scan_log(job_id);
 CREATE INDEX IF NOT EXISTS idx_log_ts ON scan_log(ts DESC);
 
 -- -------------------------------------------------------
+-- Per-scan asset snapshot: preserve what each run saw
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+    asset_id    INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+    ip          TEXT,
+    hostname    TEXT,
+    category    TEXT,
+    vendor      TEXT,
+    top_cve     TEXT,
+    top_cvss    REAL,
+    open_ports  TEXT,
+    device_id   INTEGER REFERENCES devices(id),
+    captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_scan_asset_snapshots_job ON scan_asset_snapshots(job_id);
+
+-- -------------------------------------------------------
 -- Port snapshots: track port changes over time
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS port_history (
