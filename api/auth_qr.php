@@ -36,33 +36,59 @@ $qrencode = trim((string)@shell_exec('command -v qrencode 2>/dev/null'));
 if ($qrencode === '') {
     st_json(['error' => 'Local QR generation is unavailable: qrencode is not installed'], 501);
 }
-if (!function_exists('proc_open') || !is_callable('proc_open')) {
-    st_json(['error' => 'Local QR generation is unavailable: proc_open is disabled in PHP'], 501);
+$png = '';
+$stderr = '';
+$exit = 1;
+
+// Preferred path: stream URI over stdin (avoids argument-length/encoding surprises).
+if (function_exists('proc_open') && is_callable('proc_open')) {
+    $cmd = escapeshellcmd($qrencode) . ' -o - -t PNG -s 6 -l M';
+    $descriptors = [
+        0 => ['pipe', 'w'],
+        1 => ['pipe', 'r'],
+        2 => ['pipe', 'r'],
+    ];
+    $proc = @proc_open($cmd, $descriptors, $pipes);
+    if (is_resource($proc)) {
+        fwrite($pipes[0], $uri);
+        fclose($pipes[0]);
+        $png = (string)stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $exit = (int)proc_close($proc);
+    }
 }
 
-$cmd = escapeshellcmd($qrencode) . ' -o - -t PNG -s 6 -l M';
-$descriptors = [
-    0 => ['pipe', 'w'],
-    1 => ['pipe', 'r'],
-    2 => ['pipe', 'r'],
-];
-$proc = @proc_open($cmd, $descriptors, $pipes);
-if (!is_resource($proc)) {
-    st_json(['error' => 'Unable to start local QR generator'], 500);
+// Fallback path: pass URI as command argument for locked-down PHP runtimes.
+if (($exit !== 0 || $png === '') && function_exists('shell_exec') && is_callable('shell_exec')) {
+    $tmpErr = @tempnam(sys_get_temp_dir(), 'stqr_');
+    $errPath = $tmpErr ?: (sys_get_temp_dir() . '/stqr_err_' . bin2hex(random_bytes(4)));
+    $cmd2 = escapeshellcmd($qrencode)
+        . ' -o - -t PNG -s 6 -l M '
+        . escapeshellarg($uri)
+        . ' 2>' . escapeshellarg($errPath);
+    $out = @shell_exec($cmd2);
+    $png2 = is_string($out) ? $out : '';
+    $stderr2 = is_file($errPath) ? (string)@file_get_contents($errPath) : '';
+    if (is_file($errPath)) @unlink($errPath);
+    if ($png2 !== '') {
+        $png = $png2;
+        $stderr = $stderr2;
+        $exit = 0;
+    } elseif ($stderr2 !== '') {
+        $stderr = $stderr2;
+    }
 }
 
-fwrite($pipes[0], $uri);
-fclose($pipes[0]);
-$png = stream_get_contents($pipes[1]);
-fclose($pipes[1]);
-$stderr = stream_get_contents($pipes[2]);
-fclose($pipes[2]);
-$exit = proc_close($proc);
-
-if ($exit !== 0 || !$png) {
+if ($exit !== 0 || $png === '') {
+    $detail = trim((string)$stderr);
+    if ($detail === '') {
+        $detail = 'qrencode execution failed (check PHP disable_functions, AppArmor/SELinux, and web user PATH permissions)';
+    }
     st_json([
         'error' => 'QR generation failed',
-        'detail' => trim((string)$stderr),
+        'detail' => $detail,
     ], 500);
 }
 
