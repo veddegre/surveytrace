@@ -108,6 +108,8 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ## Changelog
 
+`0.2.0` is the first GitHub release baseline. Earlier work was internal pre-release iteration.
+
 ### Unreleased
 
 - (no entries yet)
@@ -140,6 +142,18 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **Scanner** — Phase 3b no longer holds a SQLite write transaction during slow external enrichment calls (avoids UI/API stalls during UniFi or SNMP timeouts).
 - **Schedules** — `scan_schedules` gains `enrichment_source_ids`; schedule UI and `POST /api/schedules.php` align with manual scan options (phases, `rate_pps` / `inter_delay`, priority, enrichment subset, profile confirmation for high-impact profiles). Scheduler enqueues jobs with the same fields.
 - **Schema** — `sql/schema.sql` `scan_jobs` expanded to match migrated production columns; `dashboard.php` / `schedules.php` migrations cover any straggler columns on first request.
+
+### 0.3.0
+
+- **Queue and execution improvements** — support for multiple queued jobs, sequential execution by priority/age, queued cancel and running abort actions, and retry workflow improvements.
+- **Scheduling foundations** — cron-based schedule model, scheduler daemon service, schedule CRUD/run controls, and timezone-aware next-run handling in UI/API.
+- **Discovery expansion** — routed-friendly host discovery modes (`auto` / `routed` / `force`), broader hostname/service discovery, and early enrichment/fingerprinting quality improvements.
+
+### 0.2.0
+
+- **Safer defaults and scan profiles** — profile-driven scanning introduced with guarded defaults for different environments.
+- **Profile-aware scanning pipeline** — per-profile phase/rate/delay/port behavior enforced by daemon and stored on scan jobs.
+- **High-impact confirmation gates** — confirmation prompts added for higher-risk scan behaviors before execution.
 
 ## NVD Database Setup
 
