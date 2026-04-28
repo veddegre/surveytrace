@@ -1,8 +1,8 @@
-# SurveyTrace Handoff Summary (2026-04-27)
+# SurveyTrace Handoff Summary (2026-04-28)
 
 Use this as a context starter in a new conversation.
 
-**Release:** **0.5.0** (`ST_VERSION` in `api/db.php`) — device identity (Phase 5) is the headline change.
+**Release:** **0.6.0** (`ST_VERSION` in `api/db.php`) — identity/auth hardening + profile UX are the headline changes.
 
 ## Where things stand
 
@@ -20,14 +20,27 @@ Use this as a context starter in a new conversation.
 - **UI reliability fixes:** click handlers for scan history/detail navigation moved to delegated handlers to avoid inline click issues in stricter browser environments.
 - **Label cleanup:** re-run/retry labels normalized in `api/scan_start.php` to avoid repeated suffix stacking.
 
+## Session updates (2026-04-28 auth hardening + UX)
+
+- **SSO scope:** removed SAML bridge path; SurveyTrace now uses **OIDC** as the only SSO mode (with compatibility mapping of legacy `auth_mode=saml` to `oidc`).
+- **OIDC security:** added JWKS-based `id_token` signature verification in `api/auth_oidc.php`.
+- **RBAC enforcement pass:** expanded `st_require_role()` coverage across key read/write APIs and aligned role-aware control visibility in the UI.
+- **Access Control UX:** OIDC-only settings are conditionally shown only when auth mode is set to OIDC.
+- **MFA UX:** setup now includes QR enrollment and copyable setup URI; recovery codes are displayed in a copy/download/print panel instead of alert-only text.
+- **MFA disable:** moved from browser prompt to an in-app modal and accepts OTP or recovery code.
+- **Admin user management:** local user edit/create flows now use modal-based temporary-password handling (with confirm field), plus per-user **Clear MFA** action.
+- **Temporary password policy:** admin-set passwords for local users are treated as temporary (`must_change_password=1`) and force a change at next login.
+- **Self-service profile:** added **My profile** UI for current user (display name, email); local users can self-manage password/MFA there; OIDC users see IdP-managed messaging.
+- **Schema updates:** `users` table now includes `must_change_password`, `display_name`, and `email` with startup migrations in `api/db.php`.
+
 ## Next suggested steps
 
 1. **Backfill utility (optional):** best-effort script to populate `scan_asset_snapshots` / `scan_finding_snapshots` for older runs using `port_history` + current findings metadata.
 2. **Diff granularity:** optional host-port pair detail table in scan diff modal (not only unique port list + counts).
 3. **Delete hardening (requested):** switch to soft delete with a **Trash** view; keep runs for configurable **X days** (e.g. `scan_trash_retention_days`) before automatic purge.
    - Suggested shape: `scan_jobs.deleted_at` + filter controls (`active` / `trash`) + daemon or scheduler purge task.
-4. **Tests:** add regression tests for scan history compare scopes, rerun label normalization, and snapshot persistence on completed jobs.
-5. **Docs cleanup:** if these ship as a release, move README `Unreleased` bullets into a versioned block.
+4. **Tests:** add regression tests for auth flows (temporary password -> forced change, local MFA setup/disable, recovery code consumption, admin clear-MFA), plus existing scan-history compare and snapshot persistence checks.
+5. **Docs cleanup:** if these ship as a release, move README `Unreleased` bullets into a versioned block and publish an auth migration note (SAML bridge removal -> OIDC-only).
 
 ## Phase 5 — What shipped (reference)
 
@@ -70,4 +83,4 @@ Use this as a context starter in a new conversation.
 ## Optional housekeeping (any phase)
 
 - Feed sync async / last sync duration in Settings (older handoff items).
-- Smoke tests: dashboard legacy schema, `devices.php` merge, migration idempotency.
+- Smoke tests: dashboard legacy schema, `devices.php` merge, migration idempotency, and auth contract checks (`/api/auth.php?status=1`, role-gated endpoints, local-vs-oidc profile behavior).

@@ -230,7 +230,7 @@ def _fetch_page_http(start_index: int, mod_start: str | None, results_per_page: 
         params["lastModEndDate"]   = _nvd_api_datetime_utc(datetime.now(timezone.utc))
 
     url     = NVD_API_BASE + "?" + urllib.parse.urlencode(params)
-    headers = {"User-Agent": "SurveyTrace/0.5.0 (self-hosted; +https://github.com/veddegre/surveytrace)"}
+    headers = {"User-Agent": "SurveyTrace/0.6.0 (self-hosted; +https://github.com/veddegre/surveytrace)"}
     if NVD_API_KEY:
         headers["apiKey"] = NVD_API_KEY
 

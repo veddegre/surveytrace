@@ -106,7 +106,15 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **Run comparisons** — scan detail now computes diffs (hosts, ports, CVEs) versus previous run or a selected prior run (`compare_to`), with optional scope filters (`any`, `target`, `profile`, `both`).
 - **Host/device drift views** — host detail includes per-scan change history (new/closed ports, new/resolved CVEs); device detail aggregates scan history across linked assets and can jump directly to run details.
 - **Re-run label normalization** — repeated re-runs no longer stack suffixes like `(re-run) (re-run)`; labels normalize to a single suffix.
+- **Identity hardening + UX refresh** — OIDC-only SSO path (SAML bridge removed), endpoint RBAC hardening, OIDC JWKS `id_token` signature validation, and role-aware UI control hiding/disabling.
+- **Profile + account recovery UX** — new **My profile** surface for self-service account management (display name, email, self password change, self MFA setup/disable for local accounts); admin user-management now supports temporary password resets (forced change on first login) and user MFA reset/clear actions.
+- **MFA usability improvements** — QR code enrollment, copyable setup URI, recovery code panel with copy/download/print actions, and modal-based MFA disable flow.
 - **Planned next hardening** — replace hard delete with **soft delete** for scan runs, add a **Trash** view in Scan History, and auto-purge trashed runs after a configurable retention window (e.g. `scan_trash_retention_days`).
+
+### 0.6.0
+
+- **Identity/auth hardening** — OIDC-only SSO path, RBAC coverage pass, OIDC JWKS signature validation, and role-aware UI gating.
+- **Profile + account recovery UX** — My Profile self-service, modal-based admin temporary password flows, forced first-login password change, and improved MFA setup/recovery handling.
 
 ### 0.5.0
 
@@ -195,11 +203,17 @@ If PHP cannot find `daemon/sync_*.py` (unusual directory layout), set **`SURVEYT
 
 Password hashing and mode live in the `config` table (`auth_hash`, `auth_mode`). With no password configured, the UI is open (typical first-run).
 
-- **`basic`**: browser HTTP Basic Auth (`admin` + password). Each API request may trigger a Basic challenge until credentials are stored for the site.
 - **`session`** (default): local login via `POST /api/auth.php?login=1`; the UI uses a session cookie after login.
 - **`oidc`**: SSO login via `api/auth_oidc.php` (with JWT signature validation against provider JWKS), with optional breakglass local login.
 
-Set `auth_mode` in **Settings → Access control** (or directly in `config`). Supported values are `basic`, `session`, and `oidc`; `auth_mode=saml` from older installs is treated as `oidc`. Session idle timeout is configurable under **Settings** (`session_timeout_minutes`).
+Set `auth_mode` in **Settings → Access control** (or directly in `config`). Supported UI modes are `session` and `oidc`; legacy `basic` remains backend-compatible, and `auth_mode=saml` from older installs is treated as `oidc`. Session idle timeout is configurable under **Settings** (`session_timeout_minutes`).
+
+### Local account lifecycle (session mode)
+
+- **Admin-managed temporary passwords** — when admins create a local user or set a new password for a user, it is treated as a temporary password.
+- **Forced first-login password change** — users with temporary passwords must set a new password before continuing.
+- **My profile self-service** — users manage display name/email and (for local accounts) password + MFA in **My profile**.
+- **MFA** — local accounts support TOTP + one-time recovery codes; OIDC-authenticated accounts treat password/MFA as IdP-managed.
 
 **Phase 6 (planned):** extend **OIDC** + **local accounts** with optional **MFA** — **TOTP** (RFC 6238 authenticator apps) and **one-time recovery codes** for lockout recovery when authenticators are lost; **possible** (not yet committed) **WebAuthn** / **FIDO2** support, including **passkeys** or security keys, depending on dependency choices (e.g. a maintained server library) and scope; and in-app **RBAC** (roles from IdP claims/groups for SSO users, and app-assigned roles for local users). Intended to extend today’s **`basic`** / **`session`** / **`oidc`** model rather than replace it abruptly — see Roadmap below.
 
