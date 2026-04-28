@@ -2216,7 +2216,7 @@ function updateQueuePanel(history) {
 function wireScanHistoryRowClicks() {
     document.querySelectorAll('tr.scan-hist-row[data-job-id]').forEach((row) => {
         row.onclick = (ev) => {
-            const t = ev.target;
+            const t = eventElement(ev);
             if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
             const jid = parseInt(row.dataset.jobId || '0', 10);
             if (jid > 0) openScanHistDetail(jid);
@@ -2225,15 +2225,22 @@ function wireScanHistoryRowClicks() {
 }
 
 function openScanHistDetailFromRow(ev, jobId) {
-    const t = ev && ev.target;
+    const t = eventElement(ev);
     if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
     const jid = parseInt(String(jobId), 10);
     if (jid > 0) openScanHistDetail(jid);
 }
 
+function eventElement(ev) {
+    if (!ev) return null;
+    const t = ev.target;
+    if (t instanceof Element) return t;
+    return (t && t.parentElement) ? t.parentElement : null;
+}
+
 // Delegated fallback: catches clicks even if a row misses direct binding.
 document.addEventListener('click', (ev) => {
-    const t = ev.target;
+    const t = eventElement(ev);
     if (!(t instanceof Element)) return;
     if (t.closest('button, a, input, label, select, textarea')) return;
     const row = t.closest('tr.scan-hist-row[data-job-id]');
@@ -2375,7 +2382,7 @@ async function openScanHistDetail(id) {
     const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (!assets.length) {
         if (hint) hint.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">No assets recorded for this run</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="loading">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent `last_scan_id` per asset.</td></tr>';
         return;
     }
     if (hint) hint.style.display = 'block';
