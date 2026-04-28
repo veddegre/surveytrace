@@ -805,11 +805,11 @@
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap mb8">
         <table class="tbl" id="auth-users-table">
-          <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Password</th><th>Disabled</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Force password change</th><th>Disabled</th><th>Actions</th></tr></thead>
           <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
         </table>
       </div>
-      <div class="hint-micro mb8">Use <strong>Save</strong> for account updates, and <strong>Password…</strong> for temporary password resets.</div>
+      <div class="hint-micro mb8">Use <strong>Save</strong> for account updates, and <strong>Password…</strong> for temporary password resets. <strong>Force password change</strong> requires that user to set a new password at next sign-in.</div>
       <div class="row-wrap mb10">
         <input class="finp" id="new-auth-user" placeholder="new username">
         <select class="finp" id="new-auth-role">
@@ -994,11 +994,6 @@
           <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
           <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
         </table>
-      </div>
-      <div class="card">
-        <div class="ct">Access control moved</div>
-        <div class="help-line mb10">Account, SSO, password policy, and audit controls now have a dedicated page.</div>
-        <button class="btnp" type="button" onclick="goTab('access');hiNav('naccess')">Open Access control</button>
       </div>
     </div>
   </div>
