@@ -43,6 +43,20 @@ function st_find_local_user(PDO $db, string $username): ?array {
     return $row ?: null;
 }
 
+function st_auth_endpoint_error(Throwable $e): never {
+    $msg = trim((string)$e->getMessage());
+    $lower = strtolower($msg);
+    if (str_contains($lower, 'database is locked') || str_contains($lower, 'database busy')) {
+        st_release_session_lock();
+        st_json(['error' => 'Database is busy. Please retry in a few seconds.'], 503);
+    }
+    st_release_session_lock();
+    st_json([
+        'error' => 'Authentication operation failed',
+        'detail' => $msg !== '' ? $msg : 'unexpected server error',
+    ], 500);
+}
+
 function st_consume_recovery_code(PDO $db, int $userId, string $code): bool {
     $norm = strtoupper(trim($code));
     if ($norm === '') return false;
@@ -271,36 +285,44 @@ if (isset($_GET['login'])) {
 }
 
 if (isset($_GET['mfa_setup'])) {
-    st_auth();
-    $u = st_current_user();
-    if ($u['id'] <= 0) st_json(['error' => 'MFA setup unavailable for legacy account; create a local admin user first'], 400);
-    $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
-    $srcStmt->execute([$u['id']]);
-    if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA setup is available only for local accounts'], 400);
-    $secret = st_generate_mfa_secret();
-    $issuer = rawurlencode('SurveyTrace');
-    $label = rawurlencode('SurveyTrace:' . $u['username']);
-    $otpUri = "otpauth://totp/{$label}?secret={$secret}&issuer={$issuer}&algorithm=SHA1&digits=6&period=30";
-    st_release_session_lock();
-    st_json(['ok' => true, 'secret' => $secret, 'otpauth_uri' => $otpUri]);
+    try {
+        st_auth();
+        $u = st_current_user();
+        if ($u['id'] <= 0) st_json(['error' => 'MFA setup unavailable for legacy account; create a local admin user first'], 400);
+        $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
+        $srcStmt->execute([$u['id']]);
+        if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA setup is available only for local accounts'], 400);
+        $secret = st_generate_mfa_secret();
+        $issuer = rawurlencode('SurveyTrace');
+        $label = rawurlencode('SurveyTrace:' . $u['username']);
+        $otpUri = "otpauth://totp/{$label}?secret={$secret}&issuer={$issuer}&algorithm=SHA1&digits=6&period=30";
+        st_release_session_lock();
+        st_json(['ok' => true, 'secret' => $secret, 'otpauth_uri' => $otpUri]);
+    } catch (Throwable $e) {
+        st_auth_endpoint_error($e);
+    }
 }
 
 if (isset($_GET['mfa_enable'])) {
-    st_auth();
-    $u = st_current_user();
-    if ($u['id'] <= 0) st_json(['error' => 'MFA enable unavailable for legacy account'], 400);
-    $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
-    $srcStmt->execute([$u['id']]);
-    if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA enable is available only for local accounts'], 400);
-    $secret = trim((string)($body['secret'] ?? ''));
-    $otp = trim((string)($body['otp'] ?? ''));
-    if ($secret === '' || $otp === '') st_json(['error' => 'secret and otp required'], 400);
-    if (!st_verify_totp($secret, $otp)) st_json(['error' => 'invalid OTP code'], 400);
-    $db->prepare("UPDATE users SET mfa_enabled=1, mfa_totp_secret=?, updated_at=datetime('now') WHERE id=?")->execute([$secret, $u['id']]);
-    $codes = st_replace_recovery_codes($db, $u['id']);
-    st_audit_log('auth.mfa_enable', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
-    st_release_session_lock();
-    st_json(['ok' => true, 'recovery_codes' => $codes]);
+    try {
+        st_auth();
+        $u = st_current_user();
+        if ($u['id'] <= 0) st_json(['error' => 'MFA enable unavailable for legacy account'], 400);
+        $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
+        $srcStmt->execute([$u['id']]);
+        if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA enable is available only for local accounts'], 400);
+        $secret = trim((string)($body['secret'] ?? ''));
+        $otp = trim((string)($body['otp'] ?? ''));
+        if ($secret === '' || $otp === '') st_json(['error' => 'secret and otp required'], 400);
+        if (!st_verify_totp($secret, $otp)) st_json(['error' => 'invalid OTP code'], 400);
+        $db->prepare("UPDATE users SET mfa_enabled=1, mfa_totp_secret=?, updated_at=datetime('now') WHERE id=?")->execute([$secret, $u['id']]);
+        $codes = st_replace_recovery_codes($db, $u['id']);
+        st_audit_log('auth.mfa_enable', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
+        st_release_session_lock();
+        st_json(['ok' => true, 'recovery_codes' => $codes]);
+    } catch (Throwable $e) {
+        st_auth_endpoint_error($e);
+    }
 }
 
 if (isset($_GET['password_change'])) {
