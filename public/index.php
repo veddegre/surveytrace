@@ -99,11 +99,15 @@
       </select>
     </div>
   </div>
-  <div id="dash-exec" class="hide">
+  <div id="dash-exec">
     <div class="card">
       <div class="ct">Executive brief</div>
       <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
       <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+    </div>
+    <div class="card">
+      <div class="ct">Executive actions (next 24h)</div>
+      <div id="exec-actions" class="exec-brief-list">Loading…</div>
     </div>
     <div class="sth">Executive summary</div>
     <div class="sgrid" id="exec-kpis">
@@ -1770,6 +1774,25 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
         : '<div class="text-dim">No executive brief available yet.</div>';
 
+    const actions = [];
+    if ((k.critical_open || 0) > 0) {
+        actions.push(`Prioritize remediation for ${k.critical_open} critical findings; focus on internet-facing hosts first.`);
+    }
+    if ((k.completion_rate_14d || 0) < 90) {
+        actions.push(`Scan completion is ${k.completion_rate_14d || 0}% in 14d; investigate failed/aborted runs and scheduler reliability.`);
+    }
+    if ((k.scan_fail_7d || 0) > 0) {
+        actions.push(`${k.scan_fail_7d} scans failed/aborted in 7d; review scanner logs and target accessibility.`);
+    }
+    const topRisk = (Array.isArray(exec.top_risky) ? exec.top_risky : fallbackTopVuln || [])[0];
+    if (topRisk && topRisk.ip) {
+        actions.push(`Highest-risk asset currently appears to be ${topRisk.ip} (CVSS ${topRisk.top_cvss || 'n/a'}); validate patch/mitigation status.`);
+    }
+    if (!actions.length) {
+        actions.push('No urgent executive actions are currently flagged. Maintain monitoring cadence and verify scan coverage.');
+    }
+    document.getElementById('exec-actions').innerHTML = `<ul class="exec-brief-ul">${actions.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`;
+
     const sev = exec.severity_open || {};
     const sevRows = [
         ['critical', sev.critical || 0],
@@ -1800,6 +1823,18 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
             <td class="mono">${a.finding_count}</td>
           </tr>`).join('')
         : '<tr><td colspan="7" class="loading">No high-risk assets yet</td></tr>';
+}
+
+function applyExecutiveModeUI(on) {
+    const ops = document.getElementById('dash-ops');
+    const ex = document.getElementById('dash-exec');
+    const right = document.querySelector('.dash-actions-right');
+    if (ops) ops.style.display = on ? 'none' : '';
+    if (ex) ex.style.display = on ? 'block' : 'none';
+    if (right) {
+        right.style.visibility = on ? 'visible' : 'hidden';
+        right.style.pointerEvents = on ? 'auto' : 'none';
+    }
 }
 
 function healthStateClass(state) {
@@ -4806,6 +4841,7 @@ async function initApp() {
         catch (e) { return false; }
     })();
     document.body.classList.toggle('exec-mode', execMode);
+    applyExecutiveModeUI(execMode);
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (execMode ? 'on' : 'off');
     // Always load dashboard data first to populate sidebar badges
@@ -4817,6 +4853,7 @@ async function initApp() {
 function toggleDashMode() {
     const on = !document.body.classList.contains('exec-mode');
     document.body.classList.toggle('exec-mode', on);
+    applyExecutiveModeUI(on);
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
