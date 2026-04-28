@@ -30,6 +30,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - PHP 8.1+ with SQLite3 extension
 - Apache 2.4+ (or another PHP-capable web stack; **PHP-FPM** is recommended so long-running feed sync can return immediately to the browser)
 - nmap
+- `qrencode` (for local-only MFA QR rendering)
 - 2GB RAM, 10GB disk (NVD database is ~1GB)
 
 ## Quick Start
@@ -214,6 +215,7 @@ Set `auth_mode` in **Settings → Access control** (or directly in `config`). Su
 - **Forced first-login password change** — users with temporary passwords must set a new password before continuing.
 - **My profile self-service** — users manage display name/email and (for local accounts) password + MFA in **My profile**.
 - **MFA** — local accounts support TOTP + one-time recovery codes; OIDC-authenticated accounts treat password/MFA as IdP-managed.
+- **MFA QR generation** — QR images are generated locally via `api/auth_qr.php` + `qrencode`; MFA secrets are not sent to external QR services.
 
 **Phase 6 (planned):** extend **OIDC** + **local accounts** with optional **MFA** — **TOTP** (RFC 6238 authenticator apps) and **one-time recovery codes** for lockout recovery when authenticators are lost; **possible** (not yet committed) **WebAuthn** / **FIDO2** support, including **passkeys** or security keys, depending on dependency choices (e.g. a maintained server library) and scope; and in-app **RBAC** (roles from IdP claims/groups for SSO users, and app-assigned roles for local users). Intended to extend today’s **`basic`** / **`session`** / **`oidc`** model rather than replace it abruptly — see Roadmap below.
 

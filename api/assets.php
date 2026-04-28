@@ -46,6 +46,7 @@ st_require_role(['viewer', 'scan_editor', 'admin']);
 // PUT — update asset metadata (category, hostname, notes)
 // ---------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    st_require_csrf();
     st_require_role(['scan_editor', 'admin']);
     $body     = st_input();
     $asset_id = st_int('id', 0, 1);

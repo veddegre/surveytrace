@@ -118,6 +118,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
             'display_name' => $currentDisplayName,
             'email' => $currentEmail,
         ],
+        'csrf_token' => st_csrf_token(),
     ]);
 }
 

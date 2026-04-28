@@ -38,6 +38,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 // DELETE
 // ---------------------------------------------------------------------------
 if ($method === 'DELETE') {
+    st_require_csrf();
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) st_json(['error' => 'id required'], 400);
     $db->prepare("DELETE FROM enrichment_sources WHERE id = ?")->execute([$id]);

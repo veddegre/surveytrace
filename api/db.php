@@ -732,4 +732,68 @@ function st_method(string ...$allowed): void {
     if (!in_array($method, $allowed, true)) {
         st_json(['error' => "Method $method not allowed"], 405);
     }
+    if (in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+        st_require_csrf();
+    }
+}
+
+function st_csrf_token(): string {
+    st_session_start();
+    $tok = (string)($_SESSION['st_csrf'] ?? '');
+    if ($tok === '') {
+        $tok = bin2hex(random_bytes(32));
+        $_SESSION['st_csrf'] = $tok;
+    }
+    return $tok;
+}
+
+function st_require_csrf(): void {
+    if (PHP_SAPI === 'cli') return;
+    st_session_start();
+    st_require_same_origin();
+    $expected = st_csrf_token();
+    $provided = trim((string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if ($provided === '' || !hash_equals($expected, $provided)) {
+        st_json(['error' => 'CSRF validation failed'], 403);
+    }
+}
+
+function st_same_origin_ok(?string $url): bool {
+    $u = trim((string)$url);
+    if ($u === '') return false;
+    $parts = @parse_url($u);
+    if (!is_array($parts)) return false;
+    $srcHost = strtolower((string)($parts['host'] ?? ''));
+    if ($srcHost === '') return false;
+    $srcScheme = strtolower((string)($parts['scheme'] ?? 'http'));
+    $srcPort = (int)($parts['port'] ?? (($srcScheme === 'https') ? 443 : 80));
+
+    $hostHdr = strtolower(trim((string)($_SERVER['HTTP_HOST'] ?? '')));
+    if ($hostHdr === '') {
+        $hostHdr = strtolower(trim((string)($_SERVER['SERVER_NAME'] ?? '')));
+    }
+    if ($hostHdr === '') return false;
+    $hostParts = explode(':', $hostHdr, 2);
+    $reqHost = $hostParts[0];
+    $reqScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $reqPort = isset($hostParts[1]) && ctype_digit($hostParts[1])
+        ? (int)$hostParts[1]
+        : (($reqScheme === 'https') ? 443 : 80);
+
+    return $srcHost === $reqHost && $srcScheme === $reqScheme && $srcPort === $reqPort;
+}
+
+function st_require_same_origin(): void {
+    if (PHP_SAPI === 'cli') return;
+    $origin = trim((string)($_SERVER['HTTP_ORIGIN'] ?? ''));
+    if ($origin !== '') {
+        if (!st_same_origin_ok($origin)) {
+            st_json(['error' => 'Cross-origin request rejected'], 403);
+        }
+        return;
+    }
+    $referer = trim((string)($_SERVER['HTTP_REFERER'] ?? ''));
+    if ($referer !== '' && !st_same_origin_ok($referer)) {
+        st_json(['error' => 'Cross-origin request rejected'], 403);
+    }
 }

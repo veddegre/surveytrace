@@ -1086,7 +1086,7 @@
     </div>
     <div id="mfa-setup-box" class="help-box hide">
       <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
-      <div class="help-line mb8">Scan the QR (recommended) or enter the secret manually, then type the 6-digit code to finish setup.</div>
+      <div class="help-line mb8">Copy the setup link (or enter the secret manually), then type the 6-digit code to finish setup.</div>
       <div class="mb8">
         <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
       </div>
@@ -1250,6 +1250,7 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
+var csrfToken = '';
 var currentUser = null;
 var currentUserRole = 'admin';
 var currentUserMfaEnabled = false;
@@ -1282,6 +1283,7 @@ var feedSyncStatePollTimer = null;
 var execChartSelection = {};
 var pendingMfaSecret = '';
 var pendingMfaOtpUri = '';
+var pendingMfaQrUrl = '';
 var pendingRecoveryCodes = [];
 var mustChangePasswordPending = false;
 var pendingUserSave = null;
@@ -1745,9 +1747,11 @@ async function api(url, opts) {
 
 async function apiPost(url, body) {
     try {
+        const headers = {'Content-Type': 'application/json'};
+        if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
         const r = await fetch(url, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: headers,
             body: JSON.stringify(body),
             credentials: 'same-origin'
         });
@@ -1875,6 +1879,8 @@ function closeLoginModal() {
 }
 
 async function submitLogin() {
+    const s = await api('/api/auth.php?status=1', { quiet: true });
+    if (s && s.csrf_token) csrfToken = s.csrf_token;
     const u = (document.getElementById('login-user')?.value || '').trim();
     const p = document.getElementById('login-pass')?.value || '';
     const otp = (document.getElementById('login-otp')?.value || '').trim();
@@ -3723,13 +3729,37 @@ async function beginMfaSetup() {
     const recBox = document.getElementById('mfa-recovery-box');
     const recTa = document.getElementById('mfa-recovery-codes');
     if (sec) sec.textContent = pendingMfaSecret;
+    if (pendingMfaQrUrl) {
+        URL.revokeObjectURL(pendingMfaQrUrl);
+        pendingMfaQrUrl = '';
+    }
     if (qr) {
-        if (pendingMfaOtpUri) {
-            qr.src = 'https://quickchart.io/qr?size=180&text=' + encodeURIComponent(pendingMfaOtpUri);
-            qr.classList.remove('hide');
-        } else {
-            qr.classList.add('hide');
-            qr.src = '';
+        qr.classList.add('hide');
+        qr.src = '';
+    }
+    if (pendingMfaOtpUri) {
+        try {
+            const headers = {'Content-Type': 'application/json'};
+            if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+            const qrr = await fetch('/api/auth_qr.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: headers,
+                body: JSON.stringify({otpauth_uri: pendingMfaOtpUri})
+            });
+            if (qrr.ok) {
+                const blob = await qrr.blob();
+                pendingMfaQrUrl = URL.createObjectURL(blob);
+                if (qr) {
+                    qr.src = pendingMfaQrUrl;
+                    qr.classList.remove('hide');
+                }
+            } else {
+                const err = await qrr.json().catch(() => null);
+                toast((err && err.error) ? err.error : 'Local QR generation unavailable; use setup link or manual secret', 'err');
+            }
+        } catch (e) {
+            toast('Local QR generation unavailable; use setup link or manual secret', 'err');
         }
     }
     if (copyBtn) {
@@ -3747,7 +3777,7 @@ async function beginMfaSetup() {
     if (recTa) recTa.value = '';
     if (recBox) recBox.classList.add('hide');
     if (box) box.classList.remove('hide');
-    toast('MFA setup ready. Scan QR or enter the secret manually.', 'ok');
+    toast('MFA setup ready. Scan the local QR, or use setup link/manual secret.', 'ok');
 }
 
 async function confirmMfaEnable() {
@@ -3770,6 +3800,10 @@ async function confirmMfaEnable() {
         if (qr) {
             qr.classList.add('hide');
             qr.src = '';
+        }
+        if (pendingMfaQrUrl) {
+            URL.revokeObjectURL(pendingMfaQrUrl);
+            pendingMfaQrUrl = '';
         }
         pendingRecoveryCodes = Array.isArray(r.recovery_codes) ? r.recovery_codes.slice() : [];
         const recBox = document.getElementById('mfa-recovery-box');
@@ -4165,7 +4199,9 @@ async function deleteSource(id) {
         {title: 'Delete enrichment source', okText: 'Delete'}
     ))) return;
     const r = await fetch('/api/enrichment.php?id=' + id, {
-        method: 'DELETE', credentials: 'same-origin'
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: csrfToken ? {'X-CSRF-Token': csrfToken} : {}
     });
     const d = await r.json();
     if (d.ok) { toast('Source deleted', 'ok'); loadEnrichment(); }
@@ -4728,7 +4764,9 @@ async function deleteSchedule(id) {
         {title: 'Delete schedule', okText: 'Delete'}
     ))) return;
     const r = await fetch(`/api/schedules.php?id=${id}`, {
-        method: 'DELETE', credentials: 'same-origin'
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: csrfToken ? {'X-CSRF-Token': csrfToken} : {}
     });
     if (r.ok) { toast('Schedule deleted', 'ok'); loadSchedules(); }
     else toast('Delete failed', 'err');
@@ -4871,9 +4909,11 @@ async function saveReclassify() {
     if (vendor)   body.vendor   = vendor;
     if (notes !== undefined) body.notes = notes;
 
+    const headers = {'Content-Type': 'application/json'};
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
     const r = await fetch(`/api/assets.php?id=${id}`, {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: JSON.stringify(body),
         credentials: 'same-origin'
     });
@@ -5623,6 +5663,7 @@ async function initAuthMode() {
     const r = await api('/api/auth.php?status=1');
     if (!r) return;
     authMode = r.auth_mode || 'basic';
+    csrfToken = r.csrf_token || '';
     breakglassEnabled = !!r.breakglass_enabled;
     breakglassUsername = r.breakglass_username || 'admin';
     currentUser = r.user || null;

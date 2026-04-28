@@ -87,6 +87,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 // DELETE
 // ---------------------------------------------------------------------------
 if ($method === 'DELETE') {
+    st_require_csrf();
     st_require_role(['scan_editor', 'admin']);
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) st_json(['error' => 'id required'], 400);

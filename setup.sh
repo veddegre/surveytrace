@@ -62,6 +62,7 @@ REQUIRED_PKGS=(
     git
     curl
     sqlite3
+    qrencode
 )
 
 OPTIONAL_PKGS=(
