@@ -1713,7 +1713,7 @@ function startFeedSyncStatePolling() {
 // Nav
 // ==========================================================================
 function goTab(name) {
-    if (name === 'settings' && !isAdminUser()) {
+    if (name === 'settings' && !stRoleIsAdmin()) {
         toast('Settings are available to admin users only.', 'err');
         name = 'dash';
     }
