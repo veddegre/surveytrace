@@ -24,7 +24,6 @@ API_FILES=(
   scan_delete.php
   auth.php
   auth_oidc.php
-  auth_saml.php
   schedules.php
   enrichment.php
   dashboard.php

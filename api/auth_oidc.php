@@ -39,13 +39,27 @@ function st_http_form_post(string $url, array $form): array {
     return is_array($j) ? $j : [];
 }
 
+function st_b64url_decode(string $s): string {
+    $t = strtr($s, '-_', '+/');
+    $t .= str_repeat('=', (4 - (strlen($t) % 4)) % 4);
+    $raw = base64_decode($t, true);
+    return ($raw === false) ? '' : $raw;
+}
+
+function st_jwt_header(string $jwt): array {
+    $parts = explode('.', $jwt);
+    if (count($parts) !== 3) return [];
+    $raw = st_b64url_decode($parts[0]);
+    if ($raw === '') return [];
+    $j = json_decode($raw, true);
+    return is_array($j) ? $j : [];
+}
+
 function st_jwt_payload(string $jwt): array {
     $parts = explode('.', $jwt);
     if (count($parts) < 2) return [];
-    $payload = strtr($parts[1], '-_', '+/');
-    $payload .= str_repeat('=', (4 - (strlen($payload) % 4)) % 4);
-    $raw = base64_decode($payload, true);
-    if ($raw === false) return [];
+    $raw = st_b64url_decode($parts[1]);
+    if ($raw === '') return [];
     $j = json_decode($raw, true);
     return is_array($j) ? $j : [];
 }
@@ -74,6 +88,91 @@ function st_role_from_claims(array $claims): string {
     return $fallback;
 }
 
+function st_der_len(int $len): string {
+    if ($len < 0x80) return chr($len);
+    $out = '';
+    while ($len > 0) {
+        $out = chr($len & 0xFF) . $out;
+        $len >>= 8;
+    }
+    return chr(0x80 | strlen($out)) . $out;
+}
+
+function st_der_int(string $bytes): string {
+    $bytes = ltrim($bytes, "\x00");
+    if ($bytes === '') $bytes = "\x00";
+    if ((ord($bytes[0]) & 0x80) !== 0) $bytes = "\x00" . $bytes;
+    return "\x02" . st_der_len(strlen($bytes)) . $bytes;
+}
+
+function st_jwk_rsa_to_pem(array $jwk): ?string {
+    if (($jwk['kty'] ?? '') !== 'RSA') return null;
+    $n = st_b64url_decode((string)($jwk['n'] ?? ''));
+    $e = st_b64url_decode((string)($jwk['e'] ?? ''));
+    if ($n === '' || $e === '') return null;
+    $seq = st_der_int($n) . st_der_int($e);
+    $rsaPub = "\x30" . st_der_len(strlen($seq)) . $seq;
+    $algo = "\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00";
+    $bitString = "\x03" . st_der_len(strlen($rsaPub) + 1) . "\x00" . $rsaPub;
+    $spki = "\x30" . st_der_len(strlen($algo) + strlen($bitString)) . $algo . $bitString;
+    return "-----BEGIN PUBLIC KEY-----\n" .
+        chunk_split(base64_encode($spki), 64, "\n") .
+        "-----END PUBLIC KEY-----\n";
+}
+
+function st_jwk_to_pem(array $jwk): ?string {
+    $x5c = $jwk['x5c'] ?? null;
+    if (is_array($x5c) && !empty($x5c[0])) {
+        $certBody = chunk_split((string)$x5c[0], 64, "\n");
+        $pemCert = "-----BEGIN CERTIFICATE-----\n{$certBody}-----END CERTIFICATE-----\n";
+        $pub = @openssl_pkey_get_public($pemCert);
+        if ($pub !== false) {
+            $details = openssl_pkey_get_details($pub);
+            if (is_array($details) && !empty($details['key'])) {
+                return (string)$details['key'];
+            }
+        }
+    }
+    return st_jwk_rsa_to_pem($jwk);
+}
+
+function st_jwt_alg_map(string $alg): int {
+    return match ($alg) {
+        'RS256' => OPENSSL_ALGO_SHA256,
+        'RS384' => OPENSSL_ALGO_SHA384,
+        'RS512' => OPENSSL_ALGO_SHA512,
+        default => 0,
+    };
+}
+
+function st_verify_oidc_id_token(string $jwt, array $discovery): bool {
+    $jwksUri = trim((string)($discovery['jwks_uri'] ?? ''));
+    if ($jwksUri === '') return false;
+    $parts = explode('.', $jwt);
+    if (count($parts) !== 3) return false;
+    $header = st_jwt_header($jwt);
+    $alg = (string)($header['alg'] ?? '');
+    $kid = (string)($header['kid'] ?? '');
+    $opensslAlg = st_jwt_alg_map($alg);
+    if ($opensslAlg === 0) return false;
+    $sig = st_b64url_decode($parts[2]);
+    if ($sig === '') return false;
+    $signed = $parts[0] . '.' . $parts[1];
+    $jwks = st_http_json($jwksUri);
+    $keys = is_array($jwks['keys'] ?? null) ? $jwks['keys'] : [];
+    if (!$keys) return false;
+    foreach ($keys as $jwk) {
+        if (!is_array($jwk)) continue;
+        if (($jwk['kty'] ?? '') !== 'RSA') continue;
+        if ($kid !== '' && isset($jwk['kid']) && (string)$jwk['kid'] !== $kid) continue;
+        $pem = st_jwk_to_pem($jwk);
+        if (!$pem) continue;
+        $ok = @openssl_verify($signed, $sig, $pem, $opensslAlg);
+        if ($ok === 1) return true;
+    }
+    return false;
+}
+
 if (st_config('oidc_enabled', '0') !== '1') {
     st_release_session_lock();
     st_json(['ok' => false, 'error' => 'OIDC is disabled'], 400);
@@ -93,7 +192,7 @@ $discovery = st_http_json($issuer . '/.well-known/openid-configuration');
 $authzEndpoint = (string)($discovery['authorization_endpoint'] ?? '');
 $tokenEndpoint = (string)($discovery['token_endpoint'] ?? '');
 $userInfoEndpoint = (string)($discovery['userinfo_endpoint'] ?? '');
-if ($authzEndpoint === '' || $tokenEndpoint === '') {
+if ($authzEndpoint === '' || $tokenEndpoint === '' || empty($discovery['jwks_uri'])) {
     st_release_session_lock();
     st_json(['ok' => false, 'error' => 'OIDC discovery failed'], 400);
 }
@@ -137,6 +236,10 @@ if (isset($_GET['callback'])) {
     if ($idToken === '') {
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'OIDC token exchange failed'], 400);
+    }
+    if (!st_verify_oidc_id_token($idToken, $discovery)) {
+        st_release_session_lock();
+        st_json(['ok' => false, 'error' => 'OIDC token signature validation failed'], 400);
     }
 
     $claims = st_jwt_payload($idToken);

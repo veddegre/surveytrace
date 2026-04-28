@@ -17,7 +17,7 @@ date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/db.php';
 st_auth();
-st_require_role(['scan_editor', 'admin']);
+st_require_role(['viewer', 'scan_editor', 'admin']);
 
 $db = st_db();
 
@@ -87,6 +87,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 // DELETE
 // ---------------------------------------------------------------------------
 if ($method === 'DELETE') {
+    st_require_role(['scan_editor', 'admin']);
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) st_json(['error' => 'id required'], 400);
     $db->prepare("DELETE FROM scan_schedules WHERE id=?")->execute([$id]);
@@ -136,6 +137,7 @@ if ($method === 'GET') {
 // POST
 // ---------------------------------------------------------------------------
 st_method('POST');
+st_require_role(['scan_editor', 'admin']);
 $body = st_input();
 
 // Run now — enqueue job immediately

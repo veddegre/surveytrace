@@ -150,11 +150,6 @@ function st_db(): PDO {
     }
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('rbac_enabled', '1')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('oidc_enabled', '0')");
-    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_enabled', '0')");
-    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_login_url', '')");
-    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_username_header', 'X-Remote-User')");
-    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_groups_header', 'X-Remote-Groups')");
-    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_role_map', '')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('sso_role_source', 'surveytrace')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('breakglass_enabled', '1')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('breakglass_username', 'admin')");
@@ -398,7 +393,10 @@ function st_auth(): void {
 
     $hash = st_config('auth_hash');
     $mode = strtolower(trim(st_config('auth_mode', 'session')));
-    if (!in_array($mode, ['basic', 'session', 'oidc', 'saml'], true)) {
+    if ($mode === 'saml') {
+        $mode = 'oidc';
+    }
+    if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
         $mode = 'session';
     }
     $hasLocalUsers = (int)st_db()->query("SELECT COUNT(*) FROM users WHERE auth_source='local' AND disabled=0")->fetchColumn() > 0;
@@ -439,7 +437,7 @@ function st_auth(): void {
         st_json(['error' => 'Authentication required', 'auth_mode' => 'basic'], 401);
     }
 
-    // Session/OIDC/SAML modes require explicit login.
+    // Session/OIDC modes require explicit login.
     st_release_session_lock();
     st_json(['error' => 'Authentication required', 'auth_mode' => $mode], 401);
 }

@@ -21,6 +21,7 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['viewer', 'scan_editor', 'admin']);
 
 $db = st_db();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -29,6 +30,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 // POST — merge devices into one survivor
 // ---------------------------------------------------------------------------
 if ($method === 'POST') {
+    st_require_role(['scan_editor', 'admin']);
     st_method('POST');
     $body   = st_input();
     $action = isset($body['action']) ? (string)$body['action'] : '';

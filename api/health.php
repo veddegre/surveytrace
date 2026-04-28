@@ -11,6 +11,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/feed_sync_lib.php';
 
 st_auth();
+st_require_role(['viewer', 'scan_editor', 'admin']);
 st_method('GET');
 st_release_session_lock();
 

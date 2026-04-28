@@ -40,11 +40,13 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['viewer', 'scan_editor', 'admin']);
 
 // ---------------------------------------------------------------------------
 // PUT — update asset metadata (category, hostname, notes)
 // ---------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    st_require_role(['scan_editor', 'admin']);
     $body     = st_input();
     $asset_id = st_int('id', 0, 1);
     if (!$asset_id) st_json(['error' => 'id required for PUT'], 400);

@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['viewer', 'scan_editor', 'admin']);
 st_method('GET');
 
 $db = st_db();

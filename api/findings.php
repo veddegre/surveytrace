@@ -35,6 +35,7 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['viewer', 'scan_editor', 'admin']);
 
 $db = st_db();
 
@@ -42,6 +43,7 @@ $db = st_db();
 // POST — resolve / unresolve
 // ---------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    st_require_role(['scan_editor', 'admin']);
     $body      = st_input();
     $action    = st_str('action', '', ['resolve','unresolve','resolve_all']);
     if (empty($action)) $action = trim((string)($body['action'] ?? ''));
