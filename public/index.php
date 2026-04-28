@@ -2216,12 +2216,24 @@ function updateQueuePanel(history) {
 function wireScanHistoryRowClicks() {
     document.querySelectorAll('tr.scan-hist-row[data-job-id]').forEach((row) => {
         row.onclick = (ev) => {
-            if (ev.target && ev.target.closest('button, a, input, label, select, textarea')) return;
+            const t = ev.target;
+            if (t instanceof Element && t.closest('button, a, input, label, select, textarea')) return;
             const jid = parseInt(row.dataset.jobId || '0', 10);
             if (jid > 0) openScanHistDetail(jid);
         };
     });
 }
+
+// Delegated fallback: catches clicks even if a row misses direct binding.
+document.addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('button, a, input, label, select, textarea')) return;
+    const row = t.closest('tr.scan-hist-row[data-job-id]');
+    if (!row) return;
+    const jid = parseInt(row.dataset.jobId || '0', 10);
+    if (jid > 0) openScanHistDetail(jid);
+});
 
 // ==========================================================================
 // Job queue management
