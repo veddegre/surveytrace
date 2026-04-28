@@ -2247,6 +2247,24 @@ function bindScanHistoryDelegates() {
 }
 bindScanHistoryDelegates();
 
+function bindScanDetailAssetDelegates() {
+    const tbody = document.getElementById('scan-hist-detail-assets');
+    if (!tbody || tbody.dataset.scanAssetDelegatesBound === '1') return;
+    tbody.addEventListener('click', (ev) => {
+        const t = ev.target instanceof Element ? ev.target : null;
+        if (!t) return;
+        const row = t.closest('tr.scan-hist-asset-row[data-asset-id]');
+        if (!row) return;
+        const aid = parseInt(row.getAttribute('data-asset-id') || '0', 10);
+        const didRaw = row.getAttribute('data-device-id');
+        const did = didRaw && didRaw !== 'null' ? parseInt(didRaw, 10) : 0;
+        const ip = row.getAttribute('data-ip') || '';
+        openScanHistAssetNav(aid, did > 0 ? did : null, ip);
+    });
+    tbody.dataset.scanAssetDelegatesBound = '1';
+}
+bindScanDetailAssetDelegates();
+
 // ==========================================================================
 // Job queue management
 // ==========================================================================
@@ -2392,9 +2410,9 @@ async function openScanHistDetail(id) {
             : '—';
         const did = a.device_id != null && a.device_id !== '' ? parseInt(String(a.device_id), 10) : 0;
         const tip = did > 0 ? 'Open device #' + did : 'Open host at ' + (a.ip || '');
-        const ipLit = JSON.stringify(String(a.ip || ''));
-        const devArg = did > 0 ? String(did) : 'null';
-        return `<tr class="scan-hist-asset-row" style="cursor:pointer" title="${esc(tip)}" onclick="openScanHistAssetNav(${a.id},${devArg},${ipLit})">
+        const ipAttr = esc(String(a.ip || ''));
+        const devAttr = did > 0 ? String(did) : 'null';
+        return `<tr class="scan-hist-asset-row" style="cursor:pointer" title="${esc(tip)}" data-asset-id="${a.id}" data-device-id="${devAttr}" data-ip="${ipAttr}">
           <td class="mono">${esc(a.ip || '')}</td>
           <td>${esc(a.hostname || '—')}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
