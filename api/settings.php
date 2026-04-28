@@ -17,7 +17,7 @@ st_auth();
 st_require_role(['admin']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
-    $mode = strtolower(trim(st_config('auth_mode', 'basic')));
+    $mode = strtolower(trim(st_config('auth_mode', 'session')));
     if ($mode === 'saml') {
         $mode = 'oidc';
     }

@@ -887,10 +887,10 @@
             <select class="finp" id="st-auth-mode" onchange="updateAccessControlModeVisibility()" style="min-width:180px" title="Session uses local SurveyTrace users. OIDC uses SSO with optional breakglass local login.">
               <option value="session">Session (local users)</option>
               <option value="oidc">OIDC SSO</option>
-              <option value="basic">HTTP Basic (legacy)</option>
             </select>
             <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
           </div>
+          <div class="hint-micro mb8">Legacy Basic Auth remains backend-compatible for upgrades, but is intentionally not shown as a selectable mode here.</div>
           <div class="row-wrap mb10 oidc-only">
             <label class="flbl">SSO role assignment</label>
             <select class="finp" id="sso-role-source" style="min-width:220px" title="SurveyTrace-managed keeps role assignment in this UI. IdP-mapped derives role from group/claim mapping below.">
@@ -933,6 +933,12 @@
           <div id="mfa-setup-box" class="help-box hide">
             <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
             <div class="help-line mb8">Add this secret to your authenticator app, then enter the generated 6-digit code.</div>
+            <div class="mb8">
+              <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
+            </div>
+            <div class="row-wrap mb8">
+              <button class="tbtn" type="button" id="mfa-copy-uri-btn">Copy setup URI</button>
+            </div>
             <div class="row-wrap">
               <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
               <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
@@ -947,7 +953,6 @@
           <div class="row-wrap mb8">
             <label class="flbl">Minimum length</label>
             <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
-            <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
           </div>
           <div class="row-wrap mb10">
             <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
@@ -965,6 +970,9 @@
             <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
             <label class="flbl">Lockout minutes</label>
             <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
+          </div>
+          <div class="row-wrap mb12">
+            <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
           </div>
 
           <div class="flbl oidc-only">OIDC configuration</div>
@@ -1178,6 +1186,7 @@ var feedSyncUiTimer = null;
 var feedSyncStatePollTimer = null;
 var execChartSelection = {};
 var pendingMfaSecret = '';
+var pendingMfaOtpUri = '';
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -3423,6 +3432,7 @@ async function saveAccessControlSettings() {
     if (r && r.ok) {
         const sec = document.getElementById('oidc-client-secret');
         if (sec) sec.value = '';
+        updateAccessControlModeVisibility();
         toast('Access settings updated', 'ok');
         await initAuthMode();
     } else {
@@ -3497,11 +3507,34 @@ async function beginMfaSetup() {
         return;
     }
     pendingMfaSecret = r.secret;
+    pendingMfaOtpUri = String(r.otpauth_uri || '');
     const box = document.getElementById('mfa-setup-box');
     const sec = document.getElementById('mfa-secret');
+    const qr = document.getElementById('mfa-qr');
+    const copyBtn = document.getElementById('mfa-copy-uri-btn');
     if (sec) sec.textContent = pendingMfaSecret;
+    if (qr) {
+        if (pendingMfaOtpUri) {
+            qr.src = 'https://quickchart.io/qr?size=180&text=' + encodeURIComponent(pendingMfaOtpUri);
+            qr.classList.remove('hide');
+        } else {
+            qr.classList.add('hide');
+            qr.src = '';
+        }
+    }
+    if (copyBtn) {
+        copyBtn.onclick = async () => {
+            if (!pendingMfaOtpUri) return;
+            try {
+                await navigator.clipboard.writeText(pendingMfaOtpUri);
+                toast('MFA setup URI copied', 'ok');
+            } catch (e) {
+                toast('Copy failed; use the secret above instead', 'err');
+            }
+        };
+    }
     if (box) box.classList.remove('hide');
-    toast('MFA secret generated. Add it to your authenticator app.', 'ok');
+    toast('MFA secret generated. Scan QR or enter secret manually.', 'ok');
 }
 
 async function confirmMfaEnable() {
@@ -3513,10 +3546,16 @@ async function confirmMfaEnable() {
     const r = await apiPost('/api/auth.php?mfa_enable=1', { secret: pendingMfaSecret, otp });
     if (r && r.ok) {
         pendingMfaSecret = '';
+        pendingMfaOtpUri = '';
         const box = document.getElementById('mfa-setup-box');
         if (box) box.classList.add('hide');
         const otpEl = document.getElementById('mfa-enable-otp');
         if (otpEl) otpEl.value = '';
+        const qr = document.getElementById('mfa-qr');
+        if (qr) {
+            qr.classList.add('hide');
+            qr.src = '';
+        }
         const codes = Array.isArray(r.recovery_codes) ? r.recovery_codes.join(', ') : '';
         toast('MFA enabled', 'ok');
         if (codes) alert('Save these recovery codes now:\n\n' + codes);
