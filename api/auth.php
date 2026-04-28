@@ -224,10 +224,15 @@ if (isset($_GET['mfa_disable'])) {
     $u = st_current_user();
     if ($u['id'] <= 0) st_json(['error' => 'MFA disable unavailable for legacy account'], 400);
     $otp = trim((string)($body['otp'] ?? ''));
+    $recoveryCode = trim((string)($body['recovery_code'] ?? ''));
     $row = $db->prepare("SELECT mfa_totp_secret FROM users WHERE id=?");
     $row->execute([$u['id']]);
     $secret = (string)$row->fetchColumn();
-    if ($secret === '' || !st_verify_totp($secret, $otp)) st_json(['error' => 'invalid OTP code'], 400);
+    $otpOk = ($secret !== '' && $otp !== '' && st_verify_totp($secret, $otp));
+    $recoveryOk = (!$otpOk && $recoveryCode !== '' && st_consume_recovery_code($db, (int)$u['id'], $recoveryCode));
+    if (!$otpOk && !$recoveryOk) {
+        st_json(['error' => 'invalid OTP or recovery code'], 400);
+    }
     $db->prepare("UPDATE users SET mfa_enabled=0, mfa_totp_secret=NULL, updated_at=datetime('now') WHERE id=?")->execute([$u['id']]);
     $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$u['id']]);
     st_release_session_lock();

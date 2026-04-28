@@ -944,6 +944,15 @@
               <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
             </div>
             <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
+            <div id="mfa-recovery-box" class="mt10 hide">
+              <div class="help-line mb6"><strong>Recovery codes (save now)</strong></div>
+              <textarea id="mfa-recovery-codes" class="finp w100" rows="6" readonly></textarea>
+              <div class="row-wrap mt8">
+                <button class="tbtn" type="button" onclick="copyMfaRecoveryCodes()">Copy codes</button>
+                <button class="tbtn" type="button" onclick="downloadMfaRecoveryCodesTxt()">Download .txt</button>
+                <button class="tbtn" type="button" onclick="printMfaRecoveryCodes()">Print / Save PDF</button>
+              </div>
+            </div>
           </div>
         </details>
 
@@ -1187,6 +1196,7 @@ var feedSyncStatePollTimer = null;
 var execChartSelection = {};
 var pendingMfaSecret = '';
 var pendingMfaOtpUri = '';
+var pendingRecoveryCodes = [];
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -3512,6 +3522,8 @@ async function beginMfaSetup() {
     const sec = document.getElementById('mfa-secret');
     const qr = document.getElementById('mfa-qr');
     const copyBtn = document.getElementById('mfa-copy-uri-btn');
+    const recBox = document.getElementById('mfa-recovery-box');
+    const recTa = document.getElementById('mfa-recovery-codes');
     if (sec) sec.textContent = pendingMfaSecret;
     if (qr) {
         if (pendingMfaOtpUri) {
@@ -3533,6 +3545,9 @@ async function beginMfaSetup() {
             }
         };
     }
+    pendingRecoveryCodes = [];
+    if (recTa) recTa.value = '';
+    if (recBox) recBox.classList.add('hide');
     if (box) box.classList.remove('hide');
     toast('MFA secret generated. Scan QR or enter secret manually.', 'ok');
 }
@@ -3556,9 +3571,12 @@ async function confirmMfaEnable() {
             qr.classList.add('hide');
             qr.src = '';
         }
-        const codes = Array.isArray(r.recovery_codes) ? r.recovery_codes.join(', ') : '';
+        pendingRecoveryCodes = Array.isArray(r.recovery_codes) ? r.recovery_codes.slice() : [];
+        const recBox = document.getElementById('mfa-recovery-box');
+        const recTa = document.getElementById('mfa-recovery-codes');
+        if (recTa) recTa.value = pendingRecoveryCodes.join('\n');
+        if (recBox) recBox.classList.toggle('hide', pendingRecoveryCodes.length === 0);
         toast('MFA enabled', 'ok');
-        if (codes) alert('Save these recovery codes now:\n\n' + codes);
         loadAuthUsers();
     } else {
         toast((r && r.error) ? r.error : 'MFA enable failed', 'err');
@@ -3566,15 +3584,70 @@ async function confirmMfaEnable() {
 }
 
 async function disableMfaForSelf() {
-    const otp = prompt('Enter your current authenticator code to disable MFA:', '');
-    if (!otp) return;
-    const r = await apiPost('/api/auth.php?mfa_disable=1', { otp: otp.trim() });
+    const code = prompt('Enter your current authenticator code OR recovery code to disable MFA:', '');
+    if (!code) return;
+    const normalized = String(code).trim();
+    const body = /^\w{4}-\w{4}$/i.test(normalized)
+        ? { recovery_code: normalized }
+        : { otp: normalized };
+    const r = await apiPost('/api/auth.php?mfa_disable=1', body);
     if (r && r.ok) {
         toast('MFA disabled', 'ok');
         loadAuthUsers();
     } else {
         toast((r && r.error) ? r.error : 'MFA disable failed', 'err');
     }
+}
+
+function copyMfaRecoveryCodes() {
+    const text = pendingRecoveryCodes.join('\n');
+    if (!text) {
+        toast('No recovery codes to copy', 'err');
+        return;
+    }
+    navigator.clipboard.writeText(text).then(
+        () => toast('Recovery codes copied', 'ok'),
+        () => toast('Copy failed', 'err')
+    );
+}
+
+function downloadMfaRecoveryCodesTxt() {
+    const text = pendingRecoveryCodes.join('\n');
+    if (!text) {
+        toast('No recovery codes to download', 'err');
+        return;
+    }
+    const blob = new Blob([text + '\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'surveytrace-mfa-recovery-codes.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function printMfaRecoveryCodes() {
+    const text = pendingRecoveryCodes.join('\n');
+    if (!text) {
+        toast('No recovery codes to print', 'err');
+        return;
+    }
+    const w = window.open('', '_blank', 'width=640,height=720');
+    if (!w) {
+        toast('Popup blocked; use Download .txt instead', 'err');
+        return;
+    }
+    const html = `
+<!doctype html><html><head><title>SurveyTrace MFA Recovery Codes</title>
+<style>body{font-family:ui-monospace,Menlo,Consolas,monospace;padding:24px}h1{font-family:system-ui,sans-serif;font-size:20px}pre{font-size:16px;line-height:1.5}</style>
+</head><body><h1>SurveyTrace MFA Recovery Codes</h1><pre>${esc(text)}</pre></body></html>`;
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
 }
 
 /** Show either the paste+Save row or the masked+Remove row (never both). */
