@@ -152,50 +152,61 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['users'])) {
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit'])) {
-    st_auth();
-    st_require_role(['admin']);
-    $limit = (int)($_GET['limit'] ?? 100);
-    $limit = max(10, min(500, $limit));
-    $targetUserId = (int)($_GET['target_user_id'] ?? 0);
-    $sql = "
-        SELECT id, actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip, created_at
-        FROM user_audit_log
-    ";
-    $params = [];
-    if ($targetUserId > 0) {
-        $sql .= " WHERE target_user_id = ? OR actor_user_id = ?";
-        $params[] = $targetUserId;
-        $params[] = $targetUserId;
+    try {
+        st_auth();
+        st_require_role(['admin']);
+        st_ensure_user_audit_schema();
+        $limit = (int)($_GET['limit'] ?? 100);
+        $limit = max(10, min(500, $limit));
+        $targetUserId = (int)($_GET['target_user_id'] ?? 0);
+        $sql = "
+            SELECT id, actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip, created_at
+            FROM user_audit_log
+        ";
+        $params = [];
+        if ($targetUserId > 0) {
+            $sql .= " WHERE target_user_id = ? OR actor_user_id = ?";
+            $params[] = $targetUserId;
+            $params[] = $targetUserId;
+        }
+        $sql .= " ORDER BY id DESC LIMIT " . $limit;
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        st_release_session_lock();
+        st_json(['ok' => true, 'audit' => $rows]);
+    } catch (Throwable $e) {
+        st_release_session_lock();
+        st_json(['ok' => true, 'audit' => [], 'warning' => 'audit_unavailable', 'detail' => (string)$e->getMessage()]);
     }
-    $sql .= " ORDER BY id DESC LIMIT " . $limit;
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll();
-    st_release_session_lock();
-    st_json(['ok' => true, 'audit' => $rows]);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit_live'])) {
-    st_auth();
-    st_require_role(['admin']);
-    $rows = $db->query("
-        SELECT
-            actor_key,
-            username_norm,
-            source_ip,
-            failed_count,
-            first_failed_at,
-            last_failed_at,
-            locked_until
-        FROM auth_login_state
-        WHERE failed_count > 0 OR (locked_until IS NOT NULL AND locked_until <> '')
-        ORDER BY
-            CASE WHEN locked_until IS NOT NULL AND locked_until > datetime('now') THEN 0 ELSE 1 END,
-            last_failed_at DESC
-        LIMIT 200
-    ")->fetchAll();
-    st_release_session_lock();
-    st_json(['ok' => true, 'live' => $rows]);
+    try {
+        st_auth();
+        st_require_role(['admin']);
+        $rows = $db->query("
+            SELECT
+                actor_key,
+                username_norm,
+                source_ip,
+                failed_count,
+                first_failed_at,
+                last_failed_at,
+                locked_until
+            FROM auth_login_state
+            WHERE failed_count > 0 OR (locked_until IS NOT NULL AND locked_until <> '')
+            ORDER BY
+                CASE WHEN locked_until IS NOT NULL AND locked_until > datetime('now') THEN 0 ELSE 1 END,
+                last_failed_at DESC
+            LIMIT 200
+        ")->fetchAll();
+        st_release_session_lock();
+        st_json(['ok' => true, 'live' => $rows]);
+    } catch (Throwable $e) {
+        st_release_session_lock();
+        st_json(['ok' => true, 'live' => [], 'warning' => 'live_unavailable', 'detail' => (string)$e->getMessage()]);
+    }
 }
 
 st_method('POST');

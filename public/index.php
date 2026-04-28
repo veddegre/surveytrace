@@ -3694,6 +3694,11 @@ async function loadAuthLive() {
             return;
         }
         const rows = Array.isArray(r.live) ? r.live : [];
+        if (r.warning) {
+            const detail = r.detail ? ` (${String(r.detail).slice(0, 180)})` : '';
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Live auth view unavailable${esc(detail)}.</td></tr>`;
+            return;
+        }
         tbody.innerHTML = rows.length ? rows.map(ev => `
           <tr>
             <td class="mono-sm">${esc(ev.username_norm || '—')}</td>
@@ -3718,6 +3723,11 @@ async function loadAuthAudit() {
             return;
         }
         const rows = Array.isArray(r.audit) ? r.audit : [];
+        if (r.warning) {
+            const detail = r.detail ? ` (${String(r.detail).slice(0, 180)})` : '';
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Audit log unavailable${esc(detail)}.</td></tr>`;
+            return;
+        }
         tbody.innerHTML = rows.length ? rows.map(ev => `
           <tr>
             <td class="mono-sm">${esc(fmtTs(ev.created_at || ''))}</td>
