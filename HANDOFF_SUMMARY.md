@@ -9,6 +9,26 @@ Use this as a context starter in a new conversation.
 - **Phase 5 (device identity)** is **delivered** in-repo: schema + migrations, scanner linkage, APIs, UI, merge, docs. See **`docs/DEVICE_IDENTITY.md`** and the **Phase 5** changelog block in **`README.md`**.
 - **Roadmap:** **`README.md`** — **Phase 6** is **identity & access** (SAML/OIDC, **local accounts** with **TOTP** + **recovery codes**, **possible** **WebAuthn/FIDO2/passkeys** if scope allows, RBAC); **Phase 7** is **collector architecture** (distributed agents / multi-site); **Phase 13** includes a **possible** frontend modularization pass to split the growing `public/index.php` into maintainable units. Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
 
+## Session updates (2026-04-27 late)
+
+- **Scan history UX:** dedicated **Scan history** page added; queue visible on both **Scan control** and **Scan history**.
+- **Actions:** run rows/details now support **Re-run** and **Delete** (`POST /api/scan_delete.php`); delete is blocked for queued/running/retrying jobs.
+- **Snapshot persistence:** daemon writes **`scan_asset_snapshots`** and **`scan_finding_snapshots`** at scan completion; schema + migrations added in `sql/schema.sql`, `api/db.php`, and daemon startup migrations.
+- **Detail fallbacks:** `api/scan_history.php?id=` resolves assets via snapshots first, then legacy `assets.last_scan_id`, then `port_history` for older scans.
+- **Diffing:** scan detail compares against previous or selected run (`compare_to`) with scope (`compare_scope=any|target|profile|both`) and reports host/port/CVE deltas, including explicit added/removed port lists.
+- **Host/device history:** `api/assets.php?id=` returns per-host scan change history; `api/devices.php?id=` returns aggregated device scan history (across linked assets) with deltas and “View run details” navigation back to scan detail modal.
+- **UI reliability fixes:** click handlers for scan history/detail navigation moved to delegated handlers to avoid inline click issues in stricter browser environments.
+- **Label cleanup:** re-run/retry labels normalized in `api/scan_start.php` to avoid repeated suffix stacking.
+
+## Next suggested steps
+
+1. **Backfill utility (optional):** best-effort script to populate `scan_asset_snapshots` / `scan_finding_snapshots` for older runs using `port_history` + current findings metadata.
+2. **Diff granularity:** optional host-port pair detail table in scan diff modal (not only unique port list + counts).
+3. **Delete hardening (requested):** switch to soft delete with a **Trash** view; keep runs for configurable **X days** (e.g. `scan_trash_retention_days`) before automatic purge.
+   - Suggested shape: `scan_jobs.deleted_at` + filter controls (`active` / `trash`) + daemon or scheduler purge task.
+4. **Tests:** add regression tests for scan history compare scopes, rerun label normalization, and snapshot persistence on completed jobs.
+5. **Docs cleanup:** if these ship as a release, move README `Unreleased` bullets into a versioned block.
+
 ## Phase 5 — What shipped (reference)
 
 - **`devices`** + **`assets.device_id`**; migration flag **`config.migration_device_identity_v1`**; PHP (`api/db.php`) + daemon startup migration.

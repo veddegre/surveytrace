@@ -99,6 +99,15 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ## Changelog
 
+### Unreleased
+
+- **Scan history workflow** — dedicated **Scan history** page plus queue visibility on both **Scan control** and **Scan history**; history rows support **Details**, **Re-run**, and **Delete** actions.
+- **Historical run evidence** — per-scan snapshots stored in **`scan_asset_snapshots`** and **`scan_finding_snapshots`**; scan detail prefers snapshots, falls back to legacy `last_scan_id`, then `port_history` for older runs.
+- **Run comparisons** — scan detail now computes diffs (hosts, ports, CVEs) versus previous run or a selected prior run (`compare_to`), with optional scope filters (`any`, `target`, `profile`, `both`).
+- **Host/device drift views** — host detail includes per-scan change history (new/closed ports, new/resolved CVEs); device detail aggregates scan history across linked assets and can jump directly to run details.
+- **Re-run label normalization** — repeated re-runs no longer stack suffixes like `(re-run) (re-run)`; labels normalize to a single suffix.
+- **Planned next hardening** — replace hard delete with **soft delete** for scan runs, add a **Trash** view in Scan History, and auto-purge trashed runs after a configurable retention window (e.g. `scan_trash_retention_days`).
+
 ### 0.5.0
 
 - **Device identity (Phase 5)** — **`devices`** table and **`assets.device_id`** (FK); idempotent migration (`migration_device_identity_v1` in `config`) in **`api/db.php`** and **`daemon/scanner_daemon.py`**; 1:1 backfill for legacy rows.

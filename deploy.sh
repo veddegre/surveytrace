@@ -21,6 +21,7 @@ API_FILES=(
   scan_start.php
   scan_status.php
   scan_abort.php
+  scan_delete.php
   auth.php
   schedules.php
   enrichment.php

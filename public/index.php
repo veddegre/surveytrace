@@ -591,6 +591,7 @@
         <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
         <div class="row-wrap gap6" style="align-items:center">
           <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
+          <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="deleteScanJob(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Delete</button>
           <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
         </div>
       </div>
@@ -2137,6 +2138,7 @@ async function loadScanHistory(history) {
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
+    const canDelete = (st) => ['done', 'aborted', 'failed'].includes(st);
     document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
       <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
@@ -2149,6 +2151,7 @@ async function loadScanHistory(history) {
       <td class="nowrap-cell">
         <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
         ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
+        ${canDelete(j.status) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Delete</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
     bindScanHistoryDelegates();
@@ -2237,6 +2240,7 @@ function handleScanHistoryTableClick(ev) {
         const action = btn.getAttribute('data-scan-action') || '';
         if (action === 'details') { void openScanHistDetail(jid); return; }
         if (action === 'rerun')   { void rerunScanJob(jid); return; }
+        if (action === 'delete')  { void deleteScanJob(jid); return; }
         if (action === 'abort')   { void abortJobById(jid); return; }
         if (action === 'cancel')  { void cancelJob(jid); return; }
         return;
@@ -2316,6 +2320,26 @@ async function rerunScanJob(id) {
         loadScanHistory();
     } else {
         toast((r && r.error) || 'Re-run failed', 'err');
+    }
+}
+
+async function deleteScanJob(id) {
+    const jid = parseInt(String(id), 10);
+    if (!jid) return;
+    const ok = await showConfirmModal(
+        `Delete historical scan #${jid}?\n\nThis removes the job record and saved run evidence for that scan.`,
+        {title: 'Delete scan', okText: 'Delete'}
+    );
+    if (!ok) return;
+    const r = await apiPost('/api/scan_delete.php', {job_id: jid});
+    if (r && r.ok) {
+        const delBtn = document.getElementById('scan-hist-detail-delete');
+        const openId = delBtn ? parseInt(delBtn.dataset.jobId || '0', 10) : 0;
+        if (openId === jid) closeScanHistDetailModal(false);
+        toast('Scan #' + jid + ' deleted', 'ok');
+        loadScanHistory();
+    } else {
+        toast((r && r.error) || 'Delete failed', 'err');
     }
 }
 
@@ -2465,6 +2489,8 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     bg.style.display = 'flex';
     const rerunBtn = document.getElementById('scan-hist-detail-rerun');
     if (rerunBtn) { rerunBtn.style.display = 'none'; rerunBtn.dataset.jobId = ''; }
+    const delBtn = document.getElementById('scan-hist-detail-delete');
+    if (delBtn) { delBtn.style.display = 'none'; delBtn.dataset.jobId = ''; }
     const hint0 = document.getElementById('scan-hist-detail-assets-hint');
     if (hint0) hint0.style.display = 'none';
     title.textContent = 'Scan #' + id + ' detail';
@@ -2486,6 +2512,10 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     if (rerunBtn) {
         rerunBtn.dataset.jobId = String(j.id);
         rerunBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
+    }
+    if (delBtn) {
+        delBtn.dataset.jobId = String(j.id);
+        delBtn.style.display = ['done', 'aborted', 'failed'].includes(j.status) ? '' : 'none';
     }
     title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
     const phasesRan = Array.isArray(j.phases) && j.phases.length ? j.phases.join(', ') : '—';
