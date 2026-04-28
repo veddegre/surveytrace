@@ -110,7 +110,9 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **Identity hardening + UX refresh** — OIDC-only SSO path (SAML bridge removed), endpoint RBAC hardening, OIDC JWKS `id_token` signature validation, and role-aware UI control hiding/disabling.
 - **Profile + account recovery UX** — new **My profile** surface for self-service account management (display name, email, self password change, self MFA setup/disable for local accounts); admin user-management now supports temporary password resets (forced change on first login) and user MFA reset/clear actions.
 - **MFA usability improvements** — QR code enrollment, copyable setup URI, recovery code panel with copy/download/print actions, and modal-based MFA disable flow.
-- **Planned next hardening** — replace hard delete with **soft delete** for scan runs, add a **Trash** view in Scan History, and auto-purge trashed runs after a configurable retention window (e.g. `scan_trash_retention_days`).
+- **Dedicated Access control page** — authentication mode, OIDC/breakglass settings, password policy, local user management, and auth/audit views moved out of Settings into a single admin page.
+- **Account + operator audit scope** — historical user audit now includes auth events, account lifecycle events (create/update/delete/reset), and scan/schedule operator actions (queue/re-run/delete/run-now/pause/resume/toggle).
+- **Planned next hardening** — replace hard delete with **soft delete** for scan runs, add a **Trash** view in Scan History, and auto-purge trashed runs after a configurable retention window (e.g. `scan_trash_retention_days`) as the immediate next phase.
 
 ### 0.6.0
 
@@ -207,7 +209,7 @@ Password hashing and mode live in the `config` table (`auth_hash`, `auth_mode`).
 - **`session`** (default): local login via `POST /api/auth.php?login=1`; the UI uses a session cookie after login.
 - **`oidc`**: SSO login via `api/auth_oidc.php` (with JWT signature validation against provider JWKS), with optional breakglass local login.
 
-Set `auth_mode` in **Settings → Access control** (or directly in `config`). Supported UI modes are `session` and `oidc`; legacy `basic` remains backend-compatible, and `auth_mode=saml` from older installs is treated as `oidc`. Session idle timeout is configurable under **Settings** (`session_timeout_minutes`).
+Set `auth_mode` in **Access control** (or directly in `config`). Supported UI modes are `session` and `oidc`; legacy `basic` remains backend-compatible, and `auth_mode=saml` from older installs is treated as `oidc`. Session idle timeout is configurable under **Settings** (`session_timeout_minutes`).
 
 ### Local account lifecycle (session mode)
 
@@ -328,14 +330,19 @@ surveytrace/
 - **Phase 5 — Device identity** — Logical **`devices`** linked from **`assets`**; scanner + migrations; Devices UI; **`POST /api/devices.php`** merge (logged to **`scan_log`**). Details: **`docs/DEVICE_IDENTITY.md`**. *Not built:* un-merge, split/reassign assets, findings-by-device filter, `device_identifiers` table (optional follow-ons).
 
 ### Upcoming
-- **Phase 6 — Identity & access (OIDC SSO, local MFA, RBAC)** — **OIDC** for IdP-backed sign-in; **local authentication** (retain or evolve **`basic`** / **`session`**) with optional **MFA** for deployments that skip SSO: **TOTP** (RFC 6238) and **one-time recovery codes** (hashed at rest, single-use, regenerable) so users can regain access without SSO; **WebAuthn** / **FIDO2** (including **passkeys** or roaming security keys) as a **possible** addition if scope and packaging (e.g. Composer + a vetted library) allow — not a fixed commitment in the first cut; **RBAC** with app-defined roles (e.g. full admin, scan operator, read-only inventory, auditor) mapped from IdP **groups/claims** when using SSO and **assigned in-app** for local users; consistent enforcement for **PHP API routes** and UI; **audit attribution** (who queued a scan, changed settings, merged devices). Design so **Phase 7** collector tokens, schedule ownership, and future integrations reuse the same permission checks rather than a parallel auth model.
-- **Phase 7 — Collector architecture** — `collectors` table; registration + API token auth (scopes informed by **Phase 6** when RBAC is enabled); **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU). **Processing model:** collectors upload scan result payloads/artifacts to the master server; master persists them to an ingest queue/file store; one/few worker processes apply them into assets/findings/history and run fingerprint/CVE enrichment asynchronously (idempotent, chunked submissions, retry-safe).
-- **Phase 8**: Change detection — alerts on new assets, port changes, new CVEs
-- **Phase 9**: Asset lifecycle — stale/active/retired status, auto-retire
+- **Phase 6 — Identity & access (OIDC SSO, local MFA, RBAC)** — **OIDC** for IdP-backed sign-in; **local authentication** (retain or evolve **`basic`** / **`session`**) with optional **MFA** for deployments that skip SSO: **TOTP** (RFC 6238) and **one-time recovery codes** (hashed at rest, single-use, regenerable) so users can regain access without SSO; **WebAuthn** / **FIDO2** (including **passkeys** or roaming security keys) as a **possible** addition if scope and packaging (e.g. Composer + a vetted library) allow — not a fixed commitment in the first cut; **RBAC** with app-defined roles (e.g. full admin, scan operator, read-only inventory, auditor) mapped from IdP **groups/claims** when using SSO and **assigned in-app** for local users; consistent enforcement for **PHP API routes** and UI; **audit attribution** (who queued a scan, changed settings, merged devices). Design so downstream phases reuse the same permission checks rather than a parallel auth model.
+- **Phase 7 — Scan delete hardening (Trash + retention)** — convert scan delete to soft-delete, add a dedicated **Trash** view, support restore and admin-only permanent purge, and add automatic retention purge (e.g. `scan_trash_retention_days`).
+- **Phase 8 — Collector architecture** — `collectors` table; registration + API token auth (scopes informed by **Phase 6** when RBAC is enabled); **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU). **Processing model:** collectors upload scan result payloads/artifacts to the master server; master persists them to an ingest queue/file store; one/few worker processes apply them into assets/findings/history and run fingerprint/CVE enrichment asynchronously (idempotent, chunked submissions, retry-safe).
+- **Phase 9**: Change detection — alerts on new assets, port changes, new CVEs
 - **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring
-- **Phase 11**: Baselines and reporting — snapshot comparisons, scheduled reports
-- **Phase 12**: Integrations — Splunk, TrueNAS, Proxmox, syslog
-- **Phase 13**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
+- **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire
+- **Phase 12**: Baselines and reporting — snapshot comparisons, scheduled reports
+- **Phase 13**: Integrations program —
+  - **13.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
+  - **13.2 Monitoring/ops:** Zabbix + alert/status mapping
+  - **13.3 Infrastructure:** Proxmox, TrueNAS
+  - **13.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)
+- **Phase 14**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
 
 ## License
 

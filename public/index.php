@@ -3803,7 +3803,6 @@ async function saveAuthUserQuick(id) {
     const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
-    const mustChangePassword = !!document.getElementById(`u-mcp-${id}`)?.checked;
     if (!username) {
         toast('Username is required', 'err');
         return;
@@ -3814,8 +3813,7 @@ async function saveAuthUserQuick(id) {
         display_name: displayName,
         email,
         role,
-        disabled,
-        must_change_password: mustChangePassword ? true : false
+        disabled
     };
     const r = await apiPost('/api/auth.php?users=1', body);
     if (r && r.ok) {
