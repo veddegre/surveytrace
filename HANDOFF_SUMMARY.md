@@ -7,7 +7,7 @@ Use this as a context starter in a new conversation.
 ## Where things stand
 
 - **Phase 5 (device identity)** is **delivered** in-repo: schema + migrations, scanner linkage, APIs, UI, merge, docs. See **`docs/DEVICE_IDENTITY.md`** and the **Phase 5** changelog block in **`README.md`**.
-- **Roadmap:** **`README.md`** — **Phase 6** is **identity & access** (SAML/OIDC, **local accounts** with **TOTP** + **recovery codes**, **possible** **WebAuthn/FIDO2/passkeys** if scope allows, RBAC); **Phase 7** is **collector architecture** (distributed agents / multi-site). Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
+- **Roadmap:** **`README.md`** — **Phase 6** is **identity & access** (SAML/OIDC, **local accounts** with **TOTP** + **recovery codes**, **possible** **WebAuthn/FIDO2/passkeys** if scope allows, RBAC); **Phase 7** is **collector architecture** (distributed agents / multi-site); **Phase 13** includes a **possible** frontend modularization pass to split the growing `public/index.php` into maintainable units. Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
 
 ## Phase 5 — What shipped (reference)
 

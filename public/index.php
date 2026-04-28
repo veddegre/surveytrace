@@ -389,6 +389,18 @@
   <div class="hint-micro mb4" style="margin-top:2px">
     Queue and past runs: <button type="button" class="tbtn text-micro" onclick="goTab('scanhist');hiNav('nscanhist')">Open Scan history</button>
   </div>
+  <div class="sth section-top">Job queue</div>
+  <div id="job-queue-wrap-scan">
+    <div id="job-queue-scan" class="mb8" style="display:none">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Profile</th><th>Status / Progress</th><th>Priority</th><th>Queued</th><th></th></tr></thead>
+          <tbody id="queue-tbody-scan"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y">No jobs queued or running</div>
+  </div>
 </div>
 
 <!-- ================================================================ SCAN HISTORY -->
@@ -2112,7 +2124,7 @@ async function loadScanHistory(history) {
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
     const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
-    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" title="Open scan details" onclick="openScanHistDetail(${j.id})">
+    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono">#${j.id}</td>
       <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2121,11 +2133,12 @@ async function loadScanHistory(history) {
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
       <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10">${localDate(j.finished_at)}</td>
-      <td class="nowrap-cell" onclick="event.stopPropagation()">
+      <td class="nowrap-cell">
         <button type="button" class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
         ${canRerun(j.status) ? `<button type="button" class="tbtn text-micro" onclick="rerunScanJob(${j.id})">Re-run</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
+    wireScanHistoryRowClicks();
 }
 
 // ==========================================================================
@@ -2136,23 +2149,37 @@ function updateQueuePanel(history) {
         ['queued','running','retrying'].includes(j.status)
     ).sort((a,b) => (a.priority||10)-(b.priority||10) || a.id-b.id);
 
-    const wrap  = document.getElementById('job-queue');
-    const empty = document.getElementById('job-queue-empty');
-    const tbody = document.getElementById('queue-tbody');
+    const queueBlocks = [
+        {
+            wrap: document.getElementById('job-queue'),
+            empty: document.getElementById('job-queue-empty'),
+            tbody: document.getElementById('queue-tbody'),
+        },
+        {
+            wrap: document.getElementById('job-queue-scan'),
+            empty: document.getElementById('job-queue-empty-scan'),
+            tbody: document.getElementById('queue-tbody-scan'),
+        },
+    ].filter(b => b.wrap && b.empty && b.tbody);
 
     if (!queued.length) {
-        wrap.style.display  = 'none';
-        empty.style.display = 'block';
+        queueBlocks.forEach((b) => {
+            b.wrap.style.display = 'none';
+            b.empty.style.display = 'block';
+            b.tbody.innerHTML = '';
+        });
         // Hide scan stats if nothing running
         document.getElementById('scan-stats').style.display = 'none';
         return;
     }
 
-    wrap.style.display  = 'block';
-    empty.style.display = 'none';
+    queueBlocks.forEach((b) => {
+        b.wrap.style.display = 'block';
+        b.empty.style.display = 'none';
+    });
 
     const statusColor = {running:'var(--acc)',queued:'var(--tx3)',retrying:'var(--amber)'};
-    tbody.innerHTML = queued.map(j => {
+    const rowsHtml = queued.map(j => {
         const pct  = j.progress_pct || 0;
         const isRun = j.status === 'running';
         const msgEl = isRun ? `
@@ -2162,7 +2189,7 @@ function updateQueuePanel(history) {
             <div class="track">
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
-        return `<tr class="scan-hist-row" title="Open scan details" onclick="openScanHistDetail(${j.id})">
+        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
           <td class="mono">#${j.id}</td>
           <td class="text-primary font11">${esc(j.label||'—')}</td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2175,13 +2202,25 @@ function updateQueuePanel(history) {
           </td>
           <td class="mono font10">${j.priority||10}</td>
           <td class="mono font10">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
-          <td onclick="event.stopPropagation()">
+          <td>
             ${isRun
               ? `<button type="button" class="btnd btn-xxs" onclick="abortJobById(${j.id})">&#9632; Abort</button>`
               : `<button type="button" class="tbtn btn-xxs danger" onclick="cancelJob(${j.id})">Cancel</button>`}
           </td>
         </tr>`;
     }).join('');
+    queueBlocks.forEach((b) => { b.tbody.innerHTML = rowsHtml; });
+    wireScanHistoryRowClicks();
+}
+
+function wireScanHistoryRowClicks() {
+    document.querySelectorAll('tr.scan-hist-row[data-job-id]').forEach((row) => {
+        row.onclick = (ev) => {
+            if (ev.target && ev.target.closest('button, a, input, label, select, textarea')) return;
+            const jid = parseInt(row.dataset.jobId || '0', 10);
+            if (jid > 0) openScanHistDetail(jid);
+        };
+    });
 }
 
 // ==========================================================================

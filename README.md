@@ -309,7 +309,7 @@ surveytrace/
 - **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring
 - **Phase 11**: Baselines and reporting — snapshot comparisons, scheduled reports
 - **Phase 12**: Integrations — Splunk, TrueNAS, Proxmox, syslog
-- **Phase 13**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list
+- **Phase 13**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
 
 ## License
 
