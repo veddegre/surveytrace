@@ -25,7 +25,7 @@
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
-  <button class="tbtn" id="btn-self-password" onclick="openPasswordChangeModal(false)">Change password</button>
+  <button class="tbtn" id="btn-profile" onclick="openProfileModal()">My profile</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
 </div>
 
@@ -926,36 +926,6 @@
             </select>
             <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
           </div>
-          <div class="flbl">MFA (your account)</div>
-          <div class="row-wrap mb6">
-            <button class="tbtn" type="button" id="btn-mfa-generate" onclick="beginMfaSetup()">Set up MFA</button>
-            <button class="tbtn" type="button" id="btn-mfa-disable" onclick="openMfaDisableModal()">Turn off MFA</button>
-            <button class="tbtn" type="button" onclick="openPasswordChangeModal(false)">Change my password</button>
-          </div>
-          <div id="mfa-setup-box" class="help-box hide">
-            <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
-            <div class="help-line mb8">Scan the QR (recommended) or enter the secret manually, then type the 6-digit code to finish setup.</div>
-            <div class="mb8">
-              <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
-            </div>
-            <div class="row-wrap mb8">
-              <button class="tbtn" type="button" id="mfa-copy-uri-btn">Copy setup URI</button>
-            </div>
-            <div class="row-wrap">
-              <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
-              <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
-            </div>
-            <div class="hint-micro mt6">Recovery codes are shown once. Save them in a secure place.</div>
-            <div id="mfa-recovery-box" class="mt10 hide">
-              <div class="help-line mb6"><strong>Recovery codes (save now)</strong></div>
-              <textarea id="mfa-recovery-codes" class="finp w100" rows="6" readonly></textarea>
-              <div class="row-wrap mt8">
-                <button class="tbtn" type="button" onclick="copyMfaRecoveryCodes()">Copy codes</button>
-                <button class="tbtn" type="button" onclick="downloadMfaRecoveryCodesTxt()">Download .txt</button>
-                <button class="tbtn" type="button" onclick="printMfaRecoveryCodes()">Print / Save PDF</button>
-              </div>
-            </div>
-          </div>
         </details>
 
         <details class="mb10">
@@ -1080,6 +1050,66 @@
     <div class="row-end">
       <button class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
       <button class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile modal -->
+<div id="profile-bg" class="modal-bg z220">
+  <div class="modal-card modal-w440">
+    <div class="modal-title">My profile</div>
+    <div class="text-muted mb10">Manage your personal account settings.</div>
+    <label class="flbl">Username</label>
+    <input class="finp w100 mb8" id="profile-username" readonly>
+    <div class="row-wrap mb8">
+      <div class="grow">
+        <label class="flbl">Role</label>
+        <input class="finp w100" id="profile-role" readonly>
+      </div>
+      <div class="grow">
+        <label class="flbl">Auth source</label>
+        <input class="finp w100" id="profile-auth-source" readonly>
+      </div>
+    </div>
+    <label class="flbl">Display name</label>
+    <input class="finp w100 mb8" id="profile-display-name" placeholder="Optional">
+    <label class="flbl">Email</label>
+    <input class="finp w100 mb12" id="profile-email" type="email" placeholder="Optional">
+    <div class="hint-micro mb10 hide" id="profile-idp-managed-note">
+      Password and MFA are managed by your identity provider (OIDC) for this account.
+    </div>
+    <div class="row-wrap mb8">
+      <button class="tbtn" type="button" onclick="saveMyProfile()">Save profile</button>
+      <button class="tbtn" type="button" id="btn-profile-password" onclick="openPasswordChangeModal(false)">Change password</button>
+      <button class="tbtn" type="button" id="btn-profile-mfa-generate" onclick="beginMfaSetup()">Set up MFA</button>
+      <button class="tbtn" type="button" id="btn-profile-mfa-disable" onclick="openMfaDisableModal()">Turn off MFA</button>
+    </div>
+    <div id="mfa-setup-box" class="help-box hide">
+      <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
+      <div class="help-line mb8">Scan the QR (recommended) or enter the secret manually, then type the 6-digit code to finish setup.</div>
+      <div class="mb8">
+        <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
+      </div>
+      <div class="row-wrap mb8">
+        <button class="tbtn" type="button" id="mfa-copy-uri-btn">Copy setup URI</button>
+      </div>
+      <div class="row-wrap">
+        <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
+        <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
+      </div>
+      <div class="hint-micro mt6">Recovery codes are shown once. Save them in a secure place.</div>
+      <div id="mfa-recovery-box" class="mt10 hide">
+        <div class="help-line mb6"><strong>Recovery codes (save now)</strong></div>
+        <textarea id="mfa-recovery-codes" class="finp w100" rows="6" readonly></textarea>
+        <div class="row-wrap mt8">
+          <button class="tbtn" type="button" onclick="copyMfaRecoveryCodes()">Copy codes</button>
+          <button class="tbtn" type="button" onclick="downloadMfaRecoveryCodesTxt()">Download .txt</button>
+          <button class="tbtn" type="button" onclick="printMfaRecoveryCodes()">Print / Save PDF</button>
+        </div>
+      </div>
+    </div>
+    <div class="row-end mt10">
+      <button class="tbtn" type="button" onclick="closeProfileModal()">Close</button>
     </div>
   </div>
 </div>
@@ -1223,6 +1253,9 @@ var loginRequired = false;
 var currentUser = null;
 var currentUserRole = 'admin';
 var currentUserMfaEnabled = false;
+var currentUserAuthSource = 'local';
+var currentProfileDisplayName = '';
+var currentProfileEmail = '';
 var breakglassEnabled = true;
 var breakglassUsername = 'admin';
 var scanDetailReturnDeviceId = 0;
@@ -1317,10 +1350,52 @@ function updateAccessControlModeVisibility() {
 }
 
 function updateMfaActionButtons() {
-    const genBtn = document.getElementById('btn-mfa-generate');
-    const disBtn = document.getElementById('btn-mfa-disable');
-    if (genBtn) genBtn.classList.toggle('hide', currentUserMfaEnabled);
-    if (disBtn) disBtn.classList.toggle('hide', !currentUserMfaEnabled);
+    const isLocal = currentUserAuthSource === 'local';
+    const genBtn = document.getElementById('btn-profile-mfa-generate');
+    const disBtn = document.getElementById('btn-profile-mfa-disable');
+    const pwBtn = document.getElementById('btn-profile-password');
+    const idpNote = document.getElementById('profile-idp-managed-note');
+    if (genBtn) genBtn.classList.toggle('hide', !isLocal || currentUserMfaEnabled);
+    if (disBtn) disBtn.classList.toggle('hide', !isLocal || !currentUserMfaEnabled);
+    if (pwBtn) pwBtn.classList.toggle('hide', !isLocal);
+    if (idpNote) idpNote.classList.toggle('hide', isLocal);
+}
+
+function openProfileModal() {
+    const bg = document.getElementById('profile-bg');
+    if (!bg) return;
+    const username = document.getElementById('profile-username');
+    const role = document.getElementById('profile-role');
+    const authSource = document.getElementById('profile-auth-source');
+    const displayName = document.getElementById('profile-display-name');
+    const email = document.getElementById('profile-email');
+    if (username) username.value = currentUser?.username || '';
+    if (role) role.value = currentUserRole || '';
+    if (authSource) authSource.value = currentUserAuthSource || '';
+    if (displayName) displayName.value = currentProfileDisplayName || '';
+    if (email) email.value = currentProfileEmail || '';
+    updateMfaActionButtons();
+    bg.style.display = 'flex';
+}
+
+function closeProfileModal() {
+    const bg = document.getElementById('profile-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+async function saveMyProfile() {
+    const body = {
+        display_name: (document.getElementById('profile-display-name')?.value || '').trim(),
+        email: (document.getElementById('profile-email')?.value || '').trim(),
+    };
+    const r = await apiPost('/api/auth.php?profile=1', body);
+    if (r && r.ok) {
+        currentProfileDisplayName = r.display_name || '';
+        currentProfileEmail = r.email || '';
+        toast('Profile updated', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Profile update failed', 'err');
+    }
 }
 
 function fmtFeedElapsed(ms) {
@@ -3363,6 +3438,9 @@ function closeConfirmModal(accepted) {
 document.getElementById('confirm-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeConfirmModal(false);
 });
+document.getElementById('profile-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeProfileModal();
+});
 document.getElementById('mfa-disable-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeMfaDisableModal();
 });
@@ -3544,7 +3622,7 @@ async function loadAuthUsers() {
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
         <td class="mono-sm">${u.must_change_password ? 'required' : 'ok'}</td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
-        <td class="row-wrap">
+        <td class="user-row-actions">
           <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')" title="Save role/disabled changes and optionally set a temporary password">Edit</button>
           ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id},'${esc(u.username)}')">Clear MFA</button>` : ''}
         </td>
@@ -5512,6 +5590,7 @@ document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     closeDevicePanel();
     closeHostPanel();
+    closeProfileModal();
     closeMfaDisableModal();
     closePasswordChangeModal();
     closeUserPasswordModal();
@@ -5549,11 +5628,14 @@ async function initAuthMode() {
     currentUser = r.user || null;
     currentUserRole = (currentUser && currentUser.role) ? currentUser.role : 'admin';
     currentUserMfaEnabled = !!r.current_mfa_enabled;
+    currentUserAuthSource = r.current_auth_source || 'local';
+    currentProfileDisplayName = (r.profile && r.profile.display_name) ? r.profile.display_name : '';
+    currentProfileEmail = (r.profile && r.profile.email) ? r.profile.email : '';
     updateMfaActionButtons();
-    const selfPwBtn = document.getElementById('btn-self-password');
-    if (selfPwBtn) {
-        const showSelfPw = (authMode === 'session') && !!(currentUser && currentUser.id > 0);
-        selfPwBtn.style.display = showSelfPw ? '' : 'none';
+    const profileBtn = document.getElementById('btn-profile');
+    if (profileBtn) {
+        const showProfile = !!(currentUser && currentUser.id > 0);
+        profileBtn.style.display = showProfile ? '' : 'none';
     }
     applyRoleAwareUi();
     if ((authMode === 'session' || authMode === 'oidc') && r.requires_auth && !r.authed) {

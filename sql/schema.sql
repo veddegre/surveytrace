@@ -188,6 +188,8 @@ CREATE TABLE IF NOT EXISTS users (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     username         TEXT NOT NULL UNIQUE,
     password_hash    TEXT,
+    display_name     TEXT,
+    email            TEXT,
     role             TEXT NOT NULL DEFAULT 'admin', -- viewer | scan_editor | admin
     auth_source      TEXT NOT NULL DEFAULT 'local', -- local | oidc
     oidc_issuer      TEXT,

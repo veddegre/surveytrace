@@ -100,6 +100,8 @@ function st_db(): PDO {
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             username         TEXT NOT NULL UNIQUE,
             password_hash    TEXT,
+            display_name     TEXT,
+            email            TEXT,
             role             TEXT NOT NULL DEFAULT 'admin',
             auth_source      TEXT NOT NULL DEFAULT 'local',
             oidc_issuer      TEXT,
@@ -119,6 +121,20 @@ function st_db(): PDO {
             $pdo->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0");
         } catch (Throwable $e) {
             // no-op if already added concurrently
+        }
+    }
+    if (!in_array('display_name', $userCols, true)) {
+        try {
+            $pdo->exec("ALTER TABLE users ADD COLUMN display_name TEXT");
+        } catch (Throwable $e) {
+            // no-op
+        }
+    }
+    if (!in_array('email', $userCols, true)) {
+        try {
+            $pdo->exec("ALTER TABLE users ADD COLUMN email TEXT");
+        } catch (Throwable $e) {
+            // no-op
         }
     }
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');

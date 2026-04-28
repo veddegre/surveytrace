@@ -30,7 +30,7 @@ function st_auth_mode(): string {
 
 function st_find_local_user(PDO $db, string $username): ?array {
     $stmt = $db->prepare("
-        SELECT id, username, password_hash, role, disabled, mfa_enabled, mfa_totp_secret, must_change_password
+        SELECT id, username, password_hash, role, auth_source, display_name, email, disabled, mfa_enabled, mfa_totp_secret, must_change_password
         FROM users
         WHERE auth_source='local' AND lower(username)=lower(?)
         LIMIT 1
@@ -81,12 +81,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
     $authed = !empty($_SESSION['st_authed']) || (!$requiresAuth);
     $currentMfaEnabled = false;
     $mustChangePassword = !empty($current['must_change_password']);
+    $currentAuthSource = 'local';
+    $currentDisplayName = '';
+    $currentEmail = '';
     if ($authed && $current['id'] > 0) {
-        $mfaStmt = $db->prepare("SELECT mfa_enabled, must_change_password FROM users WHERE id=? LIMIT 1");
+        $mfaStmt = $db->prepare("SELECT mfa_enabled, must_change_password, auth_source, display_name, email FROM users WHERE id=? LIMIT 1");
         $mfaStmt->execute([(int)$current['id']]);
         $flags = $mfaStmt->fetch() ?: [];
         $currentMfaEnabled = ((int)($flags['mfa_enabled'] ?? 0) === 1);
         $mustChangePassword = ((int)($flags['must_change_password'] ?? 0) === 1);
+        $currentAuthSource = (string)($flags['auth_source'] ?? 'local');
+        $currentDisplayName = trim((string)($flags['display_name'] ?? ''));
+        $currentEmail = trim((string)($flags['email'] ?? ''));
         $current['must_change_password'] = $mustChangePassword;
     }
     st_release_session_lock();
@@ -107,6 +113,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
             'login_lockout_minutes' => st_login_lockout_minutes(),
         ],
         'current_mfa_enabled' => $currentMfaEnabled,
+        'current_auth_source' => $currentAuthSource,
+        'profile' => [
+            'display_name' => $currentDisplayName,
+            'email' => $currentEmail,
+        ],
     ]);
 }
 
@@ -204,9 +215,11 @@ if (isset($_GET['login'])) {
 
 if (isset($_GET['mfa_setup'])) {
     st_auth();
-    st_require_role(['admin']);
     $u = st_current_user();
     if ($u['id'] <= 0) st_json(['error' => 'MFA setup unavailable for legacy account; create a local admin user first'], 400);
+    $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
+    $srcStmt->execute([$u['id']]);
+    if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA setup is available only for local accounts'], 400);
     $secret = st_generate_mfa_secret();
     $issuer = rawurlencode('SurveyTrace');
     $label = rawurlencode('SurveyTrace:' . $u['username']);
@@ -217,9 +230,11 @@ if (isset($_GET['mfa_setup'])) {
 
 if (isset($_GET['mfa_enable'])) {
     st_auth();
-    st_require_role(['admin']);
     $u = st_current_user();
     if ($u['id'] <= 0) st_json(['error' => 'MFA enable unavailable for legacy account'], 400);
+    $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
+    $srcStmt->execute([$u['id']]);
+    if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA enable is available only for local accounts'], 400);
     $secret = trim((string)($body['secret'] ?? ''));
     $otp = trim((string)($body['otp'] ?? ''));
     if ($secret === '' || $otp === '') st_json(['error' => 'secret and otp required'], 400);
@@ -242,6 +257,7 @@ if (isset($_GET['password_change'])) {
     $row = $db->prepare("SELECT password_hash FROM users WHERE id=? AND auth_source='local' LIMIT 1");
     $row->execute([$u['id']]);
     $hash = (string)$row->fetchColumn();
+    if ($hash === '') st_json(['error' => 'Password change is available only for local accounts'], 400);
     if ($hash === '' || !password_verify($currentPassword, $hash)) {
         st_json(['error' => 'Current password is incorrect'], 400);
     }
@@ -253,9 +269,11 @@ if (isset($_GET['password_change'])) {
 
 if (isset($_GET['mfa_disable'])) {
     st_auth();
-    st_require_role(['admin']);
     $u = st_current_user();
     if ($u['id'] <= 0) st_json(['error' => 'MFA disable unavailable for legacy account'], 400);
+    $srcStmt = $db->prepare("SELECT auth_source FROM users WHERE id=? LIMIT 1");
+    $srcStmt->execute([$u['id']]);
+    if ((string)$srcStmt->fetchColumn() !== 'local') st_json(['error' => 'MFA disable is available only for local accounts'], 400);
     $otp = trim((string)($body['otp'] ?? ''));
     $recoveryCode = trim((string)($body['recovery_code'] ?? ''));
     $row = $db->prepare("SELECT mfa_totp_secret FROM users WHERE id=?");
@@ -270,6 +288,21 @@ if (isset($_GET['mfa_disable'])) {
     $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$u['id']]);
     st_release_session_lock();
     st_json(['ok' => true]);
+}
+
+if (isset($_GET['profile'])) {
+    st_auth();
+    $u = st_current_user();
+    if ($u['id'] <= 0) st_json(['error' => 'Profile update unavailable for legacy account'], 400);
+    $displayName = substr(trim((string)($body['display_name'] ?? '')), 0, 120);
+    $email = substr(trim((string)($body['email'] ?? '')), 0, 254);
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        st_json(['error' => 'Invalid email address'], 400);
+    }
+    $db->prepare("UPDATE users SET display_name=?, email=?, updated_at=datetime('now') WHERE id=?")
+       ->execute([$displayName, $email, $u['id']]);
+    st_release_session_lock();
+    st_json(['ok' => true, 'display_name' => $displayName, 'email' => $email]);
 }
 
 if (isset($_GET['users'])) {

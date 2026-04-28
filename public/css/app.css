@@ -436,6 +436,8 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .btn-xs{font-size:11px}
 .btn-xxs{font-size:11px}
 .row-actions{display:flex;flex-wrap:wrap;gap:4px;padding:4px 8px;max-width:200px}
+.user-row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:nowrap}
+.user-row-actions .tbtn{white-space:nowrap}
 .pending{color:var(--tx3)}
 .due-now{color:var(--amber)}
 .paused-chip{color:var(--amber);font-size:11px;margin-left:6px;font-family:var(--mf)}
