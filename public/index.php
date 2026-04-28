@@ -24,6 +24,7 @@
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
+  <button class="tbtn" onclick="goTab('access');hiNav('naccess')">Access control</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
   <button class="tbtn" id="btn-profile" onclick="openProfileModal()">My profile</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
@@ -75,6 +76,10 @@
   <div class="ni" id="nhealth" onclick="goTab('health');hiNav('nhealth')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="3" width="2.5" height="5" rx="0.3"/><rect x="4" y="1" width="2.5" height="7" rx="0.3"/><rect x="7" y="2" width="2.5" height="6" rx="0.3"/><rect x="10" y="4" width="2.5" height="4" rx="0.3"/></svg>
     System health
+  </div>
+  <div class="ni" id="naccess" onclick="goTab('access');hiNav('naccess')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6.5" width="11" height="6" rx="1.2"/><path d="M4.5 6V4.8A2.5 2.5 0 0 1 7 2.3a2.5 2.5 0 0 1 2.5 2.5V6"/><circle cx="7" cy="9.5" r="0.8"/></svg>
+    Access control
   </div>
   <div class="ni" id="nsettings" onclick="goTab('settings');hiNav('nsettings')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
@@ -758,6 +763,82 @@
   </div>
 </div>
 
+<!-- ================================================================ ACCESS CONTROL -->
+<div class="tab" id="t-access">
+  <div class="card">
+    <div class="ct">Access control</div>
+    <div class="help-line mb8">Manage sign-in mode, local users, and recovery options.</div>
+    <div class="help-box mb10">
+      <div class="help-line"><strong>Setup quick guide:</strong></div>
+      <div class="help-line">1) Choose auth mode: <strong>Session</strong> (local accounts) or <strong>OIDC</strong>.</div>
+      <div class="help-line">2) Keep <strong>Breakglass local access</strong> enabled so one emergency account can still sign in if SSO is unavailable.</div>
+      <div class="help-line">3) Choose <strong>SSO role assignment</strong>: manage roles here in SurveyTrace (recommended) or map from IdP groups.</div>
+    </div>
+    <details class="mb10" open>
+      <summary class="flbl text-secondary">Daily admin tasks</summary>
+      <label class="flbl mt6">Authentication mode</label>
+      <div class="row-wrap mb10">
+        <select class="finp" id="st-auth-mode" onchange="updateAccessControlModeVisibility()" style="min-width:180px" title="Session uses local SurveyTrace users. OIDC uses SSO with optional breakglass local login.">
+          <option value="session">Session (local users)</option>
+          <option value="oidc">OIDC SSO</option>
+        </select>
+        <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
+      </div>
+      <div class="hint-micro mb8">Legacy Basic Auth remains backend-compatible for upgrades, but is intentionally not shown as a selectable mode here.</div>
+      <div class="row-wrap mb10 oidc-only">
+        <label class="flbl">SSO role assignment</label>
+        <select class="finp" id="sso-role-source" style="min-width:220px" title="SurveyTrace-managed keeps role assignment in this UI. IdP-mapped derives role from group/claim mapping below.">
+          <option value="surveytrace">Manage roles in SurveyTrace</option>
+          <option value="idp">Map roles from IdP groups/claims</option>
+        </select>
+        <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save role source</button>
+      </div>
+      <div class="hint-micro mb10 oidc-only">Local accounts remain available for breakglass (if enabled), even when primary authentication uses OIDC.</div>
+
+      <div class="flbl oidc-only">Breakglass local access</div>
+      <div class="row-wrap mb12 oidc-only">
+        <label class="stack8" title="Recommended: keep enabled so at least one local emergency account can sign in if your IdP is unavailable."><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
+        <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px" title="This local username is allowed to sign in directly while in OIDC mode.">
+        <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
+      </div>
+      <div class="flbl">Local users and roles</div>
+      <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
+      <div class="tbl-wrap mb8">
+        <table class="tbl">
+          <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Password</th><th>Disabled</th><th>Actions</th></tr></thead>
+          <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="hint-micro mb8">Use <strong>Save</strong> for account updates, and <strong>Password…</strong> for temporary password resets.</div>
+      <div class="row-wrap mb10">
+        <input class="finp" id="new-auth-user" placeholder="new username">
+        <select class="finp" id="new-auth-role">
+          <option value="viewer">viewer</option>
+          <option value="scan_editor">scan_editor</option>
+          <option value="admin">admin</option>
+        </select>
+        <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
+      </div>
+      <div class="flbl">Live auth operations (non-historical)</div>
+      <div class="hint-micro mb6">Operational view of current failed/locked sign-in state. This is not a permanent history.</div>
+      <div class="tbl-wrap mb8">
+        <table class="tbl">
+          <thead><tr><th>User</th><th>Failed attempts</th><th>Last failed (UTC)</th><th>Locked until (UTC)</th><th>IP</th></tr></thead>
+          <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="flbl">Historical user audit</div>
+      <div class="hint-micro mb6">Persistent trail of sign-ins, account, and scan operator actions.</div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
+          <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+
 <!-- ================================================================ SETTINGS -->
 <div class="tab" id="t-settings">
   <div class="scgrid">
@@ -873,77 +954,12 @@
         </table>
       </div>
       <div class="card">
-        <div class="ct">Access control</div>
-        <div class="help-line mb8">Manage sign-in mode, local users, and recovery options.</div>
-        <div class="help-box mb10">
-          <div class="help-line"><strong>Setup quick guide:</strong></div>
-          <div class="help-line">1) Choose auth mode: <strong>Session</strong> (local accounts) or <strong>OIDC</strong>.</div>
-          <div class="help-line">2) Keep <strong>Breakglass local access</strong> enabled so one emergency account can still sign in if SSO is unavailable.</div>
-          <div class="help-line">3) Choose <strong>SSO role assignment</strong>: manage roles here in SurveyTrace (recommended) or map from IdP groups.</div>
-        </div>
-        <details class="mb10" open>
-          <summary class="flbl text-secondary">Daily admin tasks</summary>
-          <label class="flbl mt6">Authentication mode</label>
-          <div class="row-wrap mb10">
-            <select class="finp" id="st-auth-mode" onchange="updateAccessControlModeVisibility()" style="min-width:180px" title="Session uses local SurveyTrace users. OIDC uses SSO with optional breakglass local login.">
-              <option value="session">Session (local users)</option>
-              <option value="oidc">OIDC SSO</option>
-            </select>
-            <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
-          </div>
-          <div class="hint-micro mb8">Legacy Basic Auth remains backend-compatible for upgrades, but is intentionally not shown as a selectable mode here.</div>
-          <div class="row-wrap mb10 oidc-only">
-            <label class="flbl">SSO role assignment</label>
-            <select class="finp" id="sso-role-source" style="min-width:220px" title="SurveyTrace-managed keeps role assignment in this UI. IdP-mapped derives role from group/claim mapping below.">
-              <option value="surveytrace">Manage roles in SurveyTrace</option>
-              <option value="idp">Map roles from IdP groups/claims</option>
-            </select>
-            <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save role source</button>
-          </div>
-          <div class="hint-micro mb10 oidc-only">Local accounts remain available for breakglass (if enabled), even when primary authentication uses OIDC.</div>
+        <div class="ct">Access control moved</div>
+        <div class="help-line mb10">Account, SSO, and audit controls now have a dedicated page.</div>
+        <button class="btnp" type="button" onclick="goTab('access');hiNav('naccess')">Open Access control</button>
+      </div>
 
-          <div class="flbl oidc-only">Breakglass local access</div>
-          <div class="row-wrap mb12 oidc-only">
-            <label class="stack8" title="Recommended: keep enabled so at least one local emergency account can sign in if your IdP is unavailable."><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
-            <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px" title="This local username is allowed to sign in directly while in OIDC mode.">
-            <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
-          </div>
-          <div class="flbl">Local users and roles</div>
-          <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
-          <div class="tbl-wrap mb8">
-            <table class="tbl">
-              <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Password</th><th>Disabled</th><th>Actions</th></tr></thead>
-              <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
-            </table>
-          </div>
-          <div class="hint-micro mb8">Use <strong>Edit</strong> to apply role/disabled changes. In the modal, temporary password reset is optional for existing users.</div>
-          <div class="row-wrap mb10">
-            <input class="finp" id="new-auth-user" placeholder="new username">
-            <select class="finp" id="new-auth-role">
-              <option value="viewer">viewer</option>
-              <option value="scan_editor">scan_editor</option>
-              <option value="admin">admin</option>
-            </select>
-            <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
-          </div>
-          <div class="flbl">Live auth operations (non-historical)</div>
-          <div class="hint-micro mb6">Operational view of current failed/locked sign-in state. This is not a permanent history.</div>
-          <div class="tbl-wrap mb8">
-            <table class="tbl">
-              <thead><tr><th>User</th><th>Failed attempts</th><th>Last failed (UTC)</th><th>Locked until (UTC)</th><th>IP</th></tr></thead>
-              <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
-            </table>
-          </div>
-          <div class="flbl">Historical user audit</div>
-          <div class="hint-micro mb6">Persistent trail of sign-ins and account actions.</div>
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
-              <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </details>
-
+      <div class="card">
         <details class="mb10">
           <summary class="flbl text-secondary">Advanced security and SSO settings</summary>
           <div class="flbl mt6">Password requirements</div>
@@ -1325,11 +1341,14 @@ function applyRoleAwareUi() {
     setHidden('nsched', !canScanManage);
     setHidden('nenrich', !isAdmin);
     setHidden('nsettings', !isAdmin);
+    setHidden('naccess', !isAdmin);
 
     const topNewScan = document.querySelector('button[onclick*="goTab(\'scan\')"]');
     if (topNewScan) topNewScan.style.display = canScanManage ? '' : 'none';
     const topSettings = document.querySelector('button[onclick*="goTab(\'settings\')"]');
     if (topSettings) topSettings.style.display = isAdmin ? '' : 'none';
+    const topAccess = document.querySelector('button[onclick*="goTab(\'access\')"]');
+    if (topAccess) topAccess.style.display = isAdmin ? '' : 'none';
 
     const disableByOnclick = (needle, disabled) => {
         document.querySelectorAll(`button[onclick*="${needle}"]`).forEach(btn => {
@@ -1713,6 +1732,10 @@ function startFeedSyncStatePolling() {
 // Nav
 // ==========================================================================
 function goTab(name) {
+    if (name === 'access' && !stRoleIsAdmin()) {
+        toast('Access control is available to admin users only.', 'err');
+        name = 'dash';
+    }
     if (name === 'settings' && !stRoleIsAdmin()) {
         toast('Settings are available to admin users only.', 'err');
         name = 'dash';
@@ -1731,6 +1754,10 @@ function goTab(name) {
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
     if (name === 'health')   loadHealth();
+    if (name === 'access') {
+        loadUiSettings();
+        loadAuthUsers();
+    }
     if (name === 'settings') {
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
@@ -5977,7 +6004,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -6002,7 +6029,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');
