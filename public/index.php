@@ -617,10 +617,16 @@
       <div class="card">
         <div class="ct">NVD &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
-          One server job and one log file per run. The log includes whatever you last ran: NVD only, OUI/WebFP only, or <strong>Sync all</strong> (all scripts in one file: <code class="code-accent">data/feed_sync_result.json</code>).
+          One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. Pick a single feed below, or use <strong>Sync all feeds</strong> in the next row to run NVD and both fingerprint feeds in sequence.
         </p>
 
-        <div class="flbl mt2">NVD (CVE / CPE correlation)</div>
+        <div class="flbl">NVD + OUI + WebFP in one job</div>
+        <div class="row-wrap">
+          <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
+        </div>
+        <p class="help-line text-dim mt6" style="font-size:12px">Runs the CVE feed, then OUI, then WebFP in order (not fingerprints-only). Expect a long run—NVD alone is often many minutes. Use the sections below to refresh <em>just</em> NVD or <em>just</em> OUI / WebFP.</p>
+
+        <div class="flbl mt10">NVD (CVE / CPE correlation)</div>
         <div class="help-mono mb10">
           Last sync: <span id="nvd-sync-ts" class="text-strong">—</span>
         </div>
@@ -661,12 +667,11 @@
           rules: <span id="webfp-sync-count" class="text-strong">0</span>
         </div>
         <div class="help-line mb10 text-dim" style="font-size:12px">
-          IEEE OUI registries and Wappalyzer technologies (synced daily via cron). <code class="code-accent">sync_oui.py</code> and <code class="code-accent">sync_webfp.py</code> below, or <strong>Sync all feeds</strong> to refresh NVD + OUI + WebFP in one job.
+          IEEE OUI registries and Wappalyzer technologies (synced daily via cron). These two buttons do <strong>not</strong> run NVD; use <strong>Sync NVD now</strong> or <strong>Sync all feeds</strong> (above) if you need CVE data refreshed too.
         </div>
         <div class="row-wrap">
           <button class="tbtn" id="btn-sync-oui" onclick="runFeedSync('oui')">Sync OUI now</button>
           <button class="tbtn" id="btn-sync-webfp" onclick="runFeedSync('webfp')">Sync WebFP now</button>
-          <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
         </div>
         <div id="sync-status-fp" class="sync-status mt6"></div>
 
