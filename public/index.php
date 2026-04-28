@@ -884,14 +884,14 @@
           <summary class="flbl text-secondary">Daily admin tasks</summary>
           <label class="flbl mt6">Authentication mode</label>
           <div class="row-wrap mb10">
-            <select class="finp" id="st-auth-mode" style="min-width:180px" title="Session uses local SurveyTrace users. OIDC uses SSO with optional breakglass local login.">
+            <select class="finp" id="st-auth-mode" onchange="updateAccessControlModeVisibility()" style="min-width:180px" title="Session uses local SurveyTrace users. OIDC uses SSO with optional breakglass local login.">
               <option value="session">Session (local users)</option>
               <option value="oidc">OIDC SSO</option>
               <option value="basic">HTTP Basic (legacy)</option>
             </select>
             <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
           </div>
-          <div class="row-wrap mb10">
+          <div class="row-wrap mb10 oidc-only">
             <label class="flbl">SSO role assignment</label>
             <select class="finp" id="sso-role-source" style="min-width:220px" title="SurveyTrace-managed keeps role assignment in this UI. IdP-mapped derives role from group/claim mapping below.">
               <option value="surveytrace">Manage roles in SurveyTrace</option>
@@ -899,10 +899,10 @@
             </select>
             <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save role source</button>
           </div>
-          <div class="hint-micro mb10">Local accounts remain available for breakglass (if enabled), even when primary authentication uses OIDC.</div>
+          <div class="hint-micro mb10 oidc-only">Local accounts remain available for breakglass (if enabled), even when primary authentication uses OIDC.</div>
 
-          <div class="flbl">Breakglass local access</div>
-          <div class="row-wrap mb12">
+          <div class="flbl oidc-only">Breakglass local access</div>
+          <div class="row-wrap mb12 oidc-only">
             <label class="stack8" title="Recommended: keep enabled so at least one local emergency account can sign in if your IdP is unavailable."><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
             <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px" title="This local username is allowed to sign in directly while in OIDC mode.">
             <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
@@ -967,8 +967,8 @@
             <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
           </div>
 
-          <div class="flbl">OIDC configuration</div>
-          <div class="profile-grid mb10">
+          <div class="flbl oidc-only">OIDC configuration</div>
+          <div class="profile-grid mb10 oidc-only">
             <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
             <input class="finp" id="oidc-client-id" placeholder="Client ID">
             <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
@@ -976,7 +976,7 @@
             <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
             <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
           </div>
-          <div class="row-wrap mb12">
+          <div class="row-wrap mb12 oidc-only">
             <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
             <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
           </div>
@@ -1232,6 +1232,14 @@ function applyRoleAwareUi() {
     disableByOnclick('openAddSource(', !isAdmin);
     disableByOnclick('saveSource(', !isAdmin);
     disableByOnclick('deleteSource(', !isAdmin);
+}
+
+function updateAccessControlModeVisibility() {
+    const mode = document.getElementById('st-auth-mode')?.value || 'session';
+    const showOidc = mode === 'oidc';
+    document.querySelectorAll('.oidc-only').forEach(el => {
+        el.classList.toggle('hide', !showOidc);
+    });
 }
 
 function fmtFeedElapsed(ms) {
@@ -3339,6 +3347,7 @@ async function loadUiSettings() {
     }
     const authModeSel = document.getElementById('st-auth-mode');
     if (authModeSel) authModeSel.value = d.auth_mode || 'session';
+    updateAccessControlModeVisibility();
     const oidcEnabled = document.getElementById('oidc-enabled');
     if (oidcEnabled) oidcEnabled.checked = !!d.oidc_enabled;
     const oidcFields = {
