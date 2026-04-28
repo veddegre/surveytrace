@@ -1801,6 +1801,10 @@ async function apiPost(url, body) {
         }
         if (!r.ok) {
             if (r.status === 401) {
+                // Login step-up (MFA required) intentionally uses 401 with JSON payload.
+                if (data && typeof data === 'object' && data.mfa_required) {
+                    return data;
+                }
                 handleAuthRequired();
                 return null;
             }
