@@ -783,90 +783,6 @@
         </div>
       </div>
       <div class="card">
-        <div class="ct">Access control</div>
-        <div class="help-line mb10">Define authentication mode, role assignments, and MFA for local users.</div>
-        <label class="flbl">Authentication mode</label>
-        <div class="row-wrap mb10">
-          <select class="finp" id="st-auth-mode" style="min-width:180px">
-            <option value="session">Session (local users)</option>
-            <option value="oidc">OIDC SSO</option>
-            <option value="basic">HTTP Basic (legacy)</option>
-          </select>
-          <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
-        </div>
-
-        <div class="flbl">OIDC configuration</div>
-        <div class="profile-grid mb10">
-          <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
-          <input class="finp" id="oidc-client-id" placeholder="Client ID">
-          <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
-          <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
-          <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
-          <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
-        </div>
-        <div class="row-wrap mb12">
-          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
-          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
-        </div>
-
-        <div class="flbl">Local users and roles</div>
-        <div class="tbl-wrap mb8">
-          <table class="tbl">
-            <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th>Disabled</th><th></th></tr></thead>
-            <tbody id="auth-users-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
-          </table>
-        </div>
-        <div class="row-wrap mb10">
-          <input class="finp" id="new-auth-user" placeholder="new username">
-          <select class="finp" id="new-auth-role">
-            <option value="viewer">viewer</option>
-            <option value="scan_editor">scan_editor</option>
-            <option value="admin">admin</option>
-          </select>
-          <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password">
-          <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
-        </div>
-
-        <div class="flbl">Password requirements</div>
-        <div class="row-wrap mb8">
-          <label class="flbl">Minimum length</label>
-          <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
-          <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
-        </div>
-        <div class="row-wrap mb10">
-          <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
-        </div>
-        <div class="row-wrap mb8">
-          <label class="flbl">Password hashing</label>
-          <select class="finp" id="pp-hash-algo" style="min-width:140px">
-            <option value="argon2id">Argon2id (preferred)</option>
-            <option value="bcrypt">bcrypt</option>
-          </select>
-          <label class="flbl">Max failed attempts</label>
-          <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
-          <label class="flbl">Lockout minutes</label>
-          <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
-        </div>
-
-        <div class="flbl">MFA (current user)</div>
-        <div class="row-wrap mb6">
-          <button class="tbtn" type="button" onclick="beginMfaSetup()">Generate MFA setup secret</button>
-          <button class="tbtn" type="button" onclick="disableMfaForSelf()">Disable MFA</button>
-        </div>
-        <div id="mfa-setup-box" class="help-box hide">
-          <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
-          <div class="help-line mb8">Add this secret to your authenticator app, then enter the generated 6-digit code.</div>
-          <div class="row-wrap">
-            <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
-            <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
-          </div>
-          <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
-        </div>
-      </div>
-      <div class="card">
         <div class="ct">NVD &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
           One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, and WebFP in a single job at the bottom of this card.
@@ -935,6 +851,104 @@
     </div>
     <div>
       <div class="card">
+        <div class="ct">Access control</div>
+        <div class="help-line mb10">Define authentication mode, role assignments, and MFA for local users.</div>
+        <label class="flbl">Authentication mode</label>
+        <div class="row-wrap mb10">
+          <select class="finp" id="st-auth-mode" style="min-width:180px">
+            <option value="session">Session (local users)</option>
+            <option value="oidc">OIDC SSO</option>
+            <option value="saml">SAML SSO</option>
+            <option value="basic">HTTP Basic (legacy)</option>
+          </select>
+          <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
+        </div>
+        <div class="flbl">OIDC configuration</div>
+        <div class="profile-grid mb10">
+          <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
+          <input class="finp" id="oidc-client-id" placeholder="Client ID">
+          <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
+          <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
+          <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
+          <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+        </div>
+        <div class="row-wrap mb12">
+          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
+        </div>
+        <div class="flbl">SAML bridge configuration</div>
+        <div class="profile-grid mb10">
+          <input class="finp" id="saml-login-url" placeholder="SAML login URL (IdP sign-in endpoint)">
+          <input class="finp" id="saml-username-header" placeholder="Username header from proxy (e.g. X-Remote-User)">
+          <input class="finp" id="saml-groups-header" placeholder="Groups header from proxy (e.g. X-Remote-Groups)">
+          <input class="finp" id="saml-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+        </div>
+        <div class="row-wrap mb12">
+          <label class="stack8"><input type="checkbox" id="saml-enabled" class="accent-radio"> <span class="text-secondary">Enable SAML bridge sign-in</span></label>
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save SAML</button>
+        </div>
+        <div class="flbl">Breakglass local access</div>
+        <div class="row-wrap mb12">
+          <label class="stack8"><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
+          <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px">
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
+        </div>
+        <div class="flbl">Local users and roles</div>
+        <div class="tbl-wrap mb8">
+          <table class="tbl">
+            <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th>Disabled</th><th></th></tr></thead>
+            <tbody id="auth-users-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="row-wrap mb10">
+          <input class="finp" id="new-auth-user" placeholder="new username">
+          <select class="finp" id="new-auth-role">
+            <option value="viewer">viewer</option>
+            <option value="scan_editor">scan_editor</option>
+            <option value="admin">admin</option>
+          </select>
+          <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password">
+          <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
+        </div>
+        <div class="flbl">Password requirements</div>
+        <div class="row-wrap mb8">
+          <label class="flbl">Minimum length</label>
+          <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
+          <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
+        </div>
+        <div class="row-wrap mb10">
+          <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
+        </div>
+        <div class="row-wrap mb8">
+          <label class="flbl">Password hashing</label>
+          <select class="finp" id="pp-hash-algo" style="min-width:140px">
+            <option value="argon2id">Argon2id (preferred)</option>
+            <option value="bcrypt">bcrypt</option>
+          </select>
+          <label class="flbl">Max failed attempts</label>
+          <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
+          <label class="flbl">Lockout minutes</label>
+          <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
+        </div>
+        <div class="flbl">MFA (current user)</div>
+        <div class="row-wrap mb6">
+          <button class="tbtn" type="button" onclick="beginMfaSetup()">Generate MFA setup secret</button>
+          <button class="tbtn" type="button" onclick="disableMfaForSelf()">Disable MFA</button>
+        </div>
+        <div id="mfa-setup-box" class="help-box hide">
+          <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
+          <div class="help-line mb8">Add this secret to your authenticator app, then enter the generated 6-digit code.</div>
+          <div class="row-wrap">
+            <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
+            <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
+          </div>
+          <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
+        </div>
+      </div>
+      <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.5.0', ENT_QUOTES, 'UTF-8') ?><br>
@@ -982,8 +996,9 @@
       <input class="finp w100 mb12" id="login-recovery" placeholder="ABCD-1234">
     </div>
     <div id="login-oidc-fields" class="hide mb12">
-      <div class="help-line mb10">Single sign-on is enabled for this deployment.</div>
-      <button class="btnp w100" type="button" onclick="startOidcLogin()">Sign in with SSO</button>
+      <div class="help-line mb10" id="login-sso-msg">Single sign-on is enabled for this deployment.</div>
+      <button class="btnp w100 mb8" type="button" id="btn-login-sso" onclick="startSsoLogin()">Sign in with SSO</button>
+      <button class="tbtn w100 hide" type="button" id="btn-breakglass-show" onclick="toggleBreakglassLogin(true)">Use emergency local sign-in</button>
     </div>
     <div class="row-end">
       <button class="tbtn" onclick="closeLoginModal()">Close</button>
@@ -1123,6 +1138,8 @@ var authMode = 'basic';
 var loginRequired = false;
 var currentUser = null;
 var currentUserRole = 'admin';
+var breakglassEnabled = true;
+var breakglassUsername = 'admin';
 var scanDetailReturnDeviceId = 0;
 var confirmResolve = null;
 var themeMediaQuery = null;
@@ -1557,10 +1574,10 @@ async function apiPost(url, body) {
 }
 
 function handleAuthRequired() {
-    if (authMode === 'session' || authMode === 'oidc') {
+    if (authMode === 'session' || authMode === 'oidc' || authMode === 'saml') {
         loginRequired = true;
         openLoginModal();
-        toast(authMode === 'oidc' ? 'Session expired. Sign in with SSO again.' : 'Session expired. Please sign in again.', 'err');
+        toast(authMode === 'session' ? 'Session expired. Please sign in again.' : 'Session expired. Sign in with SSO again.', 'err');
     } else {
         toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
     }
@@ -1581,14 +1598,47 @@ function updateLoginModeUI() {
     const local = document.getElementById('login-local-fields');
     const oidc = document.getElementById('login-oidc-fields');
     const btn = document.getElementById('btn-login');
-    const isOidc = authMode === 'oidc';
-    if (local) local.classList.toggle('hide', isOidc);
-    if (oidc) oidc.classList.toggle('hide', !isOidc);
-    if (btn) btn.classList.toggle('hide', isOidc);
+    const ssoMsg = document.getElementById('login-sso-msg');
+    const ssoBtn = document.getElementById('btn-login-sso');
+    const bgBtn = document.getElementById('btn-breakglass-show');
+    const isSso = authMode === 'oidc' || authMode === 'saml';
+    if (local) local.classList.toggle('hide', isSso);
+    if (oidc) oidc.classList.toggle('hide', !isSso);
+    if (btn) btn.classList.toggle('hide', isSso);
+    if (ssoMsg) ssoMsg.textContent = authMode === 'saml'
+        ? 'SAML single sign-on is enabled for this deployment.'
+        : 'OIDC single sign-on is enabled for this deployment.';
+    if (ssoBtn) ssoBtn.textContent = authMode === 'saml' ? 'Sign in with SAML' : 'Sign in with OIDC';
+    if (bgBtn) bgBtn.classList.toggle('hide', !isSso || !breakglassEnabled);
 }
 
-function startOidcLogin() {
+function startSsoLogin() {
+    if (authMode === 'saml') {
+        window.location.href = '/api/auth_saml.php?start=1';
+        return;
+    }
     window.location.href = '/api/auth_oidc.php?start=1';
+}
+
+function toggleBreakglassLogin(show) {
+    const local = document.getElementById('login-local-fields');
+    const oidc = document.getElementById('login-oidc-fields');
+    const btn = document.getElementById('btn-login');
+    const bgBtn = document.getElementById('btn-breakglass-show');
+    if (!local || !oidc || !btn || !bgBtn) return;
+    if (show) {
+        local.classList.remove('hide');
+        btn.classList.remove('hide');
+        bgBtn.textContent = 'Use SSO sign-in instead';
+        bgBtn.onclick = () => toggleBreakglassLogin(false);
+        const userInput = document.getElementById('login-user');
+        if (userInput && breakglassUsername) userInput.value = breakglassUsername;
+    } else {
+        local.classList.add('hide');
+        btn.classList.add('hide');
+        bgBtn.textContent = 'Use emergency local sign-in';
+        bgBtn.onclick = () => toggleBreakglassLogin(true);
+    }
 }
 
 function closeLoginModal() {
@@ -3233,12 +3283,21 @@ async function loadUiSettings() {
         'oidc-redirect-uri': d.oidc_redirect_uri || '',
         'oidc-role-claim': d.oidc_role_claim || 'groups',
         'oidc-role-map': d.oidc_role_map || '',
+        'saml-login-url': d.saml_login_url || '',
+        'saml-username-header': d.saml_username_header || 'X-Remote-User',
+        'saml-groups-header': d.saml_groups_header || 'X-Remote-Groups',
+        'saml-role-map': d.saml_role_map || '',
+        'breakglass-username': d.breakglass_username || 'admin',
     };
     Object.keys(oidcFields).forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = oidcFields[id];
     });
     const pp = d.password_policy || {};
+    const samlEnabled = document.getElementById('saml-enabled');
+    if (samlEnabled) samlEnabled.checked = !!d.saml_enabled;
+    const brkEnabled = document.getElementById('breakglass-enabled');
+    if (brkEnabled) brkEnabled.checked = !!d.breakglass_enabled;
     const minLen = document.getElementById('pp-min-len');
     if (minLen) minLen.value = String(pp.min_length || 12);
     const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
@@ -3287,6 +3346,13 @@ async function saveAccessControlSettings() {
         oidc_redirect_uri: document.getElementById('oidc-redirect-uri')?.value || '',
         oidc_role_claim: document.getElementById('oidc-role-claim')?.value || 'groups',
         oidc_role_map: document.getElementById('oidc-role-map')?.value || '',
+        saml_enabled: !!document.getElementById('saml-enabled')?.checked,
+        saml_login_url: document.getElementById('saml-login-url')?.value || '',
+        saml_username_header: document.getElementById('saml-username-header')?.value || 'X-Remote-User',
+        saml_groups_header: document.getElementById('saml-groups-header')?.value || 'X-Remote-Groups',
+        saml_role_map: document.getElementById('saml-role-map')?.value || '',
+        breakglass_enabled: !!document.getElementById('breakglass-enabled')?.checked,
+        breakglass_username: document.getElementById('breakglass-username')?.value || 'admin',
     };
     const r = await apiPost('/api/settings.php', body);
     if (r && r.ok) {
@@ -5086,11 +5152,13 @@ async function initAuthMode() {
     const r = await api('/api/auth.php?status=1');
     if (!r) return;
     authMode = r.auth_mode || 'basic';
+    breakglassEnabled = !!r.breakglass_enabled;
+    breakglassUsername = r.breakglass_username || 'admin';
     currentUser = r.user || null;
     currentUserRole = (currentUser && currentUser.role) ? currentUser.role : 'admin';
-    if ((authMode === 'session' || authMode === 'oidc') && r.requires_auth && !r.authed) {
+    if ((authMode === 'session' || authMode === 'oidc' || authMode === 'saml') && r.requires_auth && !r.authed) {
         loginRequired = true;
-        openLoginModal(authMode === 'oidc' ? 'Single sign-on required.' : 'Session sign-in required.');
+        openLoginModal(authMode === 'session' ? 'Session sign-in required.' : 'Single sign-on required.');
     }
 }
 

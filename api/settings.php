@@ -31,6 +31,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'oidc_redirect_uri' => (string)st_config('oidc_redirect_uri', ''),
         'oidc_role_claim' => (string)st_config('oidc_role_claim', 'groups'),
         'oidc_role_map' => (string)st_config('oidc_role_map', ''),
+        'saml_enabled' => st_config('saml_enabled', '0') === '1',
+        'saml_login_url' => (string)st_config('saml_login_url', ''),
+        'saml_username_header' => (string)st_config('saml_username_header', 'X-Remote-User'),
+        'saml_groups_header' => (string)st_config('saml_groups_header', 'X-Remote-Groups'),
+        'saml_role_map' => (string)st_config('saml_role_map', ''),
+        'breakglass_enabled' => st_config('breakglass_enabled', '1') === '1',
+        'breakglass_username' => (string)st_config('breakglass_username', 'admin'),
         'password_policy' => st_password_policy(),
         'password_hash_algo' => st_password_hash_algo(),
         'login_max_attempts' => st_login_max_attempts(),
@@ -73,8 +80,8 @@ if (array_key_exists('extra_safe_ports', $body)) {
 
 if (array_key_exists('auth_mode', $body)) {
     $mode = strtolower(trim((string)$body['auth_mode']));
-    if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
-        st_json(['error' => 'auth_mode must be one of basic, session, oidc'], 400);
+    if (!in_array($mode, ['basic', 'session', 'oidc', 'saml'], true)) {
+        st_json(['error' => 'auth_mode must be one of basic, session, oidc, saml'], 400);
     }
     st_config_set('auth_mode', $mode);
     $changed['auth_mode'] = $mode;
@@ -94,6 +101,28 @@ foreach (['oidc_issuer_url', 'oidc_client_id', 'oidc_client_secret', 'oidc_redir
             $changed['oidc_client_secret_configured'] = ($v !== '');
         }
     }
+}
+
+if (array_key_exists('saml_enabled', $body)) {
+    $changed['saml_enabled'] = !empty($body['saml_enabled']);
+    st_config_set('saml_enabled', $changed['saml_enabled'] ? '1' : '0');
+}
+foreach (['saml_login_url', 'saml_username_header', 'saml_groups_header', 'saml_role_map'] as $k) {
+    if (array_key_exists($k, $body)) {
+        $v = trim((string)$body[$k]);
+        st_config_set($k, $v);
+        $changed[$k] = $v;
+    }
+}
+if (array_key_exists('breakglass_enabled', $body)) {
+    $changed['breakglass_enabled'] = !empty($body['breakglass_enabled']);
+    st_config_set('breakglass_enabled', $changed['breakglass_enabled'] ? '1' : '0');
+}
+if (array_key_exists('breakglass_username', $body)) {
+    $v = trim((string)$body['breakglass_username']);
+    if ($v === '') $v = 'admin';
+    st_config_set('breakglass_username', $v);
+    $changed['breakglass_username'] = $v;
 }
 
 if (array_key_exists('password_policy', $body)) {

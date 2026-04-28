@@ -19,7 +19,7 @@ $db = st_db();
 
 function st_auth_mode(): string {
     $mode = strtolower(trim(st_config('auth_mode', 'session')));
-    if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
+    if (!in_array($mode, ['basic', 'session', 'oidc', 'saml'], true)) {
         return 'session';
     }
     return $mode;
@@ -67,6 +67,8 @@ function st_login_ip(): string {
 
 $mode = st_auth_mode();
 $legacyHash = st_config('auth_hash');
+$breakglassEnabled = st_config('breakglass_enabled', '1') === '1';
+$breakglassUser = trim((string)st_config('breakglass_username', 'admin'));
 $hasLocalUsers = (int)$db->query("SELECT COUNT(*) FROM users WHERE auth_source='local' AND disabled=0")->fetchColumn() > 0;
 $requiresAuth = $hasLocalUsers || !empty($legacyHash);
 $current = st_current_user();
@@ -84,6 +86,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
         'user' => $authed ? $current : null,
         'roles' => ['viewer', 'scan_editor', 'admin'],
         'oidc_enabled' => st_config('oidc_enabled', '0') === '1',
+        'saml_enabled' => st_config('saml_enabled', '0') === '1',
+        'breakglass_enabled' => $breakglassEnabled,
+        'breakglass_username' => $breakglassUser,
         'security_controls' => [
             'password_hash_algo' => st_password_hash_algo(),
             'login_max_attempts' => st_login_max_attempts(),
@@ -108,9 +113,9 @@ st_method('POST');
 $body = st_input();
 
 if (isset($_GET['login'])) {
-    if (!in_array($mode, ['session', 'oidc'], true)) {
+    if (!in_array($mode, ['session', 'oidc', 'saml'], true)) {
         st_release_session_lock();
-        st_json(['error' => 'Login endpoint available only in session/OIDC mode', 'auth_mode' => $mode], 400);
+        st_json(['error' => 'Login endpoint available only in session/SSO modes', 'auth_mode' => $mode], 400);
     }
     if (!$requiresAuth) {
         st_set_session_user(0, 'admin', 'admin');
@@ -125,6 +130,16 @@ if (isset($_GET['login'])) {
     if ($username === '' || $password === '') {
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'username and password required'], 400);
+    }
+    if (($mode === 'oidc' || $mode === 'saml')) {
+        if (!$breakglassEnabled) {
+            st_release_session_lock();
+            st_json(['ok' => false, 'error' => 'Local sign-in is disabled in SSO mode'], 403);
+        }
+        if ($breakglassUser !== '' && strcasecmp($username, $breakglassUser) !== 0) {
+            st_release_session_lock();
+            st_json(['ok' => false, 'error' => 'Use SSO for normal sign-in; breakglass is limited to the emergency account'], 403);
+        }
     }
     $ip = st_login_ip();
     $lock = st_login_lock_state($username, $ip);
