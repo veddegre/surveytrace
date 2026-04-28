@@ -19,6 +19,8 @@ $db = st_db();
 $trend_days = isset($_GET['trend_days']) ? (int)$_GET['trend_days'] : 14;
 if (!in_array($trend_days, [7, 14, 30], true)) $trend_days = 14;
 $trend_start_offset = '-' . max(0, $trend_days - 1) . ' days';
+$prev_window_start_offset = '-' . max(0, ($trend_days * 2) - 1) . ' days';
+$prev_window_end_offset = '-' . $trend_days . ' days';
 
 // Ensure newer scan_jobs columns exist for legacy databases
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
@@ -132,6 +134,101 @@ $trend_rows = $db->query("
     FROM days
     ORDER BY d ASC
 ")->fetchAll();
+
+// Executive period-over-period comparison (current window vs previous same-sized window)
+$curr_assets_new = (int)$db->query("
+    SELECT COUNT(*) FROM assets
+    WHERE first_seen >= date('now', '$trend_start_offset')
+      AND first_seen < date('now', '+1 day')
+")->fetchColumn();
+$prev_assets_new = (int)$db->query("
+    SELECT COUNT(*) FROM assets
+    WHERE first_seen >= date('now', '$prev_window_start_offset')
+      AND first_seen < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+
+$curr_findings_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND confirmed_at >= date('now', '$trend_start_offset')
+      AND confirmed_at < date('now', '+1 day')
+")->fetchColumn();
+$prev_findings_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND confirmed_at >= date('now', '$prev_window_start_offset')
+      AND confirmed_at < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+
+$curr_scans_total = (int)$db->query("
+    SELECT COUNT(*) FROM scan_jobs
+    WHERE created_at >= date('now', '$trend_start_offset')
+      AND created_at < date('now', '+1 day')
+")->fetchColumn();
+$curr_scans_done = (int)$db->query("
+    SELECT COUNT(*) FROM scan_jobs
+    WHERE status='done'
+      AND created_at >= date('now', '$trend_start_offset')
+      AND created_at < date('now', '+1 day')
+")->fetchColumn();
+$prev_scans_total = (int)$db->query("
+    SELECT COUNT(*) FROM scan_jobs
+    WHERE created_at >= date('now', '$prev_window_start_offset')
+      AND created_at < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+$prev_scans_done = (int)$db->query("
+    SELECT COUNT(*) FROM scan_jobs
+    WHERE status='done'
+      AND created_at >= date('now', '$prev_window_start_offset')
+      AND created_at < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+
+$curr_critical_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND lower(severity)='critical'
+      AND confirmed_at >= date('now', '$trend_start_offset')
+      AND confirmed_at < date('now', '+1 day')
+")->fetchColumn();
+$curr_high_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND lower(severity)='high'
+      AND confirmed_at >= date('now', '$trend_start_offset')
+      AND confirmed_at < date('now', '+1 day')
+")->fetchColumn();
+$prev_critical_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND lower(severity)='critical'
+      AND confirmed_at >= date('now', '$prev_window_start_offset')
+      AND confirmed_at < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+$prev_high_new = (int)$db->query("
+    SELECT COUNT(*) FROM findings
+    WHERE confirmed_at IS NOT NULL
+      AND lower(severity)='high'
+      AND confirmed_at >= date('now', '$prev_window_start_offset')
+      AND confirmed_at < date('now', '$prev_window_end_offset')
+")->fetchColumn();
+
+$curr_risk_pressure = ($curr_critical_new * 5) + ($curr_high_new * 3);
+$prev_risk_pressure = ($prev_critical_new * 5) + ($prev_high_new * 3);
+$curr_completion_rate = $curr_scans_total > 0 ? (int)round(($curr_scans_done * 100.0) / $curr_scans_total) : 0;
+$prev_completion_rate = $prev_scans_total > 0 ? (int)round(($prev_scans_done * 100.0) / $prev_scans_total) : 0;
+
+$delta = function(int $curr, int $prev): array {
+    if ($prev === 0) {
+        return ['abs' => $curr - $prev, 'pct' => null];
+    }
+    return ['abs' => $curr - $prev, 'pct' => round((($curr - $prev) * 100.0) / $prev, 1)];
+};
+
+$summary_bullets = [];
+$summary_bullets[] = "Risk pressure is " . ($curr_risk_pressure > $prev_risk_pressure ? "up" : ($curr_risk_pressure < $prev_risk_pressure ? "down" : "flat")) .
+    " (" . $curr_risk_pressure . " vs " . $prev_risk_pressure . ") compared to the previous " . $trend_days . " days.";
+$summary_bullets[] = "Completion rate is " . $curr_completion_rate . "% (" . $curr_scans_done . "/" . $curr_scans_total . " scans done).";
+$summary_bullets[] = "New findings this period: " . $curr_findings_new . " (critical: " . $curr_critical_new . ", high: " . $curr_high_new . ").";
 
 // ---------------------------------------------------------------------------
 // Last scan metadata
@@ -317,5 +414,13 @@ st_json([
         }, $trend_rows),
         'trend_days' => $trend_days,
         'top_risky' => $top_vulnerable,
+        'comparison' => [
+            'window_days' => $trend_days,
+            'assets_new' => ['current' => $curr_assets_new, 'previous' => $prev_assets_new, 'delta' => $delta($curr_assets_new, $prev_assets_new)],
+            'findings_new' => ['current' => $curr_findings_new, 'previous' => $prev_findings_new, 'delta' => $delta($curr_findings_new, $prev_findings_new)],
+            'risk_pressure' => ['current' => $curr_risk_pressure, 'previous' => $prev_risk_pressure, 'delta' => $delta($curr_risk_pressure, $prev_risk_pressure)],
+            'completion_rate' => ['current' => $curr_completion_rate, 'previous' => $prev_completion_rate, 'delta' => $delta($curr_completion_rate, $prev_completion_rate)],
+        ],
+        'brief' => $summary_bullets,
     ],
 ]);

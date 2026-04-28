@@ -87,15 +87,24 @@
 <!-- ================================================================ DASHBOARD -->
 <div class="tab" id="t-dash">
   <div class="dash-actions">
-    <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Executive view: off</button>
-    <label class="mono-sm text-dim">Trend</label>
-    <select class="finp narrow" id="exec-trend-range" onchange="loadDashboard()">
-      <option value="7">7d</option>
-      <option value="14" selected>14d</option>
-      <option value="30">30d</option>
-    </select>
+    <div class="dash-actions-left">
+      <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Executive view: off</button>
+    </div>
+    <div class="dash-actions-right">
+      <label class="mono-sm text-dim" for="exec-trend-range">Trend window</label>
+      <select class="finp narrow" id="exec-trend-range" onchange="loadDashboard()">
+        <option value="7">7d</option>
+        <option value="14" selected>14d</option>
+        <option value="30">30d</option>
+      </select>
+    </div>
   </div>
   <div id="dash-exec" class="hide">
+    <div class="card">
+      <div class="ct">Executive brief</div>
+      <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
+      <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+    </div>
     <div class="sth">Executive summary</div>
     <div class="sgrid" id="exec-kpis">
       <div class="sc g"><div class="sl">Assets</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
@@ -1732,6 +1741,34 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         { name: 'Scans failed', color: '#f3a73f', values: trend.map(r => r.scans_failed || 0) },
         { name: 'Risk pressure', color: '#c86cf5', values: trend.map(r => r.risk_pressure || 0) },
     ], labels);
+
+    const cmp = exec.comparison || {};
+    const metricChip = (label, obj, positiveIsGood = true) => {
+        const d = obj && obj.delta ? obj.delta : { abs: 0, pct: null };
+        const dir = (d.abs || 0) > 0 ? 'up' : ((d.abs || 0) < 0 ? 'down' : 'flat');
+        let cls = 'exec-delta-flat';
+        if (dir !== 'flat') {
+            const positive = dir === 'up';
+            const good = positiveIsGood ? positive : !positive;
+            cls = good ? 'exec-delta-good' : 'exec-delta-bad';
+        }
+        const pct = d.pct == null ? 'n/a' : `${d.pct > 0 ? '+' : ''}${d.pct}%`;
+        return `<div class="exec-delta-chip ${cls}">
+          <span class="exec-delta-label">${esc(label)}</span>
+          <span class="exec-delta-main">${obj?.current ?? 0}</span>
+          <span class="exec-delta-sub">${esc(dir)} (${pct}) vs previous</span>
+        </div>`;
+    };
+    document.getElementById('exec-brief-deltas').innerHTML = [
+        metricChip('Risk pressure', cmp.risk_pressure, false),
+        metricChip('Completion rate', cmp.completion_rate, true),
+        metricChip('New findings', cmp.findings_new, false),
+        metricChip('New assets', cmp.assets_new, false),
+    ].join('');
+    const brief = Array.isArray(exec.brief) ? exec.brief : [];
+    document.getElementById('exec-brief-list').innerHTML = brief.length
+        ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
+        : '<div class="text-dim">No executive brief available yet.</div>';
 
     const sev = exec.severity_open || {};
     const sevRows = [
