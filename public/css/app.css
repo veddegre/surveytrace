@@ -519,6 +519,18 @@ body.light-mode .sync-status.run{
 }
 .sync-status.ok{color:var(--green);font-weight:600}
 .sync-status.err{color:var(--red);font-weight:600}
+
+/* Dashboard system health */
+.health-panel{font-size:13px;line-height:1.45;max-width:720px}
+.health-row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+body.light-mode .health-row{border-bottom-color:rgba(0,0,0,.07)}
+.health-row:last-child{border-bottom:none}
+.health-label{color:var(--tx2);flex:0 0 46%;min-width:0}
+.health-value{text-align:right;flex:1;min-width:0;word-break:break-word}
+.hstate-ok{color:var(--green);font-weight:600}
+.hstate-warn{color:var(--amber);font-weight:600}
+.hstate-err{color:var(--red);font-weight:600}
+.hstate-unk{color:var(--tx2);font-weight:500}
 .btn-busy{
   opacity:.85;
   position:relative;

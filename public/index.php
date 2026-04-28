@@ -91,6 +91,9 @@
     <div class="sc"><div class="sl">IoT / OT / other</div><div class="sv sv-md" id="dc-iot">—</div></div>
   </div>
 
+  <div class="sth">System health <button type="button" class="sth-btn" onclick="loadHealth()">&#8635; Refresh</button></div>
+  <div class="mb16" id="dash-health"><div class="text-dim">Loading…</div></div>
+
   <div class="sth">Top vulnerable assets</div>
   <div class="tbl-wrap mb16">
     <table class="tbl"><thead><tr><th>IP</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
@@ -1405,6 +1408,117 @@ async function loadDashboard() {
 
     // Feed sync may have finished without a poll tick (tab switch, or slow 4s interval).
     void reconcileFeedSyncClientIfServerIdle();
+
+    void loadHealth();
+}
+
+function healthStateClass(state) {
+    if (state === 'active' || state === 'ok') return 'hstate-ok';
+    if (state === 'inactive') return 'hstate-err';
+    if (state === 'degraded') return 'hstate-warn';
+    return 'hstate-unk';
+}
+
+function healthFmtTime(iso) {
+    if (!iso) return '—';
+    return String(iso).replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+}
+
+/**
+ * @param {object} h — GET /api/health.php
+ */
+function renderHealthHtml(h) {
+    const rows = [];
+    const r = (label, valueHtml) => {
+        rows.push(`<div class="health-row"><span class="health-label">${esc(label)}</span><span class="health-value">${valueHtml}</span></div>`);
+    };
+
+    const daemon = h.services && h.services.daemon;
+    if (daemon) {
+        r('Scanner daemon (systemd)', `<span class="${healthStateClass(daemon.state)}">${esc(daemon.state)}</span> <span class="text-dim">${esc(daemon.detail)}</span>`);
+    }
+    const schedS = h.services && h.services.scheduler;
+    if (schedS) {
+        r('Job scheduler (systemd)', `<span class="${healthStateClass(schedS.state)}">${esc(schedS.state)}</span> <span class="text-dim">${esc(schedS.detail)}</span>`);
+    }
+
+    r('Data directory', h.data_dir && h.data_dir.writable
+        ? '<span class="hstate-ok">writable</span>'
+        : '<span class="hstate-err">not writable</span>');
+
+    if (h.disk && h.disk.data_dir_free_human) {
+        const low = h.disk.data_dir_free_bytes && h.disk.data_dir_free_bytes < 100 * 1024 * 1024;
+        r('Free space (data dir)', low
+            ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span> <span class="text-dim">(low)</span>`
+            : esc(h.disk.data_dir_free_human));
+    }
+
+    r('App database', h.database && h.database.file_bytes_human
+        ? `<span class="hstate-ok">ok</span> <span class="text-dim">${esc(h.database.file_bytes_human)}</span>`
+        : '<span class="hstate-warn">missing or empty</span>');
+
+    if (h.nvd) {
+        const nd = h.nvd.db_exists
+            ? `<span class="hstate-ok">present</span> <span class="text-dim">${esc(h.nvd.db_bytes_human || '')}</span>`
+            : '<span class="hstate-warn">not found — run NVD sync in Settings</span>';
+        r('NVD database', nd);
+        if (h.nvd.last_config_sync) {
+            r('NVD last sync (config)', esc(String(h.nvd.last_config_sync)));
+        }
+    }
+
+    if (h.scans) {
+        const qd = h.scans.queued || 0;
+        const run = h.scans.running || 0;
+        const rt = h.scans.retrying || 0;
+        const jobW = run > 0
+            ? `<span class="hstate-warn">${run} running</span>`
+            : '<span class="hstate-ok">none running</span>';
+        r('Scan jobs', `${jobW} <span class="text-dim">· ${qd} queued · ${rt} retrying</span>`);
+    }
+
+    if (h.last_completed_scan) {
+        const s = h.last_completed_scan;
+        r('Last finished scan', esc(`${s.status || '—'} · ${s.target_cidr || '—'} · ${healthFmtTime(s.finished_at)}`));
+    } else {
+        r('Last finished scan', '<span class="text-dim">none yet</span>');
+    }
+
+    if (h.schedules && h.schedules.table_ok) {
+        r('Schedules (enabled, not paused)', String(h.schedules.enabled_active != null ? h.schedules.enabled_active : '—'));
+    }
+
+    if (h.feeds) {
+        if (h.feeds.job_running) {
+            r('Feed sync', `<span class="hstate-warn">running</span> <span class="text-dim">(${esc(h.feeds.job_target || '?')})</span>`);
+        } else {
+            r('Feed sync', '<span class="hstate-ok">idle</span>');
+        }
+        const fr = h.feeds.last_result;
+        if (fr && fr.finished_at) {
+            const ok = fr.ok && !fr.error;
+            const tag = fr.cancelled ? 'cancelled' : (ok ? 'ok' : 'failed');
+            const cls = ok ? 'hstate-ok' : (fr.cancelled ? 'hstate-warn' : 'hstate-err');
+            r('Last feed job', `<span class="${cls}">${esc(tag)}</span> <span class="text-dim">${esc(fr.target || '—')} · ${esc(new Date(fr.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))}</span>`);
+        }
+    }
+
+    r('Server time', esc(h.server_time || '—'));
+    r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
+
+    return `<div class="health-panel">${rows.join('')}</div>
+      <p class="help-line text-dim mt8" style="font-size:11px">Services show <strong>unknown</strong> if PHP cannot run <code class="code-accent">systemctl</code> (e.g. shared hosting) — check <code class="code-accent">systemctl status surveytrace-daemon</code> on the server.</p>`;
+}
+
+async function loadHealth() {
+    const el = document.getElementById('dash-health');
+    if (!el) return;
+    const h = await api('/api/health.php', { quiet: true });
+    if (!h) {
+        el.innerHTML = '<div class="text-dim">Health check failed (not signed in or network error).</div>';
+        return;
+    }
+    el.innerHTML = renderHealthHtml(h);
 }
 
 function feedRow(e) {

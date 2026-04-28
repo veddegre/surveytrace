@@ -29,6 +29,7 @@ sudo cp "$SRC"/api/feed_sync_lib.php   "$DEST/api/"
 sudo cp "$SRC"/api/scan_history.php    "$DEST/api/"
 sudo cp "$SRC"/api/logout.php          "$DEST/api/"
 sudo cp "$SRC"/api/settings.php        "$DEST/api/"
+sudo cp "$SRC"/api/health.php          "$DEST/api/"
 sudo cp "$SRC"/api/export.php          "$DEST/api/"
 echo "  API files deployed"
 
@@ -174,6 +175,7 @@ check_as_user() {
   fi
 }
 
+check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib (required by feeds.php)"
 check_file "$DEST/api/scan_history.php" "scan history API"
