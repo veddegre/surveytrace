@@ -95,6 +95,70 @@ function st_db(): PDO {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC)');
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS users (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            username         TEXT NOT NULL UNIQUE,
+            password_hash    TEXT,
+            role             TEXT NOT NULL DEFAULT 'admin',
+            auth_source      TEXT NOT NULL DEFAULT 'local',
+            oidc_issuer      TEXT,
+            oidc_sub         TEXT,
+            disabled         INTEGER DEFAULT 0,
+            mfa_enabled      INTEGER DEFAULT 0,
+            mfa_totp_secret  TEXT,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_login_at    DATETIME
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(auth_source, oidc_issuer, oidc_sub)');
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS user_recovery_codes (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code_hash    TEXT NOT NULL,
+            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            used_at      DATETIME
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_user_recovery_codes_user ON user_recovery_codes(user_id, used_at)');
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS auth_login_state (
+            actor_key        TEXT PRIMARY KEY,
+            username_norm    TEXT,
+            source_ip        TEXT,
+            failed_count     INTEGER DEFAULT 0,
+            first_failed_at  DATETIME,
+            last_failed_at   DATETIME,
+            locked_until     DATETIME
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_auth_login_state_user ON auth_login_state(username_norm)');
+
+    // Migrate single legacy password hash into local admin user.
+    $userCount = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    if ($userCount === 0) {
+        $legacyHash = (string)$pdo->query("SELECT value FROM config WHERE key='auth_hash'")->fetchColumn();
+        if ($legacyHash !== '') {
+            $insAdmin = $pdo->prepare(
+                "INSERT INTO users (username, password_hash, role, auth_source) VALUES ('admin', ?, 'admin', 'local')"
+            );
+            $insAdmin->execute([$legacyHash]);
+        }
+    }
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('rbac_enabled', '1')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('oidc_enabled', '0')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_min_length', '12')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_require_upper', '1')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_require_lower', '1')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_require_number', '1')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_require_symbol', '1')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_hash_algo', 'argon2id')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('login_max_attempts', '5')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('login_lockout_minutes', '15')");
+
     st_migrate_device_identity_v1($pdo);
 
     return $pdo;
@@ -227,7 +291,7 @@ function st_session_touch_idle(): void {
     if (session_status() !== PHP_SESSION_ACTIVE) {
         return;
     }
-    if (empty($_SESSION['st_authed'])) {
+    if (empty($_SESSION['st_authed']) && empty($_SESSION['st_uid'])) {
         return;
     }
     $life = st_session_lifetime_seconds();
@@ -316,19 +380,24 @@ function st_auth(): void {
     st_session_touch_idle();
 
     // Already authenticated this session
-    if (!empty($_SESSION['st_authed'])) {
+    if (!empty($_SESSION['st_authed']) || !empty($_SESSION['st_uid'])) {
+        if (empty($_SESSION['st_role'])) {
+            $_SESSION['st_role'] = 'admin';
+        }
         st_release_session_lock();
         return;
     }
 
     $hash = st_config('auth_hash');
-    $mode = strtolower(trim(st_config('auth_mode', 'basic')));
-    if (!in_array($mode, ['basic', 'session'], true)) {
-        $mode = 'basic';
+    $mode = strtolower(trim(st_config('auth_mode', 'session')));
+    if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
+        $mode = 'session';
     }
+    $hasLocalUsers = (int)st_db()->query("SELECT COUNT(*) FROM users WHERE auth_source='local' AND disabled=0")->fetchColumn() > 0;
 
     // No password configured → open access (first-run / dev)
-    if (empty($hash)) {
+    if (!$hasLocalUsers && empty($hash)) {
+        $_SESSION['st_role'] = 'admin';
         st_release_session_lock();
         return;
     }
@@ -337,20 +406,278 @@ function st_auth(): void {
         // Check Basic auth credentials
         $user = $_SERVER['PHP_AUTH_USER'] ?? '';
         $pass = $_SERVER['PHP_AUTH_PW']   ?? '';
-        if ($user === 'admin' && password_verify($pass, $hash)) {
-            $_SESSION['st_authed']  = true;
-            $_SESSION['st_authed_at'] = time();
-            st_release_session_lock();
-            return;
+        if ($user !== '' && $pass !== '') {
+            $stmt = st_db()->prepare("
+                SELECT id, username, password_hash, role, disabled
+                FROM users
+                WHERE auth_source='local' AND lower(username)=lower(?)
+                LIMIT 1
+            ");
+            $stmt->execute([$user]);
+            $urow = $stmt->fetch();
+            if ($urow && (int)$urow['disabled'] === 0 && password_verify($pass, (string)$urow['password_hash'])) {
+                st_set_session_user((int)$urow['id'], (string)$urow['username'], (string)$urow['role']);
+                st_release_session_lock();
+                return;
+            }
+            if ($user === 'admin' && !empty($hash) && password_verify($pass, $hash)) {
+                st_set_session_user(0, 'admin', 'admin');
+                st_release_session_lock();
+                return;
+            }
         }
         st_release_session_lock();
         header('WWW-Authenticate: Basic realm="SurveyTrace"');
         st_json(['error' => 'Authentication required', 'auth_mode' => 'basic'], 401);
     }
 
-    // Session mode requires explicit login via /api/auth.php
+    // Session/OIDC modes require explicit login via /api/auth.php or OIDC callback.
     st_release_session_lock();
-    st_json(['error' => 'Authentication required', 'auth_mode' => 'session'], 401);
+    st_json(['error' => 'Authentication required', 'auth_mode' => $mode], 401);
+}
+
+function st_set_session_user(int $id, string $username, string $role): void {
+    $_SESSION['st_authed'] = true;
+    $_SESSION['st_authed_at'] = time();
+    $_SESSION['st_uid'] = $id;
+    $_SESSION['st_user'] = $username;
+    $_SESSION['st_role'] = st_normalize_role($role);
+}
+
+function st_normalize_role(string $role): string {
+    $r = strtolower(trim($role));
+    if (!in_array($r, ['viewer', 'scan_editor', 'admin'], true)) {
+        return 'viewer';
+    }
+    return $r;
+}
+
+function st_current_role(): string {
+    return st_normalize_role((string)($_SESSION['st_role'] ?? 'admin'));
+}
+
+function st_current_user(): array {
+    return [
+        'id' => (int)($_SESSION['st_uid'] ?? 0),
+        'username' => (string)($_SESSION['st_user'] ?? 'admin'),
+        'role' => st_current_role(),
+    ];
+}
+
+function st_require_role(array $allowed): void {
+    $role = st_current_role();
+    $norm = array_values(array_unique(array_map('st_normalize_role', $allowed)));
+    if (!in_array($role, $norm, true)) {
+        st_json([
+            'ok' => false,
+            'error' => 'Permission denied',
+            'required_roles' => $norm,
+            'role' => $role,
+        ], 403);
+    }
+}
+
+function st_generate_mfa_secret(int $bytes = 20): string {
+    return st_base32_encode(random_bytes(max(10, $bytes)));
+}
+
+function st_base32_encode(string $raw): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $bits = '';
+    $out = '';
+    $len = strlen($raw);
+    for ($i = 0; $i < $len; $i++) {
+        $bits .= str_pad(decbin(ord($raw[$i])), 8, '0', STR_PAD_LEFT);
+    }
+    $pad = strlen($bits) % 5;
+    if ($pad !== 0) $bits .= str_repeat('0', 5 - $pad);
+    for ($i = 0; $i < strlen($bits); $i += 5) {
+        $out .= $alphabet[bindec(substr($bits, $i, 5))];
+    }
+    return $out;
+}
+
+function st_base32_decode(string $input): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $s = strtoupper(preg_replace('/[^A-Z2-7]/', '', $input) ?? '');
+    $bits = '';
+    $out = '';
+    $len = strlen($s);
+    for ($i = 0; $i < $len; $i++) {
+        $p = strpos($alphabet, $s[$i]);
+        if ($p === false) continue;
+        $bits .= str_pad(decbin((int)$p), 5, '0', STR_PAD_LEFT);
+    }
+    for ($i = 0; $i + 8 <= strlen($bits); $i += 8) {
+        $out .= chr(bindec(substr($bits, $i, 8)));
+    }
+    return $out;
+}
+
+function st_totp_code(string $base32Secret, ?int $unixTime = null, int $period = 30, int $digits = 6): string {
+    $key = st_base32_decode($base32Secret);
+    if ($key === '') return '';
+    $t = intdiv($unixTime ?? time(), $period);
+    $msg = pack('N*', 0, $t);
+    $hash = hash_hmac('sha1', $msg, $key, true);
+    $offset = ord(substr($hash, -1)) & 0x0F;
+    $bin = ((ord($hash[$offset]) & 0x7F) << 24)
+         | ((ord($hash[$offset + 1]) & 0xFF) << 16)
+         | ((ord($hash[$offset + 2]) & 0xFF) << 8)
+         | (ord($hash[$offset + 3]) & 0xFF);
+    $mod = (int)pow(10, $digits);
+    return str_pad((string)($bin % $mod), $digits, '0', STR_PAD_LEFT);
+}
+
+function st_verify_totp(string $base32Secret, string $otp, int $window = 1): bool {
+    $otp = preg_replace('/\s+/', '', $otp) ?? '';
+    if (!preg_match('/^\d{6}$/', $otp)) return false;
+    $now = time();
+    for ($i = -$window; $i <= $window; $i++) {
+        if (hash_equals(st_totp_code($base32Secret, $now + ($i * 30)), $otp)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function st_generate_recovery_codes(int $count = 8): array {
+    $out = [];
+    for ($i = 0; $i < $count; $i++) {
+        $n = strtoupper(bin2hex(random_bytes(4)));
+        $out[] = substr($n, 0, 4) . '-' . substr($n, 4, 4);
+    }
+    return $out;
+}
+
+function st_password_policy(): array {
+    $minLen = (int)st_config('password_min_length', '12');
+    return [
+        'min_length' => max(8, min(128, $minLen)),
+        'require_upper' => st_config('password_require_upper', '1') === '1',
+        'require_lower' => st_config('password_require_lower', '1') === '1',
+        'require_number' => st_config('password_require_number', '1') === '1',
+        'require_symbol' => st_config('password_require_symbol', '1') === '1',
+    ];
+}
+
+function st_validate_password_strength(string $password, ?array $policy = null): array {
+    $p = $policy ?: st_password_policy();
+    $errors = [];
+    if (strlen($password) < (int)$p['min_length']) {
+        $errors[] = 'Password must be at least ' . (int)$p['min_length'] . ' characters.';
+    }
+    if (!empty($p['require_upper']) && !preg_match('/[A-Z]/', $password)) {
+        $errors[] = 'Password must include an uppercase letter.';
+    }
+    if (!empty($p['require_lower']) && !preg_match('/[a-z]/', $password)) {
+        $errors[] = 'Password must include a lowercase letter.';
+    }
+    if (!empty($p['require_number']) && !preg_match('/[0-9]/', $password)) {
+        $errors[] = 'Password must include a number.';
+    }
+    if (!empty($p['require_symbol']) && !preg_match('/[^A-Za-z0-9]/', $password)) {
+        $errors[] = 'Password must include a symbol.';
+    }
+    return $errors;
+}
+
+function st_password_hash_algo(): string {
+    $algo = strtolower(trim(st_config('password_hash_algo', 'argon2id')));
+    if (!in_array($algo, ['argon2id', 'bcrypt'], true)) {
+        $algo = 'argon2id';
+    }
+    if ($algo === 'argon2id' && !defined('PASSWORD_ARGON2ID')) {
+        return 'bcrypt';
+    }
+    return $algo;
+}
+
+function st_password_hash(string $password): string {
+    $algo = st_password_hash_algo();
+    if ($algo === 'argon2id' && defined('PASSWORD_ARGON2ID')) {
+        return password_hash($password, PASSWORD_ARGON2ID);
+    }
+    return password_hash($password, PASSWORD_BCRYPT);
+}
+
+function st_password_needs_rehash(string $hash): bool {
+    $algo = st_password_hash_algo();
+    if ($algo === 'argon2id' && defined('PASSWORD_ARGON2ID')) {
+        return password_needs_rehash($hash, PASSWORD_ARGON2ID);
+    }
+    return password_needs_rehash($hash, PASSWORD_BCRYPT);
+}
+
+function st_login_max_attempts(): int {
+    return max(3, min(20, (int)st_config('login_max_attempts', '5')));
+}
+
+function st_login_lockout_minutes(): int {
+    return max(1, min(1440, (int)st_config('login_lockout_minutes', '15')));
+}
+
+function st_login_actor_key(string $username, string $ip): string {
+    return hash('sha256', strtolower(trim($username)) . '|' . trim($ip));
+}
+
+function st_login_lock_state(string $username, string $ip): array {
+    $userNorm = strtolower(trim($username));
+    $actorKey = st_login_actor_key($username, $ip);
+    $stmt = st_db()->prepare("SELECT failed_count, locked_until FROM auth_login_state WHERE actor_key=? LIMIT 1");
+    $stmt->execute([$actorKey]);
+    $row = $stmt->fetch() ?: ['failed_count' => 0, 'locked_until' => null];
+    $lockedUntil = (string)($row['locked_until'] ?? '');
+    $locked = false;
+    $retryAfter = 0;
+    if ($lockedUntil !== '') {
+        $retryAfter = strtotime($lockedUntil) - time();
+        if ($retryAfter > 0) {
+            $locked = true;
+        } else {
+            $retryAfter = 0;
+        }
+    }
+    return [
+        'actor_key' => $actorKey,
+        'username_norm' => $userNorm,
+        'failed_count' => (int)($row['failed_count'] ?? 0),
+        'locked' => $locked,
+        'retry_after_sec' => $retryAfter,
+    ];
+}
+
+function st_login_register_failure(string $username, string $ip): array {
+    $db = st_db();
+    $state = st_login_lock_state($username, $ip);
+    $failed = $state['failed_count'] + 1;
+    $maxAttempts = st_login_max_attempts();
+    $lockMinutes = st_login_lockout_minutes();
+    $lockedUntilSql = ($failed >= $maxAttempts)
+        ? "datetime('now','+" . $lockMinutes . " minutes')"
+        : "NULL";
+    $sql = "
+        INSERT INTO auth_login_state (actor_key, username_norm, source_ip, failed_count, first_failed_at, last_failed_at, locked_until)
+        VALUES (:k, :u, :ip, 1, datetime('now'), datetime('now'), $lockedUntilSql)
+        ON CONFLICT(actor_key) DO UPDATE SET
+            failed_count = failed_count + 1,
+            last_failed_at = datetime('now'),
+            locked_until = CASE WHEN (failed_count + 1) >= :mx THEN datetime('now','+" . $lockMinutes . " minutes') ELSE NULL END
+    ";
+    $stmt = $db->prepare($sql);
+    $stmt->execute([
+        ':k' => $state['actor_key'],
+        ':u' => $state['username_norm'],
+        ':ip' => trim($ip),
+        ':mx' => $maxAttempts,
+    ]);
+    return st_login_lock_state($username, $ip);
+}
+
+function st_login_register_success(string $username, string $ip): void {
+    $actorKey = st_login_actor_key($username, $ip);
+    $stmt = st_db()->prepare("DELETE FROM auth_login_state WHERE actor_key=?");
+    $stmt->execute([$actorKey]);
 }
 
 // ---------------------------------------------------------------------------

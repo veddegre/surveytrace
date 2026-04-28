@@ -783,6 +783,90 @@
         </div>
       </div>
       <div class="card">
+        <div class="ct">Access control</div>
+        <div class="help-line mb10">Define authentication mode, role assignments, and MFA for local users.</div>
+        <label class="flbl">Authentication mode</label>
+        <div class="row-wrap mb10">
+          <select class="finp" id="st-auth-mode" style="min-width:180px">
+            <option value="session">Session (local users)</option>
+            <option value="oidc">OIDC SSO</option>
+            <option value="basic">HTTP Basic (legacy)</option>
+          </select>
+          <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
+        </div>
+
+        <div class="flbl">OIDC configuration</div>
+        <div class="profile-grid mb10">
+          <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
+          <input class="finp" id="oidc-client-id" placeholder="Client ID">
+          <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
+          <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
+          <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
+          <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+        </div>
+        <div class="row-wrap mb12">
+          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
+        </div>
+
+        <div class="flbl">Local users and roles</div>
+        <div class="tbl-wrap mb8">
+          <table class="tbl">
+            <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th>Disabled</th><th></th></tr></thead>
+            <tbody id="auth-users-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="row-wrap mb10">
+          <input class="finp" id="new-auth-user" placeholder="new username">
+          <select class="finp" id="new-auth-role">
+            <option value="viewer">viewer</option>
+            <option value="scan_editor">scan_editor</option>
+            <option value="admin">admin</option>
+          </select>
+          <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password">
+          <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
+        </div>
+
+        <div class="flbl">Password requirements</div>
+        <div class="row-wrap mb8">
+          <label class="flbl">Minimum length</label>
+          <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
+          <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
+        </div>
+        <div class="row-wrap mb10">
+          <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
+        </div>
+        <div class="row-wrap mb8">
+          <label class="flbl">Password hashing</label>
+          <select class="finp" id="pp-hash-algo" style="min-width:140px">
+            <option value="argon2id">Argon2id (preferred)</option>
+            <option value="bcrypt">bcrypt</option>
+          </select>
+          <label class="flbl">Max failed attempts</label>
+          <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
+          <label class="flbl">Lockout minutes</label>
+          <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
+        </div>
+
+        <div class="flbl">MFA (current user)</div>
+        <div class="row-wrap mb6">
+          <button class="tbtn" type="button" onclick="beginMfaSetup()">Generate MFA setup secret</button>
+          <button class="tbtn" type="button" onclick="disableMfaForSelf()">Disable MFA</button>
+        </div>
+        <div id="mfa-setup-box" class="help-box hide">
+          <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
+          <div class="help-line mb8">Add this secret to your authenticator app, then enter the generated 6-digit code.</div>
+          <div class="row-wrap">
+            <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
+            <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
+          </div>
+          <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
+        </div>
+      </div>
+      <div class="card">
         <div class="ct">NVD &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
           One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, and WebFP in a single job at the bottom of this card.
@@ -887,10 +971,20 @@
     <div class="text-muted mb10" id="login-msg">
       Session authentication required.
     </div>
-    <label class="flbl">Username</label>
-    <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
-    <label class="flbl">Password</label>
-    <input class="finp w100 mb12" id="login-pass" type="password" autocomplete="current-password">
+    <div id="login-local-fields">
+      <label class="flbl">Username</label>
+      <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
+      <label class="flbl">Password</label>
+      <input class="finp w100 mb10" id="login-pass" type="password" autocomplete="current-password">
+      <label class="flbl">Authenticator code (if enabled)</label>
+      <input class="finp w100 mb10" id="login-otp" placeholder="123456" autocomplete="one-time-code">
+      <label class="flbl">Recovery code (optional)</label>
+      <input class="finp w100 mb12" id="login-recovery" placeholder="ABCD-1234">
+    </div>
+    <div id="login-oidc-fields" class="hide mb12">
+      <div class="help-line mb10">Single sign-on is enabled for this deployment.</div>
+      <button class="btnp w100" type="button" onclick="startOidcLogin()">Sign in with SSO</button>
+    </div>
     <div class="row-end">
       <button class="tbtn" onclick="closeLoginModal()">Close</button>
       <button class="btnp" id="btn-login" onclick="submitLogin()">Sign in</button>
@@ -1027,6 +1121,8 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
+var currentUser = null;
+var currentUserRole = 'admin';
 var scanDetailReturnDeviceId = 0;
 var confirmResolve = null;
 var themeMediaQuery = null;
@@ -1049,6 +1145,7 @@ var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
 var feedSyncUiTimer = null;
 var feedSyncStatePollTimer = null;
 var execChartSelection = {};
+var pendingMfaSecret = '';
 
 function fmtFeedElapsed(ms) {
     if (ms < 0) ms = 0;
@@ -1460,10 +1557,10 @@ async function apiPost(url, body) {
 }
 
 function handleAuthRequired() {
-    if (authMode === 'session') {
+    if (authMode === 'session' || authMode === 'oidc') {
         loginRequired = true;
         openLoginModal();
-        toast('Session expired. Please sign in again.', 'err');
+        toast(authMode === 'oidc' ? 'Session expired. Sign in with SSO again.' : 'Session expired. Please sign in again.', 'err');
     } else {
         toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
     }
@@ -1474,9 +1571,24 @@ function openLoginModal(msg) {
     if (!bg) return;
     const m = document.getElementById('login-msg');
     if (m && msg) m.textContent = msg;
+    updateLoginModeUI();
     bg.style.display = 'flex';
     const p = document.getElementById('login-pass');
     if (p) p.focus();
+}
+
+function updateLoginModeUI() {
+    const local = document.getElementById('login-local-fields');
+    const oidc = document.getElementById('login-oidc-fields');
+    const btn = document.getElementById('btn-login');
+    const isOidc = authMode === 'oidc';
+    if (local) local.classList.toggle('hide', isOidc);
+    if (oidc) oidc.classList.toggle('hide', !isOidc);
+    if (btn) btn.classList.toggle('hide', isOidc);
+}
+
+function startOidcLogin() {
+    window.location.href = '/api/auth_oidc.php?start=1';
 }
 
 function closeLoginModal() {
@@ -1487,20 +1599,32 @@ function closeLoginModal() {
 async function submitLogin() {
     const u = (document.getElementById('login-user')?.value || '').trim();
     const p = document.getElementById('login-pass')?.value || '';
+    const otp = (document.getElementById('login-otp')?.value || '').trim();
+    const recovery = (document.getElementById('login-recovery')?.value || '').trim();
     if (!u || !p) {
         toast('Enter username and password', 'err');
         return;
     }
     const btn = document.getElementById('btn-login');
     if (btn) btn.disabled = true;
-    const r = await apiPost('/api/auth.php?login=1', {username: u, password: p});
+    const r = await apiPost('/api/auth.php?login=1', {
+        username: u,
+        password: p,
+        otp: otp,
+        recovery_code: recovery
+    });
     if (btn) btn.disabled = false;
     if (r && r.ok) {
         loginRequired = false;
         closeLoginModal();
         const pass = document.getElementById('login-pass');
         if (pass) pass.value = '';
+        const otpEl = document.getElementById('login-otp');
+        if (otpEl) otpEl.value = '';
+        const recEl = document.getElementById('login-recovery');
+        if (recEl) recEl.value = '';
         toast('Signed in', 'ok');
+        await initAuthMode();
         loadDashboard();
         if (currentTab === 'assets') loadAssets(assetPage || 1);
         if (currentTab === 'vulns') loadFindings(vulnPage || 1);
@@ -1510,6 +1634,11 @@ async function submitLogin() {
         if (currentTab === 'enrich' || currentTab === 'settings') loadEnrichment();
         if (currentTab === 'health') loadHealth();
     } else {
+        if (r && r.mfa_required) {
+            toast('Enter your authenticator code (or recovery code)', 'err');
+            document.getElementById('login-otp')?.focus();
+            return;
+        }
         toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
     }
 }
@@ -3093,6 +3222,188 @@ async function loadUiSettings() {
         nvdSt.textContent = d.nvd_api_key_configured
             ? 'Use Remove key if you need to paste a different one.'
             : 'No key saved — sync uses the slower public rate limit unless NVD_API_KEY is set on the server.';
+    }
+    const authModeSel = document.getElementById('st-auth-mode');
+    if (authModeSel) authModeSel.value = d.auth_mode || 'session';
+    const oidcEnabled = document.getElementById('oidc-enabled');
+    if (oidcEnabled) oidcEnabled.checked = !!d.oidc_enabled;
+    const oidcFields = {
+        'oidc-issuer-url': d.oidc_issuer_url || '',
+        'oidc-client-id': d.oidc_client_id || '',
+        'oidc-redirect-uri': d.oidc_redirect_uri || '',
+        'oidc-role-claim': d.oidc_role_claim || 'groups',
+        'oidc-role-map': d.oidc_role_map || '',
+    };
+    Object.keys(oidcFields).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = oidcFields[id];
+    });
+    const pp = d.password_policy || {};
+    const minLen = document.getElementById('pp-min-len');
+    if (minLen) minLen.value = String(pp.min_length || 12);
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    setChk('pp-upper', pp.require_upper);
+    setChk('pp-lower', pp.require_lower);
+    setChk('pp-number', pp.require_number);
+    setChk('pp-symbol', pp.require_symbol);
+    const hashAlgo = document.getElementById('pp-hash-algo');
+    if (hashAlgo) hashAlgo.value = d.password_hash_algo || 'argon2id';
+    const maxAtt = document.getElementById('pp-max-attempts');
+    if (maxAtt) maxAtt.value = String(d.login_max_attempts || 5);
+    const lockMin = document.getElementById('pp-lockout-min');
+    if (lockMin) lockMin.value = String(d.login_lockout_minutes || 15);
+    await loadAuthUsers();
+}
+
+async function savePasswordPolicy() {
+    const body = {
+        password_policy: {
+            min_length: Number(document.getElementById('pp-min-len')?.value || 12),
+            require_upper: !!document.getElementById('pp-upper')?.checked,
+            require_lower: !!document.getElementById('pp-lower')?.checked,
+            require_number: !!document.getElementById('pp-number')?.checked,
+            require_symbol: !!document.getElementById('pp-symbol')?.checked,
+        },
+        password_hash_algo: document.getElementById('pp-hash-algo')?.value || 'argon2id',
+        login_max_attempts: Number(document.getElementById('pp-max-attempts')?.value || 5),
+        login_lockout_minutes: Number(document.getElementById('pp-lockout-min')?.value || 15),
+    };
+    const r = await apiPost('/api/settings.php', body);
+    if (r && r.ok) {
+        toast('Password policy updated', 'ok');
+        await loadUiSettings();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function saveAccessControlSettings() {
+    const body = {
+        auth_mode: document.getElementById('st-auth-mode')?.value || 'session',
+        oidc_enabled: !!document.getElementById('oidc-enabled')?.checked,
+        oidc_issuer_url: document.getElementById('oidc-issuer-url')?.value || '',
+        oidc_client_id: document.getElementById('oidc-client-id')?.value || '',
+        oidc_client_secret: document.getElementById('oidc-client-secret')?.value || '',
+        oidc_redirect_uri: document.getElementById('oidc-redirect-uri')?.value || '',
+        oidc_role_claim: document.getElementById('oidc-role-claim')?.value || 'groups',
+        oidc_role_map: document.getElementById('oidc-role-map')?.value || '',
+    };
+    const r = await apiPost('/api/settings.php', body);
+    if (r && r.ok) {
+        const sec = document.getElementById('oidc-client-secret');
+        if (sec) sec.value = '';
+        toast('Access settings updated', 'ok');
+        await initAuthMode();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function loadAuthUsers() {
+    const tbody = document.getElementById('auth-users-tbody');
+    if (!tbody) return;
+    const r = await api('/api/auth.php?users=1');
+    if (!r || !r.ok) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Role management unavailable for current account.</td></tr>';
+        return;
+    }
+    const users = r.users || [];
+    tbody.innerHTML = users.length ? users.map(u => `
+      <tr>
+        <td class="mono">${esc(u.username)}</td>
+        <td>
+          <select class="finp" id="u-role-${u.id}">
+            <option value="viewer"${u.role==='viewer'?' selected':''}>viewer</option>
+            <option value="scan_editor"${u.role==='scan_editor'?' selected':''}>scan_editor</option>
+            <option value="admin"${u.role==='admin'?' selected':''}>admin</option>
+          </select>
+        </td>
+        <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
+        <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
+        <td><button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')">Save</button></td>
+      </tr>`).join('')
+      : '<tr><td colspan="5" class="text-dim">No users</td></tr>';
+}
+
+async function saveAuthUser(id, username) {
+    const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
+    const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
+    const pwd = prompt(`Optional: enter a new password for ${username} (leave blank to keep current).`, '');
+    const body = { id, username, role, disabled };
+    if (pwd !== null && String(pwd).trim() !== '') body.password = String(pwd);
+    const r = await apiPost('/api/auth.php?users=1', body);
+    if (r && r.ok) {
+        toast('User updated', 'ok');
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'Update failed', 'err');
+    }
+}
+
+async function createAuthUser() {
+    const username = (document.getElementById('new-auth-user')?.value || '').trim();
+    const role = document.getElementById('new-auth-role')?.value || 'viewer';
+    const password = document.getElementById('new-auth-pass')?.value || '';
+    if (!username || !password) {
+        toast('Username and temporary password are required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/auth.php?users=1', { username, role, password, disabled: false });
+    if (r && r.ok) {
+        document.getElementById('new-auth-user').value = '';
+        document.getElementById('new-auth-pass').value = '';
+        toast('User created', 'ok');
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'Create failed', 'err');
+    }
+}
+
+async function beginMfaSetup() {
+    const r = await apiPost('/api/auth.php?mfa_setup=1', {});
+    if (!(r && r.ok && r.secret)) {
+        toast((r && r.error) ? r.error : 'MFA setup failed', 'err');
+        return;
+    }
+    pendingMfaSecret = r.secret;
+    const box = document.getElementById('mfa-setup-box');
+    const sec = document.getElementById('mfa-secret');
+    if (sec) sec.textContent = pendingMfaSecret;
+    if (box) box.classList.remove('hide');
+    toast('MFA secret generated. Add it to your authenticator app.', 'ok');
+}
+
+async function confirmMfaEnable() {
+    const otp = (document.getElementById('mfa-enable-otp')?.value || '').trim();
+    if (!pendingMfaSecret || !otp) {
+        toast('Generate setup secret and enter OTP code', 'err');
+        return;
+    }
+    const r = await apiPost('/api/auth.php?mfa_enable=1', { secret: pendingMfaSecret, otp });
+    if (r && r.ok) {
+        pendingMfaSecret = '';
+        const box = document.getElementById('mfa-setup-box');
+        if (box) box.classList.add('hide');
+        const otpEl = document.getElementById('mfa-enable-otp');
+        if (otpEl) otpEl.value = '';
+        const codes = Array.isArray(r.recovery_codes) ? r.recovery_codes.join(', ') : '';
+        toast('MFA enabled', 'ok');
+        if (codes) alert('Save these recovery codes now:\n\n' + codes);
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'MFA enable failed', 'err');
+    }
+}
+
+async function disableMfaForSelf() {
+    const otp = prompt('Enter your current authenticator code to disable MFA:', '');
+    if (!otp) return;
+    const r = await apiPost('/api/auth.php?mfa_disable=1', { otp: otp.trim() });
+    if (r && r.ok) {
+        toast('MFA disabled', 'ok');
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'MFA disable failed', 'err');
     }
 }
 
@@ -4775,9 +5086,11 @@ async function initAuthMode() {
     const r = await api('/api/auth.php?status=1');
     if (!r) return;
     authMode = r.auth_mode || 'basic';
-    if (authMode === 'session' && r.requires_auth && !r.authed) {
+    currentUser = r.user || null;
+    currentUserRole = (currentUser && currentUser.role) ? currentUser.role : 'admin';
+    if ((authMode === 'session' || authMode === 'oidc') && r.requires_auth && !r.authed) {
         loginRequired = true;
-        openLoginModal('Session sign-in required.');
+        openLoginModal(authMode === 'oidc' ? 'Single sign-on required.' : 'Session sign-in required.');
     }
 }
 

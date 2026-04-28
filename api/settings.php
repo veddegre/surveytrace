@@ -14,6 +14,7 @@
 require_once __DIR__ . '/db.php';
 
 st_auth();
+st_require_role(['admin']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $m = max(5, min(10080, (int)st_config('session_timeout_minutes', '480')));
@@ -24,6 +25,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'session_timeout_minutes' => $m,
         'extra_safe_ports' => $extra,
         'auth_mode' => strtolower(trim(st_config('auth_mode', 'basic'))),
+        'oidc_enabled' => st_config('oidc_enabled', '0') === '1',
+        'oidc_issuer_url' => (string)st_config('oidc_issuer_url', ''),
+        'oidc_client_id' => (string)st_config('oidc_client_id', ''),
+        'oidc_redirect_uri' => (string)st_config('oidc_redirect_uri', ''),
+        'oidc_role_claim' => (string)st_config('oidc_role_claim', 'groups'),
+        'oidc_role_map' => (string)st_config('oidc_role_map', ''),
+        'password_policy' => st_password_policy(),
+        'password_hash_algo' => st_password_hash_algo(),
+        'login_max_attempts' => st_login_max_attempts(),
+        'login_lockout_minutes' => st_login_lockout_minutes(),
         'nvd_api_key_configured' => $nvdKey !== '',
     ]);
 }
@@ -58,6 +69,72 @@ if (array_key_exists('extra_safe_ports', $body)) {
     $norm = implode(',', array_keys($ports));
     st_config_set('extra_safe_ports', $norm);
     $changed['extra_safe_ports'] = $norm;
+}
+
+if (array_key_exists('auth_mode', $body)) {
+    $mode = strtolower(trim((string)$body['auth_mode']));
+    if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
+        st_json(['error' => 'auth_mode must be one of basic, session, oidc'], 400);
+    }
+    st_config_set('auth_mode', $mode);
+    $changed['auth_mode'] = $mode;
+}
+
+if (array_key_exists('oidc_enabled', $body)) {
+    $changed['oidc_enabled'] = !empty($body['oidc_enabled']);
+    st_config_set('oidc_enabled', $changed['oidc_enabled'] ? '1' : '0');
+}
+foreach (['oidc_issuer_url', 'oidc_client_id', 'oidc_client_secret', 'oidc_redirect_uri', 'oidc_role_claim', 'oidc_role_map'] as $k) {
+    if (array_key_exists($k, $body)) {
+        $v = trim((string)$body[$k]);
+        st_config_set($k, $v);
+        if ($k !== 'oidc_client_secret') {
+            $changed[$k] = $v;
+        } else {
+            $changed['oidc_client_secret_configured'] = ($v !== '');
+        }
+    }
+}
+
+if (array_key_exists('password_policy', $body)) {
+    $pp = is_array($body['password_policy']) ? $body['password_policy'] : [];
+    $minLen = (int)($pp['min_length'] ?? st_password_policy()['min_length']);
+    $minLen = max(8, min(128, $minLen));
+    $reqUpper = !empty($pp['require_upper']);
+    $reqLower = !empty($pp['require_lower']);
+    $reqNumber = !empty($pp['require_number']);
+    $reqSymbol = !empty($pp['require_symbol']);
+    st_config_set('password_min_length', (string)$minLen);
+    st_config_set('password_require_upper', $reqUpper ? '1' : '0');
+    st_config_set('password_require_lower', $reqLower ? '1' : '0');
+    st_config_set('password_require_number', $reqNumber ? '1' : '0');
+    st_config_set('password_require_symbol', $reqSymbol ? '1' : '0');
+    $changed['password_policy'] = st_password_policy();
+}
+
+if (array_key_exists('password_hash_algo', $body)) {
+    $algo = strtolower(trim((string)$body['password_hash_algo']));
+    if (!in_array($algo, ['argon2id', 'bcrypt'], true)) {
+        st_json(['error' => 'password_hash_algo must be argon2id or bcrypt'], 400);
+    }
+    if ($algo === 'argon2id' && !defined('PASSWORD_ARGON2ID')) {
+        st_json(['error' => 'Argon2id is not available on this PHP build'], 400);
+    }
+    st_config_set('password_hash_algo', $algo);
+    $changed['password_hash_algo'] = st_password_hash_algo();
+}
+
+if (array_key_exists('login_max_attempts', $body)) {
+    $v = (int)$body['login_max_attempts'];
+    $v = max(3, min(20, $v));
+    st_config_set('login_max_attempts', (string)$v);
+    $changed['login_max_attempts'] = $v;
+}
+if (array_key_exists('login_lockout_minutes', $body)) {
+    $v = (int)$body['login_lockout_minutes'];
+    $v = max(1, min(1440, $v));
+    st_config_set('login_lockout_minutes', (string)$v);
+    $changed['login_lockout_minutes'] = $v;
 }
 
 if (!empty($body['nvd_api_key_remove'])) {

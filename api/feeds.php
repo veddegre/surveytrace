@@ -15,7 +15,11 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/feed_sync_lib.php';
 
 st_auth();
-
+if (isset($_GET['status'])) {
+    st_require_role(['viewer', 'scan_editor', 'admin']);
+} else {
+    st_require_role(['admin']);
+}
 if (isset($_GET['status'])) {
     st_release_session_lock();
     try {

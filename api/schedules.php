@@ -17,6 +17,7 @@ date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['scan_editor', 'admin']);
 
 $db = st_db();
 

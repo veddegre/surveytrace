@@ -23,6 +23,7 @@ API_FILES=(
   scan_abort.php
   scan_delete.php
   auth.php
+  auth_oidc.php
   schedules.php
   enrichment.php
   dashboard.php

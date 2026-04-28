@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['admin']);
 
 $db = st_db();
 

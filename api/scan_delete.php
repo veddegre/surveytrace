@@ -11,6 +11,7 @@
 
 require_once __DIR__ . '/db.php';
 st_auth();
+st_require_role(['scan_editor', 'admin']);
 st_method('POST');
 
 $db = st_db();

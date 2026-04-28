@@ -181,6 +181,47 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT
 );
 
+-- -------------------------------------------------------
+-- Local/OIDC users + roles + MFA recovery
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    username         TEXT NOT NULL UNIQUE,
+    password_hash    TEXT,
+    role             TEXT NOT NULL DEFAULT 'admin', -- viewer | scan_editor | admin
+    auth_source      TEXT NOT NULL DEFAULT 'local', -- local | oidc
+    oidc_issuer      TEXT,
+    oidc_sub         TEXT,
+    disabled         INTEGER DEFAULT 0,
+    mfa_enabled      INTEGER DEFAULT 0,
+    mfa_totp_secret  TEXT,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login_at    DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(auth_source, oidc_issuer, oidc_sub);
+
+CREATE TABLE IF NOT EXISTS user_recovery_codes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash    TEXT NOT NULL,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    used_at      DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_user_recovery_codes_user ON user_recovery_codes(user_id, used_at);
+
+CREATE TABLE IF NOT EXISTS auth_login_state (
+    actor_key        TEXT PRIMARY KEY,
+    username_norm    TEXT,
+    source_ip        TEXT,
+    failed_count     INTEGER DEFAULT 0,
+    first_failed_at  DATETIME,
+    last_failed_at   DATETIME,
+    locked_until     DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_auth_login_state_user ON auth_login_state(username_norm);
+
 INSERT OR IGNORE INTO config VALUES
     ('nvd_last_sync',   ''),
     ('snmp_community',  'public'),
@@ -188,6 +229,22 @@ INSERT OR IGNORE INTO config VALUES
     ('alert_email',     ''),
     ('scan_schedule',   ''),
     ('auth_hash',       ''),  -- bcrypt hash of web UI password
-    ('auth_mode',       'basic'),  -- basic | session
+    ('auth_mode',       'session'),  -- basic | session | oidc
+    ('rbac_enabled',    '1'),
+    ('oidc_enabled',    '0'),
+    ('oidc_issuer_url', ''),
+    ('oidc_client_id',  ''),
+    ('oidc_client_secret', ''),
+    ('oidc_redirect_uri', ''),
+    ('oidc_role_claim', 'groups'),
+    ('oidc_role_map',   ''),
+    ('password_min_length', '12'),
+    ('password_require_upper', '1'),
+    ('password_require_lower', '1'),
+    ('password_require_number', '1'),
+    ('password_require_symbol', '1'),
+    ('password_hash_algo', 'argon2id'),
+    ('login_max_attempts', '5'),
+    ('login_lockout_minutes', '15'),
     ('session_timeout_minutes', '480'),  -- idle timeout + session cookie max-age (5–10080)
     ('extra_safe_ports', '');  -- comma-separated additional ports for routed fast_full_tcp safe scan
