@@ -5,6 +5,7 @@
  * Query params:
  *   - id: optional scan job id for full detail
  *   - limit: list size when id is omitted (default 50, max 200)
+ *   - q: optional filter on label, target_cidr, or job id (substring match, max 120 chars)
  */
 
 require_once __DIR__ . '/db.php';
@@ -86,21 +87,51 @@ if ($id > 0) {
     ]);
 }
 
-$rows = $db->prepare("
-    SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
-           created_at, started_at, finished_at, error_msg,
-           COALESCE(profile, 'standard_inventory') AS profile,
-           COALESCE(scan_mode, 'auto') AS scan_mode,
-           COALESCE(priority, 10) AS priority,
-           COALESCE(retry_count, 0) AS retry_count,
-           summary_json,
-           CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
-    FROM scan_jobs
-    ORDER BY id DESC
-    LIMIT ?
-");
-$rows->bindValue(1, $limit, PDO::PARAM_INT);
-$rows->execute();
+$qRaw = substr(st_str('q', ''), 0, 120);
+$likePat = null;
+if ($qRaw !== '') {
+    $likePat = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $qRaw) . '%';
+}
+
+if ($likePat !== null) {
+    $rows = $db->prepare("
+        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
+               created_at, started_at, finished_at, error_msg,
+               COALESCE(profile, 'standard_inventory') AS profile,
+               COALESCE(scan_mode, 'auto') AS scan_mode,
+               COALESCE(priority, 10) AS priority,
+               COALESCE(retry_count, 0) AS retry_count,
+               summary_json,
+               CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
+        FROM scan_jobs
+        WHERE (COALESCE(label, '') LIKE :qp1 ESCAPE '\\'
+            OR COALESCE(target_cidr, '') LIKE :qp2 ESCAPE '\\'
+            OR CAST(id AS TEXT) LIKE :qp3 ESCAPE '\\')
+        ORDER BY id DESC
+        LIMIT :lim
+    ");
+    $rows->bindValue(':qp1', $likePat);
+    $rows->bindValue(':qp2', $likePat);
+    $rows->bindValue(':qp3', $likePat);
+    $rows->bindValue(':lim', $limit, PDO::PARAM_INT);
+    $rows->execute();
+} else {
+    $rows = $db->prepare("
+        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
+               created_at, started_at, finished_at, error_msg,
+               COALESCE(profile, 'standard_inventory') AS profile,
+               COALESCE(scan_mode, 'auto') AS scan_mode,
+               COALESCE(priority, 10) AS priority,
+               COALESCE(retry_count, 0) AS retry_count,
+               summary_json,
+               CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
+        FROM scan_jobs
+        ORDER BY id DESC
+        LIMIT ?
+    ");
+    $rows->bindValue(1, $limit, PDO::PARAM_INT);
+    $rows->execute();
+}
 
 $history = array_map(function($r) {
     $r['summary'] = json_decode((string)($r['summary_json'] ?? ''), true) ?: null;

@@ -399,6 +399,7 @@
 
   <!-- Scan history -->
   <div class="sth section-top">Scan history</div>
+  <input class="finp wide mb8" id="scan-hist-q" type="search" placeholder="Search scan name (label), target, or job #…" autocomplete="off" oninput="debounceScanHistSearch()">
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
@@ -1688,9 +1689,14 @@ function viewDeviceAssets(did) {
 }
 
 var deviceDebounce = null;
+var scanHistDebounce = null;
 function debounceDevices() {
     clearTimeout(deviceDebounce);
     deviceDebounce = setTimeout(() => loadDevices(1), 350);
+}
+function debounceScanHistSearch() {
+    clearTimeout(scanHistDebounce);
+    scanHistDebounce = setTimeout(() => loadScanHistory(), 320);
 }
 
 async function loadDevices(page) {
@@ -2059,15 +2065,33 @@ async function refreshScanEnrichmentPicker() {
     wrap.dataset.ready = '1';
 }
 
+function scanHistSearchQ() {
+    const el = document.getElementById('scan-hist-q');
+    if (!el) return '';
+    return (el.value || '').trim().slice(0, 120);
+}
+
 async function loadScanHistory(history) {
-    if (!history) {
+    let queueHistory = history;
+    if (!queueHistory) {
         const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});
-        history = d ? d.history : [];
+        queueHistory = d ? d.history : [];
     }
     const statColors = {done:'var(--green)', failed:'var(--red)', aborted:'var(--amber)', running:'var(--acc)', queued:'var(--tx3)'};
     const statColors2 = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)',running:'var(--acc)',queued:'var(--tx3)',retrying:'var(--amber)'};
-    updateQueuePanel(history);
-    document.getElementById('scan-hist').innerHTML = (history||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr>
+    updateQueuePanel(queueHistory);
+
+    const q = scanHistSearchQ();
+    let completedRows;
+    if (q) {
+        const hd = await api('/api/scan_history.php?limit=200&q=' + encodeURIComponent(q), {quiet:true});
+        completedRows = (hd && hd.history) ? hd.history : [];
+    } else {
+        completedRows = (queueHistory || []).filter(j => !['queued','running','retrying'].includes(j.status));
+    }
+
+    const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
+    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr>
       <td class="mono">#${j.id}</td>
       <td class="text-primary font11">${esc(j.label||'\u2014')}${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
@@ -2080,7 +2104,7 @@ async function loadScanHistory(history) {
         <button class="tbtn text-micro" onclick="openScanHistDetail(${j.id})">Details</button>
         ${['queued','retrying'].includes(j.status)?`<button class="tbtn text-micro" style="color:var(--red)" onclick="cancelJob(${j.id})">Cancel</button>`:j.status==='failed'?`<button class="tbtn text-micro" onclick="retryJob(${j.id})">Retry</button>`:''}
       </td>
-    </tr>`).join('') || '<tr><td colspan="9" class="loading">No previous scans</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
 }
 
 // ==========================================================================

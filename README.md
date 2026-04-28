@@ -13,7 +13,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
-- **Scan history** — per-run history, duration, summary snapshot, and detail view
+- **Scan history** — per-run history, duration, summary snapshot, and detail view; on the **Scan** tab, the history table can be narrowed by **scan name (label)**, target CIDR, or job id (substring match, debounced). Filtered lists use `GET /api/scan_history.php` with **`q`** and up to **`limit=200`** (see `api/scan_history.php`). The job queue stays unfiltered so active jobs remain visible.
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
 - **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
@@ -106,6 +106,7 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **API:** `GET/POST /api/devices.php` (list, detail, **merge**), `GET /api/assets.php?device_id=`, `GET /api/export.php?device_id=`, dashboard includes `device_id` in top-vulnerable query.
 - **UI:** Devices tab, device detail side panel (with merge), Assets integration (filter, sort, single search + numeric device id + Enter, clear filters); **`deploy.sh`** copies **`api/devices.php`** (required for the Devices tab).
 - **Docs:** **`docs/DEVICE_IDENTITY.md`** — device vs address model and API notes.
+- **Scan history search** — `GET /api/scan_history.php` accepts optional **`q`** (max 120 chars) to filter list rows by **`scan_jobs.label`**, **`target_cidr`**, or **`id`**. Scan tab search field (debounced) uses **`limit=200`** when **`q`** is set; queue panel still reflects unfiltered **`GET /api/scan_status.php`** history.
 
 ### 0.4.0
 
@@ -190,6 +191,8 @@ Password hashing and mode live in the `config` table (`auth_hash`, `auth_mode`).
 
 To switch modes, set `auth_mode` in the `config` table to `basic` or `session` (defaults to `basic` in `sql/schema.sql`); there is no separate toggle in the Settings UI yet. Session idle timeout is configurable under **Settings** (`session_timeout_minutes`).
 
+**Phase 6 (planned):** **SAML 2.0** and **OIDC** for organizations that use an IdP; **local accounts** with optional **MFA** — **TOTP** (RFC 6238 authenticator apps) and **one-time recovery codes** for lockout recovery when authenticators are lost; **possible** (not yet committed) **WebAuthn** / **FIDO2** support, including **passkeys** or security keys, depending on dependency choices (e.g. a maintained server library) and scope; and in-app **RBAC** (roles from IdP claims/groups for SSO users, and app-assigned roles for local users). Intended to extend today’s **`basic`** / **`session`** model rather than replace it abruptly — see Roadmap below.
+
 ## Architecture
 
 ```
@@ -213,7 +216,7 @@ surveytrace/
 │   ├── scan_status.php     Job status, progress, audit log tail
 │   ├── scan_abort.php      Job abort/cancel
 │   ├── schedules.php       Schedule management
-│   ├── scan_history.php    Scan run history + per-run detail
+│   ├── scan_history.php    Scan run history + per-run detail; list supports optional `q` (label / target / id)
 │   ├── enrichment.php      Enrichment source management
 │   ├── dashboard.php       Dashboard stats
 │   ├── feeds.php           Manual feed sync trigger (Settings UI)
@@ -299,13 +302,14 @@ surveytrace/
 - **Phase 5 — Device identity** — Logical **`devices`** linked from **`assets`**; scanner + migrations; Devices UI; **`POST /api/devices.php`** merge (logged to **`scan_log`**). Details: **`docs/DEVICE_IDENTITY.md`**. *Not built:* un-merge, split/reassign assets, findings-by-device filter, `device_identifiers` table (optional follow-ons).
 
 ### Upcoming
-- **Phase 6 — Collector architecture** — `collectors` table; registration + API token auth; **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU).
-- **Phase 7**: Change detection — alerts on new assets, port changes, new CVEs
-- **Phase 8**: Asset lifecycle — stale/active/retired status, auto-retire
-- **Phase 9**: CVE improvements — per-finding evidence, confidence levels, risk scoring
-- **Phase 10**: Baselines and reporting — snapshot comparisons, scheduled reports
-- **Phase 11**: Integrations — Splunk, TrueNAS, Proxmox, syslog
-- **Phase 12**: UI polish — asset timeline, bulk operations, fingerprint pattern editor
+- **Phase 6 — Identity & access (SSO, local MFA, RBAC)** — **SAML 2.0** and **OIDC** for IdP-backed sign-in; **local authentication** (retain or evolve **`basic`** / **`session`**) with optional **MFA** for deployments that skip SSO: **TOTP** (RFC 6238) and **one-time recovery codes** (hashed at rest, single-use, regenerable) so users can regain access without SSO; **WebAuthn** / **FIDO2** (including **passkeys** or roaming security keys) as a **possible** addition if scope and packaging (e.g. Composer + a vetted library) allow — not a fixed commitment in the first cut; **RBAC** with app-defined roles (e.g. full admin, scan operator, read-only inventory, auditor) mapped from IdP **groups/claims** when using SSO and **assigned in-app** for local users; consistent enforcement for **PHP API routes** and UI; **audit attribution** (who queued a scan, changed settings, merged devices). Design so **Phase 7** collector tokens, schedule ownership, and future integrations reuse the same permission checks rather than a parallel auth model.
+- **Phase 7 — Collector architecture** — `collectors` table; registration + API token auth (scopes informed by **Phase 6** when RBAC is enabled); **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU).
+- **Phase 8**: Change detection — alerts on new assets, port changes, new CVEs
+- **Phase 9**: Asset lifecycle — stale/active/retired status, auto-retire
+- **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring
+- **Phase 11**: Baselines and reporting — snapshot comparisons, scheduled reports
+- **Phase 12**: Integrations — Splunk, TrueNAS, Proxmox, syslog
+- **Phase 13**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list
 
 ## License
 

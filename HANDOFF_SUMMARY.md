@@ -7,7 +7,7 @@ Use this as a context starter in a new conversation.
 ## Where things stand
 
 - **Phase 5 (device identity)** is **delivered** in-repo: schema + migrations, scanner linkage, APIs, UI, merge, docs. See **`docs/DEVICE_IDENTITY.md`** and the **Phase 5** changelog block in **`README.md`**.
-- **Next focus: Phase 6 — Collector architecture** (distributed agents / multi-site). Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
+- **Roadmap:** **`README.md`** — **Phase 6** is **identity & access** (SAML/OIDC, **local accounts** with **TOTP** + **recovery codes**, **possible** **WebAuthn/FIDO2/passkeys** if scope allows, RBAC); **Phase 7** is **collector architecture** (distributed agents / multi-site). Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
 
 ## Phase 5 — What shipped (reference)
 
@@ -34,7 +34,7 @@ Use this as a context starter in a new conversation.
 - **Merge** reassigns assets to the survivor and **deletes** merged device rows; a line is written to **`scan_log`** (`job_id` null).
 - **Devices** tab and **`/api/devices.php`** must be deployed together (`deploy.sh`).
 
-## Phase 6 — Suggested implementation order (thin slice first)
+## Phase 7 — Collector architecture (suggested implementation order, thin slice first)
 
 1. **`collectors` table** (+ migrations in `api/db.php` / daemon if needed) — `hostname`, `site`, token hash, `last_seen`, `status`, etc.
 2. **Registration** — issue raw token once, store hash; document rotation.
