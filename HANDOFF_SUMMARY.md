@@ -60,11 +60,12 @@ Use this as a context starter in a new conversation.
 2. **Registration** — issue raw token once, store hash; document rotation.
 3. **`api/collector_checkin.php`** — bearer token auth, update `last_seen` + optional payload.
 4. **`api/collector_jobs.php`** — atomic **lease** of one job for a collector (SQLite-safe claim pattern).
-5. **`api/collector_submit.php`** — idempotent result submission, tie into existing `scan_jobs` / asset pipeline as appropriate.
+5. **`api/collector_submit.php`** — idempotent result submission into an ingest queue/artifact store (not direct heavy upserts in request path).
 6. **`daemon/collector_agent.py`** (or `collector_agent.py` at repo root) — minimal loop: check-in → poll → execute stub or delegate → submit.
-7. **Management UI** — list collectors, last seen, revoke token, assign schedules (can follow after API is stable).
-8. **Rate limits + health** — per-collector caps; surface in **`/api/health.php`** or dedicated status.
-9. **First remote deploy** (e.g. GVSU) — validate TLS, clocks, and firewall paths against the slice above.
+7. **Ingest worker on master** — apply queued collector payloads into `assets` / findings / snapshots; run fingerprinting + CVE enrichment asynchronously; track state (`received`/`applying`/`done`/`failed`) with retries.
+8. **Management UI** — list collectors, last seen, revoke token, assign schedules (can follow after API is stable).
+9. **Rate limits + health** — per-collector caps; surface in **`/api/health.php`** or dedicated status.
+10. **First remote deploy** (e.g. GVSU) — validate TLS, clocks, and firewall paths against the slice above.
 
 ## Optional housekeeping (any phase)
 
