@@ -25,6 +25,7 @@
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
   <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
   <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
+  <button class="tbtn" id="btn-self-password" onclick="openPasswordChangeModal(false)">Change password</button>
   <button class="tbtn" onclick="logoutSession()">Sign out</button>
 </div>
 
@@ -873,7 +874,7 @@
       </div>
       <div class="card">
         <div class="ct">Access control</div>
-        <div class="help-line mb8">Define authentication mode, role assignments, and MFA for local users.</div>
+        <div class="help-line mb8">Manage sign-in mode, local users, and recovery options.</div>
         <div class="help-box mb10">
           <div class="help-line"><strong>Setup quick guide:</strong></div>
           <div class="help-line">1) Choose auth mode: <strong>Session</strong> (local accounts) or <strong>OIDC</strong>.</div>
@@ -911,8 +912,8 @@
           <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
           <div class="tbl-wrap mb8">
             <table class="tbl">
-              <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th>Disabled</th><th></th></tr></thead>
-              <tbody id="auth-users-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+              <thead><tr><th>Username</th><th>Role</th><th>MFA</th><th>Password</th><th>Disabled</th><th>Actions</th></tr></thead>
+              <tbody id="auth-users-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
             </table>
           </div>
           <div class="row-wrap mb10">
@@ -922,17 +923,18 @@
               <option value="scan_editor">scan_editor</option>
               <option value="admin">admin</option>
             </select>
-            <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password">
+            <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password (user changes on first login)">
             <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
           </div>
-          <div class="flbl">MFA (current user)</div>
+          <div class="flbl">MFA (your account)</div>
           <div class="row-wrap mb6">
-            <button class="tbtn" type="button" onclick="beginMfaSetup()">Generate MFA setup secret</button>
-            <button class="tbtn" type="button" onclick="disableMfaForSelf()">Disable MFA</button>
+            <button class="tbtn" type="button" id="btn-mfa-generate" onclick="beginMfaSetup()">Set up MFA</button>
+            <button class="tbtn" type="button" id="btn-mfa-disable" onclick="openMfaDisableModal()">Turn off MFA</button>
+            <button class="tbtn" type="button" onclick="openPasswordChangeModal(false)">Change my password</button>
           </div>
           <div id="mfa-setup-box" class="help-box hide">
             <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
-            <div class="help-line mb8">Add this secret to your authenticator app, then enter the generated 6-digit code.</div>
+            <div class="help-line mb8">Scan the QR (recommended) or enter the secret manually, then type the 6-digit code to finish setup.</div>
             <div class="mb8">
               <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
             </div>
@@ -943,7 +945,7 @@
               <input class="finp" id="mfa-enable-otp" placeholder="123456" style="width:140px">
               <button class="btnp" type="button" onclick="confirmMfaEnable()">Enable MFA</button>
             </div>
-            <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
+            <div class="hint-micro mt6">Recovery codes are shown once. Save them in a secure place.</div>
             <div id="mfa-recovery-box" class="mt10 hide">
               <div class="help-line mb6"><strong>Recovery codes (save now)</strong></div>
               <textarea id="mfa-recovery-codes" class="finp w100" rows="6" readonly></textarea>
@@ -1082,6 +1084,40 @@
   </div>
 </div>
 
+<!-- MFA disable modal -->
+<div id="mfa-disable-bg" class="modal-bg z220">
+  <div class="modal-card modal-w360">
+    <div class="modal-title">Disable MFA</div>
+    <div class="text-muted mb10">Enter your authenticator code or a single recovery code to turn off MFA.</div>
+    <label class="flbl">Authenticator code</label>
+    <input class="finp w100 mb8" id="mfa-disable-otp" placeholder="123456">
+    <label class="flbl">Recovery code (optional)</label>
+    <input class="finp w100 mb12" id="mfa-disable-recovery" placeholder="ABCD-1234">
+    <div class="row-end">
+      <button class="tbtn" type="button" onclick="closeMfaDisableModal()">Cancel</button>
+      <button class="btnp" type="button" onclick="confirmDisableMfa()">Disable MFA</button>
+    </div>
+  </div>
+</div>
+
+<!-- Password change modal -->
+<div id="pw-change-bg" class="modal-bg z220">
+  <div class="modal-card modal-w360">
+    <div class="modal-title">Change your password</div>
+    <div class="text-muted mb10" id="pw-change-msg">Enter your current password, then choose a new one.</div>
+    <label class="flbl">Current password</label>
+    <input class="finp w100 mb8" id="pw-change-current" type="password" autocomplete="current-password">
+    <label class="flbl">New password</label>
+    <input class="finp w100 mb8" id="pw-change-new" type="password" autocomplete="new-password">
+    <label class="flbl">Confirm new password</label>
+    <input class="finp w100 mb12" id="pw-change-confirm" type="password" autocomplete="new-password">
+    <div class="row-end">
+      <button class="tbtn" type="button" onclick="closePasswordChangeModal()">Cancel</button>
+      <button class="btnp" type="button" onclick="submitPasswordChange()">Save password</button>
+    </div>
+  </div>
+</div>
+
 <!-- Enrichment source modal -->
 <div id="esrc-bg" class="modal-bg z100">
   <div class="modal-card modal-w440">
@@ -1170,6 +1206,7 @@ var authMode = 'basic';
 var loginRequired = false;
 var currentUser = null;
 var currentUserRole = 'admin';
+var currentUserMfaEnabled = false;
 var breakglassEnabled = true;
 var breakglassUsername = 'admin';
 var scanDetailReturnDeviceId = 0;
@@ -1197,6 +1234,7 @@ var execChartSelection = {};
 var pendingMfaSecret = '';
 var pendingMfaOtpUri = '';
 var pendingRecoveryCodes = [];
+var mustChangePasswordPending = false;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -1259,6 +1297,13 @@ function updateAccessControlModeVisibility() {
     document.querySelectorAll('.oidc-only').forEach(el => {
         el.classList.toggle('hide', !showOidc);
     });
+}
+
+function updateMfaActionButtons() {
+    const genBtn = document.getElementById('btn-mfa-generate');
+    const disBtn = document.getElementById('btn-mfa-disable');
+    if (genBtn) genBtn.classList.toggle('hide', currentUserMfaEnabled);
+    if (disBtn) disBtn.classList.toggle('hide', !currentUserMfaEnabled);
 }
 
 function fmtFeedElapsed(ms) {
@@ -3301,6 +3346,12 @@ function closeConfirmModal(accepted) {
 document.getElementById('confirm-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeConfirmModal(false);
 });
+document.getElementById('mfa-disable-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeMfaDisableModal();
+});
+document.getElementById('pw-change-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closePasswordChangeModal();
+});
 
 // ==========================================================================
 // Enrichment sources
@@ -3400,6 +3451,7 @@ async function loadUiSettings() {
     const lockMin = document.getElementById('pp-lockout-min');
     if (lockMin) lockMin.value = String(d.login_lockout_minutes || 15);
     await loadAuthUsers();
+    updateMfaActionButtons();
 }
 
 async function savePasswordPolicy() {
@@ -3455,7 +3507,7 @@ async function loadAuthUsers() {
     if (!tbody) return;
     const r = await api('/api/auth.php?users=1');
     if (!r || !r.ok) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Role management unavailable for current account.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-dim">Role management unavailable for current account.</td></tr>';
         return;
     }
     const users = r.users || [];
@@ -3470,16 +3522,20 @@ async function loadAuthUsers() {
           </select>
         </td>
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
+        <td class="mono-sm">${u.must_change_password ? 'required' : 'ok'}</td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
-        <td><button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')">Save</button></td>
+        <td class="row-wrap">
+          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')">Save</button>
+          ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id},'${esc(u.username)}')">Clear MFA</button>` : ''}
+        </td>
       </tr>`).join('')
-      : '<tr><td colspan="5" class="text-dim">No users</td></tr>';
+      : '<tr><td colspan="6" class="text-dim">No users</td></tr>';
 }
 
 async function saveAuthUser(id, username) {
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
-    const pwd = prompt(`Optional: enter a new password for ${username} (leave blank to keep current).`, '');
+    const pwd = prompt(`Optional: set a new temporary password for ${username} (leave blank to keep current).`, '');
     const body = { id, username, role, disabled };
     if (pwd !== null && String(pwd).trim() !== '') body.password = String(pwd);
     const r = await apiPost('/api/auth.php?users=1', body);
@@ -3513,7 +3569,7 @@ async function createAuthUser() {
 async function beginMfaSetup() {
     const r = await apiPost('/api/auth.php?mfa_setup=1', {});
     if (!(r && r.ok && r.secret)) {
-        toast((r && r.error) ? r.error : 'MFA setup failed', 'err');
+        toast((r && r.error) ? r.error : 'Could not start MFA setup', 'err');
         return;
     }
     pendingMfaSecret = r.secret;
@@ -3539,9 +3595,9 @@ async function beginMfaSetup() {
             if (!pendingMfaOtpUri) return;
             try {
                 await navigator.clipboard.writeText(pendingMfaOtpUri);
-                toast('MFA setup URI copied', 'ok');
+                toast('Setup link copied', 'ok');
             } catch (e) {
-                toast('Copy failed; use the secret above instead', 'err');
+                toast('Could not copy setup link; use the secret above instead', 'err');
             }
         };
     }
@@ -3549,7 +3605,7 @@ async function beginMfaSetup() {
     if (recTa) recTa.value = '';
     if (recBox) recBox.classList.add('hide');
     if (box) box.classList.remove('hide');
-    toast('MFA secret generated. Scan QR or enter secret manually.', 'ok');
+    toast('MFA setup ready. Scan QR or enter the secret manually.', 'ok');
 }
 
 async function confirmMfaEnable() {
@@ -3562,6 +3618,8 @@ async function confirmMfaEnable() {
     if (r && r.ok) {
         pendingMfaSecret = '';
         pendingMfaOtpUri = '';
+        currentUserMfaEnabled = true;
+        updateMfaActionButtons();
         const box = document.getElementById('mfa-setup-box');
         if (box) box.classList.add('hide');
         const otpEl = document.getElementById('mfa-enable-otp');
@@ -3576,26 +3634,116 @@ async function confirmMfaEnable() {
         const recTa = document.getElementById('mfa-recovery-codes');
         if (recTa) recTa.value = pendingRecoveryCodes.join('\n');
         if (recBox) recBox.classList.toggle('hide', pendingRecoveryCodes.length === 0);
-        toast('MFA enabled', 'ok');
+        toast('MFA is now enabled', 'ok');
         loadAuthUsers();
     } else {
-        toast((r && r.error) ? r.error : 'MFA enable failed', 'err');
+        toast((r && r.error) ? r.error : 'Could not enable MFA', 'err');
     }
 }
 
 async function disableMfaForSelf() {
-    const code = prompt('Enter your current authenticator code OR recovery code to disable MFA:', '');
-    if (!code) return;
-    const normalized = String(code).trim();
-    const body = /^\w{4}-\w{4}$/i.test(normalized)
-        ? { recovery_code: normalized }
-        : { otp: normalized };
+    const otp = (document.getElementById('mfa-disable-otp')?.value || '').trim();
+    const recovery = (document.getElementById('mfa-disable-recovery')?.value || '').trim();
+    if (!otp && !recovery) {
+        toast('Enter an authenticator code or recovery code', 'err');
+        return;
+    }
+    const body = recovery ? { recovery_code: recovery } : { otp: otp };
     const r = await apiPost('/api/auth.php?mfa_disable=1', body);
     if (r && r.ok) {
-        toast('MFA disabled', 'ok');
+        closeMfaDisableModal();
+        currentUserMfaEnabled = false;
+        updateMfaActionButtons();
+        toast('MFA is now disabled', 'ok');
         loadAuthUsers();
     } else {
-        toast((r && r.error) ? r.error : 'MFA disable failed', 'err');
+        toast((r && r.error) ? r.error : 'Could not disable MFA', 'err');
+    }
+}
+
+function openMfaDisableModal() {
+    const bg = document.getElementById('mfa-disable-bg');
+    const otp = document.getElementById('mfa-disable-otp');
+    const recovery = document.getElementById('mfa-disable-recovery');
+    if (otp) otp.value = '';
+    if (recovery) recovery.value = '';
+    if (bg) bg.style.display = 'flex';
+    if (otp) otp.focus();
+}
+
+function closeMfaDisableModal() {
+    const bg = document.getElementById('mfa-disable-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function confirmDisableMfa() {
+    disableMfaForSelf();
+}
+
+async function resetUserMfa(id, username) {
+    const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
+    const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
+    const ok = await showConfirmModal(
+        `Clear MFA for ${username}? They will need to enroll MFA again at next sign-in.`,
+        { title: 'Clear user MFA', okText: 'Clear MFA' }
+    );
+    if (!ok) return;
+    const r = await apiPost('/api/auth.php?users=1', { id, username, role, disabled, reset_mfa: true });
+    if (r && r.ok) {
+        toast('User MFA cleared', 'ok');
+        loadAuthUsers();
+    } else {
+        toast((r && r.error) ? r.error : 'Could not clear user MFA', 'err');
+    }
+}
+
+function openPasswordChangeModal(required) {
+    mustChangePasswordPending = !!required;
+    const bg = document.getElementById('pw-change-bg');
+    const msg = document.getElementById('pw-change-msg');
+    const cur = document.getElementById('pw-change-current');
+    const nw = document.getElementById('pw-change-new');
+    const cf = document.getElementById('pw-change-confirm');
+    if (msg) msg.textContent = required
+        ? 'Password update required before continuing. Enter your temporary/current password, then choose a new password.'
+        : 'Enter your current password, then choose a new password.';
+    if (cur) cur.value = '';
+    if (nw) nw.value = '';
+    if (cf) cf.value = '';
+    if (bg) bg.style.display = 'flex';
+    if (cur) cur.focus();
+}
+
+function closePasswordChangeModal() {
+    if (mustChangePasswordPending) return;
+    const bg = document.getElementById('pw-change-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+async function submitPasswordChange() {
+    const currentPassword = document.getElementById('pw-change-current')?.value || '';
+    const newPassword = document.getElementById('pw-change-new')?.value || '';
+    const confirmPassword = document.getElementById('pw-change-confirm')?.value || '';
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        toast('Fill in all password fields', 'err');
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        toast('New passwords do not match', 'err');
+        return;
+    }
+    const r = await apiPost('/api/auth.php?password_change=1', {
+        current_password: currentPassword,
+        new_password: newPassword
+    });
+    if (r && r.ok) {
+        mustChangePasswordPending = false;
+        const bg = document.getElementById('pw-change-bg');
+        if (bg) bg.style.display = 'none';
+        if (currentUser) currentUser.must_change_password = false;
+        toast('Password updated successfully', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Could not change password', 'err');
     }
 }
 
@@ -5300,6 +5448,8 @@ document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     closeDevicePanel();
     closeHostPanel();
+    closeMfaDisableModal();
+    closePasswordChangeModal();
 });
 
 // ==========================================================================
@@ -5333,10 +5483,21 @@ async function initAuthMode() {
     breakglassUsername = r.breakglass_username || 'admin';
     currentUser = r.user || null;
     currentUserRole = (currentUser && currentUser.role) ? currentUser.role : 'admin';
+    currentUserMfaEnabled = !!r.current_mfa_enabled;
+    updateMfaActionButtons();
+    const selfPwBtn = document.getElementById('btn-self-password');
+    if (selfPwBtn) {
+        const showSelfPw = (authMode === 'session') && !!(currentUser && currentUser.id > 0);
+        selfPwBtn.style.display = showSelfPw ? '' : 'none';
+    }
     applyRoleAwareUi();
     if ((authMode === 'session' || authMode === 'oidc') && r.requires_auth && !r.authed) {
         loginRequired = true;
         openLoginModal(authMode === 'session' ? 'Session sign-in required.' : 'Single sign-on required.');
+        return;
+    }
+    if (currentUser && currentUser.must_change_password) {
+        openPasswordChangeModal(true);
     }
 }
 

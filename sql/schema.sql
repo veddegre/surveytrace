@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS users (
     disabled         INTEGER DEFAULT 0,
     mfa_enabled      INTEGER DEFAULT 0,
     mfa_totp_secret  TEXT,
+    must_change_password INTEGER DEFAULT 0,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_login_at    DATETIME

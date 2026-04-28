@@ -30,7 +30,7 @@ function st_auth_mode(): string {
 
 function st_find_local_user(PDO $db, string $username): ?array {
     $stmt = $db->prepare("
-        SELECT id, username, password_hash, role, disabled, mfa_enabled, mfa_totp_secret
+        SELECT id, username, password_hash, role, disabled, mfa_enabled, mfa_totp_secret, must_change_password
         FROM users
         WHERE auth_source='local' AND lower(username)=lower(?)
         LIMIT 1
@@ -79,6 +79,16 @@ $current = st_current_user();
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
     $timeoutMin = max(5, min(10080, (int)st_config('session_timeout_minutes', '480')));
     $authed = !empty($_SESSION['st_authed']) || (!$requiresAuth);
+    $currentMfaEnabled = false;
+    $mustChangePassword = !empty($current['must_change_password']);
+    if ($authed && $current['id'] > 0) {
+        $mfaStmt = $db->prepare("SELECT mfa_enabled, must_change_password FROM users WHERE id=? LIMIT 1");
+        $mfaStmt->execute([(int)$current['id']]);
+        $flags = $mfaStmt->fetch() ?: [];
+        $currentMfaEnabled = ((int)($flags['mfa_enabled'] ?? 0) === 1);
+        $mustChangePassword = ((int)($flags['must_change_password'] ?? 0) === 1);
+        $current['must_change_password'] = $mustChangePassword;
+    }
     st_release_session_lock();
     st_json([
         'ok' => true,
@@ -96,6 +106,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['status'])) {
             'login_max_attempts' => st_login_max_attempts(),
             'login_lockout_minutes' => st_login_lockout_minutes(),
         ],
+        'current_mfa_enabled' => $currentMfaEnabled,
     ]);
 }
 
@@ -103,7 +114,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['users'])) {
     st_auth();
     st_require_role(['admin']);
     $rows = $db->query("
-        SELECT id, username, role, auth_source, disabled, mfa_enabled, created_at, updated_at, last_login_at
+        SELECT id, username, role, auth_source, disabled, mfa_enabled, must_change_password, created_at, updated_at, last_login_at
         FROM users
         ORDER BY lower(username) ASC
     ")->fetchAll();
@@ -120,7 +131,7 @@ if (isset($_GET['login'])) {
         st_json(['error' => 'Login endpoint available only in session/SSO modes', 'auth_mode' => $mode], 400);
     }
     if (!$requiresAuth) {
-        st_set_session_user(0, 'admin', 'admin');
+        st_set_session_user(0, 'admin', 'admin', false);
         st_release_session_lock();
         st_json(['ok' => true, 'authed' => true, 'user' => st_current_user()]);
     }
@@ -171,16 +182,17 @@ if (isset($_GET['login'])) {
             $db->prepare("UPDATE users SET password_hash=?, updated_at=datetime('now') WHERE id=?")
                ->execute([st_password_hash($password), (int)$urow['id']]);
         }
-        st_set_session_user((int)$urow['id'], (string)$urow['username'], (string)$urow['role']);
+        $mustChange = (int)($urow['must_change_password'] ?? 0) === 1;
+        st_set_session_user((int)$urow['id'], (string)$urow['username'], (string)$urow['role'], $mustChange);
         $db->prepare("UPDATE users SET last_login_at=datetime('now'), updated_at=datetime('now') WHERE id=?")->execute([(int)$urow['id']]);
         st_login_register_success($username, $ip);
         st_release_session_lock();
-        st_json(['ok' => true, 'authed' => true, 'user' => st_current_user()]);
+        st_json(['ok' => true, 'authed' => true, 'user' => st_current_user(), 'must_change_password' => $mustChange]);
     }
 
     // Legacy fallback while old auth_hash may still exist
     if ($username === 'admin' && !empty($legacyHash) && password_verify($password, $legacyHash)) {
-        st_set_session_user(0, 'admin', 'admin');
+        st_set_session_user(0, 'admin', 'admin', false);
         st_login_register_success($username, $ip);
         st_release_session_lock();
         st_json(['ok' => true, 'authed' => true, 'user' => st_current_user()]);
@@ -218,6 +230,27 @@ if (isset($_GET['mfa_enable'])) {
     st_json(['ok' => true, 'recovery_codes' => $codes]);
 }
 
+if (isset($_GET['password_change'])) {
+    st_auth();
+    $u = st_current_user();
+    if ($u['id'] <= 0) st_json(['error' => 'Password change unavailable for legacy account'], 400);
+    $currentPassword = (string)($body['current_password'] ?? '');
+    $newPassword = (string)($body['new_password'] ?? '');
+    if ($newPassword === '') st_json(['error' => 'new_password required'], 400);
+    $pwErrors = st_validate_password_strength($newPassword);
+    if ($pwErrors) st_json(['error' => implode(' ', $pwErrors)], 400);
+    $row = $db->prepare("SELECT password_hash FROM users WHERE id=? AND auth_source='local' LIMIT 1");
+    $row->execute([$u['id']]);
+    $hash = (string)$row->fetchColumn();
+    if ($hash === '' || !password_verify($currentPassword, $hash)) {
+        st_json(['error' => 'Current password is incorrect'], 400);
+    }
+    $db->prepare("UPDATE users SET password_hash=?, must_change_password=0, updated_at=datetime('now') WHERE id=?")
+       ->execute([st_password_hash($newPassword), $u['id']]);
+    st_release_session_lock();
+    st_json(['ok' => true]);
+}
+
 if (isset($_GET['mfa_disable'])) {
     st_auth();
     st_require_role(['admin']);
@@ -246,6 +279,7 @@ if (isset($_GET['users'])) {
     $username = trim((string)($body['username'] ?? ''));
     $role = st_normalize_role((string)($body['role'] ?? 'viewer'));
     $password = (string)($body['password'] ?? '');
+    $resetMfa = !empty($body['reset_mfa']);
     $disabled = !empty($body['disabled']) ? 1 : 0;
     if ($username === '') st_json(['error' => 'username required'], 400);
     if ($id > 0) {
@@ -256,8 +290,12 @@ if (isset($_GET['users'])) {
             if ($pwErrors) {
                 st_json(['error' => implode(' ', $pwErrors)], 400);
             }
-            $db->prepare("UPDATE users SET password_hash=?, updated_at=datetime('now') WHERE id=?")
+            $db->prepare("UPDATE users SET password_hash=?, must_change_password=1, updated_at=datetime('now') WHERE id=?")
                ->execute([st_password_hash($password), $id]);
+        }
+        if ($resetMfa) {
+            $db->prepare("UPDATE users SET mfa_enabled=0, mfa_totp_secret=NULL, updated_at=datetime('now') WHERE id=?")->execute([$id]);
+            $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$id]);
         }
         st_release_session_lock();
         st_json(['ok' => true, 'id' => $id]);
@@ -268,8 +306,8 @@ if (isset($_GET['users'])) {
         st_json(['error' => implode(' ', $pwErrors)], 400);
     }
     $ins = $db->prepare("
-        INSERT INTO users (username, password_hash, role, auth_source, disabled)
-        VALUES (?, ?, ?, 'local', ?)
+        INSERT INTO users (username, password_hash, role, auth_source, disabled, must_change_password)
+        VALUES (?, ?, ?, 'local', ?, 1)
     ");
     $ins->execute([$username, st_password_hash($password), $role, $disabled]);
     st_release_session_lock();

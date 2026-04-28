@@ -107,11 +107,20 @@ function st_db(): PDO {
             disabled         INTEGER DEFAULT 0,
             mfa_enabled      INTEGER DEFAULT 0,
             mfa_totp_secret  TEXT,
+            must_change_password INTEGER DEFAULT 0,
             created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_login_at    DATETIME
         )"
     );
+    $userCols = array_column($pdo->query("PRAGMA table_info(users)")->fetchAll(), 'name');
+    if (!in_array('must_change_password', $userCols, true)) {
+        try {
+            $pdo->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0");
+        } catch (Throwable $e) {
+            // no-op if already added concurrently
+        }
+    }
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_users_oidc ON users(auth_source, oidc_issuer, oidc_sub)');
     $pdo->exec(
@@ -442,12 +451,13 @@ function st_auth(): void {
     st_json(['error' => 'Authentication required', 'auth_mode' => $mode], 401);
 }
 
-function st_set_session_user(int $id, string $username, string $role): void {
+function st_set_session_user(int $id, string $username, string $role, bool $mustChangePassword = false): void {
     $_SESSION['st_authed'] = true;
     $_SESSION['st_authed_at'] = time();
     $_SESSION['st_uid'] = $id;
     $_SESSION['st_user'] = $username;
     $_SESSION['st_role'] = st_normalize_role($role);
+    $_SESSION['st_must_change_password'] = $mustChangePassword ? 1 : 0;
 }
 
 function st_normalize_role(string $role): string {
@@ -467,6 +477,7 @@ function st_current_user(): array {
         'id' => (int)($_SESSION['st_uid'] ?? 0),
         'username' => (string)($_SESSION['st_user'] ?? 'admin'),
         'role' => st_current_role(),
+        'must_change_password' => !empty($_SESSION['st_must_change_password']),
     ];
 }
 
