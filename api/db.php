@@ -545,7 +545,8 @@ function st_audit_log(
             st_request_ip(),
         ]);
     } catch (Throwable $e) {
-        // Keep auth paths resilient even if logging fails.
+        // Keep auth paths resilient even if logging fails, but emit diagnostics.
+        @error_log('SurveyTrace audit log write failed: ' . (string)$e->getMessage());
     }
 }
 

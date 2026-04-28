@@ -3668,14 +3668,7 @@ async function loadAuthUsers() {
         </td>
       </tr>`).join('')
       : '<tr><td colspan="6" class="text-dim">No users</td></tr>';
-    await loadAuthLive().catch(() => {
-        const liveTbody = document.getElementById('auth-live-tbody');
-        if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
-    });
-    await loadAuthAudit().catch(() => {
-        const auditTbody = document.getElementById('auth-audit-tbody');
-        if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
-    });
+    void Promise.allSettled([loadAuthLive(), loadAuthAudit()]);
 }
 
 function renderAuditAction(action) {
@@ -3717,7 +3710,7 @@ async function loadAuthAudit() {
     const tbody = document.getElementById('auth-audit-tbody');
     if (!tbody) return;
     try {
-        const r = await api('/api/auth.php?audit=1&limit=100');
+        const r = await api('/api/auth.php?audit=1&limit=50');
         if (!r || !r.ok) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
             return;

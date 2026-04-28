@@ -228,15 +228,18 @@ if (isset($_GET['login'])) {
     $otp = trim((string)($body['otp'] ?? ''));
     $recoveryCode = trim((string)($body['recovery_code'] ?? ''));
     if ($username === '' || $password === '') {
+        st_audit_log('auth.login_rejected', null, null, null, $username, ['reason' => 'missing_username_or_password']);
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'username and password required'], 400);
     }
     if ($mode === 'oidc') {
         if (!$breakglassEnabled) {
+            st_audit_log('auth.login_rejected', null, null, null, $username, ['reason' => 'breakglass_disabled']);
             st_release_session_lock();
             st_json(['ok' => false, 'error' => 'Local sign-in is disabled in SSO mode'], 403);
         }
         if ($breakglassUser !== '' && strcasecmp($username, $breakglassUser) !== 0) {
+            st_audit_log('auth.login_rejected', null, null, null, $username, ['reason' => 'not_breakglass_user']);
             st_release_session_lock();
             st_json(['ok' => false, 'error' => 'Use SSO for normal sign-in; breakglass is limited to the emergency account'], 403);
         }
@@ -244,6 +247,10 @@ if (isset($_GET['login'])) {
     $ip = st_login_ip();
     $lock = st_login_lock_state($username, $ip);
     if (!empty($lock['locked'])) {
+        st_audit_log('auth.login_rejected', null, null, null, $username, [
+            'reason' => 'locked_out',
+            'retry_after_sec' => (int)$lock['retry_after_sec'],
+        ]);
         st_release_session_lock();
         st_json([
             'ok' => false,
@@ -261,6 +268,7 @@ if (isset($_GET['login'])) {
             $recoveryOk = (!$otpOk && $recoveryCode !== '' && st_consume_recovery_code($db, (int)$urow['id'], $recoveryCode));
             if (!$otpOk && !$recoveryOk) {
                 st_login_register_failure($username, $ip);
+                st_audit_log('auth.login_failure', null, null, (int)$urow['id'], (string)$urow['username'], ['reason' => 'mfa_required_or_invalid']);
                 st_release_session_lock();
                 st_json(['ok' => false, 'mfa_required' => true, 'error' => 'MFA code required'], 401);
             }
