@@ -3685,9 +3685,13 @@ async function loadAuthLive() {
     const tbody = document.getElementById('auth-live-tbody');
     if (!tbody) return;
     try {
-        const r = await api('/api/auth.php?audit_live=1');
-        if (!r || !r.ok) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+        const resp = await fetch('/api/auth.php?audit_live=1', { credentials: 'same-origin' });
+        const raw = await resp.text();
+        let r = null;
+        try { r = raw ? JSON.parse(raw) : null; } catch (e) { r = null; }
+        if (!resp.ok || !r || !r.ok) {
+            const msg = (r && (r.error || r.detail)) ? String(r.error || r.detail) : (`HTTP ${resp.status}`);
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Live auth view unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
             return;
         }
         const rows = Array.isArray(r.live) ? r.live : [];
@@ -3714,9 +3718,13 @@ async function loadAuthAudit() {
     const tbody = document.getElementById('auth-audit-tbody');
     if (!tbody) return;
     try {
-        const r = await api('/api/auth.php?audit=1&limit=50');
-        if (!r || !r.ok) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+        const resp = await fetch('/api/auth.php?audit=1&limit=50', { credentials: 'same-origin' });
+        const raw = await resp.text();
+        let r = null;
+        try { r = raw ? JSON.parse(raw) : null; } catch (e) { r = null; }
+        if (!resp.ok || !r || !r.ok) {
+            const msg = (r && (r.error || r.detail)) ? String(r.error || r.detail) : (`HTTP ${resp.status}`);
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Audit log unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
             return;
         }
         const rows = Array.isArray(r.audit) ? r.audit : [];

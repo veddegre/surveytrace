@@ -43,6 +43,25 @@ function st_find_local_user(PDO $db, string $username): ?array {
     return $row ?: null;
 }
 
+function st_auth_ensure_audit_table(PDO $db): void {
+    $db->exec(
+        "CREATE TABLE IF NOT EXISTS user_audit_log (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            actor_username   TEXT,
+            target_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            target_username  TEXT,
+            action           TEXT NOT NULL,
+            details_json     TEXT,
+            source_ip        TEXT,
+            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_actor ON user_audit_log(actor_user_id, created_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_user_id, created_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC)');
+}
+
 function st_auth_endpoint_error(Throwable $e): never {
     $msg = trim((string)$e->getMessage());
     $lower = strtolower($msg);
@@ -155,7 +174,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit'])) {
     try {
         st_auth();
         st_require_role(['admin']);
-        st_ensure_user_audit_schema();
+        st_auth_ensure_audit_table($db);
+        if (function_exists('st_ensure_user_audit_schema')) {
+            st_ensure_user_audit_schema();
+        }
         $limit = (int)($_GET['limit'] ?? 100);
         $limit = max(10, min(500, $limit));
         $targetUserId = (int)($_GET['target_user_id'] ?? 0);
