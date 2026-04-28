@@ -25,11 +25,11 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
 - **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
-- **Enrichment** — optional Phase 3b metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources; per-scan source selection on the Scan tab (omit = all enabled sources)
+- **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
-- **Device identity (Phase 5)** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
+- **Device identity** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
 
 ## Requirements
 
@@ -237,8 +237,6 @@ Set `auth_mode` in **Access control** (or directly in `config`). Supported UI mo
 - **My profile self-service** — users manage display name/email and (for local accounts) password + MFA in **My profile**.
 - **MFA** — local accounts support TOTP + one-time recovery codes; OIDC-authenticated accounts treat password/MFA as IdP-managed.
 - **MFA QR generation** — QR images are generated locally via `api/auth_qr.php` + `qrencode`; MFA secrets are not sent to external QR services.
-
-**Phase 6 (planned):** extend **OIDC** + **local accounts** with optional **MFA** — **TOTP** (RFC 6238 authenticator apps) and **one-time recovery codes** for lockout recovery when authenticators are lost; **possible** (not yet committed) **WebAuthn** / **FIDO2** support, including **passkeys** or security keys, depending on dependency choices (e.g. a maintained server library) and scope; and in-app **RBAC** (roles from IdP claims/groups for SSO users, and app-assigned roles for local users). Intended to extend today’s **`basic`** / **`session`** / **`oidc`** model rather than replace it abruptly — see Roadmap below.
 
 ## Architecture
 
