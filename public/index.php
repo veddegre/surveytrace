@@ -117,6 +117,8 @@
       <div class="sc r"><div class="sl">Open security issues</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
       <div class="sc"><div class="sl">Scans run (7d)</div><div class="sv" id="ex-scans">—</div><div class="ss" id="ex-scans-fail">—</div></div>
       <div class="sc a"><div class="sl">New issues found (7d)</div><div class="sv" id="ex-findings-new">—</div><div class="ss">new issues this week</div></div>
+      <div class="sc r"><div class="sl">Critical issues open</div><div class="sv" id="ex-critical-open">—</div><div class="ss">highest urgency</div></div>
+      <div class="sc"><div class="sl">High-priority issues open</div><div class="sv" id="ex-high-open">—</div><div class="ss">near-term remediation</div></div>
       <div class="sc"><div class="sl">Scan success rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">completed successfully</div></div>
       <div class="sc"><div class="sl">Avg scan time (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
     </div>
@@ -1724,6 +1726,8 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     document.getElementById('ex-scans').textContent = k.scans_7d ?? 0;
     document.getElementById('ex-scans-fail').textContent = `${k.scan_fail_7d ?? 0} did not complete`;
     document.getElementById('ex-findings-new').textContent = k.findings_new_7d ?? 0;
+    document.getElementById('ex-critical-open').textContent = k.critical_open ?? 0;
+    document.getElementById('ex-high-open').textContent = k.high_open ?? 0;
     document.getElementById('ex-comp-rate').textContent = `${k.completion_rate_14d ?? 0}%`;
     const avgDur = Number(k.avg_scan_duration_7d_sec || 0);
     document.getElementById('ex-avg-dur').textContent = avgDur >= 3600
