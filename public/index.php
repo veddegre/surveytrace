@@ -805,11 +805,11 @@
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap mb8">
         <table class="tbl" id="auth-users-table">
-          <thead><tr><th>Username</th><th>Display name</th><th>Email</th><th>Role</th><th>MFA</th><th>Force password change</th><th>Disabled</th><th>Actions</th></tr></thead>
+          <thead><tr><th>User</th><th>Name</th><th>Email</th><th>Role</th><th>MFA</th><th title="Require password change at next sign-in">Force change</th><th>Disabled</th><th>Actions</th></tr></thead>
           <tbody id="auth-users-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
         </table>
       </div>
-      <div class="hint-micro mb8">Use <strong>Save</strong> for account updates, and <strong>Password…</strong> for temporary password resets. <strong>Force password change</strong> requires that user to set a new password at next sign-in.</div>
+      <div class="hint-micro mb8"><strong>Save</strong> updates fields. <strong>Password…</strong> sets a temporary password. <strong>Force change</strong> requires reset at next sign-in.</div>
       <div class="row-wrap mb10">
         <input class="finp" id="new-auth-user" placeholder="new username">
         <select class="finp" id="new-auth-role">
@@ -3687,7 +3687,7 @@ async function loadAuthUsers() {
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="user-row-actions">
           <button class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
-          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Open temporary password reset modal">Password…</button>
+          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Pwd…</button>
           ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
           <button class="tbtn btn-xs" onclick="deleteAuthUser(${u.id})">Delete</button>
         </td>
