@@ -161,6 +161,7 @@
       <tbody id="asset-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
+  <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
   <div class="pgn">
     <button id="aprev" onclick="loadAssets(assetPage-1)" disabled>&#8592; Prev</button>
     <span id="apgn-info">—</span>
@@ -1823,7 +1824,10 @@ async function loadAssets(page) {
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
-          <td><button class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button></td>
+          <td>
+            <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
+            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button>
+          </td>
         </tr>`;
     }).join('') || '<tr><td colspan="10" class="loading">No assets found</td></tr>';
 
