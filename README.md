@@ -49,7 +49,7 @@ The web UI will be available at `http://your-server-ip/`
 # System dependencies
 sudo apt update
 sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 \
-    apache2 libapache2-mod-php nmap sqlite3
+    apache2 libapache2-mod-php nmap sqlite3 qrencode
 
 # Service user
 sudo useradd -r -s /bin/false -d /opt/surveytrace surveytrace

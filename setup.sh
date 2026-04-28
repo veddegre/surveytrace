@@ -62,7 +62,7 @@ REQUIRED_PKGS=(
     git
     curl
     sqlite3
-    qrencode
+    qrencode        # required for local MFA QR generation
 )
 
 OPTIONAL_PKGS=(
