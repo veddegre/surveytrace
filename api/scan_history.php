@@ -233,6 +233,22 @@ if ($id > 0) {
         [$prevIps, $prevIpPorts] = $loadAssetsForJob((int)$cmpJob['id']);
         $curCves = $loadOpenCvesForJob((int)$id);
         $prevCves = $loadOpenCvesForJob((int)$cmpJob['id']);
+        $addedHostPorts = array_values(array_diff($curIpPorts, $prevIpPorts));
+        $removedHostPorts = array_values(array_diff($prevIpPorts, $curIpPorts));
+        $extractPorts = function(array $pairs): array {
+            $set = [];
+            foreach ($pairs as $pair) {
+                $parts = explode(':', (string)$pair);
+                if (count($parts) < 2) continue;
+                $p = (int)end($parts);
+                if ($p > 0 && $p <= 65535) $set[$p] = 1;
+            }
+            $ports = array_map('intval', array_keys($set));
+            sort($ports, SORT_NUMERIC);
+            return $ports;
+        };
+        $addedPorts = $extractPorts($addedHostPorts);
+        $removedPorts = $extractPorts($removedHostPorts);
 
         $compare = [
             'compared_job' => [
@@ -249,8 +265,10 @@ if ($id > 0) {
                 'removed' => array_slice(array_values(array_diff($prevIps, $curIps)), 0, 25),
             ],
             'ports' => [
-                'added' => count(array_diff($curIpPorts, $prevIpPorts)),
-                'removed' => count(array_diff($prevIpPorts, $curIpPorts)),
+                'added' => count($addedHostPorts),
+                'removed' => count($removedHostPorts),
+                'added_ports' => array_slice($addedPorts, 0, 30),
+                'removed_ports' => array_slice($removedPorts, 0, 30),
             ],
             'cves' => [
                 'open_current' => count($curCves),

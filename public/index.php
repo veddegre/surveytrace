@@ -2381,10 +2381,13 @@ function renderScanDiff(diff) {
     const remHosts = Array.isArray(h.removed) ? h.removed : [];
     const newCves = Array.isArray(c.new_open) ? c.new_open : [];
     const resCves = Array.isArray(c.resolved) ? c.resolved : [];
+    const addPorts = Array.isArray(p.added_ports) ? p.added_ports : [];
+    const remPorts = Array.isArray(p.removed_ports) ? p.removed_ports : [];
     return `
       <div><strong>Diff vs scan #${esc(cj.id || '—')}</strong> (${esc(cj.label || 'untitled')})</div>
       <div class="summary-line">Hosts: <b>${h.current || 0}</b> now vs <b>${h.previous || 0}</b> prior &nbsp;|&nbsp; +${addHosts.length} / -${remHosts.length}</div>
       <div class="summary-line">Ports: +<b>${p.added || 0}</b> / -<b>${p.removed || 0}</b> host-port pairs</div>
+      ${(addPorts.length || remPorts.length) ? `<div class="summary-line">Ports changed: ${addPorts.length ? `+ ${esc(addPorts.join(', '))}` : ''}${remPorts.length ? `${addPorts.length ? ' &nbsp;|&nbsp; ' : ''}- ${esc(remPorts.join(', '))}` : ''}</div>` : ''}
       <div class="summary-line">Open CVEs: <b>${c.open_current || 0}</b> now vs <b>${c.open_previous || 0}</b> prior &nbsp;|&nbsp; new <b>${newCves.length}</b> / resolved <b>${resCves.length}</b></div>
       ${(addHosts.length || remHosts.length) ? `<div class="summary-line">Hosts changed: ${addHosts.length ? `+ ${esc(addHosts.slice(0, 8).join(', '))}` : ''}${remHosts.length ? `${addHosts.length ? ' &nbsp;|&nbsp; ' : ''}- ${esc(remHosts.slice(0, 8).join(', '))}` : ''}</div>` : ''}
       ${(newCves.length || resCves.length) ? `<div class="summary-line">CVEs changed: ${newCves.length ? `+ ${esc(newCves.slice(0, 6).join(', '))}` : ''}${resCves.length ? `${newCves.length ? ' &nbsp;|&nbsp; ' : ''}resolved ${esc(resCves.slice(0, 6).join(', '))}` : ''}</div>` : ''}
