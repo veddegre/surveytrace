@@ -225,10 +225,10 @@ $delta = function(int $curr, int $prev): array {
 };
 
 $summary_bullets = [];
-$summary_bullets[] = "Risk pressure is " . ($curr_risk_pressure > $prev_risk_pressure ? "up" : ($curr_risk_pressure < $prev_risk_pressure ? "down" : "flat")) .
-    " (" . $curr_risk_pressure . " vs " . $prev_risk_pressure . ") compared to the previous " . $trend_days . " days.";
-$summary_bullets[] = "Completion rate is " . $curr_completion_rate . "% (" . $curr_scans_done . "/" . $curr_scans_total . " scans done).";
-$summary_bullets[] = "New findings this period: " . $curr_findings_new . " (critical: " . $curr_critical_new . ", high: " . $curr_high_new . ").";
+$summary_bullets[] = "Overall risk trend is " . ($curr_risk_pressure > $prev_risk_pressure ? "rising" : ($curr_risk_pressure < $prev_risk_pressure ? "improving" : "stable")) .
+    " (" . $curr_risk_pressure . " vs " . $prev_risk_pressure . " in the prior " . $trend_days . "-day period).";
+$summary_bullets[] = "Scan success rate is " . $curr_completion_rate . "% (" . $curr_scans_done . " of " . $curr_scans_total . " scans completed).";
+$summary_bullets[] = "New issues identified this period: " . $curr_findings_new . " total (" . $curr_critical_new . " critical, " . $curr_high_new . " high).";
 
 // ---------------------------------------------------------------------------
 // Last scan metadata

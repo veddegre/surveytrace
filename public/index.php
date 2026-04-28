@@ -100,45 +100,47 @@
     </div>
   </div>
   <div id="dash-exec">
-    <div class="card">
-      <div class="ct">Executive brief</div>
-      <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
-      <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+    <div class="exec-top-grid">
+      <div class="card exec-top-card">
+        <div class="ct">Executive highlights</div>
+        <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
+        <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+      </div>
+      <div class="card exec-top-card">
+        <div class="ct">Recommended actions (next 24h)</div>
+        <div id="exec-actions" class="exec-brief-list">Loading…</div>
+      </div>
     </div>
-    <div class="card">
-      <div class="ct">Executive actions (next 24h)</div>
-      <div id="exec-actions" class="exec-brief-list">Loading…</div>
-    </div>
-    <div class="sth">Executive summary</div>
+    <div class="sth">Security posture overview</div>
     <div class="sgrid" id="exec-kpis">
-      <div class="sc g"><div class="sl">Assets</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
-      <div class="sc r"><div class="sl">Open findings</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
-      <div class="sc"><div class="sl">Scans (7d)</div><div class="sv" id="ex-scans">—</div><div class="ss" id="ex-scans-fail">—</div></div>
-      <div class="sc a"><div class="sl">New findings (7d)</div><div class="sv" id="ex-findings-new">—</div><div class="ss">recent discovery rate</div></div>
-      <div class="sc"><div class="sl">Completion rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">successful scan ratio</div></div>
-      <div class="sc"><div class="sl">Avg scan duration (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
+      <div class="sc g"><div class="sl">Total systems tracked</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
+      <div class="sc r"><div class="sl">Open security issues</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
+      <div class="sc"><div class="sl">Scans run (7d)</div><div class="sv" id="ex-scans">—</div><div class="ss" id="ex-scans-fail">—</div></div>
+      <div class="sc a"><div class="sl">New issues found (7d)</div><div class="sv" id="ex-findings-new">—</div><div class="ss">new issues this week</div></div>
+      <div class="sc"><div class="sl">Scan success rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">completed successfully</div></div>
+      <div class="sc"><div class="sl">Avg scan time (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
     </div>
     <div class="sgrid" style="margin-top:12px">
       <div class="card">
-        <div class="ct">Findings discovered (14d)</div>
+        <div class="ct">Issues identified (14d)</div>
         <div id="exec-trend-findings" class="exec-chart"></div>
       </div>
       <div class="card">
-        <div class="ct">New assets discovered (14d)</div>
+        <div class="ct">New systems discovered (14d)</div>
         <div id="exec-trend-assets" class="exec-chart"></div>
       </div>
     </div>
     <div class="sgrid" style="margin-top:12px">
       <div class="card">
-        <div class="ct">Scan reliability + risk pressure (14d)</div>
+        <div class="ct">Scan reliability + risk trend (14d)</div>
         <div id="exec-trend-scans" class="exec-chart"></div>
       </div>
       <div class="card">
-        <div class="ct">Open severity mix</div>
+        <div class="ct">Issue severity mix</div>
         <div id="exec-severity" class="help-mono">Loading…</div>
       </div>
     </div>
-    <div class="sth section-top">Priority assets</div>
+    <div class="sth section-top">Highest-priority systems</div>
     <div class="tbl-wrap mb16">
       <table class="tbl"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
       <tbody id="exec-top-risky"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
@@ -1716,18 +1718,18 @@ function renderExecLineChart(targetId, series, labels) {
 function renderExecutiveDashboard(exec, fallbackTopVuln) {
     const k = exec.kpis || {};
     document.getElementById('ex-assets').textContent = k.assets_total ?? 0;
-    document.getElementById('ex-assets-new').textContent = `+${k.assets_new_7d ?? 0} in last 7d`;
+    document.getElementById('ex-assets-new').textContent = `+${k.assets_new_7d ?? 0} added in last 7 days`;
     document.getElementById('ex-findings').textContent = k.open_findings ?? 0;
-    document.getElementById('ex-findings-sev').textContent = `${k.critical_open ?? 0} critical, ${k.high_open ?? 0} high`;
+    document.getElementById('ex-findings-sev').textContent = `${k.critical_open ?? 0} critical, ${k.high_open ?? 0} high priority`;
     document.getElementById('ex-scans').textContent = k.scans_7d ?? 0;
-    document.getElementById('ex-scans-fail').textContent = `${k.scan_fail_7d ?? 0} failed/aborted`;
+    document.getElementById('ex-scans-fail').textContent = `${k.scan_fail_7d ?? 0} did not complete`;
     document.getElementById('ex-findings-new').textContent = k.findings_new_7d ?? 0;
     document.getElementById('ex-comp-rate').textContent = `${k.completion_rate_14d ?? 0}%`;
     const avgDur = Number(k.avg_scan_duration_7d_sec || 0);
     document.getElementById('ex-avg-dur').textContent = avgDur >= 3600
         ? `${(avgDur / 3600).toFixed(1)}h`
         : `${Math.max(0, Math.round(avgDur / 60))}m`;
-    document.getElementById('ex-sla').textContent = `${k.scan_sla_7d ?? 0} scans <= 60m`;
+    document.getElementById('ex-sla').textContent = `${k.scan_sla_7d ?? 0} scans finished within 60m`;
 
     const trend = Array.isArray(exec.trend_14d) ? exec.trend_14d : [];
     const trendSel = document.getElementById('exec-trend-range');
@@ -1764,10 +1766,10 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         </div>`;
     };
     document.getElementById('exec-brief-deltas').innerHTML = [
-        metricChip('Risk pressure', cmp.risk_pressure, false),
-        metricChip('Completion rate', cmp.completion_rate, true),
-        metricChip('New findings', cmp.findings_new, false),
-        metricChip('New assets', cmp.assets_new, false),
+        metricChip('Risk trend', cmp.risk_pressure, false),
+        metricChip('Scan success rate', cmp.completion_rate, true),
+        metricChip('New issues', cmp.findings_new, false),
+        metricChip('New systems', cmp.assets_new, false),
     ].join('');
     const brief = Array.isArray(exec.brief) ? exec.brief : [];
     document.getElementById('exec-brief-list').innerHTML = brief.length
@@ -1776,20 +1778,20 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
 
     const actions = [];
     if ((k.critical_open || 0) > 0) {
-        actions.push(`Prioritize remediation for ${k.critical_open} critical findings; focus on internet-facing hosts first.`);
+        actions.push(`Address the ${k.critical_open} critical issues first, starting with externally accessible systems.`);
     }
     if ((k.completion_rate_14d || 0) < 90) {
-        actions.push(`Scan completion is ${k.completion_rate_14d || 0}% in 14d; investigate failed/aborted runs and scheduler reliability.`);
+        actions.push(`Scan success is ${k.completion_rate_14d || 0}% over 14 days; reduce failed runs to improve coverage.`);
     }
     if ((k.scan_fail_7d || 0) > 0) {
-        actions.push(`${k.scan_fail_7d} scans failed/aborted in 7d; review scanner logs and target accessibility.`);
+        actions.push(`${k.scan_fail_7d} scans did not complete this week; confirm network reachability and scheduling stability.`);
     }
     const topRisk = (Array.isArray(exec.top_risky) ? exec.top_risky : fallbackTopVuln || [])[0];
     if (topRisk && topRisk.ip) {
-        actions.push(`Highest-risk asset currently appears to be ${topRisk.ip} (CVSS ${topRisk.top_cvss || 'n/a'}); validate patch/mitigation status.`);
+        actions.push(`Top priority system is ${topRisk.ip} (risk score ${topRisk.top_cvss || 'n/a'}); confirm remediation plan and owner.`);
     }
     if (!actions.length) {
-        actions.push('No urgent executive actions are currently flagged. Maintain monitoring cadence and verify scan coverage.');
+        actions.push('No urgent actions are currently flagged. Continue weekly monitoring and keep scan coverage consistent.');
     }
     document.getElementById('exec-actions').innerHTML = `<ul class="exec-brief-ul">${actions.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`;
 
