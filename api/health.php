@@ -186,15 +186,51 @@ function st_health_shell_ok(): bool {
 }
 
 /**
- * Free space (bytes) for the filesystem that contains $path, from `df`.
- *
- * Uses the same contract as unadorned `df`: the numeric columns are **1024-byte blocks**
- * (1K blocks). The “Available” column (index 3) × 1024 = free bytes. We intentionally
- * do **not** use `df -B1` or `--output=avail` with mixed block-size rules, because those
- * interact with `DF_BLOCK_SIZE` / coreutils in ways that have produced off-by-1024…1024
- * (e.g. ~15 GB shown as ~15 TB).
- *
- * A clean `env` avoids Apache inheriting DF_BLOCK_SIZE/BLOCK_SIZE and changing what `df` prints.
+ * “Available” column in 1K units from a df line. Strips thousands separators (locale) so
+ * 15,903,544 and 15903544 both work.
+ */
+function st_health_df_avail_k_from_word(string $word): ?string {
+    $n = str_replace([',', "'", '’', "\xC2\xA0"], '', trim($word));
+    if ($n === '' || !ctype_digit($n)) {
+        return null;
+    }
+    return $n;
+}
+
+/**
+ * @return ?float  free bytes, or null
+ */
+function st_health_parse_df_koutput(string $out): ?float {
+    $lines = array_values(
+        array_filter(
+            array_map('trim', preg_split("/\R/", trim($out))),
+            static function ($l) {
+                return $l !== '';
+            }
+        )
+    );
+    for ($i = count($lines) - 1; $i >= 0; $i--) {
+        if (preg_match('/^filesystem/i', $lines[$i])) {
+            continue;
+        }
+        $parts = preg_split('/\s+/', $lines[$i], -1, PREG_SPLIT_NO_EMPTY);
+        if (count($parts) < 4) {
+            continue;
+        }
+        $k = st_health_df_avail_k_from_word($parts[3]);
+        if ($k === null) {
+            continue;
+        }
+        return (float) $k * 1024.0;
+    }
+    return null;
+}
+
+/**
+ * Free space (bytes) for the filesystem that contains $path, from `df -kP` “Available” × 1024.
+ * Uses `LC_ALL=C` so numbers are not locale-formatted (commas break simple parsers).
+ * Uses `awk` for field 4 when possible so the column is unambiguous. Falls back to PHP
+ * line parsing of the same output with separator stripping.
  */
 function st_health_df_free_bytes(string $path): ?float {
     if (!st_health_shell_ok()) {
@@ -206,49 +242,41 @@ function st_health_df_free_bytes(string $path): ?float {
         return null;
     }
     $ep = escapeshellarg($rp);
-    $env = 'env -i PATH=' . escapeshellarg('/usr/bin:/bin') . ' ';
 
-    $parseKFromLine = static function (string $line): ?float {
-        $parts = preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY);
-        if (count($parts) < 4) {
-            return null;
-        }
-        $availK = $parts[3];
-        if (!ctype_digit($availK)) {
-            return null;
-        }
-        return (float) $availK * 1024.0;
-    };
-
-    $parseKOutput = static function (string $out) use ($parseKFromLine): ?float {
-        $lines = array_values(
-            array_filter(
-                array_map('trim', preg_split("/\R/", trim($out))),
-                static function ($l) {
-                    return $l !== '';
-                }
-            )
-        );
-        for ($i = count($lines) - 1; $i >= 0; $i--) {
-            if (preg_match('/^filesystem/i', $lines[$i])) {
-                continue;
-            }
-            $t = $parseKFromLine($lines[$i]);
-            if ($t !== null) {
-                return $t;
-            }
-        }
-        return null;
-    };
-
-    $candidates = [
-        $env . 'df -kP ' . $ep . ' 2>/dev/null',
-        'df -kP ' . $ep . ' 2>/dev/null',
+    $tries = [
+        "LC_ALL=C PATH=/bin:/usr/bin df -kP " . $ep . " 2>/dev/null | tail -n 1 | awk '{print \$4}'",
+        "env -i LC_ALL=C PATH=/bin:/usr/bin df -kP " . $ep . " 2>/dev/null | tail -n 1 | awk '{print \$4}'",
+        "LC_ALL=C /usr/bin/df -kP " . $ep . " 2>/dev/null | /usr/bin/tail -n 1 | /usr/bin/awk '{print \$4}'",
     ];
-    foreach ($candidates as $cmd) {
+    foreach ($tries as $inner) {
+        $o = @shell_exec('sh -c ' . escapeshellarg($inner));
+        if (!is_string($o)) {
+            continue;
+        }
+        $w = trim($o);
+        if ($w === '') {
+            continue;
+        }
+        $k = st_health_df_avail_k_from_word($w);
+        if ($k !== null) {
+            $b = (float) $k * 1024.0;
+            if ($b >= 0.0) {
+                return $b;
+            }
+        }
+    }
+
+    $dfTries = [
+        'LC_ALL=C PATH=/bin:/usr/bin df -kP ' . $ep . ' 2>/dev/null',
+        'env -i LC_ALL=C PATH=/bin:/usr/bin df -kP ' . $ep . ' 2>/dev/null',
+        'LC_ALL=C /usr/bin/df -kP ' . $ep . ' 2>/dev/null',
+        'LC_ALL=C /bin/df -kP ' . $ep . ' 2>/dev/null',
+        'LC_ALL=C df -kP ' . $ep . ' 2>/dev/null',
+    ];
+    foreach ($dfTries as $cmd) {
         $out = @shell_exec($cmd);
         if (is_string($out) && trim($out) !== '') {
-            $a = $parseKOutput($out);
+            $a = st_health_parse_df_koutput($out);
             if ($a !== null && $a >= 0.0) {
                 return $a;
             }
@@ -311,8 +339,10 @@ $health = [
     'disk' => [
         'data_dir_free_bytes' => null,
         'data_dir_free_human' => null,
-        'source' => 'none', // df | disk_free_space
+        'source' => 'none', // df | disk_free_space | unavailable
         'df_path' => null, // realpath used for df (compare with: df -h <path> in SSH)
+        'avail_1k' => null, // 1K-block “Available” (same as plain df) when source is df
+        'hint' => null, // set when free space could not be determined reliably
     ],
     'database' => [
         'reachable' => true,
@@ -358,13 +388,10 @@ if ($dfree !== null) {
     $health['disk']['data_dir_free_bytes'] = $dfree;
     $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($dfree);
     $health['disk']['source'] = 'df';
+    $health['disk']['avail_1k'] = (int) round($dfree / 1024.0);
 } else {
-    $phpFree = st_health_disk_free_bytes($dataDir);
-    if ($phpFree !== null) {
-        $health['disk']['data_dir_free_bytes'] = $phpFree;
-        $health['disk']['data_dir_free_human'] = st_health_fmt_bytes($phpFree);
-        $health['disk']['source'] = 'disk_free_space';
-    }
+    $health['disk']['source'] = 'unavailable';
+    $health['disk']['hint'] = 'Health uses only `df` (1K “Available” × 1024), not PHP disk space. The web process could not run/parse it (e.g. shell_exec, AppArmor, or as www-data: `LC_ALL=C df -kP` the data path).';
 }
 
 $appDbBytes = null;

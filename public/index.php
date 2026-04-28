@@ -1465,14 +1465,18 @@ function renderHealthHtml(h) {
 
     if (h.disk && h.disk.data_dir_free_human) {
         const low = h.disk.data_dir_free_bytes && h.disk.data_dir_free_bytes < 100 * 1024 * 1024;
+        const k1 = (h.disk.avail_1k != null) ? ` <span class="text-dim">· ${esc(String(h.disk.avail_1k))} 1K-blocks free</span>` : '';
         const src = h.disk.source === 'df' ? 'df' : (h.disk.source === 'disk_free_space' ? 'PHP' : '');
         const srcH = src ? ` <span class="text-dim">(${esc(src)})</span>` : '';
         r('Free space (data dir)', (low
             ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span> <span class="text-dim">(low)</span>`
-            : esc(h.disk.data_dir_free_human)) + srcH);
+            : esc(h.disk.data_dir_free_human)) + srcH + k1);
+    } else if (h.disk && h.disk.source === 'unavailable') {
+        const hint = h.disk.hint ? ` <span class="text-dim" style="font-size:12px;white-space:pre-wrap">${esc(h.disk.hint)}</span>` : '';
+        r('Free space (data dir)', '<span class="hstate-warn">Could not read</span> (see hint below)' + hint);
     }
     if (h.disk && h.disk.df_path) {
-        r('Filesystem path (df)', `<span class="mono" style="font-size:12px;word-break:break-all">${esc(h.disk.df_path)}</span> <span class="text-dim">· same path as</span> <span class="mono" style="font-size:11px">df -h</span> <span class="text-dim">in SSH</span>`);
+        r('Filesystem path (df)', `<span class="mono" style="font-size:12px;word-break:break-all">${esc(h.disk.df_path)}</span> <span class="text-dim">· in SSH: </span><span class="mono" style="font-size:11px">LC_ALL=C df -kP &lt;path&gt;</span> <span class="text-dim">— “Available” × 1024 = bytes; match the 1K-blocks column to plain</span> <span class="mono" style="font-size:11px">df</span>`);
     }
 
     const dbsrc = h.database && h.database.size_source === 'stat' ? 'stat' : (h.database && h.database.size_source === 'filesize' ? 'PHP' : '');
@@ -1533,13 +1537,13 @@ function renderHealthHtml(h) {
     r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
 
     return `<div class="health-panel">${rows.join('')}</div>
-      <p class="help-line text-dim mt8" style="font-size:11px">Free space is the <b>Available</b> column from <code class="code-accent">df -kP</code> (1024-byte blocks) × 1024, matching a plain <code class="code-accent">df</code> over SSH. If shell <code class="code-accent">stat</code> disagrees badly with the size PHP can read, the UI uses PHP for file sizes. Services show <strong>unknown</strong> if <code class="code-accent">systemctl</code> is unavailable.</p>`;
+      <p class="help-line text-dim mt8" style="font-size:11px">Free space is only from the shell: <b>Available</b> in 1K-blocks from <code class="code-accent">df -kP</code> × 1024 (the same number as a locale-free <code class="code-accent">df</code>). <code class="code-accent">LC_ALL=C</code> avoids thousands separators. PHP <code class="code-accent">disk_free_space</code> is <em>not</em> used here (it is often wrong in apache2handler). If shell <code class="code-accent">stat</code> disagrees badly with readable file size, the UI uses PHP for file sizes. Services show <strong>unknown</strong> if <code class="code-accent">systemctl</code> is unavailable.</p>`;
 }
 
 async function loadHealth() {
     const el = document.getElementById('health-snapshot');
     if (!el) return;
-    const h = await api('/api/health.php', { quiet: true });
+    const h = await api('/api/health.php?cb=' + Date.now(), { quiet: true });
     if (!h) {
         el.innerHTML = '<div class="text-dim">Health check failed (not signed in or network error).</div>';
         return;
