@@ -595,7 +595,15 @@
         </div>
       </div>
       <div id="scan-hist-detail-meta" class="status-text mb8"></div>
+      <div class="row-wrap gap6 mb8" style="align-items:center">
+        <label for="scan-hist-compare-select" class="text-micro" style="color:var(--tx3)">Compare against</label>
+        <select id="scan-hist-compare-select" class="finp narrow w130"></select>
+        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)"><input type="checkbox" id="scan-hist-compare-same-target"> same target</label>
+        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
+        <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
+      </div>
       <div id="scan-hist-detail-summary" class="help-mono mb10"></div>
+      <div id="scan-hist-detail-diff" class="help-mono mb10"></div>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
@@ -957,6 +965,7 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
+var scanDetailReturnDeviceId = 0;
 var confirmResolve = null;
 var themeMediaQuery = null;
 var themeMediaListener = null;
@@ -2302,7 +2311,7 @@ async function cancelJob(id) {
 async function rerunScanJob(id) {
     const r = await apiPost('/api/scan_start.php', {retry_job_id: id});
     if (r && r.job_id) {
-        closeScanHistDetailModal();
+        closeScanHistDetailModal(false);
         toast('New job #' + r.job_id + ' queued with the same target and options', 'ok');
         loadScanHistory();
     } else {
@@ -2310,18 +2319,26 @@ async function rerunScanJob(id) {
     }
 }
 
-function closeScanHistDetailModal() {
+function closeScanHistDetailModal(restoreDevice = true) {
     const bg = document.getElementById('scan-hist-detail-bg');
     if (bg) bg.style.display = 'none';
     const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (hint) hint.style.display = 'none';
+    if (restoreDevice && scanDetailReturnDeviceId > 0) {
+        const did = scanDetailReturnDeviceId;
+        scanDetailReturnDeviceId = 0;
+        goTab('devices');
+        hiNav('ndevices');
+        setTimeout(() => { void openDevicePanel(did); }, 0);
+    }
 }
 
 /** From scan detail modal: prefer Devices when `device_id` is set, else host panel (asset by IP). */
 function openScanHistAssetNav(assetId, deviceId, ip) {
     const aid = parseInt(String(assetId), 10);
     const did = deviceId != null && deviceId !== '' ? parseInt(String(deviceId), 10) : 0;
-    closeScanHistDetailModal();
+    closeScanHistDetailModal(false);
+    scanDetailReturnDeviceId = 0;
     if (did > 0) {
         goTab('devices');
         hiNav('ndevices');
@@ -2354,13 +2371,89 @@ function renderScanSummary(summary) {
     `;
 }
 
-async function openScanHistDetail(id) {
+function renderScanDiff(diff) {
+    if (!diff || !diff.compared_job) return '';
+    const cj = diff.compared_job || {};
+    const h = diff.hosts || {};
+    const p = diff.ports || {};
+    const c = diff.cves || {};
+    const addHosts = Array.isArray(h.added) ? h.added : [];
+    const remHosts = Array.isArray(h.removed) ? h.removed : [];
+    const newCves = Array.isArray(c.new_open) ? c.new_open : [];
+    const resCves = Array.isArray(c.resolved) ? c.resolved : [];
+    return `
+      <div><strong>Diff vs scan #${esc(cj.id || '—')}</strong> (${esc(cj.label || 'untitled')})</div>
+      <div class="summary-line">Hosts: <b>${h.current || 0}</b> now vs <b>${h.previous || 0}</b> prior &nbsp;|&nbsp; +${addHosts.length} / -${remHosts.length}</div>
+      <div class="summary-line">Ports: +<b>${p.added || 0}</b> / -<b>${p.removed || 0}</b> host-port pairs</div>
+      <div class="summary-line">Open CVEs: <b>${c.open_current || 0}</b> now vs <b>${c.open_previous || 0}</b> prior &nbsp;|&nbsp; new <b>${newCves.length}</b> / resolved <b>${resCves.length}</b></div>
+      ${(addHosts.length || remHosts.length) ? `<div class="summary-line">Hosts changed: ${addHosts.length ? `+ ${esc(addHosts.slice(0, 8).join(', '))}` : ''}${remHosts.length ? `${addHosts.length ? ' &nbsp;|&nbsp; ' : ''}- ${esc(remHosts.slice(0, 8).join(', '))}` : ''}</div>` : ''}
+      ${(newCves.length || resCves.length) ? `<div class="summary-line">CVEs changed: ${newCves.length ? `+ ${esc(newCves.slice(0, 6).join(', '))}` : ''}${resCves.length ? `${newCves.length ? ' &nbsp;|&nbsp; ' : ''}resolved ${esc(resCves.slice(0, 6).join(', '))}` : ''}</div>` : ''}
+    `;
+}
+
+function currentCompareScope() {
+    const sameTarget = !!document.getElementById('scan-hist-compare-same-target')?.checked;
+    const sameProfile = !!document.getElementById('scan-hist-compare-same-profile')?.checked;
+    if (sameTarget && sameProfile) return 'both';
+    if (sameTarget) return 'target';
+    if (sameProfile) return 'profile';
+    return 'any';
+}
+
+function applyCompareScope(scope) {
+    const sameTarget = document.getElementById('scan-hist-compare-same-target');
+    const sameProfile = document.getElementById('scan-hist-compare-same-profile');
+    if (sameTarget) sameTarget.checked = (scope === 'target' || scope === 'both');
+    if (sameProfile) sameProfile.checked = (scope === 'profile' || scope === 'both');
+}
+
+function renderCompareOptions(jobId, job, options, selectedCompareId, scope) {
+    const sel = document.getElementById('scan-hist-compare-select');
+    const btn = document.getElementById('scan-hist-compare-btn');
+    const sameTargetEl = document.getElementById('scan-hist-compare-same-target');
+    const sameProfileEl = document.getElementById('scan-hist-compare-same-profile');
+    if (!sel || !btn) return;
+    applyCompareScope(scope || 'any');
+    const opts = Array.isArray(options) ? options : [];
+    const filtered = opts.filter(o => {
+        if (!job || typeof job !== 'object') return true;
+        const needsTarget = !!sameTargetEl?.checked;
+        const needsProfile = !!sameProfileEl?.checked;
+        if (needsTarget && String(o.target_cidr || '') !== String(job.target_cidr || '')) return false;
+        if (needsProfile) {
+            if (String(o.profile || '') !== String(job.profile || '')) return false;
+            if (String(o.scan_mode || '') !== String(job.scan_mode || '')) return false;
+        }
+        return true;
+    });
+    const current = parseInt(String(selectedCompareId || 0), 10);
+    sel.innerHTML = ['<option value="">Previous completed run (auto)</option>']
+        .concat(filtered.map(o => {
+            const id = parseInt(o.id, 10);
+            const label = esc(o.label || 'untitled');
+            const tgt = esc(o.target_cidr || '');
+            const fin = esc(localDate(o.finished_at));
+            const tag = id === current ? ' selected' : '';
+            return `<option value="${id}"${tag}>#${id} · ${label} · ${tgt} · ${fin}</option>`;
+        })).join('');
+    const runCompare = () => {
+        const cmp = parseInt(sel.value || '0', 10);
+        void openScanHistDetail(jobId, cmp > 0 ? cmp : 0, currentCompareScope());
+    };
+    btn.onclick = runCompare;
+    sel.onchange = runCompare;
+    if (sameTargetEl) sameTargetEl.onchange = runCompare;
+    if (sameProfileEl) sameProfileEl.onchange = runCompare;
+}
+
+async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     const bg = document.getElementById('scan-hist-detail-bg');
     const title = document.getElementById('scan-hist-detail-title');
     const meta = document.getElementById('scan-hist-detail-meta');
     const sum = document.getElementById('scan-hist-detail-summary');
+    const diff = document.getElementById('scan-hist-detail-diff');
     const tbody = document.getElementById('scan-hist-detail-assets');
-    if (!bg || !title || !meta || !sum || !tbody) return;
+    if (!bg || !title || !meta || !sum || !diff || !tbody) return;
     // Modal is declared near tab markup; ensure it is attached to body so it
     // can render even when its original tab container is hidden.
     if (bg.parentElement !== document.body) {
@@ -2374,9 +2467,12 @@ async function openScanHistDetail(id) {
     title.textContent = 'Scan #' + id + ' detail';
     meta.textContent = 'Loading…';
     sum.innerHTML = '';
+    diff.innerHTML = '';
     tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
 
-    const d = await api('/api/scan_history.php?id=' + encodeURIComponent(id), {quiet:true});
+    const cmpQ = compareToId > 0 ? '&compare_to=' + encodeURIComponent(String(compareToId)) : '';
+    const scopeQ = '&compare_scope=' + encodeURIComponent(compareScope || 'any');
+    const d = await api('/api/scan_history.php?id=' + encodeURIComponent(id) + cmpQ + scopeQ, {quiet:true});
     if (!d || !d.job) {
         meta.textContent = 'Could not load scan details';
         tbody.innerHTML = '<tr><td colspan="6" class="loading">No data</td></tr>';
@@ -2398,7 +2494,9 @@ async function openScanHistDetail(id) {
       &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
       <div style="margin-top:4px">Phases run: <span class="mono">${esc(phasesRan)}</span></div>
     `;
+    renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
     sum.innerHTML = renderScanSummary(j.summary);
+    diff.innerHTML = renderScanDiff(d.compare);
 
     const assets = Array.isArray(d.assets) ? d.assets : [];
     const hint = document.getElementById('scan-hist-detail-assets-hint');
@@ -4255,6 +4353,9 @@ function closeDevicePanel() {
 function openScanDetailFromDeviceHistory(jobId) {
     const jid = parseInt(String(jobId), 10);
     if (!jid) return;
+    const title = document.getElementById('dp-title')?.textContent || '';
+    const m = title.match(/Device #(\d+)/);
+    scanDetailReturnDeviceId = m ? parseInt(m[1], 10) : 0;
     closeDevicePanel();
     goTab('scanhist');
     hiNav('nscanhist');

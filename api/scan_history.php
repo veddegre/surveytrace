@@ -14,6 +14,8 @@ st_method('GET');
 
 $db = st_db();
 $id = st_int('id', 0, 0);
+$compareToId = st_int('compare_to', 0, 0);
+$compareScope = st_str('compare_scope', 'any', ['any', 'target', 'profile', 'both']);
 $limit = st_int('limit', 50, 1, 200);
 
 // Ensure history columns exist for older DBs
@@ -120,11 +122,153 @@ if ($id > 0) {
     $logStmt->execute([$id]);
     $logTail = array_reverse($logStmt->fetchAll());
 
+    $compare = null;
+    $compareOptions = [];
+    $optStmt = $db->prepare("
+        SELECT id, label, target_cidr, status, finished_at
+             , COALESCE(profile, 'standard_inventory') AS profile
+             , COALESCE(scan_mode, 'auto') AS scan_mode
+        FROM scan_jobs
+        WHERE id < ?
+          AND status IN ('done','aborted','failed')
+        ORDER BY id DESC
+        LIMIT 40
+    ");
+    $optStmt->execute([$id]);
+    $compareOptions = array_map(function($r) {
+        return [
+            'id' => (int)$r['id'],
+            'label' => (string)($r['label'] ?? ''),
+            'target_cidr' => (string)($r['target_cidr'] ?? ''),
+            'status' => (string)($r['status'] ?? ''),
+            'finished_at' => $r['finished_at'] ?? null,
+            'profile' => (string)($r['profile'] ?? ''),
+            'scan_mode' => (string)($r['scan_mode'] ?? ''),
+        ];
+    }, $optStmt->fetchAll());
+
+    $cmpJob = null;
+    if ($compareToId > 0) {
+        $cmpStmt = $db->prepare("
+            SELECT id, label, target_cidr, status, finished_at
+            FROM scan_jobs
+            WHERE id = ?
+            LIMIT 1
+        ");
+        $cmpStmt->execute([$compareToId]);
+        $cmpJob = $cmpStmt->fetch();
+    } else {
+        $whereExtra = '';
+        $paramsCmp = [$id];
+        if ($compareScope === 'target' || $compareScope === 'both') {
+            $whereExtra .= " AND COALESCE(target_cidr,'') = COALESCE(?, '')";
+            $paramsCmp[] = (string)($job['target_cidr'] ?? '');
+        }
+        if ($compareScope === 'profile' || $compareScope === 'both') {
+            $whereExtra .= " AND COALESCE(profile,'standard_inventory') = COALESCE(?, 'standard_inventory')";
+            $whereExtra .= " AND COALESCE(scan_mode,'auto') = COALESCE(?, 'auto')";
+            $paramsCmp[] = (string)($job['profile'] ?? 'standard_inventory');
+            $paramsCmp[] = (string)($job['scan_mode'] ?? 'auto');
+        }
+        $cmpStmt = $db->prepare("
+            SELECT id, label, target_cidr, status, finished_at
+            FROM scan_jobs
+            WHERE id < ?
+              AND status IN ('done','aborted','failed')
+              $whereExtra
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $cmpStmt->execute($paramsCmp);
+        $cmpJob = $cmpStmt->fetch();
+    }
+
+    if ($cmpJob) {
+        $loadAssetsForJob = function(int $jid) use ($db): array {
+            $s = $db->prepare("
+                SELECT ip, open_ports
+                FROM scan_asset_snapshots
+                WHERE job_id = ?
+                ORDER BY ip ASC
+            ");
+            $s->execute([$jid]);
+            $rows = $s->fetchAll();
+            if (!$rows) {
+                $s = $db->prepare("
+                    SELECT ip, ports AS open_ports
+                    FROM port_history
+                    WHERE scan_id = ?
+                    ORDER BY id ASC
+                ");
+                $s->execute([$jid]);
+                $rows = $s->fetchAll();
+            }
+            $ips = [];
+            $ipPorts = [];
+            foreach ($rows as $r) {
+                $ip = trim((string)($r['ip'] ?? ''));
+                if ($ip === '') continue;
+                $ips[$ip] = 1;
+                $ports = json_decode((string)($r['open_ports'] ?? '[]'), true);
+                if (!is_array($ports)) $ports = [];
+                foreach ($ports as $p) {
+                    $pi = (int)$p;
+                    if ($pi <= 0 || $pi > 65535) continue;
+                    $ipPorts[$ip . ':' . $pi] = 1;
+                }
+            }
+            return [array_keys($ips), array_keys($ipPorts)];
+        };
+        $loadOpenCvesForJob = function(int $jid) use ($db): array {
+            $s = $db->prepare("
+                SELECT DISTINCT cve_id
+                FROM scan_finding_snapshots
+                WHERE job_id = ? AND COALESCE(resolved, 0) = 0
+            ");
+            $s->execute([$jid]);
+            return array_values(array_filter(array_map('strval', $s->fetchAll(PDO::FETCH_COLUMN))));
+        };
+
+        [$curIps, $curIpPorts] = $loadAssetsForJob((int)$id);
+        [$prevIps, $prevIpPorts] = $loadAssetsForJob((int)$cmpJob['id']);
+        $curCves = $loadOpenCvesForJob((int)$id);
+        $prevCves = $loadOpenCvesForJob((int)$cmpJob['id']);
+
+        $compare = [
+            'compared_job' => [
+                'id' => (int)$cmpJob['id'],
+                'label' => $cmpJob['label'] ?? '',
+                'target_cidr' => $cmpJob['target_cidr'] ?? '',
+                'status' => $cmpJob['status'] ?? '',
+                'finished_at' => $cmpJob['finished_at'] ?? null,
+            ],
+            'hosts' => [
+                'current' => count($curIps),
+                'previous' => count($prevIps),
+                'added' => array_slice(array_values(array_diff($curIps, $prevIps)), 0, 25),
+                'removed' => array_slice(array_values(array_diff($prevIps, $curIps)), 0, 25),
+            ],
+            'ports' => [
+                'added' => count(array_diff($curIpPorts, $prevIpPorts)),
+                'removed' => count(array_diff($prevIpPorts, $curIpPorts)),
+            ],
+            'cves' => [
+                'open_current' => count($curCves),
+                'open_previous' => count($prevCves),
+                'new_open' => array_slice(array_values(array_diff($curCves, $prevCves)), 0, 25),
+                'resolved' => array_slice(array_values(array_diff($prevCves, $curCves)), 0, 25),
+            ],
+        ];
+    }
+
     st_json([
         'ok' => true,
         'job' => $job,
         'assets' => $assets,
         'log_tail' => $logTail,
+        'compare' => $compare,
+        'compare_options' => $compareOptions,
+        'compare_scope' => $compareScope,
     ]);
 }
 
