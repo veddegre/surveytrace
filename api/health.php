@@ -5,8 +5,8 @@
  * Read-only system status: data paths, disk, DB, services (systemd when available),
  * scan queue, feed sync state, last completed job. Used by the System health tab.
  *
- * Disk and file sizes prefer the host `df` / `stat` commands when shell_exec is allowed
- * (matches `df -h` in SSH); PHP’s disk_free_space / filesize can misreport in some SAPIs.
+ * Free space: `df -kP` and the same 1K-block “Available” value as plain `df` (× 1024 → bytes).
+ * File sizes: `stat` when it matches PHP; PHP’s filesize can misreport in some SAPIs.
  */
 
 require_once __DIR__ . '/db.php';
@@ -150,6 +150,32 @@ function st_health_file_bytes(string $path): ?float {
     return (float) $pos;
 }
 
+/**
+ * Prefer shell stat when it matches PHP; if stat is vastly larger than what PHP can read, trust PHP
+ * (bind mounts, web SAPI path resolution, or bad metadata vs the openable file).
+ *
+ * @return array{0: ?float, 1: string}  [bytes, size_source: stat|filesize|fseek|none]
+ */
+function st_health_file_size_preferred(string $path): array {
+    $st = st_health_stat_file_bytes($path);
+    $ph = st_health_file_bytes($path);
+    if ($st === null) {
+        if ($ph === null) {
+            return [null, 'none'];
+        }
+        return [$ph, 'filesize'];
+    }
+    if ($ph === null) {
+        return [$st, 'stat'];
+    }
+    $stF = (float) $st;
+    $phF = (float) $ph;
+    if ($phF > 0.0 && $stF / $phF > 10.0 && $stF > 1024.0 * 1024.0 * 1024.0) {
+        return [$ph, 'filesize'];
+    }
+    return [$st, 'stat'];
+}
+
 function st_health_shell_ok(): bool {
     if (PHP_OS_FAMILY === 'Windows') {
         return false;
@@ -160,8 +186,15 @@ function st_health_shell_ok(): bool {
 }
 
 /**
- * Free bytes on the filesystem for this path, via `df` (shell).
- * Prefers GNU `df -B1` (1-byte units); falls back to POSIX `df -k` (1024-byte blocks) for macOS/BSD.
+ * Free space (bytes) for the filesystem that contains $path, from `df`.
+ *
+ * Uses the same contract as unadorned `df`: the numeric columns are **1024-byte blocks**
+ * (1K blocks). The “Available” column (index 3) × 1024 = free bytes. We intentionally
+ * do **not** use `df -B1` or `--output=avail` with mixed block-size rules, because those
+ * interact with `DF_BLOCK_SIZE` / coreutils in ways that have produced off-by-1024…1024
+ * (e.g. ~15 GB shown as ~15 TB).
+ *
+ * A clean `env` avoids Apache inheriting DF_BLOCK_SIZE/BLOCK_SIZE and changing what `df` prints.
  */
 function st_health_df_free_bytes(string $path): ?float {
     if (!st_health_shell_ok()) {
@@ -172,35 +205,56 @@ function st_health_df_free_bytes(string $path): ?float {
     if ($rp === false) {
         return null;
     }
-    $fromLine = function (string $line, int $fieldIdx, float $unitMult): ?float {
-        $parts = preg_split('/\s+/', $line, -1, PREG_SPLIT_NO_EMPTY);
-        if (count($parts) <= $fieldIdx) {
+    $ep = escapeshellarg($rp);
+    $env = 'env -i PATH=' . escapeshellarg('/usr/bin:/bin') . ' ';
+
+    $parseKFromLine = static function (string $line): ?float {
+        $parts = preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY);
+        if (count($parts) < 4) {
             return null;
         }
-        if (!ctype_digit($parts[$fieldIdx])) {
+        $availK = $parts[3];
+        if (!ctype_digit($availK)) {
             return null;
         }
-        return (float) $parts[$fieldIdx] * $unitMult;
+        return (float) $availK * 1024.0;
     };
-    $out = @shell_exec('df -B1 ' . escapeshellarg($rp) . ' 2>/dev/null');
-    if (is_string($out) && trim($out) !== '') {
-        $lines = preg_split("/\R/", trim($out));
-        if (count($lines) >= 2) {
-            $b = $fromLine($lines[1], 3, 1.0);
-            if ($b !== null) {
-                return $b;
+
+    $parseKOutput = static function (string $out) use ($parseKFromLine): ?float {
+        $lines = array_values(
+            array_filter(
+                array_map('trim', preg_split("/\R/", trim($out))),
+                static function ($l) {
+                    return $l !== '';
+                }
+            )
+        );
+        for ($i = count($lines) - 1; $i >= 0; $i--) {
+            if (preg_match('/^filesystem/i', $lines[$i])) {
+                continue;
+            }
+            $t = $parseKFromLine($lines[$i]);
+            if ($t !== null) {
+                return $t;
+            }
+        }
+        return null;
+    };
+
+    $candidates = [
+        $env . 'df -kP ' . $ep . ' 2>/dev/null',
+        'df -kP ' . $ep . ' 2>/dev/null',
+    ];
+    foreach ($candidates as $cmd) {
+        $out = @shell_exec($cmd);
+        if (is_string($out) && trim($out) !== '') {
+            $a = $parseKOutput($out);
+            if ($a !== null && $a >= 0.0) {
+                return $a;
             }
         }
     }
-    $outK = @shell_exec('df -k ' . escapeshellarg($rp) . ' 2>/dev/null');
-    if (!is_string($outK) || trim($outK) === '') {
-        return null;
-    }
-    $linesK = preg_split("/\R/", trim($outK));
-    if (count($linesK) < 2) {
-        return null;
-    }
-    return $fromLine($linesK[1], 3, 1024.0);
+    return null;
 }
 
 /** File size via POSIX stat (matches `ls` / `stat` on the host). */
@@ -258,6 +312,7 @@ $health = [
         'data_dir_free_bytes' => null,
         'data_dir_free_human' => null,
         'source' => 'none', // df | disk_free_space
+        'df_path' => null, // realpath used for df (compare with: df -h <path> in SSH)
     ],
     'database' => [
         'reachable' => true,
@@ -293,6 +348,10 @@ $health = [
     ],
 ];
 
+$dfPathFor = is_dir($dataDir) ? $dataDir : dirname($dataDir);
+$dfRp = @realpath($dfPathFor);
+$health['disk']['df_path'] = $dfRp !== false ? $dfRp : (string) $dfPathFor;
+
 $dfree = st_health_df_free_bytes($dataDir);
 $health['disk']['source'] = 'none';
 if ($dfree !== null) {
@@ -311,17 +370,7 @@ if ($dfree !== null) {
 $appDbBytes = null;
 $health['database']['size_source'] = 'none';
 if (is_file($appDb)) {
-    $health['database']['size_source'] = 'filesize';
-    $st = st_health_stat_file_bytes($appDb);
-    if ($st !== null) {
-        $appDbBytes = $st;
-        $health['database']['size_source'] = 'stat';
-    } else {
-        $appDbBytes = st_health_file_bytes($appDb);
-        if ($appDbBytes === null) {
-            $health['database']['size_source'] = 'none';
-        }
-    }
+    [$appDbBytes, $health['database']['size_source']] = st_health_file_size_preferred($appDb);
 }
 $health['database']['file_bytes'] = $appDbBytes;
 $health['database']['file_bytes_human'] = st_health_fmt_bytes($appDbBytes);
@@ -329,17 +378,7 @@ $health['database']['file_bytes_human'] = st_health_fmt_bytes($appDbBytes);
 $nvdDbBytes = null;
 $health['nvd']['size_source'] = 'none';
 if (is_file($nvdDb)) {
-    $health['nvd']['size_source'] = 'filesize';
-    $stN = st_health_stat_file_bytes($nvdDb);
-    if ($stN !== null) {
-        $nvdDbBytes = $stN;
-        $health['nvd']['size_source'] = 'stat';
-    } else {
-        $nvdDbBytes = st_health_file_bytes($nvdDb);
-        if ($nvdDbBytes === null) {
-            $health['nvd']['size_source'] = 'none';
-        }
-    }
+    [$nvdDbBytes, $health['nvd']['size_source']] = st_health_file_size_preferred($nvdDb);
 }
 $health['nvd']['db_bytes'] = $nvdDbBytes;
 $health['nvd']['db_bytes_human'] = st_health_fmt_bytes($nvdDbBytes);

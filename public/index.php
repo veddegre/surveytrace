@@ -1471,6 +1471,9 @@ function renderHealthHtml(h) {
             ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span> <span class="text-dim">(low)</span>`
             : esc(h.disk.data_dir_free_human)) + srcH);
     }
+    if (h.disk && h.disk.df_path) {
+        r('Filesystem path (df)', `<span class="mono" style="font-size:12px;word-break:break-all">${esc(h.disk.df_path)}</span> <span class="text-dim">· same path as</span> <span class="mono" style="font-size:11px">df -h</span> <span class="text-dim">in SSH</span>`);
+    }
 
     const dbsrc = h.database && h.database.size_source === 'stat' ? 'stat' : (h.database && h.database.size_source === 'filesize' ? 'PHP' : '');
     const dbExtra = dbsrc ? ` <span class="text-dim">(${esc(dbsrc)})</span>` : '';
@@ -1530,7 +1533,7 @@ function renderHealthHtml(h) {
     r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
 
     return `<div class="health-panel">${rows.join('')}</div>
-      <p class="help-line text-dim mt8" style="font-size:11px">Free space and DB sizes in parentheses (df, stat) match the host shell. Services show <strong>unknown</strong> if PHP cannot run <code class="code-accent">systemctl</code> — on the server use <code class="code-accent">systemctl status surveytrace-daemon</code>.</p>`;
+      <p class="help-line text-dim mt8" style="font-size:11px">Free space is the <b>Available</b> column from <code class="code-accent">df -kP</code> (1024-byte blocks) × 1024, matching a plain <code class="code-accent">df</code> over SSH. If shell <code class="code-accent">stat</code> disagrees badly with the size PHP can read, the UI uses PHP for file sizes. Services show <strong>unknown</strong> if <code class="code-accent">systemctl</code> is unavailable.</p>`;
 }
 
 async function loadHealth() {
