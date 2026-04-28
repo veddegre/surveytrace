@@ -57,7 +57,7 @@ if ($id > 0) {
     unset($job['summary_json']);
 
     $assetsStmt = $db->prepare("
-        SELECT id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports
+        SELECT id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
         FROM assets
         WHERE last_scan_id = ?
         ORDER BY ip ASC

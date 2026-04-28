@@ -13,7 +13,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
-- **Scan history** — per-run history, duration, summary snapshot, and detail view; on the **Scan** tab, the history table can be narrowed by **scan name (label)**, target CIDR, or job id (substring match, debounced). Filtered lists use `GET /api/scan_history.php` with **`q`** and up to **`limit=200`** (see `api/scan_history.php`). The job queue stays unfiltered so active jobs remain visible.
+- **Scan history** — dedicated **Scan history** sidebar page: job queue, finished runs, and a debounced filter by **scan label**, target CIDR, or job id (`GET /api/scan_history.php` with **`q`**, up to **`limit=200`**; see `api/scan_history.php`). From a run’s **Details** modal, click a catalogued host row to jump to **Devices** (when `device_id` is set) or **Assets** host detail by IP. **Scan control** remains the page to queue new jobs.
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
 - **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
@@ -106,7 +106,7 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 - **API:** `GET/POST /api/devices.php` (list, detail, **merge**), `GET /api/assets.php?device_id=`, `GET /api/export.php?device_id=`, dashboard includes `device_id` in top-vulnerable query.
 - **UI:** Devices tab, device detail side panel (with merge), Assets integration (filter, sort, single search + numeric device id + Enter, clear filters); **`deploy.sh`** copies **`api/devices.php`** (required for the Devices tab).
 - **Docs:** **`docs/DEVICE_IDENTITY.md`** — device vs address model and API notes.
-- **Scan history search** — `GET /api/scan_history.php` accepts optional **`q`** (max 120 chars) to filter list rows by **`scan_jobs.label`**, **`target_cidr`**, or **`id`**. Scan tab search field (debounced) uses **`limit=200`** when **`q`** is set; queue panel still reflects unfiltered **`GET /api/scan_status.php`** history.
+- **Scan history search** — `GET /api/scan_history.php` accepts optional **`q`** (max 120 chars) to filter list rows by **`scan_jobs.label`**, **`target_cidr`**, or **`id`**. **Scan history** page search (debounced) uses **`limit=200`** when **`q`** is set; queue panel still reflects unfiltered **`GET /api/scan_status.php`** history. Run detail assets include **`device_id`** for navigation to **Devices** / **Assets**.
 
 ### 0.4.0
 

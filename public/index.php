@@ -54,6 +54,10 @@
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3l2 1.2"/></svg>
     Scan control
   </div>
+  <div class="ni" id="nscanhist" onclick="goTab('scanhist');hiNav('nscanhist')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8v10H3z"/><path d="M5 5h4M5 8h4M5 11h2"/></svg>
+    Scan history
+  </div>
   <div class="ni" id="nsched" onclick="goTab('sched');hiNav('nsched')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
     Schedules
@@ -382,8 +386,17 @@
       </div>
     </div>
   </div>
+  <div class="hint-micro mb4" style="margin-top:2px">
+    Queue and past runs: <button type="button" class="tbtn text-micro" onclick="goTab('scanhist');hiNav('nscanhist')">Open Scan history</button>
+  </div>
+</div>
 
-  <!-- Job queue — always visible, primary status view -->
+<!-- ================================================================ SCAN HISTORY -->
+<div class="tab" id="t-scanhist">
+  <div class="hint-micro mb10">
+    Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.
+  </div>
+  <!-- Job queue — primary status view -->
   <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap">
     <div id="job-queue" class="mb8" style="display:none">
@@ -397,13 +410,15 @@
     <div id="job-queue-empty" class="hint-micro mb8 pad8y">No jobs queued or running</div>
   </div>
 
-  <!-- Scan history -->
   <div class="sth section-top">Scan history</div>
-  <input class="finp wide mb8" id="scan-hist-q" type="search" placeholder="Search scan name (label), target, or job #…" autocomplete="off" oninput="debounceScanHistSearch()">
+  <div class="fbar">
+    <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
+    <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
+  </div>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
-      <tbody id="scan-hist"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+      <tbody id="scan-hist"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -571,6 +586,7 @@
           <tbody id="scan-hist-detail-assets"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
         </table>
       </div>
+      <p id="scan-hist-detail-assets-hint" class="hint-micro mt8" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
     </div>
   </div>
 
@@ -1249,6 +1265,7 @@ function goTab(name) {
     if (name === 'vulns')    loadFindings(1);
     if (name === 'logs')     loadLog();
     if (name === 'scan')     loadScanStatus();
+    if (name === 'scanhist') loadScanStatus();
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
     if (name === 'health')   loadHealth();
@@ -1400,7 +1417,7 @@ async function submitLogin() {
         if (currentTab === 'assets') loadAssets(assetPage || 1);
         if (currentTab === 'vulns') loadFindings(vulnPage || 1);
         if (currentTab === 'logs') loadLog();
-        if (currentTab === 'scan') loadScanStatus();
+        if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
         if (currentTab === 'sched') loadSchedules();
         if (currentTab === 'enrich' || currentTab === 'settings') loadEnrichment();
         if (currentTab === 'health') loadHealth();
@@ -2203,6 +2220,26 @@ async function retryJob(id) {
 function closeScanHistDetailModal() {
     const bg = document.getElementById('scan-hist-detail-bg');
     if (bg) bg.style.display = 'none';
+    const hint = document.getElementById('scan-hist-detail-assets-hint');
+    if (hint) hint.style.display = 'none';
+}
+
+/** From scan detail modal: prefer Devices when `device_id` is set, else host panel (asset by IP). */
+function openScanHistAssetNav(assetId, deviceId, ip) {
+    const aid = parseInt(String(assetId), 10);
+    const did = deviceId != null && deviceId !== '' ? parseInt(String(deviceId), 10) : 0;
+    closeScanHistDetailModal();
+    if (did > 0) {
+        goTab('devices');
+        hiNav('ndevices');
+        void openDevicePanel(did);
+        return;
+    }
+    if (aid > 0 && ip) {
+        goTab('assets');
+        hiNav('nassets');
+        void openHostPanel(aid, ip);
+    }
 }
 
 function renderScanSummary(summary) {
@@ -2237,6 +2274,8 @@ async function openScanHistDetail(id) {
         document.body.appendChild(bg);
     }
     bg.style.display = 'flex';
+    const hint0 = document.getElementById('scan-hist-detail-assets-hint');
+    if (hint0) hint0.style.display = 'none';
     title.textContent = 'Scan #' + id + ' detail';
     meta.textContent = 'Loading…';
     sum.innerHTML = '';
@@ -2261,15 +2300,22 @@ async function openScanHistDetail(id) {
     sum.innerHTML = renderScanSummary(j.summary);
 
     const assets = Array.isArray(d.assets) ? d.assets : [];
+    const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (!assets.length) {
+        if (hint) hint.style.display = 'none';
         tbody.innerHTML = '<tr><td colspan="6" class="loading">No assets recorded for this run</td></tr>';
         return;
     }
+    if (hint) hint.style.display = 'block';
     tbody.innerHTML = assets.map(a => {
         const ports = Array.isArray(a.open_ports) && a.open_ports.length
             ? a.open_ports.join(', ')
             : '—';
-        return `<tr>
+        const did = a.device_id != null && a.device_id !== '' ? parseInt(String(a.device_id), 10) : 0;
+        const tip = did > 0 ? 'Open device #' + did : 'Open host at ' + (a.ip || '');
+        const ipLit = JSON.stringify(String(a.ip || ''));
+        const devArg = did > 0 ? String(did) : 'null';
+        return `<tr class="scan-hist-asset-row" style="cursor:pointer" title="${esc(tip)}" onclick="openScanHistAssetNav(${a.id},${devArg},${ipLit})">
           <td class="mono">${esc(a.ip || '')}</td>
           <td>${esc(a.hostname || '—')}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
@@ -4207,7 +4253,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -4232,7 +4278,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',settings:'nsettings',sched:'nsched'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');
