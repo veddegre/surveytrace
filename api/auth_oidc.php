@@ -221,6 +221,7 @@ if (isset($_GET['callback'])) {
     $savedState = (string)($_SESSION['oidc_state'] ?? '');
     $savedNonce = (string)($_SESSION['oidc_nonce'] ?? '');
     if ($state === '' || $code === '' || $savedState === '' || !hash_equals($savedState, $state)) {
+        st_audit_log('auth.oidc_login_failure', null, null, null, null, ['reason' => 'state_validation_failed']);
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'OIDC state validation failed'], 400);
     }
@@ -234,10 +235,12 @@ if (isset($_GET['callback'])) {
     ]);
     $idToken = (string)($token['id_token'] ?? '');
     if ($idToken === '') {
+        st_audit_log('auth.oidc_login_failure', null, null, null, null, ['reason' => 'token_exchange_failed']);
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'OIDC token exchange failed'], 400);
     }
     if (!st_verify_oidc_id_token($idToken, $discovery)) {
+        st_audit_log('auth.oidc_login_failure', null, null, null, null, ['reason' => 'token_signature_validation_failed']);
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'OIDC token signature validation failed'], 400);
     }
@@ -263,6 +266,7 @@ if (isset($_GET['callback'])) {
     }
     $sub = trim((string)($claims['sub'] ?? ''));
     if ($sub === '') {
+        st_audit_log('auth.oidc_login_failure', null, null, null, null, ['reason' => 'subject_missing']);
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'OIDC subject missing'], 400);
     }
@@ -280,6 +284,7 @@ if (isset($_GET['callback'])) {
     $row = $sel->fetch();
     if ($row) {
         if ((int)$row['disabled'] === 1) {
+            st_audit_log('auth.oidc_login_failure', null, null, (int)$row['id'], (string)$row['username'], ['reason' => 'user_disabled']);
             st_release_session_lock();
             st_json(['ok' => false, 'error' => 'OIDC user is disabled'], 403);
         }
@@ -292,13 +297,26 @@ if (isset($_GET['callback'])) {
                ->execute([$username, (int)$row['id']]);
         }
         st_set_session_user((int)$row['id'], $username, $effectiveRole);
+        st_audit_log('auth.oidc_login_success', (int)$row['id'], $username, (int)$row['id'], $username, [
+            'role' => $effectiveRole,
+            'role_source' => $roleSource,
+        ]);
     } else {
         $ins = $db->prepare("
             INSERT INTO users (username, role, auth_source, oidc_issuer, oidc_sub, last_login_at)
             VALUES (?, ?, 'oidc', ?, ?, datetime('now'))
         ");
         $ins->execute([$username, $role, $issuer, $sub]);
-        st_set_session_user((int)$db->lastInsertId(), $username, $role);
+        $newId = (int)$db->lastInsertId();
+        st_set_session_user($newId, $username, $role);
+        st_audit_log('auth.oidc_user_create', $newId, $username, $newId, $username, [
+            'role' => $role,
+            'role_source' => $roleSource,
+        ]);
+        st_audit_log('auth.oidc_login_success', $newId, $username, $newId, $username, [
+            'role' => $role,
+            'role_source' => $roleSource,
+        ]);
     }
     unset($_SESSION['oidc_state'], $_SESSION['oidc_nonce']);
     st_release_session_lock();

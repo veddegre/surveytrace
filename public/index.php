@@ -1713,6 +1713,10 @@ function startFeedSyncStatePolling() {
 // Nav
 // ==========================================================================
 function goTab(name) {
+    if (name === 'settings' && !isAdminUser()) {
+        toast('Settings are available to admin users only.', 'err');
+        name = 'dash';
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
