@@ -2,6 +2,14 @@
 
 A self-hosted network asset discovery and inventory platform for general-purpose networks.
 
+## Name and Purpose
+
+SurveyTrace combines two ideas at the core of network visibility.
+
+Survey refers to systematically examining an area to map what exists within it, similar to how a land surveyor documents every boundary and structure on a property. Trace refers to following connections to their source and keeping a record of what was found and when.
+
+Together, the name describes exactly what the tool does: it surveys your network to discover what is there, then traces those assets over time so you can understand how your environment changes.
+
 ## Features
 
 - **Active scanning** — ARP sweep, ICMP ping, TCP SYN discovery, nmap banner/service detection
@@ -102,16 +110,7 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ### Unreleased
 
-- **Scan history workflow** — dedicated **Scan history** page plus queue visibility on both **Scan control** and **Scan history**; history rows support **Details**, **Re-run**, and trash lifecycle actions.
-- **Historical run evidence** — per-scan snapshots stored in **`scan_asset_snapshots`** and **`scan_finding_snapshots`**; scan detail prefers snapshots, falls back to legacy `last_scan_id`, then `port_history` for older runs.
-- **Run comparisons** — scan detail now computes diffs (hosts, ports, CVEs) versus previous run or a selected prior run (`compare_to`), with optional scope filters (`any`, `target`, `profile`, `both`).
-- **Host/device drift views** — host detail includes per-scan change history (new/closed ports, new/resolved CVEs); device detail aggregates scan history across linked assets and can jump directly to run details.
-- **Re-run label normalization** — repeated re-runs no longer stack suffixes like `(re-run) (re-run)`; labels normalize to a single suffix.
-- **Identity hardening + UX refresh** — OIDC-only SSO path (SAML bridge removed), endpoint RBAC hardening, OIDC JWKS `id_token` signature validation, and role-aware UI control hiding/disabling.
-- **Profile + account recovery UX** — new **My profile** surface for self-service account management (display name, email, self password change, self MFA setup/disable for local accounts); admin user-management now supports temporary password resets (forced change on first login) and user MFA reset/clear actions.
-- **MFA usability improvements** — QR code enrollment, copyable setup URI, recovery code panel with copy/download/print actions, and modal-based MFA disable flow.
-- **Dedicated Access control page** — authentication mode, OIDC/breakglass settings, password policy, local user management, and auth/audit views moved out of Settings into a single admin page.
-- **Account + operator audit scope** — historical user audit now includes auth events, account lifecycle events (create/update/delete/reset), and scan/schedule operator actions (queue/re-run/delete/run-now/pause/resume/toggle).
+- (no entries yet)
 
 ### 0.6.1
 
@@ -363,4 +362,4 @@ MIT License
 
 ## Author
 
-Greg Vedders — [greg@vedders.com](mailto:greg@vedders.com) — [gregvedders.com](https://gregvedders.com)
+Greg Vedders — [gregvedders.com](https://gregvedders.com)
