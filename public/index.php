@@ -120,7 +120,7 @@
       <div class="sc"><div class="sl">Scan success rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">completed successfully</div></div>
       <div class="sc"><div class="sl">Avg scan time (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
     </div>
-    <div class="sgrid" style="margin-top:12px">
+    <div class="sgrid exec-grid-2" style="margin-top:12px">
       <div class="card">
         <div class="ct">Issues identified (14d)</div>
         <div id="exec-trend-findings" class="exec-chart"></div>
@@ -130,7 +130,7 @@
         <div id="exec-trend-assets" class="exec-chart"></div>
       </div>
     </div>
-    <div class="sgrid" style="margin-top:12px">
+    <div class="sgrid exec-grid-2" style="margin-top:12px">
       <div class="card">
         <div class="ct">Scan reliability + risk trend (14d)</div>
         <div id="exec-trend-scans" class="exec-chart"></div>

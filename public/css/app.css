@@ -326,6 +326,7 @@ body.exec-mode #dash-exec{display:block}
 body:not(.exec-mode) .dash-actions-right{visibility:hidden;pointer-events:none}
 #dash-exec{display:none}
 .exec-top-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:12px;margin-bottom:12px}
+.exec-grid-2{grid-template-columns:repeat(2,minmax(320px,1fr))}
 .exec-top-card{padding:14px 16px}
 .exec-top-card .ct{font-size:12px;letter-spacing:.05em;margin-bottom:10px}
 .exec-brief-deltas{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:8px;margin-bottom:10px}
@@ -342,6 +343,7 @@ body:not(.exec-mode) .dash-actions-right{visibility:hidden;pointer-events:none}
 
 @media (max-width: 980px){
   .exec-top-grid{grid-template-columns:1fr}
+  .exec-grid-2{grid-template-columns:1fr}
   .exec-brief-deltas{grid-template-columns:repeat(2,minmax(140px,1fr))}
 }
 @media (max-width: 640px){
