@@ -916,6 +916,7 @@
               <tbody id="auth-users-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
             </table>
           </div>
+          <div class="hint-micro mb8">Use <strong>Edit</strong> to apply role/disabled changes. In the modal, temporary password reset is optional for existing users.</div>
           <div class="row-wrap mb10">
             <input class="finp" id="new-auth-user" placeholder="new username">
             <select class="finp" id="new-auth-role">
@@ -923,7 +924,6 @@
               <option value="scan_editor">scan_editor</option>
               <option value="admin">admin</option>
             </select>
-            <input class="finp" id="new-auth-pass" type="password" placeholder="temporary password (user changes on first login)">
             <button class="btnp" type="button" onclick="createAuthUser()">Add user</button>
           </div>
           <div class="flbl">MFA (your account)</div>
@@ -1118,6 +1118,22 @@
   </div>
 </div>
 
+<!-- Admin user password update modal -->
+<div id="user-pw-bg" class="modal-bg z220">
+  <div class="modal-card modal-w360">
+    <div class="modal-title">Edit user + temporary password</div>
+    <div class="text-muted mb10" id="user-pw-msg">Leave blank to keep the current password.</div>
+    <label class="flbl">New temporary password (optional)</label>
+    <input class="finp w100 mb8" id="user-pw-new" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
+    <label class="flbl">Confirm temporary password</label>
+    <input class="finp w100 mb12" id="user-pw-confirm" type="password" autocomplete="new-password" placeholder="Must match temporary password">
+    <div class="row-end">
+      <button class="tbtn" type="button" onclick="closeUserPasswordModal()">Cancel</button>
+      <button class="btnp" type="button" onclick="submitAuthUserSave()">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Enrichment source modal -->
 <div id="esrc-bg" class="modal-bg z100">
   <div class="modal-card modal-w440">
@@ -1235,6 +1251,7 @@ var pendingMfaSecret = '';
 var pendingMfaOtpUri = '';
 var pendingRecoveryCodes = [];
 var mustChangePasswordPending = false;
+var pendingUserSave = null;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -3352,6 +3369,9 @@ document.getElementById('mfa-disable-bg')?.addEventListener('click', function(e)
 document.getElementById('pw-change-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closePasswordChangeModal();
 });
+document.getElementById('user-pw-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeUserPasswordModal();
+});
 
 // ==========================================================================
 // Enrichment sources
@@ -3525,7 +3545,7 @@ async function loadAuthUsers() {
         <td class="mono-sm">${u.must_change_password ? 'required' : 'ok'}</td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="row-wrap">
-          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')">Save</button>
+          <button class="tbtn btn-xs" onclick="saveAuthUser(${u.id},'${esc(u.username)}')" title="Save role/disabled changes and optionally set a temporary password">Edit</button>
           ${u.auth_source === 'local' && u.mfa_enabled ? `<button class="tbtn btn-xs" onclick="resetUserMfa(${u.id},'${esc(u.username)}')">Clear MFA</button>` : ''}
         </td>
       </tr>`).join('')
@@ -3535,35 +3555,79 @@ async function loadAuthUsers() {
 async function saveAuthUser(id, username) {
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
-    const pwd = prompt(`Optional: set a new temporary password for ${username} (leave blank to keep current).`, '');
-    const body = { id, username, role, disabled };
-    if (pwd !== null && String(pwd).trim() !== '') body.password = String(pwd);
+    pendingUserSave = { id, username, role, disabled, requirePassword: false };
+    openUserPasswordModal(username);
+}
+
+function openUserPasswordModal(username) {
+    const bg = document.getElementById('user-pw-bg');
+    const msg = document.getElementById('user-pw-msg');
+    const pw = document.getElementById('user-pw-new');
+    const pwc = document.getElementById('user-pw-confirm');
+    const required = !!(pendingUserSave && pendingUserSave.requirePassword);
+    if (msg) {
+        msg.textContent = required
+            ? `Set a temporary password for ${username}. They will be required to change it at first sign-in.`
+            : `Set a temporary password for ${username} or leave blank to keep current.`;
+    }
+    if (pw) pw.value = '';
+    if (pwc) pwc.value = '';
+    if (pw) pw.placeholder = required ? 'Temporary password' : 'Leave blank to keep current';
+    if (pwc) pwc.placeholder = required ? 'Confirm temporary password' : 'Must match temporary password';
+    if (bg) bg.style.display = 'flex';
+    if (pw) pw.focus();
+}
+
+function closeUserPasswordModal() {
+    const bg = document.getElementById('user-pw-bg');
+    if (bg) bg.style.display = 'none';
+    pendingUserSave = null;
+}
+
+async function submitAuthUserSave() {
+    if (!pendingUserSave) return;
+    const body = { username: pendingUserSave.username, role: pendingUserSave.role, disabled: pendingUserSave.disabled };
+    if (pendingUserSave.id > 0) body.id = pendingUserSave.id;
+    const pwd = document.getElementById('user-pw-new')?.value || '';
+    const pwdConfirm = document.getElementById('user-pw-confirm')?.value || '';
+    const required = !!pendingUserSave.requirePassword;
+    if (required && String(pwd).trim() === '') {
+        toast('Temporary password is required', 'err');
+        return;
+    }
+    if (String(pwd).trim() !== '' || String(pwdConfirm).trim() !== '') {
+        if (pwd !== pwdConfirm) {
+            toast('Temporary password fields do not match', 'err');
+            return;
+        }
+    }
+    if (String(pwd).trim() !== '') body.password = String(pwd);
     const r = await apiPost('/api/auth.php?users=1', body);
     if (r && r.ok) {
-        toast('User updated', 'ok');
+        const wasCreate = !pendingUserSave.id;
+        closeUserPasswordModal();
+        if (wasCreate) {
+            const un = document.getElementById('new-auth-user');
+            if (un) un.value = '';
+            const ur = document.getElementById('new-auth-role');
+            if (ur) ur.value = 'viewer';
+        }
+        toast(wasCreate ? 'User created' : 'User updated', 'ok');
         loadAuthUsers();
     } else {
-        toast((r && r.error) ? r.error : 'Update failed', 'err');
+        toast((r && r.error) ? r.error : (pendingUserSave.id ? 'Update failed' : 'Create failed'), 'err');
     }
 }
 
 async function createAuthUser() {
     const username = (document.getElementById('new-auth-user')?.value || '').trim();
     const role = document.getElementById('new-auth-role')?.value || 'viewer';
-    const password = document.getElementById('new-auth-pass')?.value || '';
-    if (!username || !password) {
-        toast('Username and temporary password are required', 'err');
+    if (!username) {
+        toast('Username is required', 'err');
         return;
     }
-    const r = await apiPost('/api/auth.php?users=1', { username, role, password, disabled: false });
-    if (r && r.ok) {
-        document.getElementById('new-auth-user').value = '';
-        document.getElementById('new-auth-pass').value = '';
-        toast('User created', 'ok');
-        loadAuthUsers();
-    } else {
-        toast((r && r.error) ? r.error : 'Create failed', 'err');
-    }
+    pendingUserSave = { id: 0, username, role, disabled: false, requirePassword: true };
+    openUserPasswordModal(username);
 }
 
 async function beginMfaSetup() {
@@ -5450,6 +5514,7 @@ document.addEventListener('keydown', e => {
     closeHostPanel();
     closeMfaDisableModal();
     closePasswordChangeModal();
+    closeUserPasswordModal();
 });
 
 // ==========================================================================
