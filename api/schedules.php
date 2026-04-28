@@ -20,6 +20,7 @@ st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
 $db = st_db();
+$actor = st_current_user();
 
 // Jobs enqueued from schedules reference scan_jobs columns added with manual scans — ensure they exist
 $scanJobCols = array_column($db->query('PRAGMA table_info(scan_jobs)')->fetchAll(), 'name');
@@ -91,7 +92,14 @@ if ($method === 'DELETE') {
     st_require_role(['scan_editor', 'admin']);
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) st_json(['error' => 'id required'], 400);
+    $s = $db->prepare("SELECT id, name FROM scan_schedules WHERE id=? LIMIT 1");
+    $s->execute([$id]);
+    $row = $s->fetch() ?: null;
     $db->prepare("DELETE FROM scan_schedules WHERE id=?")->execute([$id]);
+    st_audit_log('scan.schedule_deleted', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+        'name' => (string)($row['name'] ?? ''),
+    ]);
     st_json(['ok' => true]);
 }
 
@@ -173,6 +181,11 @@ if (isset($_GET['run_now'])) {
     // Update last_job_id
     $db->prepare("UPDATE scan_schedules SET last_job_id=?, last_run=datetime('now') WHERE id=?")
        ->execute([$job_id, $id]);
+    st_audit_log('scan.schedule_run_now', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+        'schedule_name' => (string)($s['name'] ?? ''),
+        'job_id' => $job_id,
+    ]);
 
     st_json(['ok' => true, 'job_id' => $job_id]);
 }
@@ -184,6 +197,9 @@ if (isset($_GET['pause'])) {
         st_json(['error' => 'id required'], 400);
     }
     $db->prepare('UPDATE scan_schedules SET paused = 1 WHERE id = ?')->execute([$id]);
+    st_audit_log('scan.schedule_paused', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+    ]);
     st_json(['ok' => true, 'paused' => true]);
 }
 
@@ -203,6 +219,9 @@ if (isset($_GET['resume'])) {
             END
         WHERE id = ?
     ")->execute([$nr, $id]);
+    st_audit_log('scan.schedule_resumed', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+    ]);
     st_json(['ok' => true, 'paused' => false]);
 }
 
@@ -213,7 +232,12 @@ if (isset($_GET['toggle'])) {
     $db->prepare("UPDATE scan_schedules SET enabled = 1-enabled WHERE id=?")->execute([$id]);
     $row = $db->prepare("SELECT id, enabled FROM scan_schedules WHERE id=?");
     $row->execute([$id]);
-    st_json(['ok' => true, 'enabled' => (bool)$row->fetchColumn(1)]);
+    $enabledNow = (bool)$row->fetchColumn(1);
+    st_audit_log('scan.schedule_toggled', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+        'enabled' => $enabledNow,
+    ]);
+    st_json(['ok' => true, 'enabled' => $enabledNow]);
 }
 
 // Create or update
@@ -355,6 +379,13 @@ if ($id > 0) {
         $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
         $next_run, $id
     ]);
+    st_audit_log('scan.schedule_updated', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+        'name' => $name,
+        'profile' => $profile,
+        'scan_mode' => $scan_mode,
+        'enabled' => $enabled,
+    ]);
 } else {
     $db->prepare("
         INSERT INTO scan_schedules
@@ -368,6 +399,13 @@ if ($id > 0) {
         $missed_run_policy, $missed_run_max, $next_run, $enrichmentIdsJson
     ]);
     $id = (int)$db->lastInsertId();
+    st_audit_log('scan.schedule_created', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'schedule_id' => $id,
+        'name' => $name,
+        'profile' => $profile,
+        'scan_mode' => $scan_mode,
+        'enabled' => $enabled,
+    ]);
 }
 
 $stmt2 = $db->prepare("SELECT * FROM scan_schedules WHERE id=?");

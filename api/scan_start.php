@@ -31,6 +31,7 @@ st_method('POST');
 
 $body = st_input();
 $db   = st_db();
+$actor = st_current_user();
 
 // Ensure newer queue columns exist for older databases
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
@@ -93,7 +94,14 @@ if (!empty($body['retry_job_id'])) {
         $prio,
         $enrRetry,
     ]);
-    st_json(['ok' => true, 'job_id' => (int)$db->lastInsertId(), 'status' => 'queued']);
+    $newJobId = (int)$db->lastInsertId();
+    st_audit_log('scan.rerun_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'job_id' => $newJobId,
+        'source_job_id' => $orig_id,
+        'status_suffix' => (($orig['status'] ?? '') === 'failed') ? 'retry' : 're-run',
+        'profile' => (string)($orig['profile'] ?? 'standard_inventory'),
+    ]);
+    st_json(['ok' => true, 'job_id' => $newJobId, 'status' => 'queued']);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +280,13 @@ $stmt->execute([
 ]);
 
 $job_id = (int)$db->lastInsertId();
+st_audit_log('scan.job_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+    'job_id' => $job_id,
+    'target_cidr' => implode(', ', $validated_cidrs),
+    'profile' => $profile,
+    'scan_mode' => $scan_mode,
+    'priority' => $priority,
+]);
 
 // Write initial audit log entry
 $db->prepare("

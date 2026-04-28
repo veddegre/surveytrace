@@ -162,7 +162,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['users'])) {
     st_auth();
     st_require_role(['admin']);
     $rows = $db->query("
-        SELECT id, username, role, auth_source, disabled, mfa_enabled, must_change_password, created_at, updated_at, last_login_at
+        SELECT id, username, role, auth_source, display_name, email, disabled, mfa_enabled, must_change_password, created_at, updated_at, last_login_at
         FROM users
         ORDER BY lower(username) ASC
     ")->fetchAll();
@@ -438,7 +438,13 @@ if (isset($_GET['users'])) {
     $password = (string)($body['password'] ?? '');
     $resetMfa = !empty($body['reset_mfa']);
     $deleteUser = !empty($body['delete_user']);
+    $displayName = substr(trim((string)($body['display_name'] ?? '')), 0, 120);
+    $email = substr(trim((string)($body['email'] ?? '')), 0, 254);
+    $mustChangePassword = !empty($body['must_change_password']) ? 1 : 0;
     $disabled = !empty($body['disabled']) ? 1 : 0;
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        st_json(['error' => 'Invalid email address'], 400);
+    }
     if ($deleteUser) {
         if ($id <= 0) st_json(['error' => 'id required for delete'], 400);
         $existingStmt = $db->prepare("SELECT id, username, role, auth_source FROM users WHERE id=? LIMIT 1");
@@ -465,19 +471,32 @@ if (isset($_GET['users'])) {
     }
     if ($username === '') st_json(['error' => 'username required'], 400);
     if ($id > 0) {
-        $existingStmt = $db->prepare("SELECT username, role, disabled FROM users WHERE id=? LIMIT 1");
+        $existingStmt = $db->prepare("SELECT username, role, disabled, display_name, email, must_change_password FROM users WHERE id=? LIMIT 1");
         $existingStmt->execute([$id]);
         $existing = $existingStmt->fetch();
         if (!$existing) st_json(['error' => 'User not found'], 404);
-        $stmt = $db->prepare("UPDATE users SET username=?, role=?, disabled=?, updated_at=datetime('now') WHERE id=?");
-        $stmt->execute([$username, $role, $disabled, $id]);
+        if ((string)$existing['role'] === 'admin' && ($role !== 'admin' || $disabled === 1)) {
+            $cStmt = $db->prepare("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0 AND id<>?");
+            $cStmt->execute([$id]);
+            if ((int)$cStmt->fetchColumn() <= 0) {
+                st_json(['error' => 'Cannot remove or disable the last active admin'], 400);
+            }
+        }
+        $stmt = $db->prepare("UPDATE users SET username=?, role=?, display_name=?, email=?, disabled=?, must_change_password=?, updated_at=datetime('now') WHERE id=?");
+        $stmt->execute([$username, $role, $displayName, $email, $disabled, $mustChangePassword, $id]);
         $actor = st_current_user();
         st_audit_log('admin.user_update', (int)$actor['id'], (string)$actor['username'], $id, $username, [
             'prev_username' => (string)$existing['username'],
             'prev_role' => (string)$existing['role'],
+            'prev_display_name' => (string)($existing['display_name'] ?? ''),
+            'prev_email' => (string)($existing['email'] ?? ''),
             'prev_disabled' => (int)$existing['disabled'],
+            'prev_must_change_password' => (int)($existing['must_change_password'] ?? 0),
             'new_role' => $role,
+            'new_display_name' => $displayName,
+            'new_email' => $email,
             'new_disabled' => $disabled,
+            'new_must_change_password' => $mustChangePassword,
         ]);
         if ($password !== '') {
             $pwErrors = st_validate_password_strength($password);

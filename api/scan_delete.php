@@ -15,6 +15,7 @@ st_require_role(['scan_editor', 'admin']);
 st_method('POST');
 
 $db = st_db();
+$actor = st_current_user();
 $jobId = st_int('job_id', 0, 1);
 if ($jobId <= 0) {
     st_json(['ok' => false, 'error' => 'job_id is required'], 400);
@@ -46,5 +47,9 @@ try {
     st_json(['ok' => false, 'error' => 'Delete failed: ' . $e->getMessage()], 500);
 }
 
+st_audit_log('scan.job_deleted', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+    'job_id' => $jobId,
+    'previous_status' => $status,
+]);
 st_json(['ok' => true, 'deleted_job_id' => $jobId]);
 
