@@ -851,6 +851,27 @@
     </div>
     <div>
       <div class="card">
+        <div class="ct">About</div>
+        <div class="help-mono">
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.5.0', ENT_QUOTES, 'UTF-8') ?><br>
+          PHP + SQLite + Python scanner daemon<br>
+          <span class="text-dim">Data stored in data/surveytrace.db</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Asset categories</div>
+        <table class="table-mini">
+          <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server)</td></tr>
+          <tr><td><span class="cat ws">ws</span></td><td>Workstation / desktop</td></tr>
+          <tr><td><span class="cat net">net</span></td><td>Network gear (switch, router, firewall)</td></tr>
+          <tr><td><span class="cat iot">iot</span></td><td>IoT device</td></tr>
+          <tr><td><span class="cat ot">ot</span></td><td>OT / ICS (PLC, SCADA, HMI)</td></tr>
+          <tr><td><span class="cat voi">voi</span></td><td>VoIP phone / PBX</td></tr>
+          <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
+          <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
+        </table>
+      </div>
+      <div class="card">
         <div class="ct">Access control</div>
         <div class="help-line mb10">Define authentication mode, role assignments, and MFA for local users.</div>
         <label class="flbl">Authentication mode</label>
@@ -863,30 +884,41 @@
           </select>
           <button class="btnp" type="button" onclick="saveAccessControlSettings()">Save mode</button>
         </div>
-        <div class="flbl">OIDC configuration</div>
-        <div class="profile-grid mb10">
-          <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
-          <input class="finp" id="oidc-client-id" placeholder="Client ID">
-          <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
-          <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
-          <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
-          <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+        <div class="row-wrap mb10">
+          <label class="flbl">SSO role assignment</label>
+          <select class="finp" id="sso-role-source" style="min-width:220px">
+            <option value="surveytrace">Manage roles in SurveyTrace</option>
+            <option value="idp">Map roles from IdP groups/claims</option>
+          </select>
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save role source</button>
         </div>
-        <div class="row-wrap mb12">
-          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
-          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
-        </div>
-        <div class="flbl">SAML bridge configuration</div>
-        <div class="profile-grid mb10">
-          <input class="finp" id="saml-login-url" placeholder="SAML login URL (IdP sign-in endpoint)">
-          <input class="finp" id="saml-username-header" placeholder="Username header from proxy (e.g. X-Remote-User)">
-          <input class="finp" id="saml-groups-header" placeholder="Groups header from proxy (e.g. X-Remote-Groups)">
-          <input class="finp" id="saml-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
-        </div>
-        <div class="row-wrap mb12">
-          <label class="stack8"><input type="checkbox" id="saml-enabled" class="accent-radio"> <span class="text-secondary">Enable SAML bridge sign-in</span></label>
-          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save SAML</button>
-        </div>
+
+        <details class="mb10">
+          <summary class="flbl text-secondary">SSO provider details (advanced)</summary>
+          <div class="flbl mt6">OIDC configuration</div>
+          <div class="profile-grid mb10">
+            <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
+            <input class="finp" id="oidc-client-id" placeholder="Client ID">
+            <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
+            <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
+            <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
+            <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+          </div>
+          <div class="row-wrap mb12">
+            <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+          </div>
+          <div class="flbl">SAML bridge configuration</div>
+          <div class="profile-grid mb10">
+            <input class="finp" id="saml-login-url" placeholder="SAML login URL (IdP sign-in endpoint)">
+            <input class="finp" id="saml-username-header" placeholder="Username header from proxy (e.g. X-Remote-User)">
+            <input class="finp" id="saml-groups-header" placeholder="Groups header from proxy (e.g. X-Remote-Groups)">
+            <input class="finp" id="saml-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+          </div>
+          <div class="row-wrap mb12">
+            <label class="stack8"><input type="checkbox" id="saml-enabled" class="accent-radio"> <span class="text-secondary">Enable SAML bridge sign-in</span></label>
+          </div>
+        </details>
+
         <div class="flbl">Breakglass local access</div>
         <div class="row-wrap mb12">
           <label class="stack8"><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
@@ -947,27 +979,6 @@
           </div>
           <div class="hint-micro mt6">Recovery codes will be shown once after MFA is enabled.</div>
         </div>
-      </div>
-      <div class="card">
-        <div class="ct">About</div>
-        <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.5.0', ENT_QUOTES, 'UTF-8') ?><br>
-          PHP + SQLite + Python scanner daemon<br>
-          <span class="text-dim">Data stored in data/surveytrace.db</span>
-        </div>
-      </div>
-      <div class="card">
-        <div class="ct">Asset categories</div>
-        <table class="table-mini">
-          <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server)</td></tr>
-          <tr><td><span class="cat ws">ws</span></td><td>Workstation / desktop</td></tr>
-          <tr><td><span class="cat net">net</span></td><td>Network gear (switch, router, firewall)</td></tr>
-          <tr><td><span class="cat iot">iot</span></td><td>IoT device</td></tr>
-          <tr><td><span class="cat ot">ot</span></td><td>OT / ICS (PLC, SCADA, HMI)</td></tr>
-          <tr><td><span class="cat voi">voi</span></td><td>VoIP phone / PBX</td></tr>
-          <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
-          <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
-        </table>
       </div>
     </div>
   </div>
@@ -3298,6 +3309,8 @@ async function loadUiSettings() {
     if (samlEnabled) samlEnabled.checked = !!d.saml_enabled;
     const brkEnabled = document.getElementById('breakglass-enabled');
     if (brkEnabled) brkEnabled.checked = !!d.breakglass_enabled;
+    const ssoRoleSource = document.getElementById('sso-role-source');
+    if (ssoRoleSource) ssoRoleSource.value = d.sso_role_source || 'surveytrace';
     const minLen = document.getElementById('pp-min-len');
     if (minLen) minLen.value = String(pp.min_length || 12);
     const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
@@ -3346,6 +3359,7 @@ async function saveAccessControlSettings() {
         oidc_redirect_uri: document.getElementById('oidc-redirect-uri')?.value || '',
         oidc_role_claim: document.getElementById('oidc-role-claim')?.value || 'groups',
         oidc_role_map: document.getElementById('oidc-role-map')?.value || '',
+        sso_role_source: document.getElementById('sso-role-source')?.value || 'surveytrace',
         saml_enabled: !!document.getElementById('saml-enabled')?.checked,
         saml_login_url: document.getElementById('saml-login-url')?.value || '',
         saml_username_header: document.getElementById('saml-username-header')?.value || 'X-Remote-User',

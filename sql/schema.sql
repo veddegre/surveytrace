@@ -243,6 +243,7 @@ INSERT OR IGNORE INTO config VALUES
     ('saml_username_header', 'X-Remote-User'),
     ('saml_groups_header', 'X-Remote-Groups'),
     ('saml_role_map',   ''),
+    ('sso_role_source', 'surveytrace'),
     ('breakglass_enabled', '1'),
     ('breakglass_username', 'admin'),
     ('password_min_length', '12'),

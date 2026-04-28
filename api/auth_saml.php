@@ -23,6 +23,7 @@ if ($mode !== 'saml') {
     st_release_session_lock();
     st_json(['ok' => false, 'error' => 'Auth mode is not SAML'], 400);
 }
+$roleSource = strtolower(trim((string)st_config('sso_role_source', 'surveytrace')));
 
 function st_saml_role_from_groups(array $groups): string {
     $mapRaw = trim((string)st_config('saml_role_map', ''));
@@ -73,7 +74,7 @@ if ($username === '') {
 }
 
 $groups = array_values(array_filter(array_map('trim', preg_split('/[,;|]/', $groupsRaw ?: '') ?: [])));
-$role = st_saml_role_from_groups($groups);
+$role = ($roleSource === 'idp') ? st_saml_role_from_groups($groups) : 'viewer';
 
 $db = st_db();
 $sel = $db->prepare("SELECT id, username, role, disabled FROM users WHERE auth_source='saml' AND lower(username)=lower(?) LIMIT 1");
@@ -84,9 +85,15 @@ if ($row) {
         st_release_session_lock();
         st_json(['ok' => false, 'error' => 'SAML user is disabled'], 403);
     }
-    $db->prepare("UPDATE users SET role=?, updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
-       ->execute([$role, (int)$row['id']]);
-    st_set_session_user((int)$row['id'], (string)$row['username'], $role);
+    $effectiveRole = ($roleSource === 'idp') ? $role : (string)$row['role'];
+    if ($roleSource === 'idp') {
+        $db->prepare("UPDATE users SET role=?, updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
+           ->execute([$effectiveRole, (int)$row['id']]);
+    } else {
+        $db->prepare("UPDATE users SET updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
+           ->execute([(int)$row['id']]);
+    }
+    st_set_session_user((int)$row['id'], (string)$row['username'], $effectiveRole);
 } else {
     $ins = $db->prepare("
         INSERT INTO users (username, role, auth_source, last_login_at)

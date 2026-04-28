@@ -31,6 +31,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'oidc_redirect_uri' => (string)st_config('oidc_redirect_uri', ''),
         'oidc_role_claim' => (string)st_config('oidc_role_claim', 'groups'),
         'oidc_role_map' => (string)st_config('oidc_role_map', ''),
+        'sso_role_source' => (string)st_config('sso_role_source', 'surveytrace'),
         'saml_enabled' => st_config('saml_enabled', '0') === '1',
         'saml_login_url' => (string)st_config('saml_login_url', ''),
         'saml_username_header' => (string)st_config('saml_username_header', 'X-Remote-User'),
@@ -101,6 +102,14 @@ foreach (['oidc_issuer_url', 'oidc_client_id', 'oidc_client_secret', 'oidc_redir
             $changed['oidc_client_secret_configured'] = ($v !== '');
         }
     }
+}
+if (array_key_exists('sso_role_source', $body)) {
+    $v = strtolower(trim((string)$body['sso_role_source']));
+    if (!in_array($v, ['surveytrace', 'idp'], true)) {
+        st_json(['error' => 'sso_role_source must be surveytrace or idp'], 400);
+    }
+    st_config_set('sso_role_source', $v);
+    $changed['sso_role_source'] = $v;
 }
 
 if (array_key_exists('saml_enabled', $body)) {

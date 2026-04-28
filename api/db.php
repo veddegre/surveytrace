@@ -155,6 +155,7 @@ function st_db(): PDO {
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_username_header', 'X-Remote-User')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_groups_header', 'X-Remote-Groups')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('saml_role_map', '')");
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('sso_role_source', 'surveytrace')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('breakglass_enabled', '1')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('breakglass_username', 'admin')");
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('password_min_length', '12')");

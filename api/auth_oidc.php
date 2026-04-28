@@ -80,6 +80,7 @@ if (st_config('oidc_enabled', '0') !== '1') {
 }
 
 $issuer = rtrim(trim((string)st_config('oidc_issuer_url', '')), '/');
+$roleSource = strtolower(trim((string)st_config('sso_role_source', 'surveytrace')));
 $clientId = trim((string)st_config('oidc_client_id', ''));
 $clientSecret = trim((string)st_config('oidc_client_secret', ''));
 $redirectUri = trim((string)st_config('oidc_redirect_uri', ''));
@@ -168,7 +169,7 @@ if (isset($_GET['callback'])) {
         if ($ui) $claims = array_merge($claims, $ui);
     }
     $username = trim((string)($claims['preferred_username'] ?? ($claims['email'] ?? $sub)));
-    $role = st_role_from_claims($claims);
+    $role = ($roleSource === 'idp') ? st_role_from_claims($claims) : 'viewer';
 
     $db = st_db();
     $sel = $db->prepare("SELECT id, username, role, disabled FROM users WHERE auth_source='oidc' AND oidc_issuer=? AND oidc_sub=? LIMIT 1");
@@ -179,9 +180,15 @@ if (isset($_GET['callback'])) {
             st_release_session_lock();
             st_json(['ok' => false, 'error' => 'OIDC user is disabled'], 403);
         }
-        $db->prepare("UPDATE users SET username=?, role=?, updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
-           ->execute([$username, $role, (int)$row['id']]);
-        st_set_session_user((int)$row['id'], $username, $role);
+        $effectiveRole = ($roleSource === 'idp') ? $role : (string)$row['role'];
+        if ($roleSource === 'idp') {
+            $db->prepare("UPDATE users SET username=?, role=?, updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
+               ->execute([$username, $effectiveRole, (int)$row['id']]);
+        } else {
+            $db->prepare("UPDATE users SET username=?, updated_at=datetime('now'), last_login_at=datetime('now') WHERE id=?")
+               ->execute([$username, (int)$row['id']]);
+        }
+        st_set_session_user((int)$row['id'], $username, $effectiveRole);
     } else {
         $ins = $db->prepare("
             INSERT INTO users (username, role, auth_source, oidc_issuer, oidc_sub, last_login_at)
