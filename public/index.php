@@ -88,7 +88,50 @@
 <div class="tab" id="t-dash">
   <div class="dash-actions">
     <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Executive view: off</button>
+    <label class="mono-sm text-dim">Trend</label>
+    <select class="finp narrow" id="exec-trend-range" onchange="loadDashboard()">
+      <option value="7">7d</option>
+      <option value="14" selected>14d</option>
+      <option value="30">30d</option>
+    </select>
   </div>
+  <div id="dash-exec" class="hide">
+    <div class="sth">Executive summary</div>
+    <div class="sgrid" id="exec-kpis">
+      <div class="sc g"><div class="sl">Assets</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
+      <div class="sc r"><div class="sl">Open findings</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
+      <div class="sc"><div class="sl">Scans (7d)</div><div class="sv" id="ex-scans">—</div><div class="ss" id="ex-scans-fail">—</div></div>
+      <div class="sc a"><div class="sl">New findings (7d)</div><div class="sv" id="ex-findings-new">—</div><div class="ss">recent discovery rate</div></div>
+      <div class="sc"><div class="sl">Completion rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">successful scan ratio</div></div>
+      <div class="sc"><div class="sl">Avg scan duration (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
+    </div>
+    <div class="sgrid" style="margin-top:12px">
+      <div class="card">
+        <div class="ct">Findings discovered (14d)</div>
+        <div id="exec-trend-findings" class="exec-chart"></div>
+      </div>
+      <div class="card">
+        <div class="ct">New assets discovered (14d)</div>
+        <div id="exec-trend-assets" class="exec-chart"></div>
+      </div>
+    </div>
+    <div class="sgrid" style="margin-top:12px">
+      <div class="card">
+        <div class="ct">Scan reliability + risk pressure (14d)</div>
+        <div id="exec-trend-scans" class="exec-chart"></div>
+      </div>
+      <div class="card">
+        <div class="ct">Open severity mix</div>
+        <div id="exec-severity" class="help-mono">Loading…</div>
+      </div>
+    </div>
+    <div class="sth section-top">Priority assets</div>
+    <div class="tbl-wrap mb16">
+      <table class="tbl"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
+      <tbody id="exec-top-risky"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+    </div>
+  </div>
+  <div id="dash-ops">
   <div class="sgrid" id="dash-stats">
     <div class="sc g"><div class="sl">Total assets</div><div class="sv" id="d-total">—</div><div class="ss" id="d-new">loading…</div></div>
     <div class="sc a"><div class="sl">Unclassified</div><div class="sv" id="d-unk">—</div><div class="ss">needs review</div></div>
@@ -111,6 +154,7 @@
 
   <div class="sth">Recent activity <button class="sth-btn" onclick="loadDashboard()">&#8635; Refresh</button></div>
   <div class="feed" id="dash-feed"><div class="loading">Loading…</div></div>
+  </div>
 </div>
 
 <!-- ================================================================ ASSETS -->
@@ -987,6 +1031,7 @@ const FEED_SYNC_BTN_LABELS = {
 var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
 var feedSyncUiTimer = null;
 var feedSyncStatePollTimer = null;
+var execChartSelection = {};
 
 function fmtFeedElapsed(ms) {
     if (ms < 0) ms = 0;
@@ -1470,7 +1515,9 @@ async function logoutSession() {
 // Dashboard
 // ==========================================================================
 async function loadDashboard() {
-    const d = await api('/api/dashboard.php');
+    const trendSel = document.getElementById('exec-trend-range');
+    const trendDays = trendSel ? Number(trendSel.value || 14) : 14;
+    const d = await api('/api/dashboard.php?trend_days=' + encodeURIComponent(trendDays));
     if (!d) return;
 
     document.getElementById('d-total').textContent = d.assets.total;
@@ -1526,11 +1573,196 @@ async function loadDashboard() {
         ? act.map(e => feedRow(e)).join('')
         : '<div class="empty-feed">No activity yet</div>';
 
+    renderExecutiveDashboard(d.executive || {}, d.top_vulnerable || []);
+
     // Check for active scan and update status pill
     updateStatusPill(d.last_scan);
 
     // Feed sync may have finished without a poll tick (tab switch, or slow 4s interval).
     void reconcileFeedSyncClientIfServerIdle();
+}
+
+function renderExecBars(targetId, values, labels, opts = {}) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const safeVals = Array.isArray(values) ? values.map(v => Number(v) || 0) : [];
+    if (!safeVals.length) {
+        el.innerHTML = '<div class="text-dim">No data yet</div>';
+        return;
+    }
+    const max = Math.max(1, ...safeVals);
+    const last = safeVals[safeVals.length - 1] || 0;
+    const total = safeVals.reduce((a, b) => a + b, 0);
+    const tip = opts.tip || '';
+    el.innerHTML = `
+      <div class="exec-bars-wrap">
+        ${safeVals.map((v, i) => `<div class="exec-bar-col" title="${esc((labels?.[i] || '') + ': ' + v + (tip ? ' ' + tip : ''))}">
+          <div class="exec-bar" style="height:${Math.max(6, Math.round((v / max) * 84))}px"></div>
+        </div>`).join('')}
+      </div>
+      <div class="exec-bars-meta">
+        <span>Total: <strong>${total}</strong></span>
+        <span>Latest: <strong>${last}</strong></span>
+      </div>
+    `;
+}
+
+function renderExecLineChart(targetId, series, labels) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const lines = Array.isArray(series) ? series.filter(s => Array.isArray(s.values) && s.values.length) : [];
+    if (!lines.length) {
+        el.innerHTML = '<div class="text-dim">No trend data yet</div>';
+        return;
+    }
+    const count = Math.max(...lines.map(s => s.values.length));
+    const allVals = lines.flatMap(s => s.values.map(v => Number(v) || 0));
+    const vmax = Math.max(1, ...allVals);
+    const w = 640, h = 160, px = 28, py = 14;
+    const x = idx => count <= 1 ? px : px + (idx * ((w - (px * 2)) / (count - 1)));
+    const y = val => h - py - (((Number(val) || 0) / vmax) * (h - (py * 2)));
+    const mkPath = vals => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
+    const latest = lines.map(s => `${s.name}: ${s.values[s.values.length - 1] || 0}`).join(' | ');
+
+    el.innerHTML = `
+      <div class="exec-chart-focus" tabindex="0" role="group" aria-label="Executive trend chart. Use left and right arrow keys to inspect daily values.">
+      <svg viewBox="0 0 ${w} ${h}" class="exec-line-svg" role="img" aria-label="Executive trend chart">
+        <line x1="${px}" y1="${h-py}" x2="${w-px}" y2="${h-py}" class="exec-grid-line"></line>
+        <line x1="${px}" y1="${py}" x2="${px}" y2="${h-py}" class="exec-grid-line"></line>
+        ${lines.map(s => `<path d="${mkPath(s.values)}" fill="none" stroke="${esc(s.color)}" stroke-width="2.6"></path>`).join('')}
+        <line id="${esc(targetId)}-cursor" x1="${px}" y1="${py}" x2="${px}" y2="${h-py}" class="exec-cursor-line" style="display:none"></line>
+      </svg>
+      </div>
+      <div class="exec-legend">${lines.map(s => `<span class="exec-legend-item"><i style="background:${esc(s.color)}"></i>${esc(s.name)}</span>`).join('')}</div>
+      <div id="${esc(targetId)}-sel" class="exec-selected-chip">Selected: latest</div>
+      <div id="${esc(targetId)}-tip" class="exec-fixed-tip">Hover chart for exact day values</div>
+      <div class="exec-bars-meta">
+        <span>Latest: <strong>${esc(latest)}</strong></span>
+        <span>${esc((labels && labels.length) ? labels[0] : '')} to ${esc((labels && labels.length) ? labels[labels.length - 1] : '')}</span>
+      </div>
+    `;
+
+    const focusWrap = el.querySelector('.exec-chart-focus');
+    const svg = el.querySelector('svg');
+    const cursor = el.querySelector(`#${CSS.escape(targetId)}-cursor`);
+    const selectedChip = el.querySelector(`#${CSS.escape(targetId)}-sel`);
+    const tip = el.querySelector(`#${CSS.escape(targetId)}-tip`);
+    if (!svg || !cursor || !tip || !focusWrap || !selectedChip) return;
+    const savedIdx = Object.prototype.hasOwnProperty.call(execChartSelection, targetId)
+        ? Number(execChartSelection[targetId])
+        : (count - 1);
+    let activeIdx = Math.max(0, Math.min(count - 1, savedIdx));
+
+    const setTooltipByIndex = idx => {
+        const safeIdx = Math.max(0, Math.min(count - 1, idx));
+        activeIdx = safeIdx;
+        execChartSelection[targetId] = safeIdx;
+        const vx = x(safeIdx);
+        cursor.setAttribute('x1', String(vx));
+        cursor.setAttribute('x2', String(vx));
+        cursor.style.display = '';
+        const day = labels?.[safeIdx] || `Day ${safeIdx + 1}`;
+        const rows = lines.map(s => `<span class="exec-tip-item"><i style="background:${esc(s.color)}"></i>${esc(s.name)}: <strong>${Number(s.values[safeIdx] || 0)}</strong></span>`).join('');
+        selectedChip.textContent = `Selected: ${day}`;
+        tip.innerHTML = `<span class="exec-tip-day">${esc(day)}</span>${rows}`;
+    };
+    const setTooltipAt = clientX => {
+        const r = svg.getBoundingClientRect();
+        const xr = Math.max(0, Math.min(r.width, clientX - r.left));
+        const idx = count <= 1 ? 0 : Math.max(0, Math.min(count - 1, Math.round((xr / r.width) * (count - 1))));
+        setTooltipByIndex(idx);
+    };
+
+    svg.addEventListener('mousemove', ev => setTooltipAt(ev.clientX));
+    svg.addEventListener('mouseenter', ev => setTooltipAt(ev.clientX));
+    svg.addEventListener('mouseleave', () => {
+        cursor.style.display = 'none';
+        setTooltipByIndex(activeIdx);
+    });
+    focusWrap.addEventListener('focus', () => setTooltipByIndex(activeIdx));
+    focusWrap.addEventListener('keydown', ev => {
+        if (ev.key === 'ArrowLeft') {
+            ev.preventDefault();
+            setTooltipByIndex(activeIdx - 1);
+        } else if (ev.key === 'ArrowRight') {
+            ev.preventDefault();
+            setTooltipByIndex(activeIdx + 1);
+        } else if (ev.key === 'Home') {
+            ev.preventDefault();
+            setTooltipByIndex(0);
+        } else if (ev.key === 'End') {
+            ev.preventDefault();
+            setTooltipByIndex(count - 1);
+        }
+    });
+    // Restore last selected point after redraw/auto-refresh.
+    setTooltipByIndex(activeIdx);
+    cursor.style.display = 'none';
+}
+
+function renderExecutiveDashboard(exec, fallbackTopVuln) {
+    const k = exec.kpis || {};
+    document.getElementById('ex-assets').textContent = k.assets_total ?? 0;
+    document.getElementById('ex-assets-new').textContent = `+${k.assets_new_7d ?? 0} in last 7d`;
+    document.getElementById('ex-findings').textContent = k.open_findings ?? 0;
+    document.getElementById('ex-findings-sev').textContent = `${k.critical_open ?? 0} critical, ${k.high_open ?? 0} high`;
+    document.getElementById('ex-scans').textContent = k.scans_7d ?? 0;
+    document.getElementById('ex-scans-fail').textContent = `${k.scan_fail_7d ?? 0} failed/aborted`;
+    document.getElementById('ex-findings-new').textContent = k.findings_new_7d ?? 0;
+    document.getElementById('ex-comp-rate').textContent = `${k.completion_rate_14d ?? 0}%`;
+    const avgDur = Number(k.avg_scan_duration_7d_sec || 0);
+    document.getElementById('ex-avg-dur').textContent = avgDur >= 3600
+        ? `${(avgDur / 3600).toFixed(1)}h`
+        : `${Math.max(0, Math.round(avgDur / 60))}m`;
+    document.getElementById('ex-sla').textContent = `${k.scan_sla_7d ?? 0} scans <= 60m`;
+
+    const trend = Array.isArray(exec.trend_14d) ? exec.trend_14d : [];
+    const trendSel = document.getElementById('exec-trend-range');
+    if (trendSel && exec.trend_days) trendSel.value = String(exec.trend_days);
+    const labels = trend.map(r => String(r.day || '').slice(5));
+    renderExecLineChart('exec-trend-findings', [
+        { name: 'New findings', color: '#e95f5f', values: trend.map(r => r.findings_new || 0) },
+        { name: 'Critical', color: '#ff3b30', values: trend.map(r => r.findings_critical_new || 0) },
+    ], labels);
+    renderExecLineChart('exec-trend-assets', [
+        { name: 'New assets', color: '#1787fb', values: trend.map(r => r.assets_new || 0) },
+    ], labels);
+    renderExecLineChart('exec-trend-scans', [
+        { name: 'Scans done', color: '#42c77a', values: trend.map(r => r.scans_done || 0) },
+        { name: 'Scans failed', color: '#f3a73f', values: trend.map(r => r.scans_failed || 0) },
+        { name: 'Risk pressure', color: '#c86cf5', values: trend.map(r => r.risk_pressure || 0) },
+    ], labels);
+
+    const sev = exec.severity_open || {};
+    const sevRows = [
+        ['critical', sev.critical || 0],
+        ['high', sev.high || 0],
+        ['medium', sev.medium || 0],
+        ['low', sev.low || 0],
+    ];
+    const sevTotal = sevRows.reduce((sum, r) => sum + r[1], 0) || 1;
+    document.getElementById('exec-severity').innerHTML = sevRows.map(([name, count]) => {
+        const pct = Math.round((count / sevTotal) * 100);
+        return `<div class="exec-sev-row">
+          <span class="sev ${sevClass(name)}">${esc(name)}</span>
+          <span class="mono">${count}</span>
+          <div class="exec-sev-track"><div class="exec-sev-fill" style="width:${pct}%"></div></div>
+          <span class="mono-sm text-dim">${pct}%</span>
+        </div>`;
+    }).join('');
+
+    const risky = Array.isArray(exec.top_risky) && exec.top_risky.length ? exec.top_risky : (fallbackTopVuln || []);
+    document.getElementById('exec-top-risky').innerHTML = risky.length
+        ? risky.map(a => `<tr>
+            <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+            <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
+            <td class="text-primary">${esc(a.hostname||'—')}</td>
+            <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
+            <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
+            <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
+            <td class="mono">${a.finding_count}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="7" class="loading">No high-risk assets yet</td></tr>';
 }
 
 function healthStateClass(state) {

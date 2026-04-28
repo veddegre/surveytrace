@@ -16,6 +16,9 @@ st_auth();
 st_method('GET');
 
 $db = st_db();
+$trend_days = isset($_GET['trend_days']) ? (int)$_GET['trend_days'] : 14;
+if (!in_array($trend_days, [7, 14, 30], true)) $trend_days = 14;
+$trend_start_offset = '-' . max(0, $trend_days - 1) . ' days';
 
 // Ensure newer scan_jobs columns exist for legacy databases
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
@@ -70,6 +73,65 @@ foreach ($sev_raw as $r) {
     $key = strtolower($r['severity'] ?? '');
     if (isset($by_severity[$key])) $by_severity[$key] = (int)$r['cnt'];
 }
+
+// ---------------------------------------------------------------------------
+// Executive metrics/trends (last 14 days)
+// ---------------------------------------------------------------------------
+$assets_new_7d = (int)$db->query(
+    "SELECT COUNT(*) FROM assets WHERE first_seen >= datetime('now','-7 days')"
+)->fetchColumn();
+$findings_new_7d = (int)$db->query(
+    "SELECT COUNT(*) FROM findings WHERE confirmed_at IS NOT NULL AND confirmed_at >= datetime('now','-7 days')"
+)->fetchColumn();
+$scans_7d = (int)$db->query(
+    "SELECT COUNT(*) FROM scan_jobs WHERE created_at >= datetime('now','-7 days')"
+)->fetchColumn();
+$scan_fail_7d = (int)$db->query(
+    "SELECT COUNT(*) FROM scan_jobs WHERE created_at >= datetime('now','-7 days') AND status IN ('failed','aborted')"
+)->fetchColumn();
+$scan_done_7d = (int)$db->query(
+    "SELECT COUNT(*) FROM scan_jobs WHERE created_at >= datetime('now','-7 days') AND status = 'done'"
+)->fetchColumn();
+$avg_scan_duration_7d = (int)$db->query("
+    SELECT COALESCE(AVG(
+        CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER)
+    ), 0)
+    FROM scan_jobs
+    WHERE status = 'done' AND created_at >= datetime('now','-7 days')
+")->fetchColumn();
+$scan_sla_7d = (int)$db->query("
+    SELECT COUNT(*)
+    FROM scan_jobs
+    WHERE status = 'done'
+      AND created_at >= datetime('now','-7 days')
+      AND CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) <= 3600
+")->fetchColumn();
+$completion_rate_14d = (int)$db->query("
+    SELECT CASE WHEN COUNT(*) = 0 THEN 0
+           ELSE ROUND(100.0 * SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) / COUNT(*))
+           END
+    FROM scan_jobs
+    WHERE created_at >= datetime('now','-14 days')
+")->fetchColumn();
+
+$trend_rows = $db->query("
+    WITH RECURSIVE days(d) AS (
+      SELECT date('now', '$trend_start_offset')
+      UNION ALL
+      SELECT date(d, '+1 day') FROM days WHERE d < date('now')
+    )
+    SELECT
+      d AS day,
+      (SELECT COUNT(*) FROM assets a WHERE date(a.first_seen) = d) AS assets_new,
+      (SELECT COUNT(*) FROM findings f WHERE f.confirmed_at IS NOT NULL AND date(f.confirmed_at) = d) AS findings_new,
+      (SELECT COUNT(*) FROM findings f WHERE f.confirmed_at IS NOT NULL AND date(f.confirmed_at) = d AND lower(f.severity) = 'critical') AS findings_critical_new,
+      (SELECT COUNT(*) FROM findings f WHERE f.confirmed_at IS NOT NULL AND date(f.confirmed_at) = d AND lower(f.severity) = 'high') AS findings_high_new,
+      (SELECT COUNT(*) FROM scan_jobs s WHERE date(s.created_at) = d) AS scans_total,
+      (SELECT COUNT(*) FROM scan_jobs s WHERE date(s.created_at) = d AND s.status = 'done') AS scans_done,
+      (SELECT COUNT(*) FROM scan_jobs s WHERE date(s.created_at) = d AND s.status IN ('failed','aborted')) AS scans_failed
+    FROM days
+    ORDER BY d ASC
+")->fetchAll();
 
 // ---------------------------------------------------------------------------
 // Last scan metadata
@@ -221,4 +283,39 @@ st_json([
     'oui_prefix_count' => $oui_count,
     'webfp_rule_count' => $webfp_count,
     'server_time'    => date('c'),
+    'executive'      => [
+        'kpis' => [
+            'assets_total' => $total_assets,
+            'assets_new_7d' => $assets_new_7d,
+            'open_findings' => $open_findings,
+            'critical_open' => (int)($by_severity['critical'] ?? 0),
+            'high_open' => (int)($by_severity['high'] ?? 0),
+            'findings_new_7d' => $findings_new_7d,
+            'scans_7d' => $scans_7d,
+            'scan_fail_7d' => $scan_fail_7d,
+            'scan_done_7d' => $scan_done_7d,
+            'completion_rate_14d' => $completion_rate_14d,
+            'avg_scan_duration_7d_sec' => $avg_scan_duration_7d,
+            'scan_sla_7d' => $scan_sla_7d,
+        ],
+        'severity_open' => $by_severity,
+        'trend_14d' => array_map(function($r) {
+            $critical = (int)$r['findings_critical_new'];
+            $high = (int)$r['findings_high_new'];
+            $risk_pressure = ($critical * 5) + ($high * 3);
+            return [
+                'day' => $r['day'],
+                'assets_new' => (int)$r['assets_new'],
+                'findings_new' => (int)$r['findings_new'],
+                'findings_critical_new' => $critical,
+                'findings_high_new' => $high,
+                'scans_total' => (int)$r['scans_total'],
+                'scans_done' => (int)$r['scans_done'],
+                'scans_failed' => (int)$r['scans_failed'],
+                'risk_pressure' => $risk_pressure,
+            ];
+        }, $trend_rows),
+        'trend_days' => $trend_days,
+        'top_risky' => $top_vulnerable,
+    ],
 ]);
