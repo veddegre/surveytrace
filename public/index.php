@@ -3857,7 +3857,12 @@ async function beginMfaSetup() {
             } else {
                 let msg = 'Local QR generation unavailable; use setup link or manual secret';
                 const err = await qrr.json().catch(() => null);
-                if (err && err.error) msg = String(err.error);
+                if (err && err.error) {
+                    msg = String(err.error);
+                    if (err.detail) {
+                        msg += ` (${String(err.detail)})`;
+                    }
+                }
                 else {
                     const raw = await qrr.text().catch(() => '');
                     if (raw && raw.trim()) msg = `QR request failed (HTTP ${qrr.status}): ${raw.replace(/\s+/g, ' ').trim().slice(0, 160)}`;
