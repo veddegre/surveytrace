@@ -21,6 +21,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
+- **Device identity (Phase 5)** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
 
 ## Requirements
 
@@ -85,7 +86,7 @@ bash deploy.sh
 
 `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
-- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, `settings.php`, etc.
+- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), `settings.php`, etc.
 - **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
@@ -97,6 +98,14 @@ It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
 
 ## Changelog
+
+### 0.5.0
+
+- **Device identity (Phase 5)** — **`devices`** table and **`assets.device_id`** (FK); idempotent migration (`migration_device_identity_v1` in `config`) in **`api/db.php`** and **`daemon/scanner_daemon.py`**; 1:1 backfill for legacy rows.
+- **Scanner** assigns / preserves `device_id` on asset upsert; optional fill of **`devices.primary_mac_norm`** when a MAC is learned.
+- **API:** `GET/POST /api/devices.php` (list, detail, **merge**), `GET /api/assets.php?device_id=`, `GET /api/export.php?device_id=`, dashboard includes `device_id` in top-vulnerable query.
+- **UI:** Devices tab, device detail side panel (with merge), Assets integration (filter, sort, single search + numeric device id + Enter, clear filters); **`deploy.sh`** copies **`api/devices.php`** (required for the Devices tab).
+- **Docs:** **`docs/DEVICE_IDENTITY.md`** — device vs address model and API notes.
 
 ### 0.4.0
 
@@ -212,7 +221,8 @@ surveytrace/
 │   ├── settings.php        Session timeout, safe ports, NVD API key (server-side)
 │   ├── auth.php            Session login/status endpoint
 │   ├── logout.php          Session logout endpoint
-│   └── export.php          Asset export
+│   ├── export.php          Asset export
+│   └── devices.php         Logical device list/detail + merge
 ├── daemon/                 Python background services
 │   ├── scanner_daemon.py   Main scan worker
 │   ├── scheduler_daemon.py Cron scheduler
@@ -234,6 +244,8 @@ surveytrace/
 │   └── index.php           Single-page web UI
 ├── sql/
 │   └── schema.sql          Database schema
+├── docs/
+│   └── DEVICE_IDENTITY.md  Device vs address model + API notes
 ├── setup.sh                       First-time installation script
 ├── deploy.sh                      Deploy updates to /opt/surveytrace
 ├── surveytrace-daemon.service     systemd: scanner worker
@@ -283,9 +295,11 @@ surveytrace/
 
 ## Roadmap
 
+### Completed (summary)
+- **Phase 5 — Device identity** — Logical **`devices`** linked from **`assets`**; scanner + migrations; Devices UI; **`POST /api/devices.php`** merge (logged to **`scan_log`**). Details: **`docs/DEVICE_IDENTITY.md`**. *Not built:* un-merge, split/reassign assets, findings-by-device filter, `device_identifiers` table (optional follow-ons).
+
 ### Upcoming
-- **Phase 5**: MAC-first asset identity — track devices across IP changes
-- **Phase 6**: Collector architecture — distributed agents for multi-site scanning
+- **Phase 6 — Collector architecture** — `collectors` table; registration + API token auth; **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote deployment (e.g. GVSU).
 - **Phase 7**: Change detection — alerts on new assets, port changes, new CVEs
 - **Phase 8**: Asset lifecycle — stale/active/retired status, auto-retire
 - **Phase 9**: CVE improvements — per-finding evidence, confidence levels, risk scoring

@@ -1,75 +1,52 @@
 # SurveyTrace Handoff Summary (2026-04-27)
 
-Use this as context starter in a new conversation.
+Use this as a context starter in a new conversation.
 
-## What Was Done
+**Release:** **0.5.0** (`ST_VERSION` in `api/db.php`) — device identity (Phase 5) is the headline change.
 
-### 1) Scheduling and scan-history foundation
-- Added scan history support with persisted per-run snapshot summary.
-- Added `summary_json` to `scan_jobs` schema/migrations.
-- Added `GET /api/scan_history.php`:
-  - list mode (`?limit=N`)
-  - detail mode (`?id=<job_id>`) including linked assets + log tail.
-- Updated `scan_status.php` history payload to include parsed summary.
-- Updated scanner daemon completion path to write summary metrics (ports/categories/findings/etc.).
+## Where things stand
 
-### 2) UI overhaul (less “AI-generated” look)
-- Refactored large amount of inline styling in `public/index.php` into reusable classes in `public/css/app.css`.
-- Shifted to an enterprise-clean visual direction (flatter surfaces, calmer palette, tighter radius, cleaner tables/cards).
-- Changed primary UI font to `Open Sans` (kept monospace for technical values).
-- Added light-mode-safe category badge palettes.
+- **Phase 5 (device identity)** is **delivered** in-repo: schema + migrations, scanner linkage, APIs, UI, merge, docs. See **`docs/DEVICE_IDENTITY.md`** and the **Phase 5** changelog block in **`README.md`**.
+- **Next focus: Phase 6 — Collector architecture** (distributed agents / multi-site). Phase 5 optional follow-ons (split/reassign, findings-by-device, `device_identifiers`, orphan cleanup) are **explicitly deferred** unless a concrete need appears.
 
-### 3) Theme and dashboard presentation behavior
-- Added persistent theme control in top bar:
-  - `Theme: Dark | Light | Auto`
-  - Auto follows OS `prefers-color-scheme` and updates live on system change.
-- Added/improved Executive view:
-  - clearer presentation-focused dashboard mode
-  - compact icon-style sidebar in executive mode
-  - auto-switches to dashboard when enabled
-  - restores previous tab when disabled.
+## Phase 5 — What shipped (reference)
 
-### 4) Feed sync UX and reliability fixes
-- Improved Settings sync UX:
-  - visible in-progress / success / failure status lines
-  - button busy indicator + “Syncing…” label
-  - output modal keeps latest run output.
-- Enforced single-sync-at-a-time logic in UI:
-  - second click shows “sync already running” message.
-- Fixed confusing busy-state behavior so only the clicked sync button shows active spinner.
-- Feed API timeout tuned to bounded value (`set_time_limit(240)`) to avoid indefinite hangs.
+- **`devices`** + **`assets.device_id`**; migration flag **`config.migration_device_identity_v1`**; PHP (`api/db.php`) + daemon startup migration.
+- **`daemon/scanner_daemon.py`**: `ensure_device_id_for_upsert` / merge path; MAC onto **`devices.primary_mac_norm`** when learned.
+- **API:** **`api/devices.php`** — `GET` list + detail; **`POST`** `action=merge` (`survivor_id`, `merge_ids`); **`api/assets.php`** `device_id` filter + sort; **`api/export.php`** `device_id`; **`api/dashboard.php`** includes `device_id` in top vulnerable assets.
+- **UI (`public/index.php` + `public/css/app.css`):** Devices tab; device detail panel + merge; Assets (device column, filter, numeric id + Enter, clear filters); dashboard device links; device banner CSS fix (`.device-filter-banner.hide`).
+- **`deploy.sh`:** copies **`api/devices.php`** (required on server or Devices tab 404s).
+- **Un-merge:** intentionally **not** implemented (would need merge audit / per-asset history).
 
-### 5) “Everything stuck on Loading” incident fix
-- Root cause found and fixed in `api/dashboard.php`:
-  - endpoint crashed on older DBs (`no such column: label`) after sync/reload.
-- Added legacy `scan_jobs` column migrations in `dashboard.php` so it self-heals older schemas.
+## Important files (Phase 5)
 
-## Important Files Changed
-
-- `public/index.php`
-- `public/css/app.css`
-- `api/dashboard.php`
-- `api/feeds.php`
-- `api/scan_status.php`
-- `api/scan_history.php` (new)
-- `api/db.php`
-- `daemon/scanner_daemon.py`
+- `docs/DEVICE_IDENTITY.md`
 - `sql/schema.sql`
-- `README.md`
+- `api/db.php`, `api/devices.php`, `api/assets.php`, `api/export.php`, `api/dashboard.php`
+- `daemon/scanner_daemon.py`
+- `public/index.php`, `public/css/app.css`
+- `deploy.sh`
+- `README.md` (roadmap + changelog)
 
-## Current Behavior Expectations
+## Current behavior expectations
 
-- App loads without “stuck on Loading” on older DBs.
-- Theme toggle cycles Dark/Light/Auto and persists.
-- Executive mode is noticeably different and restores prior tab on exit.
-- Clicking a sync button shows clear progress and only that action appears active.
-- If a sync is already running, additional sync clicks are blocked with a message.
+- Every asset has a **`device_id`** after migration; scanner keeps it stable on IP upsert.
+- **Merge** reassigns assets to the survivor and **deletes** merged device rows; a line is written to **`scan_log`** (`job_id` null).
+- **Devices** tab and **`/api/devices.php`** must be deployed together (`deploy.sh`).
 
-## Suggested Next Steps
+## Phase 6 — Suggested implementation order (thin slice first)
 
-1. Make feed sync fully asynchronous/backgrounded server-side to avoid request blocking risk.
-2. Add a tiny “last sync duration” + “last sync exit code” display in Settings.
-3. Add one integration test or smoke script for:
-   - dashboard endpoint on legacy schema
-   - sync button state transitions.
-4. Optional: finish eliminating remaining inline styles in `public/index.php`.
+1. **`collectors` table** (+ migrations in `api/db.php` / daemon if needed) — `hostname`, `site`, token hash, `last_seen`, `status`, etc.
+2. **Registration** — issue raw token once, store hash; document rotation.
+3. **`api/collector_checkin.php`** — bearer token auth, update `last_seen` + optional payload.
+4. **`api/collector_jobs.php`** — atomic **lease** of one job for a collector (SQLite-safe claim pattern).
+5. **`api/collector_submit.php`** — idempotent result submission, tie into existing `scan_jobs` / asset pipeline as appropriate.
+6. **`daemon/collector_agent.py`** (or `collector_agent.py` at repo root) — minimal loop: check-in → poll → execute stub or delegate → submit.
+7. **Management UI** — list collectors, last seen, revoke token, assign schedules (can follow after API is stable).
+8. **Rate limits + health** — per-collector caps; surface in **`/api/health.php`** or dedicated status.
+9. **First remote deploy** (e.g. GVSU) — validate TLS, clocks, and firewall paths against the slice above.
+
+## Optional housekeeping (any phase)
+
+- Feed sync async / last sync duration in Settings (older handoff items).
+- Smoke tests: dashboard legacy schema, `devices.php` merge, migration idempotency.
