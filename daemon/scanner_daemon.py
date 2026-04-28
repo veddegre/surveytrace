@@ -1737,6 +1737,88 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Device identity (see docs/DEVICE_IDENTITY.md)
+# ---------------------------------------------------------------------------
+def _norm_mac(m: str | None) -> str:
+    s = re.sub(r"[^0-9a-fA-F]", "", (m or "")).lower()
+    if len(s) == 12 and re.fullmatch(r"[0-9a-f]{12}", s):
+        return s
+    return ""
+
+
+def _insert_device_row(conn: sqlite3.Connection, mac: str) -> int:
+    macn = _norm_mac(mac)
+    cur = conn.execute(
+        """INSERT INTO devices (created_at, updated_at, primary_mac_norm)
+           VALUES (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)""",
+        (macn or None,),
+    )
+    return int(cur.lastrowid)
+
+
+def migrate_device_identity_v1(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT value FROM config WHERE key = 'migration_device_identity_v1'"
+    ).fetchone()
+    if row and str(row["value"] or "") == "1":
+        return False
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS devices (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            primary_mac_norm   TEXT,
+            label                TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(primary_mac_norm)")
+    try:
+        conn.execute(
+            "ALTER TABLE assets ADD COLUMN device_id INTEGER REFERENCES devices(id)"
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_device_id ON assets(device_id)"
+        )
+    except Exception:
+        pass
+    for r in conn.execute(
+        "SELECT id, mac FROM assets WHERE device_id IS NULL"
+    ).fetchall():
+        did = _insert_device_row(conn, r["mac"] or "")
+        conn.execute(
+            "UPDATE assets SET device_id = ? WHERE id = ?",
+            (did, r["id"]),
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_device_identity_v1', '1')"
+    )
+    return True
+
+
+def ensure_device_id_for_upsert(conn: sqlite3.Connection, ip: str, mac: str) -> int:
+    row = conn.execute(
+        "SELECT id, device_id FROM assets WHERE ip = ?",
+        (ip,),
+    ).fetchone()
+    if row:
+        did = row["device_id"]
+        if did is not None and int(did) > 0:
+            return int(did)
+        new_id = _insert_device_row(conn, mac)
+        conn.execute(
+            "UPDATE assets SET device_id = ? WHERE id = ?",
+            (new_id, row["id"]),
+        )
+        return new_id
+    return _insert_device_row(conn, mac)
+
+
+# ---------------------------------------------------------------------------
 # Asset upsert
 # ---------------------------------------------------------------------------
 def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
@@ -1824,10 +1906,12 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         if fp["category"] == "unk" and oui_cat:
             fp["category"] = oui_cat
 
+    device_id = ensure_device_id_for_upsert(conn, ip, mac)
+
     conn.execute("""
         INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess, connected_via,
-                            open_ports, banners, nmap_cpes, discovery_sources, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,CURRENT_TIMESTAMP,:jid)
+                            open_ports, banners, nmap_cpes, discovery_sources, device_id, last_seen, last_scan_id)
+        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,:did,CURRENT_TIMESTAMP,:jid)
         ON CONFLICT(ip) DO UPDATE SET
             hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
             mac        = COALESCE(excluded.mac, mac),
@@ -1856,8 +1940,18 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         "banners": json.dumps(banners),
         "ncpes":   json.dumps(nmap_cpes or []),
         "ds":      json.dumps(sorted(set(discovery_sources or []))),
+        "did":     device_id,
         "jid":     job_id,
     })
+
+    nm = _norm_mac(mac)
+    if nm:
+        conn.execute(
+            """UPDATE devices SET updated_at=CURRENT_TIMESTAMP,
+               primary_mac_norm=COALESCE(primary_mac_norm, ?)
+               WHERE id=?""",
+            (nm, device_id),
+        )
 
     row = conn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
     result = dict(row)
@@ -2569,6 +2663,8 @@ def main() -> None:
             log.info("Schema migration: added column assets.connected_via")
         except Exception:
             pass
+        if migrate_device_identity_v1(conn):
+            log.info("Device identity v1: migration completed (devices + assets.device_id)")
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:

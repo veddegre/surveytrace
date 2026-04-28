@@ -62,7 +62,71 @@ function st_db(): PDO {
         // no-op: column already exists
     }
 
+    st_migrate_device_identity_v1($pdo);
+
     return $pdo;
+}
+
+/**
+ * Device-centric identity: devices table, assets.device_id, backfill from legacy rows.
+ * Idempotent; completion recorded in config.migration_device_identity_v1 = 1.
+ */
+function st_normalize_mac(string $m): ?string {
+    $m = strtolower(str_replace([':', '-', '.', ' '], '', trim($m)));
+    if (strlen($m) !== 12) {
+        return null;
+    }
+    if (strspn($m, '0123456789abcdef') !== 12) {
+        return null;
+    }
+    return $m;
+}
+
+function st_migrate_device_identity_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_device_identity_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS devices (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            primary_mac_norm   TEXT,
+            label              TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(primary_mac_norm)');
+
+    $cols = array_column($pdo->query('PRAGMA table_info(assets)')->fetchAll(), 'name');
+    if (!in_array('device_id', $cols, true)) {
+        try {
+            $pdo->exec('ALTER TABLE assets ADD COLUMN device_id INTEGER REFERENCES devices(id)');
+        } catch (Throwable $e) {
+            // column may already exist from concurrent migration
+        }
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_device_id ON assets(device_id)');
+
+    $orphans = $pdo->query('SELECT id, mac FROM assets WHERE device_id IS NULL')->fetchAll();
+    if ($orphans) {
+        $ins = $pdo->prepare(
+            "INSERT INTO devices (created_at, updated_at, primary_mac_norm) VALUES
+             (datetime('now'), datetime('now'), :macn)"
+        );
+        $upd = $pdo->prepare('UPDATE assets SET device_id = :did WHERE id = :aid');
+        foreach ($orphans as $o) {
+            $macn = st_normalize_mac((string)($o['mac'] ?? '')) ?: null;
+            $ins->execute([':macn' => $macn]);
+            $did  = (int)$pdo->lastInsertId();
+            $upd->execute([':did' => $did, ':aid' => (int)$o['id']]);
+        }
+    }
+
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_device_identity_v1', '1')"
+    );
 }
 
 // ---------------------------------------------------------------------------

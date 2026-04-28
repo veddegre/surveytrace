@@ -22,7 +22,7 @@
  * {
  *   "total": 187, "page": 1, "pages": 4, "per_page": 50,
  *   "assets": [{
- *     "id", "ip", "hostname", "mac", "mac_vendor", "category",
+ *     "id", "device_id", "ip", "hostname", "mac", "mac_vendor", "category",
  *     "vendor", "model", "os_guess", "cpe",
  *     "open_ports",     // decoded array
  *     "banners",        // decoded object
@@ -261,6 +261,9 @@ st_json([
 // Helper: decode JSON columns and add derived fields
 // ---------------------------------------------------------------------------
 function decode_asset(array $a): array {
+    if (isset($a['device_id']) && $a['device_id'] !== null && $a['device_id'] !== '') {
+        $a['device_id'] = (int)$a['device_id'];
+    }
     $a['open_ports']    = json_decode($a['open_ports'] ?? '[]', true) ?: [];
     $a['banners']       = json_decode($a['banners']    ?? '{}', true) ?: [];
     $a['discovery_sources'] = json_decode($a['discovery_sources'] ?? '[]', true) ?: [];

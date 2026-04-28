@@ -5,7 +5,21 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 -- -------------------------------------------------------
--- Assets: every discovered host, one row per IP
+-- Devices: stable logical identity; assets remain one row per IP (address).
+-- See docs/DEVICE_IDENTITY.md.
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS devices (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    primary_mac_norm   TEXT,
+    label              TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(primary_mac_norm);
+
+-- -------------------------------------------------------
+-- Assets: every discovered host, one row per IP, linked to a device
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS assets (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,18 +33,22 @@ CREATE TABLE IF NOT EXISTS assets (
     model        TEXT,
     os_guess     TEXT,
     cpe          TEXT,           -- e.g. cpe:/h:siemens:s7-1200
-    connected_via TEXT,          -- e.g. "Switch FDB via 192.168.86.95 port Gi1/0/3"
-    open_ports   TEXT,           -- JSON array: [22, 80, 443]
-    banners      TEXT,           -- JSON object: {"443": "BIG-IP ..."}
+    connected_via TEXT,         -- e.g. "Switch FDB via 192.168.86.95 port Gi1/0/3"
+    open_ports   TEXT,          -- JSON array: [22, 80, 443]
+    banners      TEXT,          -- JSON object: {"443": "BIG-IP ..."}
+    nmap_cpes     TEXT DEFAULT '[]',
+    discovery_sources TEXT DEFAULT '[]',
     top_cve      TEXT,
     top_cvss     REAL,
     first_seen   DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_seen    DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_scan_id INTEGER,
-    notes        TEXT
+    notes        TEXT,
+    device_id     INTEGER REFERENCES devices(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_ip ON assets(ip);
+CREATE INDEX IF NOT EXISTS idx_assets_device_id ON assets(device_id);
 CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(category);
 CREATE INDEX IF NOT EXISTS idx_assets_top_cvss ON assets(top_cvss DESC);
 
