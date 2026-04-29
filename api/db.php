@@ -16,8 +16,9 @@ define('ST_DATA_DIR', dirname(__DIR__) . '/data');
 // Database connection (singleton PDO)
 // ---------------------------------------------------------------------------
 function st_db(): PDO {
-    static $pdo = null;
-    if ($pdo !== null) return $pdo;
+    if (!empty($GLOBALS['st_surveytrace_pdo']) && $GLOBALS['st_surveytrace_pdo'] instanceof PDO) {
+        return $GLOBALS['st_surveytrace_pdo'];
+    }
 
     $dir = ST_DATA_DIR;
     if (!is_dir($dir)) {
@@ -300,7 +301,19 @@ function st_db(): PDO {
 
     st_migrate_device_identity_v1($pdo);
 
+    $GLOBALS['st_surveytrace_pdo'] = $pdo;
     return $pdo;
+}
+
+/**
+ * Close the shared PDO so SQLite does not keep a connection busy across slow local I/O
+ * (Ollama, CLI curl, etc.). The next st_db() opens a new connection.
+ *
+ * Callers must assign $db = null (or drop other references) after this if they hold
+ * a local variable pointing at the old PDO.
+ */
+function st_db_release_connection(): void {
+    unset($GLOBALS['st_surveytrace_pdo']);
 }
 
 /**

@@ -600,11 +600,16 @@ try {
                 . 'Host: ' . ($row['ip'] ?? '') . ' category=' . ($row['category'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . "\n"
                 . "Open findings (CVE rows):\n" . implode("\n", $lines) . "\n";
 
-            @set_time_limit(180);
+            @set_time_limit(240);
             @ignore_user_abort(true);
-            // Local models often need >10s for JSON; scale from settings but never below 60s wall clock.
-            $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
+            // Host CVE triage: long prompts + local CPU can exceed 60s. Do not tie wall clock to
+            // ai_timeout_ms (that knob is for daemon per-host enrichment, 100–5000 ms).
+            $timeoutS = 180.0;
+            // Release SQLite before Ollama so the worker does not hold DB state for minutes.
+            st_db_release_connection();
+            $db = null;
             $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+            $db = st_db();
             if (!$gen['ok']) {
                 $envelope = [
                     'fp' => $fp,
@@ -693,10 +698,13 @@ try {
             . 'open_ports=' . $portStr . " open_findings=" . $openCount . ' top_cves=' . implode(',', $topCves) . "\n"
             . "banner_snippets:\n" . implode("\n", $bannerLines) . "\n";
 
-        @set_time_limit(180);
+        @set_time_limit(240);
         @ignore_user_abort(true);
-        $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
+        $timeoutS = 180.0;
+        st_db_release_connection();
+        $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+        $db = st_db();
         if (!$gen['ok']) {
             $envelope = [
                 'fp' => $fp,
@@ -799,10 +807,13 @@ try {
             . "Be concise, practical, and avoid alarmist language.\n\n"
             . "Scan data JSON:\n{$compactJson}\n";
 
-        @set_time_limit(180);
+        @set_time_limit(240);
         @ignore_user_abort(true);
-        $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 8.0));
+        $timeoutS = 180.0;
+        st_db_release_connection();
+        $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+        $db = st_db();
         if (!$gen['ok']) {
             $summary['ai_scan_summary_status'] = 'failed';
             $summary['ai_scan_summary_detail'] = substr($gen['err'], 0, 200);
