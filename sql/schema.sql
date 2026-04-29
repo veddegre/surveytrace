@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS assets (
     os_guess     TEXT,
     cpe          TEXT,           -- e.g. cpe:/h:siemens:s7-1200
     connected_via TEXT,         -- e.g. "Switch FDB via 192.168.86.95 port Gi1/0/3"
+    ipv6_addrs   TEXT DEFAULT '[]', -- JSON array: ["2001:db8::10", "fd00::abcd"]
     open_ports   TEXT,          -- JSON array: [22, 80, 443]
     banners      TEXT,          -- JSON object: {"443": "BIG-IP ..."}
     nmap_cpes     TEXT DEFAULT '[]',

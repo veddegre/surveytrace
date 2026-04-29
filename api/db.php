@@ -103,6 +103,11 @@ function st_db(): PDO {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC)');
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC)');
+    try {
+        $pdo->exec("ALTER TABLE assets ADD COLUMN ipv6_addrs TEXT DEFAULT '[]'");
+    } catch (Throwable $e) {
+        // no-op: column already exists
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS users (
@@ -522,8 +527,49 @@ function st_current_user(): array {
     ];
 }
 
+function st_is_valid_ip(string $ip): bool {
+    return filter_var($ip, FILTER_VALIDATE_IP) !== false;
+}
+
+function st_is_private_or_loopback_ip(string $ip): bool {
+    if (!st_is_valid_ip($ip)) return false;
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+}
+
+function st_parse_header_ips(string $raw): array {
+    $vals = [];
+    foreach (explode(',', $raw) as $part) {
+        $v = trim($part);
+        if ($v === '') continue;
+        // XFF may include port (IPv4:port). Keep IPv6 literals untouched.
+        if (strpos($v, ':') !== false && substr_count($v, ':') === 1 && strpos($v, '.') !== false) {
+            [$host, $port] = explode(':', $v, 2);
+            if (ctype_digit($port)) $v = $host;
+        }
+        $v = trim($v, " \t\n\r\0\x0B\"'[]");
+        if (st_is_valid_ip($v)) $vals[] = $v;
+    }
+    return $vals;
+}
+
 function st_request_ip(): string {
-    return trim((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+    $remote = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    if (!st_is_valid_ip($remote)) return 'unknown';
+
+    // Trust forwarded headers only when request appears to come from a proxy
+    // (loopback/private range). This avoids easy spoofing on direct connections.
+    if (st_is_private_or_loopback_ip($remote)) {
+        $xff = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+        if ($xff !== '') {
+            $ips = st_parse_header_ips($xff);
+            if ($ips) return $ips[0]; // left-most = original client
+        }
+        $xri = trim((string)($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+        if (st_is_valid_ip($xri)) return $xri;
+        $cf = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+        if (st_is_valid_ip($cf)) return $cf;
+    }
+    return $remote;
 }
 
 function st_audit_log(

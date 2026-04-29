@@ -74,6 +74,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
 st_method('POST');
 $body = st_input();
 $changed = [];
+$dbBackupBefore = [
+    'enabled' => st_config('db_backup_enabled', '0') === '1',
+    'cron' => trim((string)st_config('db_backup_cron', '15 2 * * *')),
+    'retention_days' => max(1, min(365, (int)st_config('db_backup_retention_days', '14'))),
+    'keep_count' => max(1, min(500, (int)st_config('db_backup_keep_count', '30'))),
+];
 
 if (!empty($body['db_backup_run_now'])) {
     $script = realpath(__DIR__ . '/../daemon/backup_db.sh');
@@ -91,6 +97,10 @@ if (!empty($body['db_backup_run_now'])) {
         st_config_set('db_backup_last_status', 'ok');
         st_config_set('db_backup_last_path', $last);
         st_config_set('db_backup_last_error', '');
+        st_audit_log('db.backup_run_manual', null, null, null, null, [
+            'status' => 'ok',
+            'path' => $last,
+        ]);
         st_json([
             'ok' => true,
             'db_backup_last_run' => $ts,
@@ -102,6 +112,10 @@ if (!empty($body['db_backup_run_now'])) {
     if ($err === '') $err = 'Backup command failed';
     st_config_set('db_backup_last_status', 'error');
     st_config_set('db_backup_last_error', substr($err, 0, 500));
+    st_audit_log('db.backup_run_manual', null, null, null, null, [
+        'status' => 'error',
+        'error' => substr($err, 0, 500),
+    ]);
     st_json(['error' => 'Backup failed: ' . substr($err, 0, 220)], 500);
 }
 
@@ -270,6 +284,22 @@ if (array_key_exists('db_backup_keep_count', $body)) {
     $v = max(1, min(500, $v));
     st_config_set('db_backup_keep_count', (string)$v);
     $changed['db_backup_keep_count'] = $v;
+}
+
+$dbBackupTouched = array_intersect_key($changed, array_flip([
+    'db_backup_enabled', 'db_backup_cron', 'db_backup_retention_days', 'db_backup_keep_count',
+]));
+if ($dbBackupTouched) {
+    $after = [
+        'enabled' => array_key_exists('db_backup_enabled', $changed) ? (bool)$changed['db_backup_enabled'] : $dbBackupBefore['enabled'],
+        'cron' => array_key_exists('db_backup_cron', $changed) ? (string)$changed['db_backup_cron'] : $dbBackupBefore['cron'],
+        'retention_days' => array_key_exists('db_backup_retention_days', $changed) ? (int)$changed['db_backup_retention_days'] : $dbBackupBefore['retention_days'],
+        'keep_count' => array_key_exists('db_backup_keep_count', $changed) ? (int)$changed['db_backup_keep_count'] : $dbBackupBefore['keep_count'],
+    ];
+    st_audit_log('db.backup_settings_updated', null, null, null, null, [
+        'before' => $dbBackupBefore,
+        'after' => $after,
+    ]);
 }
 
 if (!empty($body['nvd_api_key_remove'])) {

@@ -432,6 +432,7 @@ function decode_asset(array $a): array {
     }
     $a['open_ports']    = json_decode($a['open_ports'] ?? '[]', true) ?: [];
     $a['banners']       = json_decode($a['banners']    ?? '{}', true) ?: [];
+    $a['ipv6_addrs']    = json_decode($a['ipv6_addrs'] ?? '[]', true) ?: [];
     $a['discovery_sources'] = json_decode($a['discovery_sources'] ?? '[]', true) ?: [];
     $a['open_findings'] = (int)($a['open_findings'] ?? 0);
     $a['top_cvss']      = $a['top_cvss'] ? (float)$a['top_cvss'] : null;

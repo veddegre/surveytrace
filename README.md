@@ -41,6 +41,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - PHP 8.1+ with SQLite3 extension
 - Apache 2.4+ (or another PHP-capable web stack; **PHP-FPM** is recommended so long-running feed sync can return immediately to the browser)
 - nmap
+- `samba-common-bin` (for `nmblookup` NetBIOS hostname fallback)
 - `qrencode` (for local-only MFA QR rendering)
 - 2GB RAM, 10GB disk (NVD database is ~1GB)
 
@@ -60,7 +61,7 @@ The web UI will be available at `http://your-server-ip/`
 # System dependencies
 sudo apt update
 sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 \
-    apache2 libapache2-mod-php nmap sqlite3 qrencode
+    apache2 libapache2-mod-php nmap sqlite3 qrencode samba-common-bin
 
 # Service user
 sudo useradd -r -s /bin/false -d /opt/surveytrace surveytrace

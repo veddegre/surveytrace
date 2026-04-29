@@ -63,6 +63,7 @@ REQUIRED_PKGS=(
     curl
     sqlite3
     qrencode        # required for local MFA QR generation
+    samba-common-bin  # provides nmblookup (NetBIOS hostname fallback)
 )
 
 OPTIONAL_PKGS=(

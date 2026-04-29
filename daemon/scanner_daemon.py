@@ -286,15 +286,21 @@ def is_aborted(job_id: int) -> bool:
 # ---------------------------------------------------------------------------
 # Phase 1 — Passive discovery
 # ---------------------------------------------------------------------------
-def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> set[str]:
+def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
     """
-    Sniff ARP, mDNS, and DHCP traffic to discover hosts without sending probes.
-    Returns set of IP strings.
-    Also stores mDNS service hints in a shared dict for fingerprint enrichment.
+    Sniff ARP, mDNS, LLMNR/NBNS, SSDP, and IPv6 NDP traffic to discover hosts
+    without sending probes.
+    Returns:
+      - discovered IPv4 hosts
+      - passive signal tags by IPv4 host
+      - observed IPv6 addresses keyed by normalized MAC (from NDP frames)
+    Also stores passive hints in DB for fingerprint enrichment.
     """
     discovered: set[str] = set()
+    passive_signals: dict[str, set[str]] = {}
+    ndp_ipv6_by_mac: dict[str, set[str]] = {}
     if not HAS_SCAPY:
-        return discovered
+        return discovered, passive_signals, ndp_ipv6_by_mac
 
     network = ipaddress.ip_network(target_cidr, strict=False)
 
@@ -332,30 +338,105 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> set[
         "_presence._tcp":      ("ws",  ""),
     }
 
-    # Shared storage for mDNS hints discovered during sniff
+    # Shared storage for passive hints discovered during sniff
     mdns_hints: dict[str, dict] = {}  # {ip: {service_type: hint}}
+    llmnr_hints: dict[str, str] = {}  # {ip: hostname}
+    nbns_hints: dict[str, str] = {}   # {ip: hostname}
+    ssdp_hints: dict[str, tuple[str, str]] = {}  # {ip: (category, vendor)}
+    ndp_seen: set[str] = set()  # IPv6 addresses observed in NDP frames
+
+    def mark_sig(ip: str, tag: str) -> None:
+        if ip not in passive_signals:
+            passive_signals[ip] = set()
+        passive_signals[ip].add(tag)
+
+    def parse_ssdp_hint(payload: str) -> tuple[str, str]:
+        p = payload.lower()
+        if "roku" in p:
+            return ("iot", "Roku")
+        if "sonos" in p:
+            return ("iot", "Sonos")
+        if "google" in p or "chromecast" in p:
+            return ("iot", "Google")
+        if "samsung" in p or "lg " in p:
+            return ("iot", "")
+        if "upnp:rootdevice" in p:
+            return ("iot", "")
+        return ("", "")
 
     def handle_pkt(pkt):
         src = None
         if pkt.haslayer(ARP) and pkt[ARP].op == 2:
             src = pkt[ARP].psrc
+            if src:
+                mark_sig(src, "arp")
         elif pkt.haslayer(DNS) and pkt.haslayer("IP"):
             src = pkt["IP"].src
-            # Try to extract service type from mDNS PTR records
+            udp = pkt.getlayer("UDP")
+            sport = int(getattr(udp, "sport", 0) or 0) if udp else 0
+            dport = int(getattr(udp, "dport", 0) or 0) if udp else 0
+
+            # Try to extract service type from mDNS PTR records (udp/5353)
             try:
                 dns = pkt[DNS]
-                for i in range(dns.ancount):
+                if sport == 5353 or dport == 5353:
+                    mark_sig(src, "mdns")
                     rr = dns.an
-                    while rr and i > 0:
-                        rr = rr.payload
-                        i -= 1
-                    if rr and hasattr(rr, 'rrname'):
-                        name = rr.rrname.decode('utf-8', errors='ignore') if isinstance(rr.rrname, bytes) else str(rr.rrname)
-                        for svc, hint in MDNS_SERVICE_HINTS.items():
-                            if svc in name.lower():
-                                if src not in mdns_hints:
-                                    mdns_hints[src] = {}
-                                mdns_hints[src][svc] = hint
+                    for _ in range(int(getattr(dns, "ancount", 0) or 0)):
+                        if rr and hasattr(rr, "rrname"):
+                            name = rr.rrname.decode("utf-8", errors="ignore") if isinstance(rr.rrname, bytes) else str(rr.rrname)
+                            for svc, hint in MDNS_SERVICE_HINTS.items():
+                                if svc in name.lower():
+                                    if src not in mdns_hints:
+                                        mdns_hints[src] = {}
+                                    mdns_hints[src][svc] = hint
+                        rr = getattr(rr, "payload", None)
+
+                # LLMNR also uses DNS format on udp/5355
+                if sport == 5355 or dport == 5355:
+                    mark_sig(src, "llmnr")
+                    qd = getattr(dns, "qd", None)
+                    qname = ""
+                    if qd is not None and hasattr(qd, "qname"):
+                        qname = qd.qname.decode("utf-8", errors="ignore") if isinstance(qd.qname, bytes) else str(qd.qname)
+                    host = (qname or "").strip(".").split(".", 1)[0]
+                    if host and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}", host):
+                        llmnr_hints[src] = host
+            except Exception:
+                pass
+        elif pkt.haslayer("IP") and pkt.haslayer("UDP"):
+            src = pkt["IP"].src
+            udp = pkt.getlayer("UDP")
+            sport = int(getattr(udp, "sport", 0) or 0) if udp else 0
+            dport = int(getattr(udp, "dport", 0) or 0) if udp else 0
+            # NBNS/NetBIOS name service traffic (udp/137). Parsing payload into a
+            # reliable hostname is noisy across vendors; record as passive signal.
+            if sport == 137 or dport == 137:
+                mark_sig(src, "nbns")
+            # SSDP/UPnP multicast (udp/1900) with vendor/service hints.
+            if sport == 1900 or dport == 1900:
+                mark_sig(src, "ssdp")
+                try:
+                    raw = pkt.getlayer("Raw")
+                    blob = bytes(getattr(raw, "load", b"")) if raw is not None else b""
+                    text = blob.decode("utf-8", errors="ignore")
+                    cat, vendor = parse_ssdp_hint(text)
+                    if cat or vendor:
+                        ssdp_hints[src] = (cat, vendor)
+                except Exception:
+                    pass
+        elif pkt.haslayer("IPv6"):
+            try:
+                src6 = str(pkt["IPv6"].src or "")
+                if src6 and not src6.startswith("fe80:"):
+                    ndp_seen.add(src6)
+                    macn = ""
+                    if pkt.haslayer(Ether):
+                        macn = _norm_mac(str(pkt[Ether].src or ""))
+                    if macn:
+                        if macn not in ndp_ipv6_by_mac:
+                            ndp_ipv6_by_mac[macn] = set()
+                        ndp_ipv6_by_mac[macn].add(src6)
             except Exception:
                 pass
 
@@ -368,7 +449,7 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> set[
 
     try:
         sniff(
-            filter="arp or (udp and port 5353)",
+            filter="arp or icmp6 or (udp and (port 5353 or port 5355 or port 137 or port 1900))",
             prn=handle_pkt,
             timeout=timeout_secs,
             store=False,
@@ -376,8 +457,8 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> set[
     except PermissionError:
         pass
 
-    # Store mDNS hints in DB for use during fingerprinting
-    if mdns_hints:
+    # Store passive hints in DB for use during fingerprinting
+    if mdns_hints or llmnr_hints or nbns_hints or ssdp_hints:
         with db_conn() as conn:
             for ip, hints in mdns_hints.items():
                 for svc, (cat, vendor) in hints.items():
@@ -396,13 +477,40 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> set[
                                 "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='')",
                                 (vendor, ip)
                             )
+            for ip, host in llmnr_hints.items():
+                conn.execute(
+                    "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='')",
+                    (host, ip),
+                )
+            # Keep separate source tag from LLMNR where no concrete hostname was parsed.
+            for ip, host in nbns_hints.items():
+                if host:
+                    conn.execute(
+                        "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='')",
+                        (host, ip),
+                    )
+            for ip, (cat, vendor) in ssdp_hints.items():
+                if cat:
+                    conn.execute(
+                        "UPDATE assets SET category=? WHERE ip=? AND category='unk'",
+                        (cat, ip),
+                    )
+                if vendor:
+                    conn.execute(
+                        "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='')",
+                        (vendor, ip),
+                    )
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Passive phase: {len(discovered)} hosts observed, "
-                  f"{len(mdns_hints)} with mDNS service hints")
+                  f"Passive phase: {len(discovered)} IPv4 hosts observed "
+                  f"(mDNS={len([1 for v in passive_signals.values() if 'mdns' in v])}, "
+                  f"LLMNR={len([1 for v in passive_signals.values() if 'llmnr' in v])}, "
+                  f"NBNS={len([1 for v in passive_signals.values() if 'nbns' in v])}, "
+                  f"SSDP={len([1 for v in passive_signals.values() if 'ssdp' in v])}, "
+                  f"NDPv6_sources={len(ndp_seen)})")
 
-    return discovered
+    return discovered, passive_signals, ndp_ipv6_by_mac
 
 
 # ---------------------------------------------------------------------------
@@ -1846,7 +1954,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   discovery_sources: list[str] | None = None,
                   connected_via: str = "",
                   hostname: str = "",
-                  scan_profile: str = "") -> dict:
+                  scan_profile: str = "",
+                  ipv6_addrs: list[str] | None = None) -> dict:
     """Upsert an asset row and return the full row dict."""
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
     # zero opens and wiping a good standard_inventory row. Union with prior opens
@@ -1854,8 +1963,9 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     existing_ports: list[int] = []
     existing_banners: dict[str, str] = {}
     existing_ncpes: list[str] = []
+    existing_ipv6: list[str] = []
     cur = conn.execute(
-        "SELECT open_ports, banners, nmap_cpes FROM assets WHERE ip=?",
+        "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
         (ip,),
     ).fetchone()
     if cur:
@@ -1881,6 +1991,12 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                 existing_ncpes = [str(x) for x in en if x]
         except (json.JSONDecodeError, TypeError):
             existing_ncpes = []
+        try:
+            ev6 = json.loads(cur["ipv6_addrs"] or "[]")
+            if isinstance(ev6, list):
+                existing_ipv6 = [str(x).strip() for x in ev6 if str(x).strip()]
+        except (json.JSONDecodeError, TypeError):
+            existing_ipv6 = []
 
     if scan_profile in ("full_tcp", "fast_full_tcp") and existing_ports:
         new_port_set = set()
@@ -1914,6 +2030,17 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             if "prior_inventory_ports_merged" not in dsc:
                 dsc.append("prior_inventory_ports_merged")
             discovery_sources = dsc
+
+    merged_ipv6 = set(existing_ipv6)
+    for v6 in (ipv6_addrs or []):
+        s = str(v6 or "").strip().lower()
+        if not s:
+            continue
+        try:
+            merged_ipv6.add(str(ipaddress.ip_address(s)))
+        except ValueError:
+            continue
+    merged_ipv6_list = sorted(merged_ipv6)
 
     fp = fingerprint(mac, ports, banners, hostname=hostname)
     oui_vendor_pre, oui_cat_pre = oui_lookup(mac)
@@ -2004,8 +2131,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
 
     conn.execute("""
         INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess, connected_via,
-                            open_ports, banners, nmap_cpes, discovery_sources, device_id, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,:did,CURRENT_TIMESTAMP,:jid)
+                            open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
+        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
         ON CONFLICT(ip) DO UPDATE SET
             hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
             mac        = COALESCE(excluded.mac, mac),
@@ -2022,6 +2149,10 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             banners    = excluded.banners,
             nmap_cpes  = excluded.nmap_cpes,
             discovery_sources = COALESCE(NULLIF(excluded.discovery_sources,''), discovery_sources),
+            ipv6_addrs = CASE
+                           WHEN excluded.ipv6_addrs IS NOT NULL AND excluded.ipv6_addrs != '' THEN excluded.ipv6_addrs
+                           ELSE ipv6_addrs
+                         END,
             last_seen  = CURRENT_TIMESTAMP,
             last_scan_id = excluded.last_scan_id
     """, {
@@ -2034,6 +2165,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         "banners": json.dumps(banners),
         "ncpes":   json.dumps(nmap_cpes or []),
         "ds":      json.dumps(sorted(set(discovery_sources or []))),
+        "v6":      json.dumps(merged_ipv6_list),
         "did":     device_id,
         "jid":     job_id,
     })
@@ -2118,14 +2250,18 @@ def run_scan(job: dict) -> None:
 
     # ---- Phase 1: Passive ------------------------------------------------
     passive_hosts: set[str] = set()
+    passive_signal_map: dict[str, set[str]] = {}
+    passive_ndp_ipv6_by_mac: dict[str, set[str]] = {}
     if "passive" in phases:
         with db_conn() as conn:
             log_event(conn, job_id, "INFO", "Phase 1: passive ARP/mDNS sniff starting")
         try:
-            passive_hosts = phase_passive(job_id, cidrs[0], timeout_secs=20)
+            passive_hosts, passive_signal_map, passive_ndp_ipv6_by_mac = phase_passive(job_id, cidrs[0], timeout_secs=20)
         except PermissionError as e:
             log.warning("[job %d] Passive phase skipped (no raw socket permission): %s", job_id, e)
             passive_hosts = set()
+            passive_signal_map = {}
+            passive_ndp_ipv6_by_mac = {}
 
     # ---- Phase 2: Host discovery -----------------------------------------
     alive_hosts: dict[str, str] = {}  # ip -> mac
@@ -2324,6 +2460,8 @@ def run_scan(job: dict) -> None:
         sources: list[str] = []
         if ip in passive_hosts:
             sources.append("passive_mdns_or_arp")
+            for sig in sorted(passive_signal_map.get(ip, set())):
+                sources.append(f"passive_{sig}")
         if ip in alive_hosts:
             sm = (job.get("scan_mode") or "auto")
             sources.append(f"discovery_{sm}")
@@ -2403,6 +2541,13 @@ def run_scan(job: dict) -> None:
                 else:
                     sources.append("hostname_from_enrichment")
 
+        ipv6_addrs: list[str] = []
+        macn = _norm_mac(mac)
+        if macn and macn in passive_ndp_ipv6_by_mac:
+            ipv6_addrs = sorted(passive_ndp_ipv6_by_mac.get(macn, set()))
+            if ipv6_addrs:
+                sources.append("ipv6_from_ndp")
+
         # Only record assets we have actual evidence for:
         # - Has a MAC address (ARP/discovery/enrichment)
         # - Has at least one open port
@@ -2421,6 +2566,7 @@ def run_scan(job: dict) -> None:
                 connected_via=connected_via,
                 hostname=hostname,
                 scan_profile=profile_name,
+                ipv6_addrs=ipv6_addrs,
             )
             upserted_assets.append(asset)
             scanned += 1
@@ -2821,6 +2967,11 @@ def main() -> None:
         try:
             conn.execute("ALTER TABLE assets ADD COLUMN connected_via TEXT DEFAULT ''")
             log.info("Schema migration: added column assets.connected_via")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN ipv6_addrs TEXT DEFAULT '[]'")
+            log.info("Schema migration: added column assets.ipv6_addrs")
         except Exception:
             pass
         if migrate_device_identity_v1(conn):

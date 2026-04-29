@@ -807,6 +807,48 @@
         <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px" title="This local username is allowed to sign in directly while in OIDC mode.">
         <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
       </div>
+      <details class="mb10">
+        <summary class="flbl text-secondary">Advanced security and SSO settings</summary>
+        <div class="flbl mt6">Password requirements</div>
+        <div class="row-wrap mb8">
+          <label class="flbl">Minimum length</label>
+          <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
+        </div>
+        <div class="row-wrap mb10">
+          <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
+          <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
+        </div>
+        <div class="row-wrap mb10">
+          <label class="flbl">Password hashing</label>
+          <select class="finp" id="pp-hash-algo" style="min-width:140px">
+            <option value="argon2id">Argon2id (preferred)</option>
+            <option value="bcrypt">bcrypt</option>
+          </select>
+          <label class="flbl">Max failed attempts</label>
+          <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
+          <label class="flbl">Lockout minutes</label>
+          <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
+        </div>
+        <div class="row-wrap mb12">
+          <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
+        </div>
+
+        <div class="flbl oidc-only">OIDC configuration</div>
+        <div class="profile-grid mb10 oidc-only">
+          <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
+          <input class="finp" id="oidc-client-id" placeholder="Client ID">
+          <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
+          <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
+          <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
+          <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
+        </div>
+        <div class="row-wrap mb12 oidc-only">
+          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+          <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
+        </div>
+      </details>
       <div class="flbl">Local users and roles</div>
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap mb8">
@@ -840,48 +882,6 @@
           <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
           <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
         </table>
-      </div>
-    </details>
-    <details class="mb10">
-      <summary class="flbl text-secondary">Advanced security and SSO settings</summary>
-      <div class="flbl mt6">Password requirements</div>
-      <div class="row-wrap mb8">
-        <label class="flbl">Minimum length</label>
-        <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
-      </div>
-      <div class="row-wrap mb10">
-        <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
-        <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
-        <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
-        <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
-      </div>
-      <div class="row-wrap mb10">
-        <label class="flbl">Password hashing</label>
-        <select class="finp" id="pp-hash-algo" style="min-width:140px">
-          <option value="argon2id">Argon2id (preferred)</option>
-          <option value="bcrypt">bcrypt</option>
-        </select>
-        <label class="flbl">Max failed attempts</label>
-        <input class="finp" type="number" min="3" max="20" step="1" id="pp-max-attempts" style="width:90px">
-        <label class="flbl">Lockout minutes</label>
-        <input class="finp" type="number" min="1" max="1440" step="1" id="pp-lockout-min" style="width:100px">
-      </div>
-      <div class="row-wrap mb12">
-        <button class="tbtn" type="button" onclick="savePasswordPolicy()">Save policy</button>
-      </div>
-
-      <div class="flbl oidc-only">OIDC configuration</div>
-      <div class="profile-grid mb10 oidc-only">
-        <input class="finp" id="oidc-issuer-url" placeholder="Issuer URL (https://idp.example.com/realms/main)">
-        <input class="finp" id="oidc-client-id" placeholder="Client ID">
-        <input class="finp" id="oidc-client-secret" type="password" placeholder="Client secret">
-        <input class="finp" id="oidc-redirect-uri" placeholder="Redirect URI (https://app.example.com/api/auth_oidc.php?callback=1)">
-        <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
-        <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
-      </div>
-      <div class="row-wrap mb12 oidc-only">
-        <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
-        <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
       </div>
     </details>
   </div>
@@ -6522,6 +6522,9 @@ async function openHostPanel(id, ip) {
           <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val">${esc(a.vendor||'—')}</td></tr>
           <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${esc(a.os_guess||'—')}</td></tr>
           <tr><td class="hp-meta-key">CPE</td><td class="hp-meta-val-dim cpe-break">${esc(a.cpe||'—')}</td></tr>
+          <tr><td class="hp-meta-key">IPv6</td><td class="hp-meta-val-dim cpe-break">${
+            (a.ipv6_addrs || []).length ? esc((a.ipv6_addrs || []).join(', ')) : '—'
+          }</td></tr>
           <tr><td class="hp-meta-key">Connected via</td><td class="hp-meta-val-dim">${esc(a.connected_via||'—')}</td></tr>
           <tr><td class="hp-meta-key">First seen</td><td class="hp-meta-val-dim">${localTime(a.first_seen)}</td></tr>
           <tr><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>

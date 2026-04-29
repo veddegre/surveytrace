@@ -191,6 +191,21 @@ def _cfg_set(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
+def _audit_system(conn: sqlite3.Connection, action: str, details: dict) -> None:
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_audit_log
+                (actor_user_id, actor_username, target_user_id, target_username, action, details_json, source_ip)
+            VALUES
+                (NULL, 'system', NULL, NULL, ?, ?, '127.0.0.1')
+            """,
+            (action, json.dumps(details, separators=(",", ":"), ensure_ascii=False)),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
 def _purge_old_backups(retention_days: int) -> int:
     d = Path(os.getenv("SURVEYTRACE_DB_BACKUP_DIR", str(BACKUP_DIR_DEFAULT)))
     if not d.exists() or not d.is_dir():
@@ -262,6 +277,11 @@ def maybe_run_db_backup(conn: sqlite3.Connection, now: datetime) -> None:
         _cfg_set(conn, "db_backup_last_error", err)
         nr = next_cron_run(expr, now_naive, "UTC")
         _cfg_set(conn, "db_backup_next_run", nr.strftime("%Y-%m-%d %H:%M:%S"))
+        _audit_system(conn, "db.backup_run_scheduled", {
+            "status": "error",
+            "reason": "backup_script_missing",
+            "error": err,
+        })
         return
 
     try:
@@ -296,18 +316,36 @@ def maybe_run_db_backup(conn: sqlite3.Connection, now: datetime) -> None:
                 "DB backup ok: %s (purged %d by age, %d by count; keep=%d)",
                 backup_path, purged_age, purged_count, keep_count
             )
+            _audit_system(conn, "db.backup_run_scheduled", {
+                "status": "ok",
+                "path": backup_path,
+                "purged_by_age": purged_age,
+                "purged_by_count": purged_count,
+                "retention_days": retention_days,
+                "keep_count": keep_count,
+            })
         else:
             msg = (err or out or f"exit {proc.returncode}")[:500]
             _cfg_set(conn, "db_backup_last_run", now_str)
             _cfg_set(conn, "db_backup_last_status", "error")
             _cfg_set(conn, "db_backup_last_error", msg)
             log.error("DB backup failed: %s", msg)
+            _audit_system(conn, "db.backup_run_scheduled", {
+                "status": "error",
+                "error": msg,
+                "exit_code": proc.returncode,
+            })
     except Exception as e:
         msg = str(e)[:500]
         _cfg_set(conn, "db_backup_last_run", now_str)
         _cfg_set(conn, "db_backup_last_status", "error")
         _cfg_set(conn, "db_backup_last_error", msg)
         log.error("DB backup exception: %s", msg)
+        _audit_system(conn, "db.backup_run_scheduled", {
+            "status": "error",
+            "error": msg,
+            "reason": "exception",
+        })
 
     nr = next_cron_run(expr, now_naive, "UTC")
     _cfg_set(conn, "db_backup_next_run", nr.strftime("%Y-%m-%d %H:%M:%S"))
