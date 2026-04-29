@@ -11,7 +11,7 @@
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.6.1') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.6.2') ?>">
 </head>
 <body>
 <div class="shell">
@@ -19,7 +19,7 @@
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.6.1' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.6.2' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -983,7 +983,7 @@
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.6.1', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.6.2', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span>
         </div>
@@ -1010,6 +1010,29 @@
           <input class="finp" id="scan-trash-retention-days" type="number" min="1" max="365" style="width:80px" title="Days scans stay in Trash before automatic purge">
           <button type="button" class="tbtn btn-xs" id="scan-trash-retention-save" onclick="saveScanTrashRetentionDays()" title="Save trash retention days (admin)">Save retention</button>
         </div>
+      </div>
+      <div class="card">
+        <div class="ct">Database backups</div>
+        <div class="help-line mb8">
+          Scheduler-triggered SQLite backups using <code class="code-accent">daemon/backup_db.sh</code>.
+        </div>
+        <div class="row-wrap gap6 mb6">
+          <label class="flbl" style="min-width:130px">Enabled</label>
+          <input class="accent-radio" type="checkbox" id="st-db-backup-enabled">
+        </div>
+        <div class="row-wrap gap6 mb6">
+          <label class="flbl" style="min-width:130px">Backup cron</label>
+          <input class="finp" id="st-db-backup-cron" style="min-width:170px" placeholder="15 2 * * *">
+        </div>
+        <div class="row-wrap gap6 mb8">
+          <label class="flbl" style="min-width:130px">Retention (days)</label>
+          <input class="finp" type="number" id="st-db-backup-retention" min="1" max="365" step="1" style="width:90px" value="14">
+          <label class="flbl" style="min-width:110px">Keep latest</label>
+          <input class="finp" type="number" id="st-db-backup-keep-count" min="1" max="500" step="1" style="width:90px" value="30">
+          <button type="button" class="tbtn btn-xs" onclick="saveDbBackupSettings()">Save backup settings</button>
+          <button type="button" class="btnp btn-xs" id="st-db-backup-run-now" onclick="runDbBackupNow()">Run backup now</button>
+        </div>
+        <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
     </div>
   </div>
@@ -4158,6 +4181,24 @@ async function loadUiSettings() {
     scanTrashRetentionDays = Math.max(1, Math.min(365, Number(d.scan_trash_retention_days || 30)));
     const retention = document.getElementById('scan-trash-retention-days');
     if (retention) retention.value = String(scanTrashRetentionDays);
+    const dbEn = document.getElementById('st-db-backup-enabled');
+    if (dbEn) dbEn.checked = !!d.db_backup_enabled;
+    const dbCron = document.getElementById('st-db-backup-cron');
+    if (dbCron) dbCron.value = String(d.db_backup_cron || '15 2 * * *');
+    const dbRet = document.getElementById('st-db-backup-retention');
+    if (dbRet) dbRet.value = String(Math.max(1, Math.min(365, Number(d.db_backup_retention_days || 14))));
+    const dbKeep = document.getElementById('st-db-backup-keep-count');
+    if (dbKeep) dbKeep.value = String(Math.max(1, Math.min(500, Number(d.db_backup_keep_count || 30))));
+    const dbLast = document.getElementById('st-db-backup-last');
+    if (dbLast) {
+        const lastRun = d.db_backup_last_run ? String(d.db_backup_last_run) : 'never';
+        const st = d.db_backup_last_status ? String(d.db_backup_last_status) : '—';
+        const p = d.db_backup_last_path ? String(d.db_backup_last_path) : '';
+        const e = d.db_backup_last_error ? String(d.db_backup_last_error) : '';
+        dbLast.textContent = st === 'error'
+            ? (`Last run: ${lastRun} · status: error · ${e || 'unknown error'}`)
+            : (`Last run: ${lastRun} · status: ${st}${p ? (' · ' + p) : ''}`);
+    }
     updateScanHistoryViewButtons();
     await loadAuthUsers();
     updateMfaActionButtons();
@@ -4851,6 +4892,58 @@ async function saveExtraSafePorts() {
         toast('Extra routed safe ports updated', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function saveDbBackupSettings() {
+    const en = !!document.getElementById('st-db-backup-enabled')?.checked;
+    const cronEl = document.getElementById('st-db-backup-cron');
+    const retEl = document.getElementById('st-db-backup-retention');
+    const keepEl = document.getElementById('st-db-backup-keep-count');
+    const cron = String(cronEl?.value || '').trim() || '15 2 * * *';
+    let ret = parseInt(String(retEl?.value || '14'), 10);
+    if (!Number.isFinite(ret)) ret = 14;
+    ret = Math.max(1, Math.min(365, ret));
+    let keep = parseInt(String(keepEl?.value || '30'), 10);
+    if (!Number.isFinite(keep)) keep = 30;
+    keep = Math.max(1, Math.min(500, keep));
+    const r = await apiPost('/api/settings.php', {
+        db_backup_enabled: en,
+        db_backup_cron: cron,
+        db_backup_retention_days: ret,
+        db_backup_keep_count: keep,
+    });
+    if (r && r.ok) {
+        if (retEl) retEl.value = String(r.db_backup_retention_days ?? ret);
+        if (keepEl) keepEl.value = String(r.db_backup_keep_count ?? keep);
+        if (cronEl) cronEl.value = String(r.db_backup_cron ?? cron);
+        toast('Database backup settings updated', 'ok');
+        await loadUiSettings();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function runDbBackupNow() {
+    const btn = document.getElementById('st-db-backup-run-now');
+    const prev = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Running…';
+    }
+    try {
+        const r = await apiPost('/api/settings.php', { db_backup_run_now: true });
+        if (r && r.ok) {
+            toast('Database backup completed', 'ok');
+            await loadUiSettings();
+        } else {
+            toast((r && r.error) ? r.error : 'Backup failed', 'err');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || 'Run backup now';
+        }
     }
 }
 

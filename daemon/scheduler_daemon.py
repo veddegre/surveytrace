@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
+import subprocess
 import time
 from datetime import datetime, timezone, timedelta
 try:
@@ -38,6 +40,8 @@ logging.basicConfig(
 )
 
 DB_PATH   = Path(__file__).parent.parent / "data" / "surveytrace.db"
+BACKUP_SCRIPT = Path(__file__).parent / "backup_db.sh"
+BACKUP_DIR_DEFAULT = DB_PATH.parent / "backups"
 POLL_SECS = 30   # check every 30 seconds
 
 
@@ -106,6 +110,11 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as e:
         log.warning("scan_jobs column migration skipped: %s", e)
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('scan_trash_retention_days', '30')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('db_backup_enabled', '0')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('db_backup_cron', '15 2 * * *')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('db_backup_retention_days', '14')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('db_backup_keep_count', '30')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('db_backup_next_run', '')")
 
 
 def _hard_delete_scan(conn: sqlite3.Connection, job_id: int) -> None:
@@ -163,6 +172,145 @@ def purge_expired_trashed_scans(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
     log.info("Purged %d trashed scan(s) older than %d days", len(rows), retention_days)
+
+
+def _cfg_get(conn: sqlite3.Connection, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT value FROM config WHERE key = ? LIMIT 1", (key,)).fetchone()
+    if not row:
+        return default
+    try:
+        return str(row[0] if row[0] is not None else default)
+    except Exception:
+        return default
+
+
+def _cfg_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+
+
+def _purge_old_backups(retention_days: int) -> int:
+    d = Path(os.getenv("SURVEYTRACE_DB_BACKUP_DIR", str(BACKUP_DIR_DEFAULT)))
+    if not d.exists() or not d.is_dir():
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    n = 0
+    for p in d.glob("surveytrace-*.db"):
+        try:
+            mtime = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc)
+            if mtime < cutoff:
+                p.unlink(missing_ok=True)
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _purge_backup_count(max_keep: int) -> int:
+    if max_keep <= 0:
+        return 0
+    d = Path(os.getenv("SURVEYTRACE_DB_BACKUP_DIR", str(BACKUP_DIR_DEFAULT)))
+    if not d.exists() or not d.is_dir():
+        return 0
+    files = []
+    for p in d.glob("surveytrace-*.db"):
+        try:
+            files.append((p.stat().st_mtime, p))
+        except Exception:
+            continue
+    files.sort(key=lambda t: t[0], reverse=True)
+    stale = files[max_keep:]
+    n = 0
+    for _, p in stale:
+        try:
+            p.unlink(missing_ok=True)
+            n += 1
+        except Exception:
+            continue
+    return n
+
+
+def maybe_run_db_backup(conn: sqlite3.Connection, now: datetime) -> None:
+    enabled = _cfg_get(conn, "db_backup_enabled", "0") == "1"
+    if not enabled:
+        return
+    expr = (_cfg_get(conn, "db_backup_cron", "15 2 * * *") or "").strip() or "15 2 * * *"
+    next_run_raw = (_cfg_get(conn, "db_backup_next_run", "") or "").strip()
+    now_naive = now.replace(tzinfo=None)
+    now_str = now_naive.strftime("%Y-%m-%d %H:%M:%S")
+
+    next_run: datetime | None = None
+    if next_run_raw:
+        try:
+            next_run = _parse_utc_naive(next_run_raw)
+        except Exception:
+            next_run = None
+    if next_run is None:
+        nr = next_cron_run(expr, now_naive - timedelta(minutes=1), "UTC")
+        _cfg_set(conn, "db_backup_next_run", nr.strftime("%Y-%m-%d %H:%M:%S"))
+        next_run = nr
+    if now_naive < next_run:
+        return
+
+    if not BACKUP_SCRIPT.exists():
+        err = f"backup script missing: {BACKUP_SCRIPT}"
+        log.error(err)
+        _cfg_set(conn, "db_backup_last_run", now_str)
+        _cfg_set(conn, "db_backup_last_status", "error")
+        _cfg_set(conn, "db_backup_last_error", err)
+        nr = next_cron_run(expr, now_naive, "UTC")
+        _cfg_set(conn, "db_backup_next_run", nr.strftime("%Y-%m-%d %H:%M:%S"))
+        return
+
+    try:
+        proc = subprocess.run(
+            ["bash", str(BACKUP_SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+        out = (proc.stdout or "").strip()
+        err = (proc.stderr or "").strip()
+        if proc.returncode == 0:
+            backup_path = out.splitlines()[-1].strip() if out else ""
+            _cfg_set(conn, "db_backup_last_run", now_str)
+            _cfg_set(conn, "db_backup_last_status", "ok")
+            _cfg_set(conn, "db_backup_last_path", backup_path[:300])
+            _cfg_set(conn, "db_backup_last_error", "")
+            try:
+                retention_days = int(_cfg_get(conn, "db_backup_retention_days", "14"))
+            except Exception:
+                retention_days = 14
+            retention_days = max(1, min(365, retention_days))
+            try:
+                keep_count = int(_cfg_get(conn, "db_backup_keep_count", "30"))
+            except Exception:
+                keep_count = 30
+            keep_count = max(1, min(500, keep_count))
+            purged_age = _purge_old_backups(retention_days)
+            purged_count = _purge_backup_count(keep_count)
+            log.info(
+                "DB backup ok: %s (purged %d by age, %d by count; keep=%d)",
+                backup_path, purged_age, purged_count, keep_count
+            )
+        else:
+            msg = (err or out or f"exit {proc.returncode}")[:500]
+            _cfg_set(conn, "db_backup_last_run", now_str)
+            _cfg_set(conn, "db_backup_last_status", "error")
+            _cfg_set(conn, "db_backup_last_error", msg)
+            log.error("DB backup failed: %s", msg)
+    except Exception as e:
+        msg = str(e)[:500]
+        _cfg_set(conn, "db_backup_last_run", now_str)
+        _cfg_set(conn, "db_backup_last_status", "error")
+        _cfg_set(conn, "db_backup_last_error", msg)
+        log.error("DB backup exception: %s", msg)
+
+    nr = next_cron_run(expr, now_naive, "UTC")
+    _cfg_set(conn, "db_backup_next_run", nr.strftime("%Y-%m-%d %H:%M:%S"))
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +600,7 @@ def main() -> None:
 
             with db_conn() as conn:
                 purge_expired_trashed_scans(conn)
+                maybe_run_db_backup(conn, now)
                 # Find all enabled schedules due to run
                 due = conn.execute("""
                     SELECT * FROM scan_schedules

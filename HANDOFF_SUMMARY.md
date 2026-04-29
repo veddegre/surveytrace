@@ -2,7 +2,7 @@
 
 Use this as a context starter in a new conversation.
 
-**Release:** **0.6.1** (`ST_VERSION` in `api/db.php`) — includes Phase 7 scan trash + retention hardening.
+**Release:** **0.6.2** (`ST_VERSION` in `api/db.php`) — includes host rescan parity, full-tcp safeguards, and DB backup/restore controls.
 
 ## Where things stand
 

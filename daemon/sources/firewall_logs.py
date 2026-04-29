@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from sources import EnrichmentSource, register
+from sources import EnrichmentSource, register, resolve_jailed_path
 
 log = logging.getLogger("surveytrace.enrichment.firewall_logs")
 
@@ -61,6 +61,8 @@ class FirewallLogsSource(EnrichmentSource):
         super().__init__(config)
         self.paths = [p.strip() for p in str(config.get("paths", "") or "").split(",") if p.strip()]
         self.parser = str(config.get("parser", "auto") or "auto").strip().lower()
+        roots_raw = str(config.get("allowed_roots", "") or "")
+        self.allowed_roots = [r.strip() for r in roots_raw.split(",") if r.strip()]
         self.direction = str(config.get("direction", "any") or "any").strip().lower()
         self.include_blocked = _truthy(config.get("include_blocked", True), True)
         self.max_age_hours = int(str(config.get("max_age_hours", "168") or "168"))
@@ -69,9 +71,9 @@ class FirewallLogsSource(EnrichmentSource):
     def test_connection(self) -> tuple[bool, str]:
         if not self.paths:
             return False, "No firewall log paths configured"
-        existing = [p for p in self.paths if Path(p).exists()]
+        existing = [p for p in self.paths if resolve_jailed_path(p, self.allowed_roots) is not None]
         if not existing:
-            return False, "No configured firewall log files are readable on this host"
+            return False, "No configured firewall log files are readable on this host (or path is outside allowed roots)"
         return True, f"Found {len(existing)} firewall log file(s)"
 
     def _allow_action(self, action: str) -> bool:
@@ -208,8 +210,8 @@ class FirewallLogsSource(EnrichmentSource):
     def fetch_all(self) -> list[dict]:
         by_ip: dict[str, dict] = {}
         for path in self.paths:
-            p = Path(path)
-            if not p.exists():
+            p = resolve_jailed_path(path, self.allowed_roots)
+            if p is None:
                 log.debug("Firewall log path not found: %s", path)
                 continue
             try:

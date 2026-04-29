@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from sources import EnrichmentSource, register
+from sources import EnrichmentSource, register, resolve_jailed_path
 
 log = logging.getLogger("surveytrace.enrichment.dhcp")
 
@@ -60,13 +60,15 @@ class DHCPLeasesSource(EnrichmentSource):
         self.paths = [p.strip() for p in raw_paths.split(",") if p.strip()]
         self.fmt = str(config.get("format", "auto") or "auto").strip().lower()
         self.include_expired = _truthy(config.get("include_expired", False), False)
+        roots_raw = str(config.get("allowed_roots", "") or "")
+        self.allowed_roots = [r.strip() for r in roots_raw.split(",") if r.strip()]
 
     def test_connection(self) -> tuple[bool, str]:
         if not self.paths:
             return False, "No lease file paths configured"
-        existing = [p for p in self.paths if Path(p).exists()]
+        existing = [p for p in self.paths if resolve_jailed_path(p, self.allowed_roots) is not None]
         if not existing:
-            return False, "No configured lease files are readable on this host"
+            return False, "No configured lease files are readable on this host (or path is outside allowed roots)"
         return True, f"Found {len(existing)} lease file(s)"
 
     def _parse_dnsmasq(self, content: str, source_path: str) -> list[dict]:
@@ -195,8 +197,8 @@ class DHCPLeasesSource(EnrichmentSource):
     def fetch_all(self) -> list[dict]:
         by_ip: dict[str, dict] = {}
         for path in self.paths:
-            p = Path(path)
-            if not p.exists():
+            p = resolve_jailed_path(path, self.allowed_roots)
+            if p is None:
                 log.debug("DHCP source path not found: %s", path)
                 continue
             try:

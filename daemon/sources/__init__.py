@@ -23,6 +23,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 import logging
+import os
+from pathlib import Path
 
 log = logging.getLogger("surveytrace.enrichment")
 
@@ -112,3 +114,61 @@ def load_source(source_row: dict) -> EnrichmentSource | None:
     except Exception as e:
         log.error("Failed to instantiate source %s: %s", source_type, e)
         return None
+
+
+def _default_enrichment_roots() -> list[Path]:
+    """
+    Default jailed roots for file-based enrichment sources.
+    Override with SURVEYTRACE_ENRICH_PATH_ROOTS (os.pathsep-separated).
+    """
+    env = (os.getenv("SURVEYTRACE_ENRICH_PATH_ROOTS") or "").strip()
+    vals = [v.strip() for v in env.split(os.pathsep)] if env else []
+    if not vals:
+        # Common operator-managed locations + local app data dir
+        vals = ["/var/log", "/var/lib", "/opt/surveytrace/data", str(Path(__file__).resolve().parents[2] / "data")]
+    roots: list[Path] = []
+    for v in vals:
+        if not v:
+            continue
+        try:
+            roots.append(Path(v).resolve())
+        except Exception:
+            continue
+    return roots
+
+
+def _is_relative_to(path_obj: Path, root_obj: Path) -> bool:
+    try:
+        path_obj.relative_to(root_obj)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_jailed_path(path_raw: str, extra_roots: list[str] | None = None) -> Path | None:
+    """
+    Resolve and validate a file path against allowed root directories.
+    Returns resolved Path if allowed and present, else None.
+    """
+    s = (path_raw or "").strip()
+    if not s:
+        return None
+    try:
+        p = Path(s).expanduser().resolve()
+    except Exception:
+        return None
+    allowed_roots = list(_default_enrichment_roots())
+    for r in (extra_roots or []):
+        rr = (r or "").strip()
+        if not rr:
+            continue
+        try:
+            allowed_roots.append(Path(rr).expanduser().resolve())
+        except Exception:
+            continue
+    if not any(_is_relative_to(p, root) for root in allowed_roots):
+        log.warning("Rejected enrichment file path outside jail: %s", s)
+        return None
+    if not p.exists() or not p.is_file():
+        return None
+    return p

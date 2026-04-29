@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from sources import EnrichmentSource, register
+from sources import EnrichmentSource, register, resolve_jailed_path
 
 log = logging.getLogger("surveytrace.enrichment.dns_logs")
 
@@ -56,6 +56,8 @@ class DNSLogsSource(EnrichmentSource):
         super().__init__(config)
         self.paths = [p.strip() for p in str(config.get("paths", "")).split(",") if p.strip()]
         self.parser = str(config.get("parser", "auto") or "auto").strip().lower()
+        roots_raw = str(config.get("allowed_roots", "") or "")
+        self.allowed_roots = [r.strip() for r in roots_raw.split(",") if r.strip()]
         self.allowed_suffixes = [
             s.strip().lower().lstrip(".")
             for s in str(config.get("allowed_suffixes", "")).split(",")
@@ -68,9 +70,9 @@ class DNSLogsSource(EnrichmentSource):
     def test_connection(self) -> tuple[bool, str]:
         if not self.paths:
             return False, "No DNS log file paths configured"
-        exists = [p for p in self.paths if Path(p).exists()]
+        exists = [p for p in self.paths if resolve_jailed_path(p, self.allowed_roots) is not None]
         if not exists:
-            return False, "No configured DNS log files are readable on this host"
+            return False, "No configured DNS log files are readable on this host (or path is outside allowed roots)"
         return True, f"Found {len(exists)} DNS log file(s)"
 
     def _domain_allowed(self, name: str) -> bool:
@@ -217,8 +219,8 @@ class DNSLogsSource(EnrichmentSource):
             "json": self._parse_json,
         }
         for path in self.paths:
-            p = Path(path)
-            if not p.exists():
+            p = resolve_jailed_path(path, self.allowed_roots)
+            if p is None:
                 log.debug("DNS log path not found: %s", path)
                 continue
             try:

@@ -26,6 +26,8 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **UI themes** — Dark / Light / Auto mode with persistent preference
 - **Executive dashboard view** — presentation-focused dashboard mode
 - **System health** — **System** sidebar tab: live operational summary (background services, disk, databases, scan queue, feed sync) via `GET /api/health.php` (read-only, no config changes)
+- **Database backups** — scheduler-driven SQLite backups via `daemon/backup_db.sh`, configurable in **Settings** (enable, cron, retention days, keep-count)
+- **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -113,9 +115,14 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ### Unreleased
 
-- **Host rescan modal** — profile picker plus phases, rate limits, discovery mode, exclusion list, and enrichment source toggles (aligned with manual scan / schedule defaults). Scan tab updated after a successful rescan queue.
-- **Deep Scan vs Full TCP (UI + daemon)** — copy and help text clarify that Deep Scan is aggressive `-sV` on SurveyTrace’s **fixed** expanded port list, while **Full TCP** / **Fast Full TCP** run **`-p-`** (all TCP ports). `full_tcp` uses longer nmap `--host-timeout` tiers on small scopes so single-host jobs are less likely to finish with an empty port list.
-- **Full TCP asset upsert** — when a `full_tcp` or `fast_full_tcp` job yields **fewer** open ports than the asset already had, the daemon **unions** prior `open_ports`, merges `banners` (new data wins on the same port), and retains prior `nmap_cpes` if the pass returns none, so a weak run does not wipe a good Standard Inventory row. Discovery may include `prior_inventory_ports_merged`.
+- (no entries yet)
+
+### 0.6.2
+
+- **Host rescan modal parity** — Assets host rescan now exposes the same scan controls as manual/scheduled workflows: profile defaults, phases, rates, discovery mode, exclusions, and per-run enrichment selection.
+- **Deep Scan vs Full TCP clarity + behavior** — UI/help text and profile descriptions now explicitly distinguish Deep Scan (fixed expanded list) from Full/Fast Full TCP (`-p-` all ports). `full_tcp` now uses longer host-timeout tiers on small scopes to reduce empty-result runs.
+- **Full/Fast TCP overwrite guard** — daemon upsert path now preserves prior inventory signal by unioning `open_ports` (and merging banners / fallback CPE data) when a weak `-p-` pass returns fewer results.
+- **Scheduled + on-demand DB backups** — scheduler-managed DB backups with Settings controls (enable, cron, retention days, keep-count), backup status telemetry, plus an admin **Run backup now** action and restore helper script.
 
 ### 0.6.1
 

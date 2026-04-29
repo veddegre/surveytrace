@@ -78,6 +78,8 @@ done
 
 sudo cp "$SRC/daemon/feed_sync_worker.php" "$DEST/daemon/"
 sudo cp "$SRC/daemon/feed_sync_cancel.py" "$DEST/daemon/"
+sudo cp "$SRC/daemon/backup_db.sh" "$DEST/daemon/"
+sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_oui.py" ] && sudo cp "$SRC/daemon/sync_oui.py" "$DEST/daemon/"
@@ -97,6 +99,8 @@ if id surveytrace >/dev/null 2>&1; then
   sudo chown -R surveytrace:surveytrace "$DEST/daemon" 2>/dev/null || true
   sudo find "$DEST/daemon" -type d -exec chmod 750 {} \; 2>/dev/null || true
   sudo find "$DEST/daemon" -type f -exec chmod 640 {} \; 2>/dev/null || true
+  sudo chmod 750 "$DEST/daemon/backup_db.sh" 2>/dev/null || true
+  sudo chmod 750 "$DEST/daemon/restore_db.sh" 2>/dev/null || true
   sudo chown -R surveytrace:www-data "$DEST/data" 2>/dev/null || true
   sudo find "$DEST/data" -type d -exec chmod 2770 {} \; 2>/dev/null || true
   sudo find "$DEST/data" -type f -exec chmod 660 {} \; 2>/dev/null || true
