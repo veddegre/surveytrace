@@ -3376,6 +3376,126 @@ def recover_stale_running_jobs(conn: sqlite3.Connection) -> int:
     return recovered
 
 
+def _feed_scan_batches(conn: sqlite3.Connection, queue_cap: int = 10) -> int:
+    """
+    Promote queued work from scan_batches.pending_targets into scan_jobs as slots free up.
+    Returns number of jobs enqueued in this pass.
+    """
+    in_flight = int(conn.execute(
+        "SELECT COUNT(*) FROM scan_jobs WHERE status IN ('running','queued','retrying')"
+    ).fetchone()[0])
+    slots = max(0, int(queue_cap) - in_flight)
+    if slots <= 0:
+        return 0
+
+    enqueued = 0
+    while slots > 0:
+        b = conn.execute(
+            """
+            SELECT id, label, created_by, pending_targets, total_targets, exclusions, phases,
+                   rate_pps, inter_delay, scan_mode, profile, priority, enrichment_source_ids
+            FROM scan_batches
+            WHERE status IN ('active', 'queued_all')
+            ORDER BY id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not b:
+            break
+        try:
+            pending = json.loads(b["pending_targets"] or "[]")
+        except Exception:
+            pending = []
+        if not isinstance(pending, list):
+            pending = []
+        pending = [str(x).strip() for x in pending if str(x).strip()]
+        if not pending:
+            conn.execute(
+                "UPDATE scan_batches SET status='queued_all', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (int(b["id"]),),
+            )
+            continue
+
+        target = pending.pop(0)
+        total_targets = int(b["total_targets"] or 0)
+        if total_targets <= 0:
+            total_targets = len(pending) + 1
+        batch_index = total_targets - len(pending)
+        label_base = (str(b["label"] or "") or "Scan batch").strip()
+        label = f"{label_base} [batch {batch_index}/{total_targets}]"
+        conn.execute(
+            """
+            INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
+                                   scan_mode, profile, priority, created_by, enrichment_source_ids,
+                                   batch_id, batch_index, batch_total)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target,
+                label,
+                b["exclusions"] or "",
+                b["phases"] or "[]",
+                int(b["rate_pps"] or 5),
+                int(b["inter_delay"] or 200),
+                str(b["scan_mode"] or "auto"),
+                str(b["profile"] or "standard_inventory"),
+                int(b["priority"] or 10),
+                str(b["created_by"] or "web"),
+                b["enrichment_source_ids"],
+                int(b["id"]),
+                batch_index,
+                total_targets,
+            ),
+        )
+        conn.execute(
+            "UPDATE scan_batches SET pending_targets=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (json.dumps(pending), ("queued_all" if not pending else "active"), int(b["id"])),
+        )
+        enqueued += 1
+        slots -= 1
+    return enqueued
+
+
+def _refresh_scan_batch_statuses(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT id, status, total_targets, pending_targets
+        FROM scan_batches
+        WHERE status IN ('active', 'queued_all')
+        """
+    ).fetchall()
+    for b in rows:
+        bid = int(b["id"])
+        stats = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done_count,
+                SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed_count,
+                SUM(CASE WHEN status='aborted' THEN 1 ELSE 0 END) AS aborted_count,
+                SUM(CASE WHEN status IN ('queued','running','retrying') THEN 1 ELSE 0 END) AS inflight_count
+            FROM scan_jobs
+            WHERE batch_id = ?
+            """,
+            (bid,),
+        ).fetchone()
+        done_count = int((stats["done_count"] or 0) if stats else 0)
+        failed_count = int((stats["failed_count"] or 0) if stats else 0)
+        aborted_count = int((stats["aborted_count"] or 0) if stats else 0)
+        inflight_count = int((stats["inflight_count"] or 0) if stats else 0)
+        try:
+            pending = json.loads(b["pending_targets"] or "[]")
+        except Exception:
+            pending = []
+        pending_count = len(pending) if isinstance(pending, list) else 0
+        if pending_count == 0 and inflight_count == 0:
+            new_status = "completed" if (failed_count + aborted_count) == 0 else "failed_partial"
+            if str(b["status"] or "") != new_status:
+                conn.execute(
+                    "UPDATE scan_batches SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (new_status, bid),
+                )
+
+
 # ---------------------------------------------------------------------------
 # Daemon main loop — job queue with priority, retry, and failure tracking
 # ---------------------------------------------------------------------------
@@ -3411,6 +3531,9 @@ def main() -> None:
             ("label",          "TEXT"),
             ("summary_json",   "TEXT"),
             ("enrichment_source_ids", "TEXT"),
+            ("batch_id", "INTEGER DEFAULT 0"),
+            ("batch_index", "INTEGER DEFAULT 0"),
+            ("batch_total", "INTEGER DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE scan_jobs ADD COLUMN {col} {defn}")
@@ -3481,6 +3604,29 @@ def main() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_jobs_batch ON scan_jobs(batch_id, status, id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT,
+                created_by TEXT DEFAULT 'web',
+                status TEXT DEFAULT 'active',
+                total_targets INTEGER DEFAULT 0,
+                pending_targets TEXT DEFAULT '[]',
+                exclusions TEXT,
+                phases TEXT,
+                rate_pps INTEGER DEFAULT 5,
+                inter_delay INTEGER DEFAULT 200,
+                scan_mode TEXT DEFAULT 'auto',
+                profile TEXT DEFAULT 'standard_inventory',
+                priority INTEGER DEFAULT 10,
+                enrichment_source_ids TEXT,
+                auto_split_24 INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_batches_status ON scan_batches(status, id)")
 
     # Backfill OUI data for existing assets missing vendor info
     with db_conn() as conn:
@@ -3496,6 +3642,10 @@ def main() -> None:
 
             # Promote retrying jobs whose timer has elapsed back to queued
             with db_conn() as conn:
+                _refresh_scan_batch_statuses(conn)
+                fed = _feed_scan_batches(conn, queue_cap=10)
+                if fed > 0:
+                    log.info("Batch feeder queued %d staged job(s)", fed)
                 retrying = conn.execute(
                     "SELECT id FROM scan_jobs WHERE status='retrying'"
                 ).fetchall()

@@ -31,6 +31,7 @@ API_FILES=(
   feeds.php
   feed_sync_lib.php
   scan_history.php
+  scan_priority.php
   logout.php
   settings.php
   health.php
@@ -185,6 +186,7 @@ check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
 check_file "$DEST/api/scan_history.php" "scan history API"
+check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"
 check_file "$DEST/daemon/feed_sync_worker.php" "feed_sync_worker (UI sync)"
 check_file "$DEST/daemon/feed_sync_cancel.py" "feed_sync_cancel"

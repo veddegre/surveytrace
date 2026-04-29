@@ -99,7 +99,41 @@ function st_db(): PDO {
     } catch (Throwable $e) {
         // no-op: column already exists
     }
+    foreach ([
+        "ALTER TABLE scan_jobs ADD COLUMN batch_id INTEGER DEFAULT 0",
+        "ALTER TABLE scan_jobs ADD COLUMN batch_index INTEGER DEFAULT 0",
+        "ALTER TABLE scan_jobs ADD COLUMN batch_total INTEGER DEFAULT 0",
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // no-op: column already exists
+        }
+    }
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC)");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_scan_jobs_batch ON scan_jobs(batch_id, status, id)");
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS scan_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT,
+            created_by TEXT DEFAULT 'web',
+            status TEXT DEFAULT 'active',
+            total_targets INTEGER DEFAULT 0,
+            pending_targets TEXT DEFAULT '[]',
+            exclusions TEXT,
+            phases TEXT,
+            rate_pps INTEGER DEFAULT 5,
+            inter_delay INTEGER DEFAULT 200,
+            scan_mode TEXT DEFAULT 'auto',
+            profile TEXT DEFAULT 'standard_inventory',
+            priority INTEGER DEFAULT 10,
+            enrichment_source_ids TEXT,
+            auto_split_24 INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_scan_batches_status ON scan_batches(status, id)");
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS scan_asset_snapshots (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

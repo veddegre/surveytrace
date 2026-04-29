@@ -324,6 +324,10 @@
         <div class="ct">Target &amp; scope</div>
         <label class="flbl">CIDR target(s)</label>
         <input class="finput" id="sc-cidr" type="text" placeholder="192.168.0.0/16, 10.0.0.0/8" value="192.168.0.0/16">
+        <label class="text-micro" style="display:flex;align-items:center;gap:6px;margin:8px 0 2px;color:var(--tx3)">
+          <input type="checkbox" id="sc-auto-split-24" checked>
+          Auto-split targets broader than /24 into /24 batch jobs (safer resume/checkpoint behavior)
+        </label>
         <label class="flbl">Exclusion list (IPs, CIDRs, ranges, # comments)</label>
         <textarea class="finput" id="sc-excl" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
         <label class="flbl">Scan label (optional)</label>
@@ -448,8 +452,11 @@
       </div>
       <div class="card">
         <div class="ct">Launch</div>
+        <label class="flbl">Queue priority (1 = highest, 100 = lowest)</label>
+        <input class="finp w100 mb8" type="number" id="sc-priority" min="1" max="100" value="10">
         <div class="brow">
           <button class="btnp" id="btn-start" onclick="startScan()">&#9654; Queue scan</button>
+          <button class="tbtn" id="btn-start-urgent" onclick="startScan(true)">&#9888; Queue urgent (priority 1)</button>
         </div>
         <div id="scan-stats" class="scan-stats">
           Hosts found: <span id="ss-found">0</span> &nbsp;·&nbsp;
@@ -2982,7 +2989,7 @@ async function resolveFinding(id, btn) {
 // ==========================================================================
 // Scan control
 // ==========================================================================
-async function startScan() {
+async function startScan(urgent = false) {
     const cidr  = document.getElementById('sc-cidr').value.trim();
     if (!cidr) { toast('Enter a CIDR target', 'err'); return; }
 
@@ -3024,6 +3031,10 @@ async function startScan() {
     }
 
     const modeEl = document.querySelector('input[name="scan_mode"]:checked');
+    let scanPriority = parseInt(document.getElementById('sc-priority')?.value || '10', 10);
+    if (!Number.isFinite(scanPriority)) scanPriority = 10;
+    scanPriority = Math.max(1, Math.min(100, scanPriority));
+    if (urgent) scanPriority = 1;
     const body = {
         cidr:        cidr,
         exclusions:  document.getElementById('sc-excl').value,
@@ -3034,18 +3045,46 @@ async function startScan() {
         scan_mode:   modeEl ? modeEl.value : 'auto',
         profile:     profileVal,
         confirmed:   true,
+        priority:    scanPriority,
+        auto_split_24: !!document.getElementById('sc-auto-split-24')?.checked,
     };
     const enrSel = scanEnrichmentPayloadField();
     if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
 
     document.getElementById('btn-start').disabled = true;
+    const urgentBtn = document.getElementById('btn-start-urgent');
+    if (urgentBtn) urgentBtn.disabled = true;
     const r = await apiPost('/api/scan_start.php', body);
-    if (!r) { toast('API error starting scan', 'err'); document.getElementById('btn-start').disabled = false; return; }
-    if (r.error) { toast(r.error, 'err'); document.getElementById('btn-start').disabled = false; return; }
+    if (!r) {
+        toast('API error starting scan', 'err');
+        document.getElementById('btn-start').disabled = false;
+        if (urgentBtn) urgentBtn.disabled = false;
+        return;
+    }
+    if (r.error) {
+        toast(r.error, 'err');
+        document.getElementById('btn-start').disabled = false;
+        if (urgentBtn) urgentBtn.disabled = false;
+        return;
+    }
 
     activeJobId = r.job_id;
-    toast('Scan #' + activeJobId + ' queued', 'ok');
+    if ((r.jobs_total || r.jobs_queued || 1) > 1) {
+        const nowQ = Number(r.jobs_queued || 0);
+        const totalQ = Number(r.jobs_total || nowQ);
+        const pendingFeed = Number(r.batch_pending || 0);
+        toast(
+            'Queued ' + String(nowQ) + ' of ' + String(totalQ) + ' batch jobs'
+            + (pendingFeed > 0 ? (' (' + String(pendingFeed) + ' staged for auto-feed)') : '')
+            + '. Starting with #' + activeJobId
+            + (urgent ? ' [urgent]' : ''),
+            'ok'
+        );
+    } else {
+        toast('Scan #' + activeJobId + ' queued' + (urgent ? ' [urgent priority 1]' : ''), 'ok');
+    }
     document.getElementById('btn-start').disabled = false;
+    if (urgentBtn) urgentBtn.disabled = false;
     document.getElementById('btn-start').textContent = '\u25b6 Queue scan';
     loadScanHistory();   // refresh queue panel immediately
     startPoll(activeJobId);
@@ -3681,6 +3720,9 @@ function updateQueuePanel(history) {
     const rowsHtml = queued.map(j => {
         const pct  = j.progress_pct || 0;
         const isRun = j.status === 'running';
+        const batchMeta = (Number(j.batch_total || 0) > 1 && Number(j.batch_index || 0) > 0)
+            ? `<div class="text-micro text-dim">batch ${esc(String(j.batch_index))}/${esc(String(j.batch_total))}</div>`
+            : '';
         const msgEl = isRun ? `
             <div class="text-micro" style="margin-top:3px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="qmsg-${j.id}">
               ${j.hosts_found > 0 ? j.hosts_scanned+'/'+ j.hosts_found+' hosts &nbsp;·&nbsp; '+pct+'%' : 'Starting…'}
@@ -3690,7 +3732,7 @@ function updateQueuePanel(history) {
             </div>` : '';
         return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
           <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
-          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button></td>
+          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button>${batchMeta}</td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
           <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
           <td>
@@ -3705,6 +3747,9 @@ function updateQueuePanel(history) {
             ${isRun
               ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">&#9632; Abort</button>`
               : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
+            ${!isRun
+              ? `<button type="button" class="tbtn btn-xxs" data-scan-action="set-priority" data-job-id="${j.id}" data-current-priority="${j.priority||10}">Set priority</button>`
+              : ''}
           </td>
         </tr>`;
     }).join('');
@@ -3728,6 +3773,11 @@ function handleScanHistoryTableClick(ev) {
         if (action === 'purge')   { void purgeScanJob(jid); return; }
         if (action === 'abort')   { void abortJobById(jid); return; }
         if (action === 'cancel')  { void cancelJob(jid); return; }
+        if (action === 'set-priority') {
+            const cur = parseInt(btn.getAttribute('data-current-priority') || '10', 10) || 10;
+            void setQueuedJobPriority(jid, cur);
+            return;
+        }
         return;
     }
 
@@ -3796,6 +3846,28 @@ async function cancelJob(id) {
     const r = await apiPost('/api/scan_abort.php', {job_id: id});
     if (r && r.ok) { toast('Job #' + id + ' cancelled', 'ok'); loadScanHistory(); }
     else toast((r && r.error) || 'Cancel failed', 'err');
+}
+
+async function setQueuedJobPriority(jobId, currentPriority) {
+    const raw = window.prompt('Set queue priority (1 highest, 100 lowest):', String(currentPriority || 10));
+    if (raw == null) return;
+    const nextPriority = parseInt(String(raw).trim(), 10);
+    if (!Number.isFinite(nextPriority) || nextPriority < 1 || nextPriority > 100) {
+        toast('Priority must be an integer between 1 and 100', 'err');
+        return;
+    }
+    if (nextPriority === (currentPriority || 10)) return;
+    const r = await apiPost('/api/scan_priority.php', { job_id: jobId, priority: nextPriority });
+    if (!r) {
+        toast('Failed to update priority', 'err');
+        return;
+    }
+    if (r.error || r.ok === false) {
+        toast(r.error || 'Failed to update priority', 'err');
+        return;
+    }
+    toast('Job #' + jobId + ' priority updated to ' + String(nextPriority), 'ok');
+    loadScanHistory();
 }
 
 async function rerunScanJob(id) {

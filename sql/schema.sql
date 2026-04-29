@@ -114,11 +114,39 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     summary_json TEXT,
     error_msg    TEXT,
     deleted_at   DATETIME,
+    batch_id     INTEGER DEFAULT 0,
+    batch_index  INTEGER DEFAULT 0,
+    batch_total  INTEGER DEFAULT 0,
     created_by   TEXT DEFAULT 'web',
     -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
     enrichment_source_ids TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_batch ON scan_jobs(batch_id, status, id);
+
+-- -------------------------------------------------------
+-- Scan batches: staged feeder for large target sets
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scan_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT,
+    created_by TEXT DEFAULT 'web',
+    status TEXT DEFAULT 'active',
+    total_targets INTEGER DEFAULT 0,
+    pending_targets TEXT DEFAULT '[]',
+    exclusions TEXT,
+    phases TEXT,
+    rate_pps INTEGER DEFAULT 5,
+    inter_delay INTEGER DEFAULT 200,
+    scan_mode TEXT DEFAULT 'auto',
+    profile TEXT DEFAULT 'standard_inventory',
+    priority INTEGER DEFAULT 10,
+    enrichment_source_ids TEXT,
+    auto_split_24 INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_scan_batches_status ON scan_batches(status, id);
 
 -- -------------------------------------------------------
 -- Scan log: full audit trail of every probe sent

@@ -34,6 +34,42 @@ $body = st_input();
 $db   = st_db();
 $actor = st_current_user();
 
+function st_ip4_to_u32(string $ip): ?int {
+    $bin = @inet_pton($ip);
+    if (!is_string($bin) || strlen($bin) !== 4) return null;
+    $parts = unpack('Nu', $bin);
+    if (!is_array($parts) || !isset($parts['u'])) return null;
+    return (int)$parts['u'];
+}
+
+function st_u32_to_ip4(int $u): string {
+    return (string)inet_ntop(pack('N', $u));
+}
+
+function st_expand_to_24s(string $cidr): array {
+    if (!preg_match('/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/', $cidr, $m)) {
+        return [$cidr];
+    }
+    $ip = $m[1];
+    $prefix = (int)$m[2];
+    if ($prefix >= 24) {
+        return [$cidr];
+    }
+    $u = st_ip4_to_u32($ip);
+    if ($u === null) {
+        return [$cidr];
+    }
+    $mask = ((~((1 << (32 - $prefix)) - 1)) & 0xFFFFFFFF);
+    $network = ($u & $mask);
+    $count = (1 << (24 - $prefix));
+    $out = [];
+    for ($i = 0; $i < $count; $i++) {
+        $start = ($network + ($i * 256)) & 0xFFFFFFFF;
+        $out[] = st_u32_to_ip4($start) . '/24';
+    }
+    return $out;
+}
+
 // Ensure newer queue columns exist for older databases
 $scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
 $scanJobMigrations = [
@@ -43,12 +79,36 @@ $scanJobMigrations = [
     'retry_count'=> "INTEGER DEFAULT 0",
     'max_retries'=> "INTEGER DEFAULT 2",
     'enrichment_source_ids' => "TEXT",
+    'batch_id' => "INTEGER DEFAULT 0",
+    'batch_index' => "INTEGER DEFAULT 0",
+    'batch_total' => "INTEGER DEFAULT 0",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
         $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
     }
 }
+$db->exec("
+    CREATE TABLE IF NOT EXISTS scan_batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT,
+        created_by TEXT DEFAULT 'web',
+        status TEXT DEFAULT 'active',
+        total_targets INTEGER DEFAULT 0,
+        pending_targets TEXT DEFAULT '[]',
+        exclusions TEXT,
+        phases TEXT,
+        rate_pps INTEGER DEFAULT 5,
+        inter_delay INTEGER DEFAULT 200,
+        scan_mode TEXT DEFAULT 'auto',
+        profile TEXT DEFAULT 'standard_inventory',
+        priority INTEGER DEFAULT 10,
+        enrichment_source_ids TEXT,
+        auto_split_24 INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+");
 
 // ---------------------------------------------------------------------------
 // Retry / re-run shortcut — clone a finished job (failed, done, aborted)
@@ -142,6 +202,22 @@ foreach ($cidrs as $c) {
 
 if (empty($validated_cidrs)) {
     st_json(['error' => 'No valid CIDR targets provided', 'field' => 'cidr'], 400);
+}
+
+$autoSplit24 = !empty($body['auto_split_24']);
+$scan_targets = [];
+if ($autoSplit24) {
+    foreach ($validated_cidrs as $vc) {
+        foreach (st_expand_to_24s($vc) as $sub) {
+            $scan_targets[] = $sub;
+        }
+    }
+} else {
+    $scan_targets = $validated_cidrs;
+}
+$scan_targets = array_values(array_unique($scan_targets));
+if (empty($scan_targets)) {
+    st_json(['error' => 'No scan targets generated', 'field' => 'cidr'], 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,83 +324,152 @@ if (array_key_exists('enrichment_source_ids', $body)) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Concurrency guard — allow up to 10 queued jobs
+// 5. Concurrency guard — allow up to 10 queued/running/retrying jobs
 // ---------------------------------------------------------------------------
+$queueCap = 10;
 $queued_count = (int)$db->query(
     "SELECT COUNT(*) FROM scan_jobs WHERE status IN ('running','queued','retrying')"
 )->fetchColumn();
 
-if ($queued_count >= 10) {
+if ($queued_count >= $queueCap) {
     st_json(['error' => 'Queue is full (max 10 pending jobs). Abort some jobs first.'], 429);
 }
+$availableSlots = max(0, $queueCap - $queued_count);
 
 // Optional priority: 1=highest, 100=lowest, default 10
 $priority = max(1, min(100, (int)($body['priority'] ?? 10)));
 
 // ---------------------------------------------------------------------------
-// 6. Enqueue
+// 6. Enqueue (staged for large /24 batches)
 // ---------------------------------------------------------------------------
 $stmt = $db->prepare("
     INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-        scan_mode, profile, priority, created_by, enrichment_source_ids)
-    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, 'web', :enrids)
+        scan_mode, profile, priority, created_by, enrichment_source_ids, batch_id, batch_index, batch_total)
+    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, 'web', :enrids, :bid, :bidx, :btotal)
 ");
-$stmt->execute([
-    ':cidr'   => implode(', ', $validated_cidrs),
-    ':label'  => $label ?: ('Scan ' . date('Y-m-d H:i')),
-    ':excl'   => $exclusions,
-    ':phases' => json_encode($phases),
-    ':pps'    => $rate_pps,
-    ':delay'  => $inter_delay,
-    ':mode'   => $scan_mode,
-    ':profile'=> $profile,
-    ':priority'=> $priority,
-    ':enrids' => $enrichmentIdsJson,
-]);
-
-$job_id = (int)$db->lastInsertId();
 $resolved_job_label = $label !== '' ? $label : ('Scan ' . date('Y-m-d H:i'));
-st_audit_log('scan.job_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
-    'job_id' => $job_id,
-    'target_cidr' => implode(', ', $validated_cidrs),
-    'label' => $resolved_job_label,
-    'profile' => $profile,
-    'scan_mode' => $scan_mode,
-    'priority' => $priority,
-    'phases' => $phases,
-    'rate_pps' => $rate_pps,
-    'inter_delay_ms' => $inter_delay,
-]);
-
-// Write initial audit log entry
-$db->prepare("
-    INSERT INTO scan_log (job_id, level, message)
-    VALUES (?, 'INFO', ?)
-")->execute([
-    $job_id,
-    sprintf(
-        'Job #%d queued by web — targets: %s | phases: %s | pps: %d | delay: %dms | exclusions: %d lines%s',
-        $job_id,
-        implode(', ', $validated_cidrs),
-        implode(', ', $phases),
+$job_ids = [];
+$totalJobs = count($scan_targets);
+$enqueueNow = min($availableSlots, $totalJobs);
+$pendingTargets = array_slice($scan_targets, $enqueueNow);
+$batchId = 0;
+if ($totalJobs > 1) {
+    $batchIns = $db->prepare("
+        INSERT INTO scan_batches (
+            label, created_by, status, total_targets, pending_targets,
+            exclusions, phases, rate_pps, inter_delay, scan_mode, profile, priority,
+            enrichment_source_ids, auto_split_24, updated_at
+        ) VALUES (?, 'web', 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ");
+    $batchIns->execute([
+        $resolved_job_label,
+        $totalJobs,
+        json_encode($pendingTargets),
+        $exclusions,
+        json_encode($phases),
         $rate_pps,
         $inter_delay,
-        count($exclusion_lines),
-        $enrichmentIdsJson === '[]'
-            ? ' | enrichment: off'
-            : ($enrichmentIdsJson !== null ? ' | enrichment: selected sources' : '')
-    ),
-]);
+        $scan_mode,
+        $profile,
+        $priority,
+        $enrichmentIdsJson,
+        $autoSplit24 ? 1 : 0,
+    ]);
+    $batchId = (int)$db->lastInsertId();
+}
+foreach (array_slice($scan_targets, 0, $enqueueNow) as $idx => $targetCidr) {
+    $jobLabel = $resolved_job_label;
+    if ($totalJobs > 1) {
+        $jobLabel = sprintf('%s [batch %d/%d]', $resolved_job_label, $idx + 1, $totalJobs);
+    }
+    $stmt->execute([
+        ':cidr'   => $targetCidr,
+        ':label'  => $jobLabel,
+        ':excl'   => $exclusions,
+        ':phases' => json_encode($phases),
+        ':pps'    => $rate_pps,
+        ':delay'  => $inter_delay,
+        ':mode'   => $scan_mode,
+        ':profile'=> $profile,
+        ':priority'=> $priority,
+        ':enrids' => $enrichmentIdsJson,
+        ':bid'    => $batchId,
+        ':bidx'   => $totalJobs > 1 ? ($idx + 1) : 0,
+        ':btotal' => $totalJobs > 1 ? $totalJobs : 0,
+    ]);
+    $newJobId = (int)$db->lastInsertId();
+    $job_ids[] = $newJobId;
+    st_audit_log('scan.job_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'job_id' => $newJobId,
+        'target_cidr' => $targetCidr,
+        'label' => $jobLabel,
+        'profile' => $profile,
+        'scan_mode' => $scan_mode,
+        'priority' => $priority,
+        'phases' => $phases,
+        'rate_pps' => $rate_pps,
+        'inter_delay_ms' => $inter_delay,
+        'auto_split_24' => $autoSplit24 ? 1 : 0,
+        'batch_total' => $totalJobs,
+        'batch_index' => $idx + 1,
+    ]);
+}
+
+$job_id = (int)($job_ids[0] ?? 0);
+if ($batchId > 0) {
+    $batchStatus = empty($pendingTargets) ? 'queued_all' : 'active';
+    $db->prepare("UPDATE scan_batches SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        ->execute([$batchStatus, $batchId]);
+    st_audit_log('scan.batch_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
+        'batch_id' => $batchId,
+        'label' => $resolved_job_label,
+        'total_targets' => $totalJobs,
+        'queued_now' => $enqueueNow,
+        'pending_feed' => count($pendingTargets),
+        'auto_split_24' => $autoSplit24 ? 1 : 0,
+    ]);
+}
+
+// Write initial audit log entry for the first queued job.
+if ($job_id > 0) {
+    $db->prepare("
+        INSERT INTO scan_log (job_id, level, message)
+        VALUES (?, 'INFO', ?)
+    ")->execute([
+        $job_id,
+        sprintf(
+            'Job #%d queued by web — targets: %s | phases: %s | pps: %d | delay: %dms | exclusions: %d lines%s%s%s',
+            $job_id,
+            implode(', ', $scan_targets),
+            implode(', ', $phases),
+            $rate_pps,
+            $inter_delay,
+            count($exclusion_lines),
+            ($totalJobs > 1) ? (' | auto_split_24 batch=' . $totalJobs . ' jobs') : '',
+            ($totalJobs > $enqueueNow) ? (' | staged_feed_pending=' . ($totalJobs - $enqueueNow)) : '',
+            $enrichmentIdsJson === '[]'
+                ? ' | enrichment: off'
+                : ($enrichmentIdsJson !== null ? ' | enrichment: selected sources' : '')
+        ),
+    ]);
+}
 
 st_json([
+    'ok'          => true,
     'job_id'      => $job_id,
+    'job_ids'     => $job_ids,
+    'jobs_queued' => count($job_ids),
+    'jobs_total'  => $totalJobs,
     'status'      => 'queued',
-    'target_cidr' => implode(', ', $validated_cidrs),
+    'target_cidr' => implode(', ', $scan_targets),
     'phases'      => $phases,
     'rate_pps'    => $rate_pps,
     'inter_delay' => $inter_delay,
     'scan_mode'   => $scan_mode,
     'label'       => $label,
+    'auto_split_24' => $autoSplit24,
+    'batch_id'      => $batchId,
+    'batch_pending' => count($pendingTargets),
     'enrichment_source_ids' => $enrichmentIdsJson === null
         ? null
         : (json_decode($enrichmentIdsJson, true) ?: []),
