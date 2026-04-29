@@ -1289,6 +1289,9 @@ var dashTimer    = null;
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
+/** Suppress repeated "session expired" toasts when many API calls return 401 at once. */
+var lastSessionExpiredToastAt = 0;
+const SESSION_EXPIRED_TOAST_COOLDOWN_MS = 5000;
 var loginNeedsMfaCode = false;
 var csrfToken = '';
 var currentUser = null;
@@ -1889,9 +1892,17 @@ function handleAuthRequired() {
     if (authMode === 'session' || authMode === 'oidc') {
         loginRequired = true;
         openLoginModal();
-        toast(authMode === 'session' ? 'Session expired. Please sign in again.' : 'Session expired. Sign in with SSO again.', 'err');
+        const now = Date.now();
+        if (now - lastSessionExpiredToastAt >= SESSION_EXPIRED_TOAST_COOLDOWN_MS) {
+            lastSessionExpiredToastAt = now;
+            toast(authMode === 'session' ? 'Session expired. Please sign in again.' : 'Session expired. Sign in with SSO again.', 'err');
+        }
     } else {
-        toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
+        const now = Date.now();
+        if (now - lastSessionExpiredToastAt >= SESSION_EXPIRED_TOAST_COOLDOWN_MS) {
+            lastSessionExpiredToastAt = now;
+            toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
+        }
     }
 }
 
@@ -1978,6 +1989,7 @@ async function submitLogin() {
     if (btn) btn.disabled = false;
     if (r && r.ok) {
         loginRequired = false;
+        lastSessionExpiredToastAt = 0;
         loginNeedsMfaCode = false;
         closeLoginModal();
         const pass = document.getElementById('login-pass');
@@ -6032,6 +6044,9 @@ async function initAuthMode() {
         loginRequired = true;
         openLoginModal(authMode === 'session' ? 'Session sign-in required.' : 'Single sign-on required.');
         return;
+    }
+    if (r.authed || !r.requires_auth) {
+        lastSessionExpiredToastAt = 0;
     }
     if (currentUser && currentUser.must_change_password) {
         openPasswordChangeModal(true);
