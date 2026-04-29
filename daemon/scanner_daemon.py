@@ -51,7 +51,7 @@ from fingerprint import (
     vendor_hint_from_port_cpe,
     _printer_banner_conflicts_with_homelab_ports,
 )
-from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE
+from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
 
 # Enrichment sources — import all to trigger registration
 try:
@@ -559,18 +559,18 @@ def phase_banner(
     routed_fast_full_lite = (routed_mode and profile_obj.name == "fast_full_tcp")
 
     # Routed/VPN + full 65k scans often timeout before producing useful inventory.
-    # For fast_full_tcp in routed mode, use a broad but finite safe-port set so
-    # reachable services are actually discovered.
+    # For fast_full_tcp in routed mode, use a broad finite port set (must cover at
+    # least standard_inventory's PORTS_STANDARD so we never "see less" than that profile).
     if routed_fast_full_lite:
         extra_ports = _load_extra_safe_ports()
-        active_ports = sorted(set(SAFE_PORTS + extra_ports))
+        active_ports = sorted(set(SAFE_PORTS + PORTS_STANDARD + extra_ports))
         port_str = ",".join(str(p) for p in sorted(set(active_ports)))
         scan_all_tcp = False
         with db_conn() as conn:
             log_event(
                 conn, job_id, "INFO",
-                f"Routed fast_full_tcp: using {len(set(active_ports))} safe ports "
-                f"(base {len(SAFE_PORTS)} + extra {len(extra_ports)}) (not -p-) for reliable reachability"
+                f"Routed fast_full_tcp: using {len(set(active_ports))} ports "
+                f"(safe + standard_inventory list + {len(extra_ports)} extra) (not -p-) for reliable reachability"
             )
 
     # Batch sizing:
@@ -624,6 +624,10 @@ def phase_banner(
                     timeout_secs = 90
                 else:
                     timeout_secs = 30
+            # Full -p- scans need at least as much per-host time as full_tcp (120s).
+            # Previous caps (e.g. 30s on wide jobs) left nmap incomplete vs standard_inventory.
+            if scan_all_tcp:
+                timeout_secs = max(timeout_secs, 120)
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 

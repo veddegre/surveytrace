@@ -435,6 +435,7 @@
           <strong class="text-strong">Standard Inventory:</strong>
           Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
         </div>
+        <div id="scan-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber)"></div>
       </div>
       <div class="card" id="scan-enrich-card">
         <div class="ct">Network enrichment (this scan)</div>
@@ -2902,32 +2903,12 @@ async function queueHostRescan(ip, triggerBtn) {
     if (!choice || !choice.profile) return;
 
     const profileVal = choice.profile;
-    const profCard = document.getElementById('prof-' + profileVal);
-    if (profCard) {
-        profCard.click();
-    } else {
-        const radio = document.querySelector('input[name="scan_profile"][value="' + profileVal + '"]');
-        if (radio) {
-            radio.checked = true;
-            radio.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-    }
+    applyScanTabProfileDefaults(profileVal);
 
-    applyScanTabRateSlidersForProfile(profileVal);
-
-    if (profileVal === 'iot_safe' || profileVal === 'ot_careful') {
-        const smForce = document.getElementById('sm-force');
-        if (smForce && smForce.checked) {
-            const smAuto = document.getElementById('sm-auto');
-            if (smAuto) smAuto.checked = true;
-            toast('Discovery mode set to Auto — not used with Force (-Pn) for this profile.', 'ok');
-        }
-    }
-
-    if (['deep_scan', 'full_tcp', 'fast_full_tcp'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
-            `Profile "${profileVal}" will send heavy active traffic to ${ipTrim}.\n\nOnly proceed if this host can tolerate intensive probing.`,
-            { title: 'Confirm aggressive rescan', okText: 'Queue scan' }
+            `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed with rescan of ${ipTrim}?`,
+            { title: 'High-impact scan profile', okText: 'Queue scan' }
         );
         if (!ok) return;
     }
@@ -5633,37 +5614,6 @@ function updateProfileHelp(profile) {
     box.innerHTML = `<strong style="color:var(--tx)">${esc(info.title)}:</strong> ${esc(info.text)}`;
 }
 
-document.querySelectorAll('.profile-card').forEach(card => {
-    card.addEventListener('click', () => {
-        document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('on'));
-        card.classList.add('on');
-        // Also update phases visibility based on profile
-        const profile = card.querySelector('input').value;
-        const bannerPhases = ['ph-banner','ph-fingerprint','ph-cve'];
-        const allowBanner  = !['iot_safe','ot_careful'].includes(profile);
-        bannerPhases.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.checked = allowBanner;
-                el.closest('.tr2').style.opacity = allowBanner ? '1' : '0.4';
-            }
-        });
-        const snmpScan = document.getElementById('ph-snmp');
-        const otScan = document.getElementById('ph-ot');
-        if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
-            if (snmpScan) snmpScan.checked = true;
-            if (otScan) otScan.checked = false;
-        } else if (profile === 'ot_careful') {
-            if (snmpScan) snmpScan.checked = false;
-            if (otScan) otScan.checked = true;
-        } else {
-            if (snmpScan) snmpScan.checked = false;
-            if (otScan) otScan.checked = false;
-        }
-        updateProfileHelp(profile);
-    });
-});
-
 // ---------------------------------------------------------------------------
 // Schedule modal — profile presets (aligned with manual Scan tab)
 // ---------------------------------------------------------------------------
@@ -5690,6 +5640,65 @@ function applyScanTabRateSlidersForProfile(profile) {
     if (ppsVal) ppsVal.textContent = pps + ' pps';
     if (delEl) delEl.value = String(del);
     if (delVal) delVal.textContent = del + ' ms';
+}
+
+/** Mirror applySchedProfileDefaults for the manual Scan tab (phases, rates, mode, profile UI). */
+function applyScanTabProfileDefaults(profile) {
+    const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
+    ['ph-banner', 'ph-fingerprint', 'ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.checked = allowBanner;
+            const tr = el.closest('.tr2');
+            if (tr) tr.style.opacity = allowBanner ? '1' : '0.4';
+        }
+    });
+    const passive = document.getElementById('ph-passive');
+    const icmp = document.getElementById('ph-icmp');
+    if (passive) passive.checked = true;
+    if (icmp) icmp.checked = true;
+    const snmpEl = document.getElementById('ph-snmp');
+    const otEl = document.getElementById('ph-ot');
+    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+        if (snmpEl) snmpEl.checked = true;
+        if (otEl) otEl.checked = false;
+    } else if (profile === 'ot_careful') {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = true;
+    } else {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = false;
+    }
+    applyScanTabRateSlidersForProfile(profile);
+
+    const smForce = document.getElementById('sm-force');
+    const smAuto = document.getElementById('sm-auto');
+    if (smForce && smAuto && (profile === 'iot_safe' || profile === 'ot_careful') && smForce.checked) {
+        smAuto.checked = true;
+        toast('Discovery mode set to Auto — this profile does not allow Force (-Pn).', 'ok');
+    }
+    if (!['iot_safe', 'ot_careful'].includes(profile)) {
+        ['ph-banner', 'ph-fingerprint', 'ph-cve'].forEach(id => {
+            const el = document.getElementById(id);
+            const tr = el && el.closest('.tr2');
+            if (tr) tr.style.opacity = '1';
+        });
+    }
+    document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('on'));
+    const profCard = document.getElementById('prof-' + profile);
+    if (profCard) {
+        profCard.classList.add('on');
+        const radio = profCard.querySelector('input[name="scan_profile"]');
+        if (radio) radio.checked = true;
+    } else {
+        const radio = document.querySelector('input[name="scan_profile"][value="' + profile + '"]');
+        if (radio) {
+            radio.checked = true;
+            radio.closest('.profile-card')?.classList.add('on');
+        }
+    }
+    updateProfileHelp(profile);
+    updateScanProfileWarn(profile);
 }
 
 function applySchedProfileDefaults(profile) {
@@ -5771,6 +5780,24 @@ function updateSchedProfileWarn(profile) {
     }
 }
 
+function updateScanProfileWarn(profile) {
+    const w = document.getElementById('scan-profile-warn');
+    if (!w) return;
+    if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
+        w.style.display = 'block';
+        const lines = {
+            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
+            ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
+        };
+        w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');
+    } else {
+        w.style.display = 'none';
+        w.innerHTML = '';
+    }
+}
+
 function syncSchedPhaseRowOpacityFromProfile() {
     const profile = document.getElementById('sched-profile')?.value || 'standard_inventory';
     const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
@@ -5783,6 +5810,13 @@ function syncSchedPhaseRowOpacityFromProfile() {
 
 document.getElementById('sched-profile')?.addEventListener('change', function() {
     applySchedProfileDefaults(this.value);
+});
+
+document.querySelectorAll('.profile-card').forEach(card => {
+    card.addEventListener('click', () => {
+        const profile = card.querySelector('input')?.value;
+        if (profile) applyScanTabProfileDefaults(profile);
+    });
 });
 
 function clearIPFilter() {

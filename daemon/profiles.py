@@ -286,9 +286,9 @@ FAST_FULL_TCP = ScanProfile(
     name        = "fast_full_tcp",
     label       = "Fast Full TCP",
     description = (
-        "Scans all 65,535 TCP ports with lighter service detection for faster "
-        "host turnover. Designed for broader sweeps where responsiveness matters "
-        "more than deep version fingerprinting accuracy."
+        "Scans all 65,535 TCP ports with the same nmap version-intensity as "
+        "standard inventory, but higher default scan rates for faster host turnover "
+        "on LANs. Routed jobs still use a finite port list (not -p-) for reliability."
     ),
     icon        = "⚡",
 
@@ -296,7 +296,9 @@ FAST_FULL_TCP = ScanProfile(
     allow_icmp         = True,
     allow_tcp_ping     = True,
     allow_banner       = True,
-    allow_version_intensity = 2,
+    # Match standard_inventory (3) so service names/CPE are not systematically weaker
+    # than a normal inventory run when nmap completes.
+    allow_version_intensity = 3,
     max_ports          = 65535,
     port_list          = [],      # scanner_daemon interprets *_full_tcp as -p-
 
