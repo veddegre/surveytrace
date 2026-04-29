@@ -17,6 +17,10 @@
  *   - ai_timeout_ms: int (100..5000)
  *   - ai_max_hosts_per_scan: int (1..5000)
  *   - ai_ambiguous_only: bool
+ *   - ai_suggest_only: bool
+ *   - ai_conflict_only: bool
+ *   - ai_conf_threshold: float (0.50..0.99)
+ *   - ai_conf_threshold_net_srv: float (0.50..0.99)
  *   - ai_install_ollama: truthy — attempt local Ollama install/start
  *   - ai_pull_model: string — pull a model with ollama pull
  *   - nvd_api_key: string (optional; NIST UUID key, 30–128 chars) — saved only when no key exists yet; never returned on GET
@@ -68,12 +72,102 @@ function st_ollama_runtime_status(): array {
             }
         }
     }
+    $cfgModel = (string)st_config('ai_model', 'phi3:mini');
+    $modelInstalled = in_array($cfgModel, $models, true);
     return [
         'installed' => $installed,
         'running' => $running,
         'version' => $version,
         'models' => array_values(array_unique($models)),
         'compact_recommended_model' => 'phi3:mini',
+        'update' => st_ollama_update_status($version),
+        'model_update' => [
+            'configured_model' => $cfgModel,
+            'installed' => $modelInstalled,
+            'known' => $installed && $running,
+            'update_available' => $modelInstalled, // refresh available via pull
+            'shell_update_command' => 'ollama pull ' . escapeshellarg($cfgModel),
+            'detail' => $modelInstalled
+                ? 'Configured model is installed. Run pull to refresh to latest model data.'
+                : 'Configured model is not installed yet.',
+        ],
+    ];
+}
+
+function st_ollama_parse_version(string $raw): string {
+    if (preg_match('/(\d+\.\d+\.\d+)/', $raw, $m)) {
+        return $m[1];
+    }
+    return '';
+}
+
+function st_ollama_latest_release_version(): string {
+    $url = 'https://api.github.com/repos/ollama/ollama/releases/latest';
+    $json = '';
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['User-Agent: SurveyTrace']);
+        $res = curl_exec($ch);
+        if (is_string($res)) {
+            $json = $res;
+        }
+        curl_close($ch);
+    }
+    if ($json === '') {
+        $ctx = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 3,
+                'header' => "User-Agent: SurveyTrace\r\n",
+            ],
+        ]);
+        $res = @file_get_contents($url, false, $ctx);
+        if (is_string($res)) {
+            $json = $res;
+        }
+    }
+    if ($json === '') return '';
+    $doc = json_decode($json, true);
+    if (!is_array($doc)) return '';
+    $tag = trim((string)($doc['tag_name'] ?? ''));
+    return st_ollama_parse_version($tag);
+}
+
+function st_ollama_update_status(string $localVersionRaw): array {
+    $local = st_ollama_parse_version($localVersionRaw);
+    if ($local === '') {
+        return [
+            'known' => false,
+            'update_available' => false,
+            'local_version' => '',
+            'latest_version' => '',
+            'shell_update_command' => '',
+            'detail' => 'Local version unavailable',
+        ];
+    }
+    $latest = st_ollama_latest_release_version();
+    if ($latest === '') {
+        return [
+            'known' => false,
+            'update_available' => false,
+            'local_version' => $local,
+            'latest_version' => '',
+            'shell_update_command' => '',
+            'detail' => 'Could not reach update source',
+        ];
+    }
+    $avail = version_compare($latest, $local, '>');
+    return [
+        'known' => true,
+        'update_available' => $avail,
+        'local_version' => $local,
+        'latest_version' => $latest,
+        'shell_update_command' => $avail
+            ? 'curl -fsSL https://ollama.com/install.sh | sh && sudo systemctl restart ollama'
+            : '',
+        'detail' => $avail ? 'Update available' : 'Up to date',
     ];
 }
 
@@ -130,6 +224,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'ai_timeout_ms' => max(100, min(5000, (int)st_config('ai_timeout_ms', '700'))),
         'ai_max_hosts_per_scan' => max(1, min(5000, (int)st_config('ai_max_hosts_per_scan', '40'))),
         'ai_ambiguous_only' => st_config('ai_ambiguous_only', '1') === '1',
+        'ai_suggest_only' => st_config('ai_suggest_only', '0') === '1',
+        'ai_conflict_only' => st_config('ai_conflict_only', '1') === '1',
+        'ai_conf_threshold' => max(0.50, min(0.99, (float)st_config('ai_conf_threshold', '0.72'))),
+        'ai_conf_threshold_net_srv' => max(0.50, min(0.99, (float)st_config('ai_conf_threshold_net_srv', '0.82'))),
         'ai_runtime' => $ai,
         'scan_trash_retention_days' => max(1, min(365, (int)st_config('scan_trash_retention_days', '30'))),
         'nvd_api_key_configured' => $nvdKey !== '',
@@ -185,47 +283,15 @@ if (!empty($body['db_backup_run_now'])) {
 }
 
 if (!empty($body['ai_install_ollama'])) {
-    if (!st_shell_available_for_settings()) {
-        st_json(['error' => 'Command execution is disabled in PHP (exec/shell_exec).'], 503);
-    }
-    $os = strtolower(PHP_OS_FAMILY);
-    if ($os !== 'linux') {
-        st_json(['error' => 'Automatic Ollama install from Settings is supported on Linux only (SurveyTrace server target).'], 400);
-    }
-    $log = [];
-    $code = 0;
-    if (!st_cmd_available('ollama')) {
-        if (st_cmd_available('curl')) {
-            @exec('curl -fsSL https://ollama.com/install.sh | sh 2>&1', $log, $code);
-        } elseif (st_cmd_available('wget')) {
-            @exec('wget -qO- https://ollama.com/install.sh | sh 2>&1', $log, $code);
-        } else {
-            st_json([
-                'error' => 'curl or wget is required to install Ollama on Linux',
-                'hint' => 'Install one of them and retry: sudo apt install -y curl',
-            ], 400);
-        }
-        if ($code !== 0) {
-            st_json([
-                'error' => 'Linux Ollama install failed',
-                'hint' => 'Run manually on the server shell: curl -fsSL https://ollama.com/install.sh | sh',
-                'output' => array_slice($log, -12),
-            ], 500);
-        }
-    }
-    $startOut = [];
-    $startCode = 0;
-    if (st_cmd_available('systemctl')) {
-        @exec('systemctl --user start ollama 2>&1', $startOut, $startCode);
-        if ($startCode !== 0) {
-            @exec('systemctl start ollama 2>&1', $startOut, $startCode);
-        }
-    }
-    if ($startCode !== 0) {
-        @exec('ollama serve >/dev/null 2>&1 &', $startOut, $startCode);
-    }
+    st_json([
+        'error' => 'In-app install is disabled. Run install from server shell.',
+        'shell_install_command' => 'curl -fsSL https://ollama.com/install.sh | sh',
+    ], 400);
+}
+
+if (!empty($body['ai_check_updates'])) {
     $changed['ai_runtime'] = st_ollama_runtime_status();
-    $changed['ai_install_ollama'] = true;
+    $changed['ai_check_updates'] = true;
 }
 
 if (array_key_exists('ai_pull_model', $body)) {
@@ -458,6 +524,28 @@ if (array_key_exists('ai_ambiguous_only', $body)) {
     $v = !empty($body['ai_ambiguous_only']);
     st_config_set('ai_ambiguous_only', $v ? '1' : '0');
     $changed['ai_ambiguous_only'] = $v;
+}
+if (array_key_exists('ai_suggest_only', $body)) {
+    $v = !empty($body['ai_suggest_only']);
+    st_config_set('ai_suggest_only', $v ? '1' : '0');
+    $changed['ai_suggest_only'] = $v;
+}
+if (array_key_exists('ai_conflict_only', $body)) {
+    $v = !empty($body['ai_conflict_only']);
+    st_config_set('ai_conflict_only', $v ? '1' : '0');
+    $changed['ai_conflict_only'] = $v;
+}
+if (array_key_exists('ai_conf_threshold', $body)) {
+    $v = (float)$body['ai_conf_threshold'];
+    $v = max(0.50, min(0.99, $v));
+    st_config_set('ai_conf_threshold', (string)$v);
+    $changed['ai_conf_threshold'] = $v;
+}
+if (array_key_exists('ai_conf_threshold_net_srv', $body)) {
+    $v = (float)$body['ai_conf_threshold_net_srv'];
+    $v = max(0.50, min(0.99, $v));
+    st_config_set('ai_conf_threshold_net_srv', (string)$v);
+    $changed['ai_conf_threshold_net_srv'] = $v;
 }
 
 $dbBackupTouched = array_intersect_key($changed, array_flip([

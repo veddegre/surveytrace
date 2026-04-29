@@ -75,6 +75,18 @@ function st_db(): PDO {
     $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_ambiguous_only', '1')"
     );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_suggest_only', '0')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_conflict_only', '1')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_conf_threshold', '0.72')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_conf_threshold_net_srv', '0.82')"
+    );
 
     // Lightweight schema migration for newer scan history snapshot support
     try {
@@ -125,6 +137,21 @@ function st_db(): PDO {
         $pdo->exec("ALTER TABLE assets ADD COLUMN ipv6_addrs TEXT DEFAULT '[]'");
     } catch (Throwable $e) {
         // no-op: column already exists
+    }
+    foreach ([
+        "ALTER TABLE assets ADD COLUMN ai_last_confidence REAL",
+        "ALTER TABLE assets ADD COLUMN ai_last_rationale TEXT",
+        "ALTER TABLE assets ADD COLUMN ai_last_applied INTEGER DEFAULT 0",
+        "ALTER TABLE assets ADD COLUMN ai_last_suggested_category TEXT",
+        "ALTER TABLE assets ADD COLUMN ai_last_reason TEXT",
+        "ALTER TABLE assets ADD COLUMN ai_last_attempted INTEGER DEFAULT 0",
+        "ALTER TABLE assets ADD COLUMN ai_last_decision_ts DATETIME",
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // no-op: column already exists
+        }
     }
 
     $pdo->exec(

@@ -204,6 +204,10 @@
       <option value="category">Type</option><option value="top_cvss">CVSS</option>
       <option value="last_seen">Last seen</option><option value="open_findings">CVEs</option>
     </select>
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
+      AI review
+    </label>
     <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
     <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, and device filter">Clear filters</button>
@@ -1053,6 +1057,7 @@
         </div>
         <div class="help-mono mb8" id="st-ai-runtime-status">Runtime: checking…</div>
         <div class="help-mono mb10" id="st-ai-models-status">Models: —</div>
+        <div class="help-line mb10 hide" id="st-ai-update-status" style="font-size:12px;line-height:1.45"></div>
         <div class="help-line mb10 hide" id="st-ai-install-hint" style="font-size:12px;line-height:1.45">
           Ollama is not installed on this server.
           Run on the SurveyTrace host shell:
@@ -1091,13 +1096,35 @@
           </label>
         </div>
         <div class="row-wrap gap6 mb8">
+          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+            <input type="checkbox" id="st-ai-suggest-only">
+            Suggest-only mode (do not auto-apply category changes)
+          </label>
+        </div>
+        <div class="row-wrap gap6 mb8">
+          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+            <input type="checkbox" id="st-ai-conflict-only" checked>
+            Run only when AI disagrees with current category
+          </label>
+        </div>
+        <div class="row-wrap gap8 mb10">
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600">Min confidence</label>
+            <input class="finp" type="number" id="st-ai-conf-threshold" min="0.50" max="0.99" step="0.01" style="width:90px" value="0.72">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:120px;color:var(--tx);font-weight:600">Min net↔srv confidence</label>
+            <input class="finp" type="number" id="st-ai-conf-threshold-netsrv" min="0.50" max="0.99" step="0.01" style="width:90px" value="0.82">
+          </div>
+        </div>
+        <div class="row-wrap gap6 mb8">
           <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('homelab_24')">Preset: /24 homelab</button>
           <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('batch_multi_24')">Preset: multi-/24 batch</button>
         </div>
         <div class="row-wrap gap6">
           <button type="button" class="tbtn btn-xs" onclick="saveAiEnrichmentSettings()">Save AI settings</button>
-          <button type="button" class="tbtn btn-xs" id="btn-ai-install-ollama" onclick="installOllamaRuntime()">Install/start Ollama</button>
-          <button type="button" class="btnp btn-xs" id="btn-ai-pull-model" onclick="pullAiModel()">Download model</button>
+          <button type="button" class="tbtn btn-xs" id="btn-ai-install-ollama" onclick="installOllamaRuntime()">Start/check Ollama</button>
+          <button type="button" class="tbtn btn-xs" id="btn-ai-check-updates" onclick="checkAiUpdates()">Check updates</button>
         </div>
       </div>
     </div>
@@ -1361,7 +1388,8 @@
   <div class="modal-card modal-w640">
     <div class="modal-title">Ubuntu Ollama setup</div>
     <div class="text-muted mb10">Run these commands on the SurveyTrace server shell.</div>
-    <pre class="fsync-pre" id="ai-install-help-text">sudo apt update
+    <pre class="fsync-pre" id="ai-install-help-text"># Install Ollama (Ubuntu/Debian)
+sudo apt update
 sudo apt install -y curl
 curl -fsSL https://ollama.com/install.sh | sh
 
@@ -1374,7 +1402,26 @@ ollama pull phi3:mini
 # Quick tests
 ollama --version
 ollama list
-ollama run phi3:mini "Return JSON: {\"ok\":true}"</pre>
+ollama run phi3:mini "Return JSON: {\"ok\":true}"
+
+# Health tab expectations after setup:
+# - AI enrichment: ready
+# - AI runtime: reachable
+# - AI models: includes phi3:mini
+
+# Update Ollama binary (Linux script re-run is safe)
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl restart ollama || true
+
+# Update model to latest tag contents
+ollama pull phi3:mini
+
+# Optional: remove unused/old local models (review first)
+ollama list
+ollama rm <old-model-tag>
+
+# Optional: prune unreferenced blobs to reclaim disk
+ollama prune -f</pre>
     <div class="row-end mt10">
       <button class="tbtn" type="button" onclick="copyAiInstallHelp()">Copy commands</button>
       <button class="btnp" type="button" onclick="closeAiInstallHelpModal()">Close</button>
@@ -2460,6 +2507,10 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         metricChip('New systems', cmp.assets_new, false),
     ].join('');
     const brief = Array.isArray(exec.brief) ? exec.brief : [];
+    const aiRunSummary = exec.ai_scan_summary && typeof exec.ai_scan_summary === 'object' ? exec.ai_scan_summary : null;
+    const aiOverview = aiRunSummary && aiRunSummary.overview ? String(aiRunSummary.overview) : '';
+    const aiConcerns = aiRunSummary && Array.isArray(aiRunSummary.concerns) ? aiRunSummary.concerns : [];
+    const aiNext = aiRunSummary && Array.isArray(aiRunSummary.next_steps) ? aiRunSummary.next_steps : [];
     document.getElementById('exec-brief-list').innerHTML = brief.length
         ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
         : '<div class="text-dim">No executive brief available yet.</div>';
@@ -2480,6 +2531,15 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     }
     if (!actions.length) {
         actions.push('No urgent actions are currently flagged. Continue weekly monitoring and keep scan coverage consistent.');
+    }
+    if (aiOverview) {
+        actions.unshift(`AI run overview: ${aiOverview}`);
+    }
+    if (aiConcerns.length) {
+        actions.unshift(`AI concerns: ${aiConcerns.join(' | ')}`);
+    }
+    if (aiNext.length) {
+        actions.unshift(`AI next checks: ${aiNext.join(' | ')}`);
     }
     document.getElementById('exec-actions').innerHTML = `<ul class="exec-brief-ul">${actions.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`;
 
@@ -2620,6 +2680,27 @@ function renderHealthHtml(h) {
         }
     }
 
+    if (h.ai) {
+        const ai = h.ai;
+        const configured = !!ai.configured;
+        const installed = !!ai.installed;
+        const running = !!ai.running;
+        const models = Array.isArray(ai.models) ? ai.models : [];
+        const stateTag = !configured
+            ? '<span class="hstate-unk">disabled</span>'
+            : (running ? '<span class="hstate-ok">ready</span>' : (installed ? '<span class="hstate-warn">not running</span>' : '<span class="hstate-err">not installed</span>'));
+        r(
+            'AI enrichment',
+            `${stateTag}<span class="h-vsep text-dim">${esc(ai.provider || 'ollama')} · model=${esc(ai.model || 'phi3:mini')} · timeout=${esc(String(ai.timeout_ms || 700))}ms</span>`
+        );
+        r(
+            'AI runtime',
+            `<span class="${running ? 'hstate-ok' : (installed ? 'hstate-warn' : 'hstate-err')}">${running ? 'reachable' : (installed ? 'not responding' : 'missing')}</span>`
+            + `<span class="h-vsep text-dim">${esc(ai.detail || '—')}</span>`
+        );
+        r('AI models', models.length ? esc(models.join(', ')) : '<span class="text-dim">none</span>');
+    }
+
     r('Server time', esc(h.server_time || '—'));
     r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
 
@@ -2696,10 +2777,12 @@ function clearAllAssetFilters() {
     const cat = document.getElementById('af-cat');
     const sev = document.getElementById('af-sev');
     const srt = document.getElementById('af-sort');
+    const aiq = document.getElementById('af-ai-review');
     if (q) q.value = '';
     if (cat) cat.value = '';
     if (sev) sev.value = '';
     if (srt) srt.value = 'ip';
+    if (aiq) aiq.checked = false;
     assetSort = 'ip';
     assetOrder = 'asc';
     assetDeviceFilter = 0;
@@ -2786,6 +2869,7 @@ async function loadAssets(page) {
     const cat  = document.getElementById('af-cat')?.value  || '';
     const sev  = document.getElementById('af-sev')?.value  || '';
     const sort = document.getElementById('af-sort')?.value || assetSort;
+    const aiReview = !!document.getElementById('af-ai-review')?.checked;
 
     // Show loading state immediately
     document.getElementById('asset-tbody').innerHTML =
@@ -2802,7 +2886,8 @@ async function loadAssets(page) {
     }
 
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}`;
+    const aiQ = aiReview ? '&ai_review=1' : '';
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}`;
     const d   = await api(url);
     if (!d) return;
 
@@ -3820,11 +3905,22 @@ function renderScanSummary(summary) {
     const portText = topPorts.length
         ? topPorts.slice(0, 6).map(p => `${p.port}(${p.hosts})`).join(', ')
         : '—';
+    const aiSummary = summary.ai_summary && typeof summary.ai_summary === 'object' ? summary.ai_summary : null;
+    const aiOverview = aiSummary && aiSummary.overview ? String(aiSummary.overview) : '';
+    const aiConcerns = aiSummary && Array.isArray(aiSummary.concerns) ? aiSummary.concerns : [];
+    const aiNext = aiSummary && Array.isArray(aiSummary.next_steps) ? aiSummary.next_steps : [];
+    const aiBlock = aiSummary ? `
+      <div class="summary-line" style="margin-top:8px"><b>AI run summary</b></div>
+      ${aiOverview ? `<div class="summary-line">${esc(aiOverview)}</div>` : ''}
+      ${aiConcerns.length ? `<div class="summary-line">Concerns: ${esc(aiConcerns.join(' | '))}</div>` : ''}
+      ${aiNext.length ? `<div class="summary-line">Next checks: ${esc(aiNext.join(' | '))}</div>` : ''}
+    ` : '';
     return `
       <div>Profile: <b>${esc(summary.profile || '—')}</b> &nbsp;|&nbsp; Mode: <b>${esc(summary.scan_mode || '—')}</b></div>
       <div class="summary-line">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
       <div class="summary-line">Top ports: <span class="mono">${esc(portText)}</span></div>
       <div class="summary-line">Categories: <span class="mono">${esc(cats || '—')}</span></div>
+      ${aiBlock}
     `;
 }
 
@@ -4305,6 +4401,14 @@ async function loadUiSettings() {
     if (aiMaxHosts) aiMaxHosts.value = String(Math.max(1, Math.min(5000, Number(d.ai_max_hosts_per_scan || 40))));
     const aiAmbig = document.getElementById('st-ai-ambiguous-only');
     if (aiAmbig) aiAmbig.checked = !!d.ai_ambiguous_only;
+    const aiSuggestOnly = document.getElementById('st-ai-suggest-only');
+    if (aiSuggestOnly) aiSuggestOnly.checked = !!d.ai_suggest_only;
+    const aiConflictOnly = document.getElementById('st-ai-conflict-only');
+    if (aiConflictOnly) aiConflictOnly.checked = !!d.ai_conflict_only;
+    const aiConfThreshold = document.getElementById('st-ai-conf-threshold');
+    if (aiConfThreshold) aiConfThreshold.value = String(Math.max(0.5, Math.min(0.99, Number(d.ai_conf_threshold || 0.72))));
+    const aiConfThresholdNetSrv = document.getElementById('st-ai-conf-threshold-netsrv');
+    if (aiConfThresholdNetSrv) aiConfThresholdNetSrv.value = String(Math.max(0.5, Math.min(0.99, Number(d.ai_conf_threshold_net_srv || 0.82))));
     const aiRuntime = d.ai_runtime || {};
     const aiRtEl = document.getElementById('st-ai-runtime-status');
     if (aiRtEl) {
@@ -4316,6 +4420,33 @@ async function loadUiSettings() {
         const models = Array.isArray(aiRuntime.models) ? aiRuntime.models : [];
         const rec = String(aiRuntime.compact_recommended_model || 'phi3:mini');
         aiModelsEl.textContent = `Models: ${models.length ? models.join(', ') : 'none installed'} · compact recommended: ${rec}`;
+    }
+    const updEl = document.getElementById('st-ai-update-status');
+    if (updEl) {
+        const upd = aiRuntime.update || {};
+        const mupd = aiRuntime.model_update || {};
+        if (!aiRuntime.installed) {
+            updEl.classList.add('hide');
+            updEl.innerHTML = '';
+        } else if (upd && upd.known) {
+            if (upd.update_available) {
+                updEl.classList.remove('hide');
+                updEl.innerHTML = `Update available: local <code class="code-accent">${esc(String(upd.local_version || ''))}</code> → latest <code class="code-accent">${esc(String(upd.latest_version || ''))}</code>. Run on server shell: <code class="code-accent" id="st-ai-update-cmd">${esc(String(upd.shell_update_command || ''))}</code> <button type="button" class="tbtn btn-xs" onclick="copyAiUpdateCommand()">Copy update command</button>`;
+            } else {
+                updEl.classList.remove('hide');
+                updEl.textContent = `Ollama is up to date (version ${String(upd.local_version || 'unknown')}).`;
+            }
+        } else {
+            updEl.classList.remove('hide');
+            updEl.textContent = 'Could not determine Ollama update status right now.';
+        }
+        if (mupd && (mupd.configured_model || aiRuntime.installed)) {
+            const modelName = String(mupd.configured_model || document.getElementById('st-ai-model')?.value || 'phi3:mini');
+            const modelCmd = String(mupd.shell_update_command || '');
+            const modelDetail = String(mupd.detail || '');
+            const modelLine = `<br>Model check (${esc(modelName)}): ${mupd.installed ? 'installed' : 'missing'}${modelDetail ? ` — ${esc(modelDetail)}` : ''}${modelCmd ? `. Refresh command: <code class="code-accent" id="st-ai-model-update-cmd">${esc(modelCmd)}</code> <button type="button" class="tbtn btn-xs" onclick="copyAiModelUpdateCommand()">Copy model command</button>` : ''}`;
+            updEl.innerHTML = (updEl.innerHTML || esc(updEl.textContent || '')) + modelLine;
+        }
     }
     const installHint = document.getElementById('st-ai-install-hint');
     if (installHint) {
@@ -5102,6 +5233,10 @@ async function saveAiEnrichmentSettings() {
         ai_timeout_ms: Number(document.getElementById('st-ai-timeout-ms')?.value || 700),
         ai_max_hosts_per_scan: Number(document.getElementById('st-ai-max-hosts')?.value || 40),
         ai_ambiguous_only: !!document.getElementById('st-ai-ambiguous-only')?.checked,
+        ai_suggest_only: !!document.getElementById('st-ai-suggest-only')?.checked,
+        ai_conflict_only: !!document.getElementById('st-ai-conflict-only')?.checked,
+        ai_conf_threshold: Number(document.getElementById('st-ai-conf-threshold')?.value || 0.72),
+        ai_conf_threshold_net_srv: Number(document.getElementById('st-ai-conf-threshold-netsrv')?.value || 0.82),
     };
     if (!body.ai_model) {
         toast('Model tag is required', 'err');
@@ -5121,14 +5256,22 @@ function applyAiPreset(preset) {
     const timeoutEl = document.getElementById('st-ai-timeout-ms');
     const maxHostsEl = document.getElementById('st-ai-max-hosts');
     const ambigEl = document.getElementById('st-ai-ambiguous-only');
+    const suggestEl = document.getElementById('st-ai-suggest-only');
+    const conflictEl = document.getElementById('st-ai-conflict-only');
+    const thrEl = document.getElementById('st-ai-conf-threshold');
+    const thrNetSrvEl = document.getElementById('st-ai-conf-threshold-netsrv');
     const enabledEl = document.getElementById('st-ai-enabled');
-    if (!modelEl || !timeoutEl || !maxHostsEl || !ambigEl || !enabledEl) return;
+    if (!modelEl || !timeoutEl || !maxHostsEl || !ambigEl || !suggestEl || !conflictEl || !thrEl || !thrNetSrvEl || !enabledEl) return;
 
     if (preset === 'homelab_24') {
         modelEl.value = 'phi3:mini';
         timeoutEl.value = '700';
         maxHostsEl.value = '20';
         ambigEl.checked = true;
+        suggestEl.checked = true;
+        conflictEl.checked = true;
+        thrEl.value = '0.72';
+        thrNetSrvEl.value = '0.82';
         enabledEl.checked = true;
         toast('Applied preset: /24 homelab (AI enabled, conservative limits)', 'ok');
         return;
@@ -5138,6 +5281,10 @@ function applyAiPreset(preset) {
         timeoutEl.value = '500';
         maxHostsEl.value = '60';
         ambigEl.checked = true;
+        suggestEl.checked = false;
+        conflictEl.checked = true;
+        thrEl.value = '0.74';
+        thrNetSrvEl.value = '0.84';
         enabledEl.checked = true;
         toast('Applied preset: multi-/24 batch (higher throughput)', 'ok');
     }
@@ -5146,52 +5293,82 @@ function applyAiPreset(preset) {
 async function installOllamaRuntime() {
     const btn = document.getElementById('btn-ai-install-ollama');
     const prev = btn ? btn.textContent : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Installing…';
-    }
-    try {
-        const r = await apiPost('/api/settings.php', { ai_install_ollama: true });
-        if (r && r.ok) {
-            toast('Ollama install/start completed', 'ok');
-            await loadUiSettings();
-        } else {
-            toast((r && r.error) ? r.error : 'Install failed', 'err');
-        }
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = prev || 'Install/start Ollama';
-        }
-    }
-}
-
-async function pullAiModel() {
-    const btn = document.getElementById('btn-ai-pull-model');
-    const prev = btn ? btn.textContent : '';
-    const model = String(document.getElementById('st-ai-model')?.value || 'phi3:mini').trim();
-    if (!model) {
-        toast('Set a model tag first', 'err');
+    const aiRtEl = document.getElementById('st-ai-runtime-status');
+    if (aiRtEl && aiRtEl.textContent.includes('installed=false')) {
+        openAiInstallHelpModal();
+        toast('Install Ollama from server shell first (see commands)', 'err');
         return;
     }
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Downloading…';
+        btn.textContent = 'Checking…';
     }
     try {
-        const r = await apiPost('/api/settings.php', { ai_pull_model: model });
+        await loadUiSettings();
+        toast('Runtime status refreshed', 'ok');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || 'Start/check Ollama';
+        }
+    }
+}
+
+async function checkAiUpdates() {
+    const btn = document.getElementById('btn-ai-check-updates');
+    const prev = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+    }
+    try {
+        const r = await apiPost('/api/settings.php', { ai_check_updates: true });
         if (r && r.ok) {
-            toast(`Model downloaded: ${model}`, 'ok');
+            toast('AI update check completed', 'ok');
             await loadUiSettings();
         } else {
-            toast((r && r.error) ? r.error : 'Model download failed', 'err');
+            toast((r && r.error) ? r.error : 'Update check failed', 'err');
         }
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = prev || 'Download model';
+            btn.textContent = prev || 'Check updates';
         }
     }
+}
+
+function copyAiUpdateCommand() {
+    const el = document.getElementById('st-ai-update-cmd');
+    if (!el) {
+        toast('No update command available', 'err');
+        return;
+    }
+    const cmd = (el.textContent || '').trim();
+    if (!cmd) {
+        toast('No update command available', 'err');
+        return;
+    }
+    navigator.clipboard.writeText(cmd).then(
+        () => toast('Update command copied', 'ok'),
+        () => toast('Could not copy command', 'err'),
+    );
+}
+
+function copyAiModelUpdateCommand() {
+    const el = document.getElementById('st-ai-model-update-cmd');
+    if (!el) {
+        toast('No model command available', 'err');
+        return;
+    }
+    const cmd = (el.textContent || '').trim();
+    if (!cmd) {
+        toast('No model command available', 'err');
+        return;
+    }
+    navigator.clipboard.writeText(cmd).then(
+        () => toast('Model update command copied', 'ok'),
+        () => toast('Could not copy command', 'err'),
+    );
 }
 
 async function saveNvdApiKey() {
@@ -6775,6 +6952,10 @@ async function openHostPanel(id, ip) {
           <tr><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>
           <tr><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${discoverySources.length ? esc(discoverySources.join(', ')) : '—'}</td></tr>
           ${aiInfluenced ? '<tr><td class="hp-meta-key">Classification</td><td class="hp-meta-val-dim">Local AI enrichment influenced category</td></tr>' : ''}
+          ${a.ai_last_attempted ? `<tr><td class="hp-meta-key">AI confidence</td><td class="hp-meta-val-dim">${a.ai_last_confidence != null ? esc(String(a.ai_last_confidence.toFixed ? a.ai_last_confidence.toFixed(2) : a.ai_last_confidence)) : '—'}</td></tr>` : ''}
+          ${a.ai_last_attempted ? `<tr><td class="hp-meta-key">AI suggestion</td><td class="hp-meta-val-dim">${esc(a.ai_last_suggested_category || '—')} ${a.ai_last_applied ? '(applied)' : '(not applied)'}</td></tr>` : ''}
+          ${a.ai_last_rationale ? `<tr><td class="hp-meta-key">AI rationale</td><td class="hp-meta-val-dim">${esc(a.ai_last_rationale)}</td></tr>` : ''}
+          ${a.ai_last_reason ? `<tr><td class="hp-meta-key">AI skip reason</td><td class="hp-meta-val-dim">${esc(a.ai_last_reason)}</td></tr>` : ''}
           ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>

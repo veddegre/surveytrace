@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS assets (
     banners      TEXT,          -- JSON object: {"443": "BIG-IP ..."}
     nmap_cpes     TEXT DEFAULT '[]',
     discovery_sources TEXT DEFAULT '[]',
+    ai_last_confidence REAL,
+    ai_last_rationale TEXT,
+    ai_last_applied INTEGER DEFAULT 0,
+    ai_last_suggested_category TEXT,
+    ai_last_reason TEXT,
+    ai_last_attempted INTEGER DEFAULT 0,
+    ai_last_decision_ts DATETIME,
     top_cve      TEXT,
     top_cvss     REAL,
     first_seen   DATETIME DEFAULT CURRENT_TIMESTAMP,

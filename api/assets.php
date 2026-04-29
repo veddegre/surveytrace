@@ -297,6 +297,7 @@ $severity   = st_str('severity', '', ['','critical','high','medium','low','none'
 $port_filter= st_int('port');
 $since_days = st_int('since_days');
 $new_only   = st_str('new_only') === '1';
+$ai_review  = st_str('ai_review') === '1';
 $page       = st_int('page',     1,  1);
 $per_page   = st_int('per_page', 50, 1, 200);
 $offset     = ($page - 1) * $per_page;
@@ -350,6 +351,9 @@ if ($since_days > 0) {
 
 if ($new_only) {
     $where[]          = "a.first_seen >= datetime('now', '-1 day')";
+}
+if ($ai_review) {
+    $where[] = "(COALESCE(a.ai_last_attempted,0)=1 AND (COALESCE(a.ai_last_applied,0)=1 OR COALESCE(a.ai_last_confidence,0) < 0.80))";
 }
 
 $device_filter = st_int('device_id', 0, 0, PHP_INT_MAX);
@@ -437,5 +441,11 @@ function decode_asset(array $a): array {
     $a['open_findings'] = (int)($a['open_findings'] ?? 0);
     $a['top_cvss']      = $a['top_cvss'] ? (float)$a['top_cvss'] : null;
     $a['severity']      = $a['top_cvss'] ? st_severity($a['top_cvss']) : 'none';
+    $a['ai_last_confidence'] = isset($a['ai_last_confidence']) ? (float)$a['ai_last_confidence'] : null;
+    $a['ai_last_applied'] = isset($a['ai_last_applied']) ? (int)$a['ai_last_applied'] : 0;
+    $a['ai_last_attempted'] = isset($a['ai_last_attempted']) ? (int)$a['ai_last_attempted'] : 0;
+    $a['ai_last_rationale'] = (string)($a['ai_last_rationale'] ?? '');
+    $a['ai_last_suggested_category'] = (string)($a['ai_last_suggested_category'] ?? '');
+    $a['ai_last_reason'] = (string)($a['ai_last_reason'] ?? '');
     return $a;
 }

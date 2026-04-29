@@ -276,6 +276,10 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "ai_timeout_ms": "700",
         "ai_max_hosts_per_scan": "40",
         "ai_ambiguous_only": "1",
+        "ai_suggest_only": "0",
+        "ai_conflict_only": "1",
+        "ai_conf_threshold": "0.72",
+        "ai_conf_threshold_net_srv": "0.82",
     }
     vals = dict(defaults)
     try:
@@ -283,7 +287,8 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
             rows = conn.execute(
                 "SELECT key, value FROM config WHERE key IN ("
                 "'ai_enrichment_enabled','ai_provider','ai_model',"
-                "'ai_timeout_ms','ai_max_hosts_per_scan','ai_ambiguous_only'"
+                "'ai_timeout_ms','ai_max_hosts_per_scan','ai_ambiguous_only',"
+                "'ai_suggest_only','ai_conflict_only','ai_conf_threshold','ai_conf_threshold_net_srv'"
                 ")"
             ).fetchall()
         for r in rows:
@@ -307,6 +312,18 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         max_hosts = 40
     max_hosts = max(1, min(5000, max_hosts))
     ambiguous_only = vals["ai_ambiguous_only"] != "0"
+    suggest_only = vals["ai_suggest_only"] == "1"
+    conflict_only = vals["ai_conflict_only"] != "0"
+    try:
+        conf_threshold = float(vals["ai_conf_threshold"] or "0.72")
+    except ValueError:
+        conf_threshold = 0.72
+    conf_threshold = max(0.50, min(0.99, conf_threshold))
+    try:
+        conf_threshold_net_srv = float(vals["ai_conf_threshold_net_srv"] or "0.82")
+    except ValueError:
+        conf_threshold_net_srv = 0.82
+    conf_threshold_net_srv = max(0.50, min(0.99, conf_threshold_net_srv))
 
     return {
         "enabled": enabled,
@@ -315,6 +332,10 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "timeout_ms": timeout_ms,
         "max_hosts_per_scan": max_hosts,
         "ambiguous_only": ambiguous_only,
+        "suggest_only": suggest_only,
+        "conflict_only": conflict_only,
+        "conf_threshold": conf_threshold,
+        "conf_threshold_net_srv": conf_threshold_net_srv,
         "available": enabled and provider == "ollama" and bool(model) and (shutil.which("ollama") is not None),
     }
 
@@ -391,6 +412,71 @@ def _run_ai_enrichment_ollama(
     except Exception:
         return {}, "bad_json"
     return doc if isinstance(doc, dict) else {}, ""
+
+
+def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tuple[dict, str]:
+    """
+    Build an executive summary for a completed scan.
+    Returns (doc, err); doc keys: overview, concerns[], next_steps[].
+    """
+    model = str(ai_cfg.get("model") or "phi3:mini")
+    # Slightly larger timeout than per-host classification.
+    timeout_s = max(0.8, float(int(ai_cfg.get("timeout_ms") or 700)) / 1000.0 * 2.0)
+    compact = {
+        "profile": summary.get("profile"),
+        "scan_mode": summary.get("scan_mode"),
+        "target_cidr": summary.get("target_cidr"),
+        "assets_catalogued": summary.get("assets_catalogued", 0),
+        "hosts_found": summary.get("hosts_found", 0),
+        "open_findings": summary.get("open_findings", 0),
+        "severity_breakdown": summary.get("severity_breakdown", {}),
+        "categories": summary.get("categories", {}),
+        "top_ports": summary.get("top_ports", []),
+        "ai_enrichment_attempts": summary.get("ai_enrichment_attempts", 0),
+        "ai_enrichment_applied": summary.get("ai_enrichment_applied", 0),
+        "routed_net_overrides": summary.get("routed_net_overrides", 0),
+    }
+    prompt = (
+        "You are writing an operator summary for a network scan.\n"
+        "Return ONLY JSON with keys: overview (string), concerns (array of <=5 strings), "
+        "next_steps (array of <=5 strings).\n"
+        "Be concise, practical, and avoid alarmist language.\n\n"
+        f"Scan data JSON:\n{json.dumps(compact, ensure_ascii=False)}\n"
+    )
+    try:
+        cp = subprocess.run(
+            ["ollama", "run", model, prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return {}, "timeout"
+    except Exception as e:
+        return {}, str(e)
+    if cp.returncode != 0:
+        err = (cp.stderr or cp.stdout or "").strip()
+        return {}, f"exit_{cp.returncode}:{err[:120]}"
+    out = (cp.stdout or "").strip()
+    m = re.search(r"\{.*\}", out, re.S)
+    if not m:
+        return {}, "no_json"
+    try:
+        doc = json.loads(m.group(0))
+    except Exception:
+        return {}, "bad_json"
+    if not isinstance(doc, dict):
+        return {}, "bad_shape"
+    overview = str(doc.get("overview") or "").strip()
+    concerns = [str(x).strip() for x in (doc.get("concerns") or []) if str(x).strip()]
+    next_steps = [str(x).strip() for x in (doc.get("next_steps") or []) if str(x).strip()]
+    if not overview and not concerns and not next_steps:
+        return {}, "empty"
+    return {
+        "overview": overview[:600],
+        "concerns": concerns[:5],
+        "next_steps": next_steps[:5],
+    }, ""
 
 
 def log_event(conn: sqlite3.Connection, job_id: int, level: str, message: str, ip: str = "") -> None:
@@ -2253,6 +2339,9 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     ai_enrichment_applied = False
     ai_enrichment_attempted = False
     ai_conf = 0.0
+    ai_rationale = ""
+    ai_to_cat = str(fp.get("category") or "unk")
+    ai_skip_reason = ""
     if ai_cfg and _should_run_ai_for_asset(ai_cfg, fp, ports, banners, hostname, ai_attempts):
         ai_enrichment_attempted = True
         ai_doc, ai_err = _run_ai_enrichment_ollama(ai_cfg, fp, hostname, ports, banners)
@@ -2263,32 +2352,50 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             except (TypeError, ValueError):
                 ai_conf = 0.0
             ai_why = str(ai_doc.get("rationale") or "").strip()
+            ai_rationale = ai_why[:500]
             if ai_cat not in {"srv", "ws", "net", "iot", "prn", "hv", "ot", "voi", "unk"}:
                 ai_cat = ""
             # Conservative override policy:
             # - only for ambiguous current categories
             # - require moderate confidence
             # - never downgrade strong OT/HV signals
+            effective_threshold = float(ai_cfg.get("conf_threshold") or 0.72)
+            if fp["category"] in {"net", "srv"} and ai_cat in {"net", "srv"} and ai_cat != fp["category"]:
+                effective_threshold = float(ai_cfg.get("conf_threshold_net_srv") or effective_threshold)
+            if bool(ai_cfg.get("conflict_only", True)) and ai_cat == fp["category"]:
+                ai_skip_reason = "same_category"
             if (
                 ai_cat
-                and ai_conf >= 0.72
+                and ai_conf >= effective_threshold
                 and fp["category"] in {"unk", "net", "srv"}
                 and port_cat_effective not in {"hv", "ot"}
                 and not (fp["category"] == "net" and ai_cat == "iot")
+                and not (bool(ai_cfg.get("conflict_only", True)) and ai_cat == fp["category"])
             ):
                 if ai_cat != fp["category"]:
                     prev_cat = fp["category"]
-                    fp["category"] = ai_cat
-                    ai_enrichment_applied = True
-                    if discovery_sources is not None:
-                        discovery_sources.append("ai_local_inference")
-                    log.info(
-                        "[job %d] ai_enrichment_override ip=%s from=%s to=%s conf=%.2f model=%s rationale=%s",
-                        job_id, ip, prev_cat, ai_cat, ai_conf, str(ai_cfg.get("model") or ""),
-                        (ai_why[:120] if ai_why else ""),
-                    )
+                    ai_to_cat = ai_cat
+                    if not bool(ai_cfg.get("suggest_only", False)):
+                        fp["category"] = ai_cat
+                        ai_enrichment_applied = True
+                        if discovery_sources is not None:
+                            discovery_sources.append("ai_local_inference")
+                        log.info(
+                            "[job %d] ai_enrichment_override ip=%s from=%s to=%s conf=%.2f model=%s rationale=%s",
+                            job_id, ip, prev_cat, ai_cat, ai_conf, str(ai_cfg.get("model") or ""),
+                            (ai_why[:120] if ai_why else ""),
+                        )
+                    else:
+                        ai_skip_reason = "suggest_only"
+                else:
+                    ai_skip_reason = "same_category"
+            elif ai_cat and ai_conf < effective_threshold:
+                ai_skip_reason = "low_confidence"
+            elif ai_cat and port_cat_effective in {"hv", "ot"}:
+                ai_skip_reason = "strong_port_signal"
         elif ai_err and ai_err not in {"timeout", "no_json"}:
             log.info("[job %d] ai_enrichment_skip ip=%s reason=%s", job_id, ip, ai_err[:120])
+            ai_skip_reason = ai_err[:120]
 
     # Vendor precedence:
     #  - vendor: detected service/product identity (Proxmox, Zabbix, etc.)
@@ -2326,9 +2433,13 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     device_id = ensure_device_id_for_upsert(conn, ip, mac)
 
     conn.execute("""
-        INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess, connected_via,
-                            open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,:cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
+        INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
+                            ai_last_confidence, ai_last_rationale, ai_last_applied, ai_last_suggested_category,
+                            ai_last_reason, ai_last_attempted, ai_last_decision_ts,
+                            connected_via, open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
+        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,
+                :ai_confidence,:ai_rationale,:ai_applied,:ai_suggested_cat,:ai_reason,:ai_attempted,CURRENT_TIMESTAMP,
+                :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
         ON CONFLICT(ip) DO UPDATE SET
             hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
             mac        = COALESCE(excluded.mac, mac),
@@ -2340,6 +2451,34 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                            ELSE COALESCE(NULLIF(excluded.cpe,''), cpe)
                          END,
             os_guess   = COALESCE(NULLIF(excluded.os_guess,''), os_guess),
+            ai_last_confidence = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_confidence
+                           ELSE ai_last_confidence
+                         END,
+            ai_last_rationale = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_rationale
+                           ELSE ai_last_rationale
+                         END,
+            ai_last_applied = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_applied
+                           ELSE ai_last_applied
+                         END,
+            ai_last_suggested_category = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_suggested_category
+                           ELSE ai_last_suggested_category
+                         END,
+            ai_last_reason = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_reason
+                           ELSE ai_last_reason
+                         END,
+            ai_last_attempted = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN 1
+                           ELSE ai_last_attempted
+                         END,
+            ai_last_decision_ts = CASE
+                           WHEN excluded.ai_last_attempted = 1 THEN CURRENT_TIMESTAMP
+                           ELSE ai_last_decision_ts
+                         END,
             connected_via = COALESCE(NULLIF(excluded.connected_via,''), connected_via),
             open_ports = excluded.open_ports,
             banners    = excluded.banners,
@@ -2355,6 +2494,12 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         "ip": ip, "host": hostname, "mac": mac, "mv": mac_vendor,
         "cat": fp["category"], "vnd": vendor,
         "cpe": fp["cpe"], "os": fp["os_guess"],
+        "ai_confidence": ai_conf,
+        "ai_rationale": ai_rationale,
+        "ai_applied": 1 if ai_enrichment_applied else 0,
+        "ai_suggested_cat": ai_to_cat if ai_enrichment_attempted else "",
+        "ai_reason": ai_skip_reason,
+        "ai_attempted": 1 if ai_enrichment_attempted else 0,
         "clear_cpe": 1 if (not fp.get("cpe") and not ports and fp.get("category") in ("unk", "")) else 0,
         "cv": (connected_via or "").strip()[:240],
         "ports":   json.dumps(ports),
@@ -2382,6 +2527,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     result["_ai_enrichment_attempted"] = ai_enrichment_attempted
     result["_ai_enrichment_applied"] = ai_enrichment_applied
     result["_ai_enrichment_confidence"] = ai_conf
+    result["_ai_enrichment_suggested_category"] = ai_to_cat
+    result["_ai_enrichment_reason"] = ai_skip_reason
     return result
 
 
@@ -2414,7 +2561,9 @@ def run_scan(job: dict) -> None:
                 conn, job_id, "INFO",
                 f"AI enrichment enabled: provider={ai_cfg.get('provider')} model={ai_cfg.get('model')} "
                 f"timeout_ms={ai_cfg.get('timeout_ms')} max_hosts={ai_cfg.get('max_hosts_per_scan')} "
-                f"ambiguous_only={ai_cfg.get('ambiguous_only')}"
+                f"ambiguous_only={ai_cfg.get('ambiguous_only')} suggest_only={ai_cfg.get('suggest_only')} "
+                f"conflict_only={ai_cfg.get('conflict_only')} conf={ai_cfg.get('conf_threshold')} "
+                f"conf_net_srv={ai_cfg.get('conf_threshold_net_srv')}"
             )
     excl_raw  = job["exclusions"] or ""
 
@@ -2856,6 +3005,21 @@ def run_scan(job: dict) -> None:
                 (job_id,),
             ).fetchone()[0]
             summary["open_findings"] = int(finding_count or 0)
+            sev_rows = conn.execute(
+                """
+                SELECT severity, COUNT(*) AS c
+                FROM findings f
+                JOIN assets a ON a.id = f.asset_id
+                WHERE a.last_scan_id = ? AND f.resolved = 0
+                GROUP BY severity
+                """,
+                (job_id,),
+            ).fetchall()
+            sev_counts: dict[str, int] = {}
+            for sr in sev_rows:
+                s = str(sr["severity"] or "").strip().lower() or "unknown"
+                sev_counts[s] = int(sr["c"] or 0)
+            summary["severity_breakdown"] = sev_counts
 
             rows = conn.execute(
                 "SELECT open_ports, category FROM assets WHERE last_scan_id = ?",
@@ -2890,6 +3054,14 @@ def run_scan(job: dict) -> None:
             summary["categories"] = dict(sorted(cat_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8])
     except Exception as e:
         log.warning("[job %d] Could not build history summary: %s", job_id, e)
+
+    # Optional AI executive summary for this run.
+    if bool(ai_cfg.get("available")) and int(summary.get("assets_catalogued", 0)) > 0:
+        ai_scan_doc, ai_scan_err = _run_ai_scan_summary_ollama(ai_cfg, summary)
+        if ai_scan_doc:
+            summary["ai_summary"] = ai_scan_doc
+        elif ai_scan_err and ai_scan_err not in {"timeout", "no_json"}:
+            log.info("[job %d] ai_scan_summary_skip reason=%s", job_id, ai_scan_err[:120])
 
     with db_conn() as conn:
         # Preserve run-specific evidence so historical scan details remain stable
@@ -3199,6 +3371,20 @@ def main() -> None:
             log.info("Schema migration: added column assets.ipv6_addrs")
         except Exception:
             pass
+        for col, defn in [
+            ("ai_last_confidence", "REAL"),
+            ("ai_last_rationale", "TEXT"),
+            ("ai_last_applied", "INTEGER DEFAULT 0"),
+            ("ai_last_suggested_category", "TEXT"),
+            ("ai_last_reason", "TEXT"),
+            ("ai_last_attempted", "INTEGER DEFAULT 0"),
+            ("ai_last_decision_ts", "DATETIME"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE assets ADD COLUMN {col} {defn}")
+                log.info("Schema migration: added column assets.%s", col)
+            except Exception:
+                pass
         if migrate_device_identity_v1(conn):
             log.info("Device identity v1: migration completed (devices + assets.device_id)")
         conn.execute("""

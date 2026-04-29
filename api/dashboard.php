@@ -231,6 +231,35 @@ $summary_bullets[] = "Overall risk trend is " . ($curr_risk_pressure > $prev_ris
 $summary_bullets[] = "Scan success rate is " . $curr_completion_rate . "% (" . $curr_scans_done . " of " . $curr_scans_total . " scans completed).";
 $summary_bullets[] = "New issues identified this period: " . $curr_findings_new . " total (" . $curr_critical_new . " critical, " . $curr_high_new . " high).";
 
+// Optional AI summary from the latest completed run summary_json
+$exec_ai_summary = null;
+try {
+    $sr = $db->query("
+        SELECT summary_json
+        FROM scan_jobs
+        WHERE status = 'done'
+          AND summary_json IS NOT NULL
+          AND summary_json != ''
+        ORDER BY id DESC
+        LIMIT 1
+    ")->fetchColumn();
+    if (is_string($sr) && trim($sr) !== '') {
+        $sj = json_decode($sr, true);
+        if (is_array($sj) && isset($sj['ai_summary']) && is_array($sj['ai_summary'])) {
+            $ov = trim((string)($sj['ai_summary']['overview'] ?? ''));
+            $cc = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['concerns'] ?? []))));
+            $ns = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['next_steps'] ?? []))));
+            $exec_ai_summary = [
+                'overview' => $ov,
+                'concerns' => array_slice($cc, 0, 5),
+                'next_steps' => array_slice($ns, 0, 5),
+            ];
+        }
+    }
+} catch (Throwable $e) {
+    $exec_ai_summary = null;
+}
+
 // ---------------------------------------------------------------------------
 // Last scan metadata
 // ---------------------------------------------------------------------------
@@ -423,5 +452,6 @@ st_json([
             'completion_rate' => ['current' => $curr_completion_rate, 'previous' => $prev_completion_rate, 'delta' => $delta($curr_completion_rate, $prev_completion_rate)],
         ],
         'brief' => $summary_bullets,
+        'ai_scan_summary' => $exec_ai_summary,
     ],
 ]);

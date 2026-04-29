@@ -182,6 +182,14 @@ function st_health_shell_ok(): bool {
     return !in_array('shell_exec', $list, true) && function_exists('shell_exec');
 }
 
+function st_health_cmd_available(string $cmd): bool {
+    if (!st_health_shell_ok()) {
+        return false;
+    }
+    $raw = @shell_exec('command -v ' . escapeshellarg($cmd) . ' 2>/dev/null');
+    return is_string($raw) && trim($raw) !== '';
+}
+
 /**
  * “Available” column in 1K units from a df line. Strips thousands separators (locale) so
  * 15,903,544 and 15903544 both work.
@@ -371,6 +379,16 @@ $health = [
         'daemon' => st_health_systemd_unit('surveytrace-daemon'),
         'scheduler' => st_health_systemd_unit('surveytrace-scheduler'),
     ],
+    'ai' => [
+        'configured' => st_config('ai_enrichment_enabled', '0') === '1',
+        'provider' => (string)st_config('ai_provider', 'ollama'),
+        'model' => (string)st_config('ai_model', 'phi3:mini'),
+        'timeout_ms' => max(100, min(5000, (int)st_config('ai_timeout_ms', '700'))),
+        'installed' => false,
+        'running' => false,
+        'models' => [],
+        'detail' => '',
+    ],
 ];
 
 $dfree = st_health_df_free_bytes($dataDir);
@@ -444,6 +462,34 @@ try {
     }
 } catch (Throwable $e) {
     // leave defaults
+}
+
+if ((string)$health['ai']['provider'] === 'ollama') {
+    $health['ai']['installed'] = st_health_cmd_available('ollama');
+    if ($health['ai']['installed']) {
+        $rows = [];
+        $code = 1;
+        @exec('ollama list 2>&1', $rows, $code);
+        if ($code === 0) {
+            $health['ai']['running'] = true;
+            $mods = [];
+            foreach ($rows as $i => $line) {
+                $line = trim((string)$line);
+                if ($line === '') continue;
+                if ($i === 0 && stripos($line, 'NAME') !== false) continue;
+                $parts = preg_split('/\s+/', $line);
+                if ($parts && !empty($parts[0])) {
+                    $mods[] = (string)$parts[0];
+                }
+            }
+            $health['ai']['models'] = array_values(array_unique($mods));
+            $health['ai']['detail'] = 'ollama reachable';
+        } else {
+            $health['ai']['detail'] = 'ollama installed, runtime not responding';
+        }
+    } else {
+        $health['ai']['detail'] = 'ollama not installed';
+    }
 }
 
 $health['ok'] = $health['data_dir']['writable'] && $health['database']['reachable'];
