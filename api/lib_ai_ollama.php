@@ -168,3 +168,175 @@ function st_ai_extract_json_object(string $text): ?array {
 function st_ai_iso_utc(): string {
     return gmdate('c');
 }
+
+/**
+ * Decode JSON for operator AI / scan summary paths (UTF-8 tolerant when supported).
+ */
+function st_ai_json_decode_assoc(string $raw): ?array {
+    $raw = trim($raw);
+    if ($raw === '') {
+        return null;
+    }
+    $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
+    $doc = json_decode($raw, true, 512, $flags);
+    if (is_array($doc)) {
+        return $doc;
+    }
+    if ($flags !== 0) {
+        $doc = json_decode($raw, true);
+        return is_array($doc) ? $doc : null;
+    }
+    return null;
+}
+
+function st_ai_save_asset_cache(PDO $db, int $assetId, string $column, array $envelope): void {
+    if (!in_array($column, ['ai_findings_guidance_cache', 'ai_host_explain_cache'], true)) {
+        return;
+    }
+    $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $json = json_encode($envelope, $flags);
+    if ($json === false) {
+        $json = '{"status":"failed","detail":"json_encode_failed","fp":"","ts":"","doc":null}';
+    }
+    $stmt = $db->prepare("UPDATE assets SET {$column} = ? WHERE id = ?");
+    $stmt->execute([$json, $assetId]);
+}
+
+function st_ai_findings_fingerprint(array $openFindings): string {
+    if (!$openFindings) {
+        return sha1('');
+    }
+    usort($openFindings, static function ($a, $b) {
+        $ca = (string)($a['cve_id'] ?? '');
+        $cb = (string)($b['cve_id'] ?? '');
+        return strcmp($ca, $cb);
+    });
+    $parts = [];
+    foreach ($openFindings as $f) {
+        $parts[] = implode('|', [
+            (string)($f['cve_id'] ?? ''),
+            (string)($f['cvss'] ?? ''),
+            (string)($f['severity'] ?? ''),
+            (string)(int)($f['resolved'] ?? 0),
+        ]);
+    }
+    return sha1(implode("\n", $parts));
+}
+
+function st_ai_explain_fingerprint(array $asset, array $ports, array $banners, int $openFindingCount, array $topCves): string {
+    $portList = array_values(array_unique(array_map(static function ($p) {
+        return (int)$p;
+    }, $ports)));
+    sort($portList);
+    $bannerDigest = [];
+    $n = 0;
+    foreach ($banners as $k => $v) {
+        if ($n++ >= 8) {
+            break;
+        }
+        $vs = substr((string)preg_replace('/\s+/', ' ', trim((string)$v)), 0, 120);
+        $bannerDigest[] = (string)$k . '=' . $vs;
+    }
+    $blob = implode('|', [
+        (string)($asset['ip'] ?? ''),
+        (string)($asset['hostname'] ?? ''),
+        (string)($asset['category'] ?? ''),
+        (string)($asset['vendor'] ?? ''),
+        json_encode($portList, JSON_UNESCAPED_UNICODE),
+        (string)$openFindingCount,
+        implode(',', $topCves),
+        implode(';', $bannerDigest),
+    ]);
+    return sha1($blob);
+}
+
+function st_ai_normalize_findings_doc(?array $doc): array {
+    if (!$doc) {
+        return [];
+    }
+    $risk = trim((string)($doc['risk_summary'] ?? ''));
+    $bullets = $doc['remediation_bullets'] ?? [];
+    if (!is_array($bullets)) {
+        $bullets = [];
+    }
+    $clean = [];
+    foreach ($bullets as $b) {
+        $s = trim((string)$b);
+        if ($s !== '' && count($clean) < 8) {
+            $clean[] = substr($s, 0, 400);
+        }
+    }
+    $prior = trim((string)($doc['prioritize'] ?? ''));
+    $note = trim((string)($doc['note'] ?? ''));
+    $out = [];
+    if ($risk !== '') {
+        $out['risk_summary'] = substr($risk, 0, 2000);
+    }
+    if ($clean) {
+        $out['remediation_bullets'] = $clean;
+    }
+    if ($prior !== '') {
+        $out['prioritize'] = substr($prior, 0, 1200);
+    }
+    if ($note !== '') {
+        $out['note'] = substr($note, 0, 800);
+    }
+    return $out;
+}
+
+function st_ai_normalize_explain_doc(?array $doc): array {
+    if (!$doc) {
+        return [];
+    }
+    $overview = trim((string)($doc['overview'] ?? ''));
+    $roles = $doc['likely_roles'] ?? [];
+    $tips = $doc['hardening_tips'] ?? [];
+    $qs = $doc['owner_questions'] ?? [];
+    if (!is_array($roles)) {
+        $roles = [];
+    }
+    if (!is_array($tips)) {
+        $tips = [];
+    }
+    if (!is_array($qs)) {
+        $qs = [];
+    }
+    $nr = [];
+    foreach ($roles as $x) {
+        $s = trim((string)$x);
+        if ($s !== '' && count($nr) < 5) {
+            $nr[] = substr($s, 0, 200);
+        }
+    }
+    $nt = [];
+    foreach ($tips as $x) {
+        $s = trim((string)$x);
+        if ($s !== '' && count($nt) < 6) {
+            $nt[] = substr($s, 0, 400);
+        }
+    }
+    $nq = [];
+    foreach ($qs as $x) {
+        $s = trim((string)$x);
+        if ($s !== '' && count($nq) < 4) {
+            $nq[] = substr($s, 0, 300);
+        }
+    }
+    $out = [];
+    if ($overview !== '') {
+        $out['overview'] = substr($overview, 0, 2000);
+    }
+    if ($nr) {
+        $out['likely_roles'] = $nr;
+    }
+    if ($nt) {
+        $out['hardening_tips'] = $nt;
+    }
+    if ($nq) {
+        $out['owner_questions'] = $nq;
+    }
+    return $out;
+}

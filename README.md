@@ -123,6 +123,8 @@ bash deploy.sh
 
 It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 
+If **AI operator** buttons return **HTTP 500** with an empty body, confirm **`api/lib_ai_ollama.php`** is present next to **`api/ai_actions.php`** on the server (both are listed in `deploy.sh`); a missing include fails before JSON is emitted. After deploy, load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
+
 **Feed sync from the browser:** Under **PHP-FPM**, sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`**, the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
 
 SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
