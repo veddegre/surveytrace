@@ -1071,6 +1071,7 @@ def fingerprint(
     banners: dict[str, str],
     hostname: str = "",
     snmp_sysdescr: str = "",
+    routed_scan: bool = False,
 ) -> dict:
     """
     Combine all signals into a best-guess fingerprint dict.
@@ -1223,5 +1224,54 @@ def fingerprint(
         result["os_guess"] = m.group(1)
     elif port_cat == "ws" and (3389 in port_set or 445 in port_set or 5985 in port_set or 5986 in port_set):
         result["os_guess"] = "Windows"
+
+    # Routed scans often miss L2 identity (MAC/ARP/SNMP context), which can let
+    # DNS + generic web/ssh signals drift toward "net". If we have a Linux app
+    # server footprint and no explicit network-device indicators, prefer "srv".
+    if routed_scan and result["category"] == "net":
+        explicit_net_cpes = {
+            "ubiquiti:unifi",
+            "f5:big_ip",
+            "cisco:ios_xe",
+            "cisco:ios",
+            "cisco:asa",
+            "cisco:meraki",
+            "juniper:junos",
+            "fortinet:fortios",
+            "netgate:pfsense",
+            "opnsense:opnsense",
+            "mikrotik:routeros",
+            "openwrt:openwrt",
+            "dd-wrt:dd-wrt",
+        }
+        has_explicit_net_signal = (
+            (oui_cat == "net")
+            or (hostname and NETWORK_HOSTNAMES.search(hostname) is not None)
+            or (banner_cpe in explicit_net_cpes)
+        )
+        linux_app_cpes = _generic_srv_cpe | {"linux"}
+        looks_like_linux_app_host = (
+            22 in port_set
+            and bool(port_set & {80, 443, 8080, 8443})
+            and (
+                any(s in combined.lower() for s in ("openssh", "nginx", "apache", "ubuntu", "debian", "centos", "rocky", "almalinux"))
+                or (banner_cpe in linux_app_cpes)
+            )
+        )
+        if looks_like_linux_app_host and not has_explicit_net_signal:
+            result["category"] = "srv"
+            result["_routed_net_override"] = {
+                "from": "net",
+                "to": "srv",
+                "has_ssh_22": 22 in port_set,
+                "has_web_port": bool(port_set & {80, 443, 8080, 8443}),
+                "linux_banner_hint": any(
+                    s in combined.lower()
+                    for s in ("openssh", "nginx", "apache", "ubuntu", "debian", "centos", "rocky", "almalinux")
+                ),
+                "has_net_oui": oui_cat == "net",
+                "has_net_hostname_pattern": bool(hostname and NETWORK_HOSTNAMES.search(hostname)),
+                "has_net_cpe": banner_cpe in explicit_net_cpes,
+            }
 
     return result

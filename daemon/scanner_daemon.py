@@ -1955,6 +1955,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   connected_via: str = "",
                   hostname: str = "",
                   scan_profile: str = "",
+                  scan_mode: str = "auto",
                   ipv6_addrs: list[str] | None = None) -> dict:
     """Upsert an asset row and return the full row dict."""
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
@@ -2042,7 +2043,13 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             continue
     merged_ipv6_list = sorted(merged_ipv6)
 
-    fp = fingerprint(mac, ports, banners, hostname=hostname)
+    fp = fingerprint(
+        mac,
+        ports,
+        banners,
+        hostname=hostname,
+        routed_scan=(scan_mode == "routed"),
+    )
     oui_vendor_pre, oui_cat_pre = oui_lookup(mac)
 
     # HTTP title enrichment — improve category/vendor from page titles
@@ -2127,6 +2134,23 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
         if fp["category"] == "unk" and oui_cat:
             fp["category"] = oui_cat
 
+    routed_override = fp.get("_routed_net_override")
+    if isinstance(routed_override, dict):
+        log.info(
+            "[job %d] routed_net_override ip=%s scan_mode=%s from=%s to=%s has_ssh_22=%s has_web_port=%s linux_banner_hint=%s has_net_oui=%s has_net_hostname_pattern=%s has_net_cpe=%s",
+            job_id,
+            ip,
+            scan_mode,
+            routed_override.get("from", "net"),
+            routed_override.get("to", "srv"),
+            bool(routed_override.get("has_ssh_22")),
+            bool(routed_override.get("has_web_port")),
+            bool(routed_override.get("linux_banner_hint")),
+            bool(routed_override.get("has_net_oui")),
+            bool(routed_override.get("has_net_hostname_pattern")),
+            bool(routed_override.get("has_net_cpe")),
+        )
+
     device_id = ensure_device_id_for_upsert(conn, ip, mac)
 
     conn.execute("""
@@ -2182,6 +2206,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     row = conn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
     result = dict(row)
     result["nmap_cpes"] = json.loads(result.get("nmap_cpes") or "[]")
+    result["_routed_net_override_applied"] = isinstance(routed_override, dict)
     return result
 
 
@@ -2407,6 +2432,7 @@ def run_scan(job: dict) -> None:
     # ---- Upsert assets ---------------------------------------------------
     upserted_assets: list[dict] = []
     scanned = 0
+    routed_override_count = 0
     # Resolve hostnames for all discovered hosts (not just those with open ports)
     # This is important for ARP-only hosts like phones/tablets with randomized MACs
     log.info("[job %d] Resolving hostnames for %d hosts...", job_id, len(all_ips))
@@ -2566,9 +2592,12 @@ def run_scan(job: dict) -> None:
                 connected_via=connected_via,
                 hostname=hostname,
                 scan_profile=profile_name,
+                scan_mode=scan_mode,
                 ipv6_addrs=ipv6_addrs,
             )
             upserted_assets.append(asset)
+            if asset.get("_routed_net_override_applied"):
+                routed_override_count += 1
             scanned += 1
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
 
@@ -2617,6 +2646,7 @@ def run_scan(job: dict) -> None:
         "assets_catalogued": int(scanned),
         "hosts_found": int(len(all_ips)),
         "open_findings": 0,
+        "routed_net_overrides": int(routed_override_count),
         "open_ports_total": 0,
         "top_ports": [],
         "categories": {},
@@ -2740,7 +2770,7 @@ def run_scan(job: dict) -> None:
             WHERE id=?
         """, (scanned, json.dumps(summary), job_id))
         log_event(conn, job_id, "INFO",
-                  f"Scan complete — {scanned} assets catalogued, {len(upserted_assets)} upserted")
+                  f"Scan complete — {scanned} assets catalogued, {len(upserted_assets)} upserted, routed_net_overrides={routed_override_count}")
 
 
 # ---------------------------------------------------------------------------
