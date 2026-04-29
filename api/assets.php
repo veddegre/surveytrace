@@ -447,5 +447,13 @@ function decode_asset(array $a): array {
     $a['ai_last_rationale'] = (string)($a['ai_last_rationale'] ?? '');
     $a['ai_last_suggested_category'] = (string)($a['ai_last_suggested_category'] ?? '');
     $a['ai_last_reason'] = (string)($a['ai_last_reason'] ?? '');
+    $fgRaw = $a['ai_findings_guidance_cache'] ?? null;
+    $a['ai_findings_guidance'] = is_string($fgRaw) && $fgRaw !== ''
+        ? (json_decode($fgRaw, true) ?: null)
+        : null;
+    $exRaw = $a['ai_host_explain_cache'] ?? null;
+    $a['ai_host_explain'] = is_string($exRaw) && $exRaw !== ''
+        ? (json_decode($exRaw, true) ?: null)
+        : null;
     return $a;
 }

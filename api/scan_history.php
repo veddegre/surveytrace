@@ -85,7 +85,15 @@ if ($id > 0) {
     }
 
     $job['phases'] = json_decode((string)($job['phases'] ?? '[]'), true) ?: [];
-    $job['summary'] = json_decode((string)($job['summary_json'] ?? ''), true) ?: null;
+    $sumRaw = (string)($job['summary_json'] ?? '');
+    $job['summary'] = null;
+    if ($sumRaw !== '') {
+        $decoded = json_decode($sumRaw, true);
+        if (!is_array($decoded)) {
+            $decoded = json_decode($sumRaw, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        $job['summary'] = is_array($decoded) ? $decoded : null;
+    }
     unset($job['summary_json']);
 
     $assets = [];
@@ -415,7 +423,15 @@ if ($likePat !== null) {
 }
 
 $history = array_map(function($r) {
-    $r['summary'] = json_decode((string)($r['summary_json'] ?? ''), true) ?: null;
+    $sumRaw = (string)($r['summary_json'] ?? '');
+    $r['summary'] = null;
+    if ($sumRaw !== '') {
+        $decoded = json_decode($sumRaw, true);
+        if (!is_array($decoded)) {
+            $decoded = json_decode($sumRaw, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        $r['summary'] = is_array($decoded) ? $decoded : null;
+    }
     unset($r['summary_json']);
     $r['priority'] = (int)($r['priority'] ?? 10);
     $r['retry_count'] = (int)($r['retry_count'] ?? 0);

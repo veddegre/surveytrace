@@ -496,6 +496,12 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .hp-history-ts{color:var(--tx3);min-width:100px}
 .hp-history-ports{color:var(--tx2)}
 .hp-actions{margin-top:12px;display:flex;gap:8px}
+.hp-ai-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+@media (max-width: 720px) {
+  .hp-ai-cols{grid-template-columns:1fr}
+}
+.hp-ai-col{border-bottom:none;padding:10px;background:var(--bg4);border-radius:8px;border:1px solid var(--bd)}
+.hp-ai-ul{margin:6px 0 0;padding-left:18px;color:var(--tx2);font-size:12px;line-height:1.45}
 .sv-sm{font-size:17px;color:var(--tx)}
 .sv-md{font-size:19px;color:var(--tx)}
 .mb16{margin-bottom:16px}

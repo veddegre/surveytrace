@@ -30,7 +30,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
-- **Local AI enrichment (optional)** — Ollama-backed, compact-model-assisted classification hints for ambiguous hosts (`unk`/borderline `net` vs `srv`) with strict timeout/fail-open behavior
+- **Local AI enrichment (optional)** — Ollama-backed, compact-model-assisted classification hints for ambiguous hosts (`unk`/borderline `net` vs `srv`) with strict timeout/fail-open behavior; per-run scan summary and **operator hints** (cached CVE triage + “explain this host” from the host panel, and **Refresh AI summary** on completed scan details) via `POST /api/ai_actions.php` when AI is enabled and Ollama is reachable
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
 - **Device identity** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
@@ -116,7 +116,7 @@ bash deploy.sh
 
 `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
-- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), `settings.php`, etc.
+- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (on-demand operator AI: CVE triage, explain host, refresh scan summary; requires `lib_ai_ollama.php`), `settings.php`, etc.
 - **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
@@ -135,6 +135,13 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.7.0
+
+- **Minor release (operator AI)** — bumps the minor version because this release adds a new on-demand AI surface (not just a patch).
+- **Scan AI summary reliability** — daemon uses a longer Ollama timeout for run-wide summaries, always records `ai_scan_summary_status` / `ai_scan_summary_detail` when AI is enabled, and scan/dashboard/history paths decode `summary_json` more robustly (including UTF-8 substitution). UI shows structured summary or status detail so completed runs are not blank.
+- **On-demand operator AI** — `POST /api/ai_actions.php` (`findings_guidance`, `explain_host`, `refresh_scan_summary`) backed by **`api/lib_ai_ollama.php`**; host detail panel adds AI operator hints with cached results on **`assets.ai_findings_guidance_cache`** / **`assets.ai_host_explain_cache`** (migrated on startup). Scan history detail adds **Refresh AI summary** for `done` jobs.
+- **Deploy** — `deploy.sh` copies `ai_actions.php` and `lib_ai_ollama.php`, and post-deploy checks verify them.
 
 ### 0.6.2
 

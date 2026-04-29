@@ -417,24 +417,24 @@ def _run_ollama_generate(model: str, prompt: str, timeout_s: float) -> tuple[str
     return out, ""
 
 
-def _should_run_ai_for_asset(
+def _ai_gate_reason(
     ai_cfg: dict[str, object],
     fp: dict,
     ports: list[int],
     banners: dict[str, str],
     hostname: str,
     ai_attempts: int,
-) -> bool:
+) -> str:
     if not bool(ai_cfg.get("available")):
-        return False
+        return str(ai_cfg.get("availability_reason") or "runtime_unreachable")
     if ai_attempts >= int(ai_cfg.get("max_hosts_per_scan") or 0):
-        return False
+        return "max_hosts_reached"
     if not ports and not banners and not hostname:
-        return False
+        return "no_signal"
     cat = str(fp.get("category") or "unk")
     if bool(ai_cfg.get("ambiguous_only", True)):
-        return cat in {"unk", "net", "srv"}
-    return True
+        return "" if cat in {"unk", "net", "srv"} else "not_ambiguous"
+    return ""
 
 
 def _run_ai_enrichment_ollama(
@@ -485,8 +485,8 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
     Returns (doc, err); doc keys: overview, concerns[], next_steps[].
     """
     model = str(ai_cfg.get("model") or "phi3:mini")
-    # Slightly larger timeout than per-host classification.
-    timeout_s = max(0.8, float(int(ai_cfg.get("timeout_ms") or 700)) / 1000.0 * 2.0)
+    # Scan-wide summary needs more wall time than per-host calls; scale from settings with sane bounds.
+    timeout_s = max(5.0, min(90.0, float(int(ai_cfg.get("timeout_ms") or 700)) / 1000.0 * 8.0))
     compact = {
         "profile": summary.get("profile"),
         "scan_mode": summary.get("scan_mode"),
@@ -2395,9 +2395,11 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     ai_rationale = ""
     ai_to_cat = str(fp.get("category") or "unk")
     ai_skip_reason = ""
-    if ai_cfg and bool(ai_cfg.get("enabled")) and not bool(ai_cfg.get("available")):
-        ai_skip_reason = str(ai_cfg.get("availability_reason") or "runtime_unreachable")
-    if ai_cfg and _should_run_ai_for_asset(ai_cfg, fp, ports, banners, hostname, ai_attempts):
+    ai_gate = ""
+    if ai_cfg:
+        ai_gate = _ai_gate_reason(ai_cfg, fp, ports, banners, hostname, ai_attempts)
+        ai_skip_reason = ai_gate
+    if ai_cfg and ai_gate == "":
         ai_enrichment_attempted = True
         ai_doc, ai_err = _run_ai_enrichment_ollama(ai_cfg, fp, hostname, ports, banners)
         if ai_doc:
@@ -2523,6 +2525,7 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                            ELSE ai_last_suggested_category
                          END,
             ai_last_reason = CASE
+                           WHEN excluded.ai_last_reason IS NOT NULL AND excluded.ai_last_reason != '' THEN excluded.ai_last_reason
                            WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_reason
                            ELSE ai_last_reason
                          END,
@@ -2828,6 +2831,7 @@ def run_scan(job: dict) -> None:
     routed_override_count = 0
     ai_enrichment_attempts = 0
     ai_enrichment_applied = 0
+    ai_reason_counts: dict[str, int] = {}
     # Resolve hostnames for all discovered hosts (not just those with open ports)
     # This is important for ARP-only hosts like phones/tablets with randomized MACs
     log.info("[job %d] Resolving hostnames for %d hosts...", job_id, len(all_ips))
@@ -2999,6 +3003,9 @@ def run_scan(job: dict) -> None:
                 ai_enrichment_attempts += 1
             if asset.get("_ai_enrichment_applied"):
                 ai_enrichment_applied += 1
+            ai_reason = str(asset.get("_ai_enrichment_reason") or "").strip()
+            if ai_reason:
+                ai_reason_counts[ai_reason] = ai_reason_counts.get(ai_reason, 0) + 1
             scanned += 1
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
 
@@ -3050,6 +3057,7 @@ def run_scan(job: dict) -> None:
         "routed_net_overrides": int(routed_override_count),
         "ai_enrichment_attempts": int(ai_enrichment_attempts),
         "ai_enrichment_applied": int(ai_enrichment_applied),
+        "ai_reason_counts": dict(sorted(ai_reason_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
         "open_ports_total": 0,
         "top_ports": [],
         "categories": {},
@@ -3116,13 +3124,27 @@ def run_scan(job: dict) -> None:
     except Exception as e:
         log.warning("[job %d] Could not build history summary: %s", job_id, e)
 
-    # Optional AI executive summary for this run.
-    if bool(ai_cfg.get("available")) and int(summary.get("assets_catalogued", 0)) > 0:
-        ai_scan_doc, ai_scan_err = _run_ai_scan_summary_ollama(ai_cfg, summary)
-        if ai_scan_doc:
-            summary["ai_summary"] = ai_scan_doc
-        elif ai_scan_err and ai_scan_err not in {"timeout", "no_json"}:
-            log.info("[job %d] ai_scan_summary_skip reason=%s", job_id, ai_scan_err[:120])
+    # Optional AI executive summary for this run (always record outcome when AI is enabled).
+    summary["ai_scan_summary_status"] = "skipped_disabled"
+    summary["ai_scan_summary_detail"] = ""
+    if bool(ai_cfg.get("enabled")):
+        ac = int(summary.get("assets_catalogued", 0))
+        if ac <= 0:
+            summary["ai_scan_summary_status"] = "skipped_no_assets"
+            summary["ai_scan_summary_detail"] = "No catalogued assets for this run"
+        elif not bool(ai_cfg.get("available")):
+            summary["ai_scan_summary_status"] = "skipped_runtime"
+            summary["ai_scan_summary_detail"] = str(ai_cfg.get("availability_reason") or "runtime_unreachable")
+        else:
+            ai_scan_doc, ai_scan_err = _run_ai_scan_summary_ollama(ai_cfg, summary)
+            if ai_scan_doc:
+                summary["ai_summary"] = ai_scan_doc
+                summary["ai_scan_summary_status"] = "ok"
+            else:
+                err = (ai_scan_err or "unknown")[:200]
+                summary["ai_scan_summary_status"] = "failed"
+                summary["ai_scan_summary_detail"] = err
+                log.info("[job %d] ai_scan_summary_skip reason=%s", job_id, err[:120])
 
     with db_conn() as conn:
         # Preserve run-specific evidence so historical scan details remain stable

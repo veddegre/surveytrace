@@ -233,31 +233,48 @@ $summary_bullets[] = "New issues identified this period: " . $curr_findings_new 
 
 // Optional AI summary from the latest completed run summary_json
 $exec_ai_summary = null;
+$exec_ai_scan_meta = null;
 try {
-    $sr = $db->query("
-        SELECT summary_json
+    $row = $db->query("
+        SELECT id, label, summary_json
         FROM scan_jobs
         WHERE status = 'done'
           AND summary_json IS NOT NULL
           AND summary_json != ''
         ORDER BY id DESC
         LIMIT 1
-    ")->fetchColumn();
-    if (is_string($sr) && trim($sr) !== '') {
-        $sj = json_decode($sr, true);
-        if (is_array($sj) && isset($sj['ai_summary']) && is_array($sj['ai_summary'])) {
-            $ov = trim((string)($sj['ai_summary']['overview'] ?? ''));
-            $cc = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['concerns'] ?? []))));
-            $ns = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['next_steps'] ?? []))));
-            $exec_ai_summary = [
-                'overview' => $ov,
-                'concerns' => array_slice($cc, 0, 5),
-                'next_steps' => array_slice($ns, 0, 5),
+    ")->fetch(PDO::FETCH_ASSOC);
+    if (is_array($row) && is_string($row['summary_json'] ?? null) && trim((string)$row['summary_json']) !== '') {
+        $rawSj = (string)$row['summary_json'];
+        $sj = json_decode($rawSj, true);
+        if (!is_array($sj)) {
+            $sj = json_decode($rawSj, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        if (is_array($sj)) {
+            $exec_ai_scan_meta = [
+                'job_id' => (int)($row['id'] ?? 0),
+                'label' => (string)($row['label'] ?? ''),
+                'ai_enrichment_attempts' => (int)($sj['ai_enrichment_attempts'] ?? 0),
+                'ai_enrichment_applied' => (int)($sj['ai_enrichment_applied'] ?? 0),
+                'ai_reason_counts' => is_array($sj['ai_reason_counts'] ?? null) ? $sj['ai_reason_counts'] : [],
+                'ai_scan_summary_status' => (string)($sj['ai_scan_summary_status'] ?? ''),
+                'ai_scan_summary_detail' => (string)($sj['ai_scan_summary_detail'] ?? ''),
             ];
+            if (isset($sj['ai_summary']) && is_array($sj['ai_summary'])) {
+                $ov = trim((string)($sj['ai_summary']['overview'] ?? ''));
+                $cc = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['concerns'] ?? []))));
+                $ns = array_values(array_filter(array_map('strval', (array)($sj['ai_summary']['next_steps'] ?? []))));
+                $exec_ai_summary = [
+                    'overview' => $ov,
+                    'concerns' => array_slice($cc, 0, 5),
+                    'next_steps' => array_slice($ns, 0, 5),
+                ];
+            }
         }
     }
 } catch (Throwable $e) {
     $exec_ai_summary = null;
+    $exec_ai_scan_meta = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -453,5 +470,6 @@ st_json([
         ],
         'brief' => $summary_bullets,
         'ai_scan_summary' => $exec_ai_summary,
+        'ai_scan_meta' => $exec_ai_scan_meta,
     ],
 ]);

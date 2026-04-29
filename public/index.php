@@ -11,7 +11,7 @@
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.6.2') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.7.0') ?>">
 </head>
 <body>
 <div class="shell">
@@ -19,7 +19,7 @@
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.6.2' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.7.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -116,6 +116,10 @@
         <div class="ct">Recommended actions (next 24h)</div>
         <div id="exec-actions" class="exec-brief-list">Loading…</div>
       </div>
+    </div>
+    <div class="card" id="exec-ai-card-wrap" style="margin-top:12px">
+      <div class="ct">AI scan summary (latest completed run)</div>
+      <div id="exec-ai-summary" class="exec-brief-list text-micro">Loading…</div>
     </div>
     <div class="sth">Security posture overview</div>
     <div class="sgrid" id="exec-kpis">
@@ -675,6 +679,7 @@
         <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
         <div class="row-wrap gap6" style="align-items:center">
           <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
+          <button type="button" class="tbtn" id="scan-hist-detail-refresh-ai" style="display:none" onclick="void refreshScanHistAiSummary()">Refresh AI summary</button>
           <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="scanHistoryPrimaryAction(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Move to trash</button>
           <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
         </div>
@@ -994,7 +999,7 @@
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.6.2', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.7.0', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span><br>
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
@@ -2515,12 +2520,51 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     ].join('');
     const brief = Array.isArray(exec.brief) ? exec.brief : [];
     const aiRunSummary = exec.ai_scan_summary && typeof exec.ai_scan_summary === 'object' ? exec.ai_scan_summary : null;
+    const aiMeta = exec.ai_scan_meta && typeof exec.ai_scan_meta === 'object' ? exec.ai_scan_meta : null;
     const aiOverview = aiRunSummary && aiRunSummary.overview ? String(aiRunSummary.overview) : '';
     const aiConcerns = aiRunSummary && Array.isArray(aiRunSummary.concerns) ? aiRunSummary.concerns : [];
     const aiNext = aiRunSummary && Array.isArray(aiRunSummary.next_steps) ? aiRunSummary.next_steps : [];
     document.getElementById('exec-brief-list').innerHTML = brief.length
         ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
         : '<div class="text-dim">No executive brief available yet.</div>';
+
+    const aiEl = document.getElementById('exec-ai-summary');
+    if (aiEl) {
+        if (!aiMeta || !aiMeta.job_id) {
+            aiEl.innerHTML = '<div class="text-dim">No completed scan with a stored summary yet. After a successful scan, AI text appears here when AI enrichment produced a run summary.</div>';
+        } else {
+            const jid = Number(aiMeta.job_id || 0);
+            const att = Number(aiMeta.ai_enrichment_attempts || 0);
+            const app = Number(aiMeta.ai_enrichment_applied || 0);
+            const rc = aiMeta.ai_reason_counts && typeof aiMeta.ai_reason_counts === 'object'
+                ? Object.entries(aiMeta.ai_reason_counts).map(([k, v]) => `${k}:${v}`).join(', ')
+                : '';
+            const metaLine = `Scan <span class="mono">#${jid}</span>${aiMeta.label ? ' — ' + esc(String(aiMeta.label)) : ''} · per-host AI: attempted <b>${att}</b> · applied <b>${app}</b>`;
+            const reasonLine = rc ? `<div class="summary-line" style="margin-top:6px">Gate/skip reasons: <span class="mono">${esc(rc)}</span></div>` : '';
+            if (aiOverview || aiConcerns.length || aiNext.length) {
+                aiEl.innerHTML = `
+                  <div class="summary-line text-dim">${metaLine}</div>
+                  ${reasonLine}
+                  ${aiOverview ? `<div class="summary-line" style="margin-top:8px">${esc(aiOverview)}</div>` : ''}
+                  ${aiConcerns.length ? `<div class="summary-line" style="margin-top:6px"><b>Concerns</b><ul class="exec-brief-ul">${aiConcerns.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
+                  ${aiNext.length ? `<div class="summary-line" style="margin-top:6px"><b>Next checks</b><ul class="exec-brief-ul">${aiNext.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
+                  <div class="summary-line" style="margin-top:8px"><button type="button" class="tbtn btn-xs" onclick="goTab('scanhist');hiNav('nscanhist');void openScanHistDetail(${jid})">Open scan #${jid} details</button></div>
+                `;
+            } else {
+                const st = aiMeta.ai_scan_summary_status ? String(aiMeta.ai_scan_summary_status) : '';
+                const det = aiMeta.ai_scan_summary_detail ? String(aiMeta.ai_scan_summary_detail) : '';
+                const statusLine = st || det
+                    ? `<div class="summary-line" style="margin-top:8px"><b>AI run summary status</b>: <span class="mono">${esc(st || '—')}</span>${det ? `<div class="text-dim" style="margin-top:4px">${esc(det)}</div>` : ''}</div>`
+                    : `<div class="summary-line" style="margin-top:8px">No AI executive summary text for this run. Check <b>Settings → Local AI</b>, model pull, and scan job logs.</div>`;
+                aiEl.innerHTML = `
+                  <div class="summary-line text-dim">${metaLine}</div>
+                  ${reasonLine}
+                  ${statusLine}
+                  <div class="summary-line" style="margin-top:8px"><button type="button" class="tbtn btn-xs" onclick="goTab('scanhist');hiNav('nscanhist');void openScanHistDetail(${jid})">Open scan #${jid} details</button></div>
+                `;
+            }
+        }
+    }
 
     const actions = [];
     if ((k.critical_open || 0) > 0) {
@@ -2538,15 +2582,6 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     }
     if (!actions.length) {
         actions.push('No urgent actions are currently flagged. Continue weekly monitoring and keep scan coverage consistent.');
-    }
-    if (aiOverview) {
-        actions.unshift(`AI run overview: ${aiOverview}`);
-    }
-    if (aiConcerns.length) {
-        actions.unshift(`AI concerns: ${aiConcerns.join(' | ')}`);
-    }
-    if (aiNext.length) {
-        actions.unshift(`AI next checks: ${aiNext.join(' | ')}`);
     }
     document.getElementById('exec-actions').innerHTML = `<ul class="exec-brief-ul">${actions.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`;
 
@@ -3800,6 +3835,158 @@ function bindScanHistoryDelegates() {
 bindScanHistoryDelegates();
 wireHostRescanModalOnce();
 
+async function refreshScanHistAiSummary() {
+    const btn = document.getElementById('scan-hist-detail-refresh-ai');
+    const jobId = parseInt(btn?.dataset.jobId || '0', 10);
+    if (!jobId || !stRoleCanManageScans()) return;
+    const cmpSel = document.getElementById('scan-hist-compare-select');
+    const cmp = cmpSel ? parseInt(String(cmpSel.value || '0'), 10) || 0 : 0;
+    const scope = typeof currentCompareScope === 'function' ? currentCompareScope() : 'any';
+    const prev = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Refreshing…';
+    }
+    const r = await apiPost('/api/ai_actions.php', { action: 'refresh_scan_summary', job_id: jobId });
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = prev || 'Refresh AI summary';
+    }
+    if (!r) return;
+    if (r.ok) {
+        toast('Scan AI summary updated', 'ok');
+        await openScanHistDetail(jobId, cmp > 0 ? cmp : 0, scope, true);
+        return;
+    }
+    toast((r.error || 'Refresh failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+}
+
+function hpAiEnvelopeBody(env) {
+    if (!env || typeof env !== 'object') return '<div class="hp-empty">Not generated yet.</div>';
+    const st = String(env.status || '');
+    const det = env.detail != null ? String(env.detail) : '';
+    if (st === 'skipped' && det === 'no_open_findings') {
+        return '<div class="hp-empty">No open CVEs on this host — nothing to triage.</div>';
+    }
+    if (st === 'failed' || st === 'skipped') {
+        return `<div class="hp-empty">${
+            st === 'failed' ? 'Generation failed' : 'Skipped'
+        }${det ? ` — ${esc(det)}` : ''}</div>`;
+    }
+    const doc = env.doc && typeof env.doc === 'object' ? env.doc : null;
+    if (!doc) return '<div class="hp-empty">No content.</div>';
+    return '';
+}
+
+function hpAiFindingsDocHtml(doc) {
+    const rs = doc.risk_summary ? `<div class="summary-line" style="margin-top:6px">${esc(String(doc.risk_summary))}</div>` : '';
+    const pr = doc.prioritize ? `<div class="summary-line text-dim" style="margin-top:6px"><b>Prioritize:</b> ${esc(String(doc.prioritize))}</div>` : '';
+    const bl = Array.isArray(doc.remediation_bullets) && doc.remediation_bullets.length
+        ? `<ul class="hp-ai-ul">${doc.remediation_bullets.map(b => `<li>${esc(String(b))}</li>`).join('')}</ul>`
+        : '';
+    const note = doc.note ? `<div class="hint-micro mt6">${esc(String(doc.note))}</div>` : '';
+    if (!rs && !pr && !bl && !note) return '<div class="hp-empty">Model returned an empty structure.</div>';
+    return rs + pr + bl + note;
+}
+
+function hpAiExplainDocHtml(doc) {
+    const ov = doc.overview ? `<div class="summary-line" style="margin-top:6px">${esc(String(doc.overview))}</div>` : '';
+    const roles = Array.isArray(doc.likely_roles) && doc.likely_roles.length
+        ? `<div class="summary-line mt6"><b>Likely roles</b><ul class="hp-ai-ul">${doc.likely_roles.map(x => `<li>${esc(String(x))}</li>`).join('')}</ul></div>`
+        : '';
+    const tips = Array.isArray(doc.hardening_tips) && doc.hardening_tips.length
+        ? `<div class="summary-line mt6"><b>Hardening ideas</b><ul class="hp-ai-ul">${doc.hardening_tips.map(x => `<li>${esc(String(x))}</li>`).join('')}</ul></div>`
+        : '';
+    const qs = Array.isArray(doc.owner_questions) && doc.owner_questions.length
+        ? `<div class="summary-line mt6"><b>Ask the owner</b><ul class="hp-ai-ul">${doc.owner_questions.map(x => `<li>${esc(String(x))}</li>`).join('')}</ul></div>`
+        : '';
+    if (!ov && !roles && !tips && !qs) return '<div class="hp-empty">Model returned an empty structure.</div>';
+    return ov + roles + tips + qs;
+}
+
+function renderHpAiOperatorSection(a, assetId, ip) {
+    const fg = a.ai_findings_guidance && typeof a.ai_findings_guidance === 'object' ? a.ai_findings_guidance : null;
+    const ex = a.ai_host_explain && typeof a.ai_host_explain === 'object' ? a.ai_host_explain : null;
+    const ipJs = JSON.stringify(String(ip || ''));
+    const can = stRoleCanManageScans();
+
+    let fgInner = hpAiEnvelopeBody(fg);
+    if (fg && String(fg.status || '') === 'ok' && fg.doc) fgInner = hpAiFindingsDocHtml(fg.doc);
+
+    let exInner = hpAiEnvelopeBody(ex);
+    if (ex && String(ex.status || '') === 'ok' && ex.doc) exInner = hpAiExplainDocHtml(ex.doc);
+
+    const fgBtns = can
+        ? `<div class="row-wrap gap6 mt6">
+            <button type="button" class="tbtn btn-xs" onclick="void runAiHostGuidance(${assetId}, ${ipJs}, ${fg ? 'true' : 'false'})">${fg ? 'Regenerate' : 'Generate'} CVE guidance</button>
+          </div>`
+        : '<div class="hint-micro mt6">Scan editor or admin role required to run AI.</div>';
+    const exBtns = can
+        ? `<div class="row-wrap gap6 mt6">
+            <button type="button" class="tbtn btn-xs" onclick="void runAiHostExplain(${assetId}, ${ipJs}, ${ex ? 'true' : 'false'})">${ex ? 'Regenerate' : 'Generate'} host summary</button>
+          </div>`
+        : '';
+
+    const tsFg = fg && fg.ts ? `<span class="text-micro text-dim"> · ${esc(String(fg.ts))}</span>` : '';
+    const tsEx = ex && ex.ts ? `<span class="text-micro text-dim"> · ${esc(String(ex.ts))}</span>` : '';
+
+    return `
+      <div class="hp-head">AI operator hints <span class="text-dim">(suggestions only — verify before acting)</span></div>
+      <p class="hint-micro" style="margin:4px 0 10px">Local model output may be wrong; use findings and change logs as source of truth.</p>
+      <div class="hp-ai-cols">
+        <div class="hp-block hp-ai-col">
+          <div class="text-micro" style="font-weight:600;margin-bottom:4px">CVE triage${tsFg}</div>
+          ${fgInner}
+          ${fgBtns}
+        </div>
+        <div class="hp-block hp-ai-col">
+          <div class="text-micro" style="font-weight:600;margin-bottom:4px">Explain this host${tsEx}</div>
+          ${exInner}
+          ${exBtns}
+        </div>
+      </div>`;
+}
+
+async function runAiHostGuidance(assetId, ip, force) {
+    if (!stRoleCanManageScans()) {
+        toast('Permission denied — scan editor or admin role required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/ai_actions.php', {
+        action: 'findings_guidance',
+        asset_id: assetId,
+        force: !!force,
+    });
+    if (!r) return;
+    if (r.ok) {
+        toast(r.cached ? 'Showing cached CVE guidance' : 'CVE guidance ready', 'ok');
+        await openHostPanel(assetId, ip);
+        return;
+    }
+    toast((r.error || 'CVE guidance failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+    if (r.envelope || r.ok === false) await openHostPanel(assetId, ip);
+}
+
+async function runAiHostExplain(assetId, ip, force) {
+    if (!stRoleCanManageScans()) {
+        toast('Permission denied — scan editor or admin role required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/ai_actions.php', {
+        action: 'explain_host',
+        asset_id: assetId,
+        force: !!force,
+    });
+    if (!r) return;
+    if (r.ok) {
+        toast(r.cached ? 'Showing cached host summary' : 'Host summary ready', 'ok');
+        await openHostPanel(assetId, ip);
+        return;
+    }
+    toast((r.error || 'Host summary failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+    await openHostPanel(assetId, ip);
+}
+
 function bindScanDetailAssetDelegates() {
     const tbody = document.getElementById('scan-hist-detail-assets');
     if (!tbody || tbody.dataset.scanAssetDelegatesBound === '1') return;
@@ -3985,10 +4172,27 @@ function renderScanSummary(summary) {
     const portText = topPorts.length
         ? topPorts.slice(0, 6).map(p => `${p.port}(${p.hosts})`).join(', ')
         : '—';
-    const aiSummary = summary.ai_summary && typeof summary.ai_summary === 'object' ? summary.ai_summary : null;
+    let aiSummaryRaw = summary.ai_summary;
+    if (typeof aiSummaryRaw === 'string' && aiSummaryRaw.trim()) {
+        try {
+            aiSummaryRaw = JSON.parse(aiSummaryRaw);
+        } catch (e) {
+            aiSummaryRaw = null;
+        }
+    }
+    const aiSummary = aiSummaryRaw && typeof aiSummaryRaw === 'object' ? aiSummaryRaw : null;
+    const aiReasonCounts = summary.ai_reason_counts && typeof summary.ai_reason_counts === 'object'
+        ? Object.entries(summary.ai_reason_counts).map(([k,v]) => `${k}:${v}`).join(', ')
+        : '';
     const aiOverview = aiSummary && aiSummary.overview ? String(aiSummary.overview) : '';
     const aiConcerns = aiSummary && Array.isArray(aiSummary.concerns) ? aiSummary.concerns : [];
     const aiNext = aiSummary && Array.isArray(aiSummary.next_steps) ? aiSummary.next_steps : [];
+    const aiStatus = summary.ai_scan_summary_status != null ? String(summary.ai_scan_summary_status) : '';
+    const aiDetail = summary.ai_scan_summary_detail != null ? String(summary.ai_scan_summary_detail) : '';
+    const aiStatusBlock = (aiStatus || aiDetail) && (!aiSummary || (!aiOverview && !aiConcerns.length && !aiNext.length))
+        ? `<div class="summary-line" style="margin-top:8px"><b>AI run summary</b> <span class="text-dim">(${esc(aiStatus || '—')})</span></div>
+           ${aiDetail ? `<div class="summary-line text-dim">${esc(aiDetail)}</div>` : ''}`
+        : '';
     const aiBlock = aiSummary ? `
       <div class="summary-line" style="margin-top:8px"><b>AI run summary</b></div>
       ${aiOverview ? `<div class="summary-line">${esc(aiOverview)}</div>` : ''}
@@ -4001,7 +4205,8 @@ function renderScanSummary(summary) {
       <div class="summary-line">Top ports: <span class="mono">${esc(portText)}</span></div>
       <div class="summary-line">Categories: <span class="mono">${esc(cats || '—')}</span></div>
       <div class="summary-line">AI enrichment: attempted <b>${summary.ai_enrichment_attempts || 0}</b> &nbsp;|&nbsp; applied <b>${summary.ai_enrichment_applied || 0}</b></div>
-      ${aiBlock}
+      ${aiReasonCounts ? `<div class="summary-line">AI gate/skip reasons: <span class="mono">${esc(aiReasonCounts)}</span></div>` : ''}
+      ${aiBlock || aiStatusBlock}
     `;
 }
 
@@ -4130,6 +4335,11 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         delBtn.textContent = isTrashed ? (stRoleIsAdmin() ? 'Delete permanently' : 'Restore') : 'Move to trash';
         delBtn.style.color = isTrashed && stRoleIsAdmin() ? 'var(--red)' : '';
         delBtn.style.display = (stRoleCanManageScans() && ['done', 'aborted', 'failed'].includes(j.status)) ? '' : 'none';
+    }
+    const aiRefBtn = document.getElementById('scan-hist-detail-refresh-ai');
+    if (aiRefBtn) {
+        aiRefBtn.dataset.jobId = String(j.id);
+        aiRefBtn.style.display = (!isTrashed && j.status === 'done' && stRoleCanManageScans()) ? '' : 'none';
     }
     title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
     const phasesRan = Array.isArray(j.phases) && j.phases.length ? j.phases.join(', ') : '—';
@@ -7067,6 +7277,8 @@ async function openHostPanel(id, ip) {
         ${findings.length ? `<button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View all</button>` : ''}
       </div>
       <div class="mb14">${findingRows}</div>
+
+      ${renderHpAiOperatorSection(a, id, a.ip)}
 
       <div class="hp-head">
         Port history

@@ -7,7 +7,7 @@
 // Always use UTC for all date/time operations regardless of server timezone
 date_default_timezone_set('UTC');
 
-define('ST_VERSION',  '0.6.2');
+define('ST_VERSION',  '0.7.0');
 define('ST_DB_PATH',  dirname(__DIR__) . '/data/surveytrace.db');
 define('ST_SCHEMA',   dirname(__DIR__) . '/sql/schema.sql');
 define('ST_DATA_DIR', dirname(__DIR__) . '/data');
@@ -180,6 +180,8 @@ function st_db(): PDO {
         "ALTER TABLE assets ADD COLUMN ai_last_reason TEXT",
         "ALTER TABLE assets ADD COLUMN ai_last_attempted INTEGER DEFAULT 0",
         "ALTER TABLE assets ADD COLUMN ai_last_decision_ts DATETIME",
+        "ALTER TABLE assets ADD COLUMN ai_findings_guidance_cache TEXT",
+        "ALTER TABLE assets ADD COLUMN ai_host_explain_cache TEXT",
     ] as $sql) {
         try {
             $pdo->exec($sql);

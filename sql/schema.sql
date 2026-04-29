@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS assets (
     ai_last_reason TEXT,
     ai_last_attempted INTEGER DEFAULT 0,
     ai_last_decision_ts DATETIME,
+    ai_findings_guidance_cache TEXT,
+    ai_host_explain_cache TEXT,
     top_cve      TEXT,
     top_cvss     REAL,
     first_seen   DATETIME DEFAULT CURRENT_TIMESTAMP,
