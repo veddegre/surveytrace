@@ -49,6 +49,13 @@ function st_db(): PDO {
         return $pdo;
     }
 
+    // Many workers opening the DB at once (deploy, Apache restart) otherwise replay migrations in parallel
+    // and hammer SQLite with overlapping writes ("database is locked"). Serialize bootstrap across processes.
+    $bootstrapLockFh = @fopen($dir . '/.surveytrace_bootstrap.lock', 'c');
+    if ($bootstrapLockFh !== false) {
+        flock($bootstrapLockFh, LOCK_EX);
+    }
+    try {
     // Auto-bootstrap schema on first run
     $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('assets', $tables)) {
@@ -312,6 +319,12 @@ function st_db(): PDO {
     st_migrate_device_identity_v1($pdo);
 
     $st_db_worker_migrations_done = true;
+    } finally {
+        if ($bootstrapLockFh !== false) {
+            flock($bootstrapLockFh, LOCK_UN);
+            fclose($bootstrapLockFh);
+        }
+    }
 
     $GLOBALS['st_surveytrace_pdo'] = $pdo;
     return $pdo;
