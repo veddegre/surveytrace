@@ -2108,7 +2108,7 @@ async function apiPost(url, body) {
                 ? txt.replace(/\s+/g, ' ').trim().slice(0, 220)
                 : '';
             const emptyHint = (url && String(url).indexOf('ai_actions.php') >= 0)
-                ? 'Empty response — deploy api/lib_ai_ollama.php with api/ai_actions.php, reload the app once for DB migrations, then check php-fpm/nginx logs if it persists.'
+                ? 'Empty response — redeploy api/ai_actions.php, reload the app once for DB migrations, then check php-fpm/nginx logs if it persists.'
                 : 'Empty body — check PHP / nginx error log';
             toast(
                 hint

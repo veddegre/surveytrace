@@ -116,14 +116,14 @@ bash deploy.sh
 
 `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
-- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (on-demand operator AI: CVE triage, explain host, refresh scan summary; requires `lib_ai_ollama.php`), `settings.php`, etc.
+- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, etc.
 - **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
 It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 
-If **AI operator** buttons return **HTTP 500** with an empty body, confirm **`api/lib_ai_ollama.php`** is present next to **`api/ai_actions.php`** on the server (both are listed in `deploy.sh`); a missing include fails before JSON is emitted. After deploy, load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
+If **AI operator** buttons fail, redeploy **`api/ai_actions.php`** (single file; see `deploy.sh`) and load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
 
 **Feed sync from the browser:** Under **PHP-FPM**, sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`**, the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
 
@@ -142,8 +142,8 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 - **Minor release (operator AI)** — bumps the minor version because this release adds a new on-demand AI surface (not just a patch).
 - **Scan AI summary reliability** — daemon uses a longer Ollama timeout for run-wide summaries, always records `ai_scan_summary_status` / `ai_scan_summary_detail` when AI is enabled, and scan/dashboard/history paths decode `summary_json` more robustly (including UTF-8 substitution). UI shows structured summary or status detail so completed runs are not blank.
-- **On-demand operator AI** — `POST /api/ai_actions.php` (`findings_guidance`, `explain_host`, `refresh_scan_summary`) backed by **`api/lib_ai_ollama.php`**; host detail panel adds AI operator hints with cached results on **`assets.ai_findings_guidance_cache`** / **`assets.ai_host_explain_cache`** (migrated on startup). Scan history detail adds **Refresh AI summary** for `done` jobs.
-- **Deploy** — `deploy.sh` copies `ai_actions.php` and `lib_ai_ollama.php`, and post-deploy checks verify them.
+- **On-demand operator AI** — `POST /api/ai_actions.php` (`findings_guidance`, `explain_host`, `refresh_scan_summary`; Ollama helpers inlined in that file). Host detail panel adds AI operator hints with cached results on **`assets.ai_findings_guidance_cache`** / **`assets.ai_host_explain_cache`** (migrated on startup). Scan history detail adds **Refresh AI summary** for `done` jobs.
+- **Deploy** — `deploy.sh` copies `ai_actions.php` and post-deploy checks verify it.
 
 ### 0.6.2
 

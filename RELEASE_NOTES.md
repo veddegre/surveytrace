@@ -7,9 +7,9 @@ For roadmap and deep technical context, see `README.md`.
 
 - **Minor release** — new operator-facing AI capabilities and related persistence warrant `0.7.0` rather than a patch-only bump.
 - **Scan completion AI summary** — longer Ollama timeout for run-wide summaries; scan `summary_json` always carries `ai_scan_summary_status` / `ai_scan_summary_detail` when AI is enabled; safer JSON decode for history and dashboard; host/executive UI shows structured `ai_summary` or the recorded status when the model or runtime fails.
-- **On-demand operator AI** — new `POST /api/ai_actions.php` with `lib_ai_ollama.php`: **CVE triage** and **explain this host** (cached per asset on new columns, fingerprinted by findings/host context), plus **refresh scan summary** for completed jobs without re-running the scan.
+- **On-demand operator AI** — new `POST /api/ai_actions.php` (self-contained): **CVE triage** and **explain this host** (cached per asset on new columns, fingerprinted by findings/host context), plus **refresh scan summary** for completed jobs without re-running the scan.
 - **Host panel** — “AI operator hints” section with generate/regenerate controls (scan editor / admin); viewers may read cached text.
-- **Deploy** — `deploy.sh` includes `api/ai_actions.php` and `api/lib_ai_ollama.php` and verifies their presence under `/opt/surveytrace/api/`.
+- **Deploy** — `deploy.sh` includes `api/ai_actions.php` and verifies it under `/opt/surveytrace/api/`.
 
 ## 0.6.2 (2026-04-29)
 

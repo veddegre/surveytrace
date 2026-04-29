@@ -2,7 +2,7 @@
 
 Use this as a context starter in a new conversation.
 
-**Release:** **0.7.0** (`ST_VERSION` in `api/db.php`) — operator AI (`ai_actions.php` / host hints / scan summary refresh), scan AI summary reliability, plus prior 0.6.x work (rescan parity, full-tcp safeguards, DB backup/restore).
+**Release:** **0.7.0** (`ST_VERSION` in `api/db.php`) — operator AI (`api/ai_actions.php` self-contained / host hints / scan summary refresh), scan AI summary reliability, plus prior 0.6.x work (rescan parity, full-tcp safeguards, DB backup/restore).
 
 ## Where things stand
 
