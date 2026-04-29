@@ -605,14 +605,12 @@ try {
             // Host CVE triage: long prompts + local CPU can exceed 60s. Do not tie wall clock to
             // ai_timeout_ms (that knob is for daemon per-host enrichment, 100–5000 ms).
             $timeoutS = 180.0;
-            // PDOStatement keeps a reference to PDO — drop it so release actually closes SQLite.
+            // End statement scope so SQLite is idle during Ollama (no open cursor / txn on this PDO).
+            // Do NOT disconnect here: st_db() reconnect re-runs the full migration/bootstrap path and
+            // holds the writer far longer than keeping one autocommitted connection.
             $stmt = null;
             $fstmt = null;
-            // Release SQLite before Ollama so the worker does not hold DB state for minutes.
-            st_db_release_connection();
-            $db = null;
             $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
-            $db = st_db();
             if (!$gen['ok']) {
                 $envelope = [
                     'fp' => $fp,
@@ -706,10 +704,7 @@ try {
         $timeoutS = 180.0;
         $stmt = null;
         $fstmt = null;
-        st_db_release_connection();
-        $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
-        $db = st_db();
         if (!$gen['ok']) {
             $envelope = [
                 'fp' => $fp,
@@ -816,10 +811,7 @@ try {
         @ignore_user_abort(true);
         $timeoutS = 180.0;
         $jstmt = null;
-        st_db_release_connection();
-        $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
-        $db = st_db();
         if (!$gen['ok']) {
             $summary['ai_scan_summary_status'] = 'failed';
             $summary['ai_scan_summary_detail'] = substr($gen['err'], 0, 200);
