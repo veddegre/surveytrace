@@ -165,20 +165,34 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
 
     $raw = '';
     $ms = (int)max(500, min(120000, (int)($timeout_s * 1000)));
+    $connectMs = (int)max(1000, min(15000, $ms));
+    $curlNote = '';
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $connectMs);
         curl_setopt($ch, CURLOPT_TIMEOUT_MS, $ms);
         $res = curl_exec($ch);
-        if (is_string($res)) {
-            $raw = $res;
-        }
+        $errno = (int)curl_errno($ch);
+        $cerr = trim((string)curl_error($ch));
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
+        if ($res === false) {
+            $curlNote = $errno !== 0 ? "curl errno {$errno}: {$cerr}" : ($cerr !== '' ? $cerr : 'curl_exec returned false');
+        } elseif (is_string($res)) {
+            $raw = $res;
+            if ($raw === '' && $httpCode >= 400) {
+                $curlNote = "HTTP {$httpCode} from Ollama (empty body)";
+            }
+        }
     }
     if ($raw === '') {
+        if (!ini_get('allow_url_fopen')) {
+            $curlNote = trim($curlNote . ' allow_url_fopen=0 (cannot fall back to HTTP stream)');
+        }
         $ctx = stream_context_create([
             'http' => [
                 'method' => 'POST',
@@ -188,20 +202,26 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
             ],
         ]);
         $res = @file_get_contents($url, false, $ctx);
-        if (is_string($res)) {
+        if (is_string($res) && $res !== '') {
             $raw = $res;
+            $curlNote = '';
         }
     }
     if ($raw === '') {
-        return ['ok' => false, 'text' => '', 'err' => 'empty_response'];
+        $hint = $curlNote !== '' ? $curlNote : 'no data from 127.0.0.1:11434';
+        return ['ok' => false, 'text' => '', 'err' => 'empty_response: ' . substr($hint, 0, 220)];
     }
     $doc = json_decode($raw, true);
     if (!is_array($doc)) {
-        return ['ok' => false, 'text' => '', 'err' => 'bad_json'];
+        return ['ok' => false, 'text' => '', 'err' => 'bad_json: ' . substr(trim($raw), 0, 160)];
+    }
+    $apiErr = trim((string)($doc['error'] ?? ''));
+    if ($apiErr !== '') {
+        return ['ok' => false, 'text' => '', 'err' => 'ollama: ' . substr($apiErr, 0, 300)];
     }
     $out = trim((string)($doc['response'] ?? ''));
     if ($out === '') {
-        return ['ok' => false, 'text' => '', 'err' => 'empty_model_output'];
+        return ['ok' => false, 'text' => '', 'err' => 'empty_model_output (check model is pulled: ollama pull ' . $model . ')'];
     }
     return ['ok' => true, 'text' => $out, 'err' => ''];
 }
