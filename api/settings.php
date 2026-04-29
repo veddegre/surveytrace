@@ -45,12 +45,53 @@ function st_cmd_available(string $cmd): bool {
     return is_string($out) && trim($out) !== '';
 }
 
+function st_ollama_api_tags(): array {
+    $url = 'http://127.0.0.1:11434/api/tags';
+    $raw = '';
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 1500);
+        $res = curl_exec($ch);
+        if (is_string($res)) {
+            $raw = $res;
+        }
+        curl_close($ch);
+    }
+    if ($raw === '') {
+        $ctx = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 2,
+            ],
+        ]);
+        $res = @file_get_contents($url, false, $ctx);
+        if (is_string($res)) {
+            $raw = $res;
+        }
+    }
+    if ($raw === '') return [];
+    $doc = json_decode($raw, true);
+    if (!is_array($doc) || !isset($doc['models']) || !is_array($doc['models'])) return [];
+    $mods = [];
+    foreach ($doc['models'] as $m) {
+        if (!is_array($m)) continue;
+        $name = trim((string)($m['name'] ?? ''));
+        if ($name !== '') $mods[] = $name;
+    }
+    return array_values(array_unique($mods));
+}
+
 function st_ollama_runtime_status(): array {
     $installed = st_cmd_available('ollama');
     $running = false;
     $version = '';
     $models = [];
-    if ($installed && st_shell_available_for_settings()) {
+    $apiModels = st_ollama_api_tags();
+    if ($apiModels) {
+        $running = true;
+        $models = $apiModels;
+    } elseif ($installed && st_shell_available_for_settings()) {
         $vout = @shell_exec('ollama --version 2>/dev/null');
         if (is_string($vout)) {
             $version = trim($vout);
@@ -72,7 +113,18 @@ function st_ollama_runtime_status(): array {
             }
         }
     }
-    $cfgModel = (string)st_config('ai_model', 'phi3:mini');
+    if ($version === '' && $installed && st_shell_available_for_settings()) {
+        $vout = @shell_exec('ollama --version 2>/dev/null');
+        if (is_string($vout)) {
+            $version = trim($vout);
+        }
+    }
+    if (!$installed && $running) {
+        // Runtime is reachable (likely system service), even if CLI is unavailable in PATH for PHP.
+        $installed = true;
+    }
+    $cfgModel = trim((string)st_config('ai_model', 'phi3:mini'));
+    if ($cfgModel === '') $cfgModel = 'phi3:mini';
     $modelInstalled = in_array($cfgModel, $models, true);
     return [
         'installed' => $installed,

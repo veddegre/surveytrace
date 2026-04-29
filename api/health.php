@@ -466,7 +466,49 @@ try {
 
 if ((string)$health['ai']['provider'] === 'ollama') {
     $health['ai']['installed'] = st_health_cmd_available('ollama');
-    if ($health['ai']['installed']) {
+    $apiModels = [];
+    $tagsUrl = 'http://127.0.0.1:11434/api/tags';
+    $tagsRaw = '';
+    if (function_exists('curl_init')) {
+        $ch = curl_init($tagsUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 1500);
+        $res = curl_exec($ch);
+        if (is_string($res)) {
+            $tagsRaw = $res;
+        }
+        curl_close($ch);
+    }
+    if ($tagsRaw === '') {
+        $ctx = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 2,
+            ],
+        ]);
+        $res = @file_get_contents($tagsUrl, false, $ctx);
+        if (is_string($res)) {
+            $tagsRaw = $res;
+        }
+    }
+    if ($tagsRaw !== '') {
+        $doc = json_decode($tagsRaw, true);
+        if (is_array($doc) && isset($doc['models']) && is_array($doc['models'])) {
+            foreach ($doc['models'] as $m) {
+                if (!is_array($m)) continue;
+                $name = trim((string)($m['name'] ?? ''));
+                if ($name !== '') $apiModels[] = $name;
+            }
+        }
+    }
+    if ($apiModels) {
+        $health['ai']['running'] = true;
+        $health['ai']['models'] = array_values(array_unique($apiModels));
+        $health['ai']['detail'] = 'ollama runtime reachable';
+        if (!$health['ai']['installed']) {
+            $health['ai']['installed'] = true;
+        }
+    } elseif ($health['ai']['installed']) {
         $rows = [];
         $code = 1;
         @exec('ollama list 2>&1', $rows, $code);

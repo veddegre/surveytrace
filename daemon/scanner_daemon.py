@@ -17,12 +17,13 @@ import json
 import logging
 import os
 import re
-import shutil
 import socket
 import ssl
 import sqlite3
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -325,6 +326,12 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         conf_threshold_net_srv = 0.82
     conf_threshold_net_srv = max(0.50, min(0.99, conf_threshold_net_srv))
 
+    ollama_api_timeout = max(0.2, min(3.0, float(timeout_ms) / 1000.0))
+    ollama_api_reachable = _ollama_api_tags(timeout_s=ollama_api_timeout) is not None
+    available = enabled and provider == "ollama" and bool(model) and ollama_api_reachable
+    availability_reason = ""
+    if enabled and provider == "ollama" and model and not ollama_api_reachable:
+        availability_reason = "runtime_unreachable"
     return {
         "enabled": enabled,
         "provider": provider,
@@ -336,8 +343,78 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "conflict_only": conflict_only,
         "conf_threshold": conf_threshold,
         "conf_threshold_net_srv": conf_threshold_net_srv,
-        "available": enabled and provider == "ollama" and bool(model) and (shutil.which("ollama") is not None),
+        "available": available,
+        "availability_reason": availability_reason,
     }
+
+
+def _ollama_api_tags(timeout_s: float = 1.5) -> list[str] | None:
+    """
+    Return installed model tags from Ollama API, or None when runtime is unreachable.
+    """
+    req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    try:
+        doc = json.loads(payload)
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    rows = doc.get("models")
+    if not isinstance(rows, list):
+        return []
+    names: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return sorted(set(names))
+
+
+def _run_ollama_generate(model: str, prompt: str, timeout_s: float) -> tuple[str, str]:
+    """
+    Return (response_text, error). error is empty string on success.
+    """
+    body = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+    except TimeoutError:
+        return "", "timeout"
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            detail = ""
+        return "", f"http_{e.code}:{detail[:120]}"
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return "", f"api_unreachable:{str(e)[:120]}"
+    try:
+        doc = json.loads(payload)
+    except Exception:
+        return "", "bad_json"
+    if not isinstance(doc, dict):
+        return "", "bad_shape"
+    out = str(doc.get("response") or "").strip()
+    if out == "":
+        return "", "empty_response"
+    return out, ""
 
 
 def _should_run_ai_for_asset(
@@ -389,21 +466,9 @@ def _run_ai_enrichment_ollama(
         f"Open ports: {top_ports}\n"
         f"Banners: {banner_pairs}\n"
     )
-    try:
-        cp = subprocess.run(
-            ["ollama", "run", model, prompt],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired:
-        return {}, "timeout"
-    except Exception as e:
-        return {}, str(e)
-    if cp.returncode != 0:
-        err = (cp.stderr or cp.stdout or "").strip()
-        return {}, f"exit_{cp.returncode}:{err[:120]}"
-    out = (cp.stdout or "").strip()
+    out, err = _run_ollama_generate(model=model, prompt=prompt, timeout_s=timeout_s)
+    if err:
+        return {}, err
     m = re.search(r"\{.*\}", out, re.S)
     if not m:
         return {}, "no_json"
@@ -443,21 +508,9 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         "Be concise, practical, and avoid alarmist language.\n\n"
         f"Scan data JSON:\n{json.dumps(compact, ensure_ascii=False)}\n"
     )
-    try:
-        cp = subprocess.run(
-            ["ollama", "run", model, prompt],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired:
-        return {}, "timeout"
-    except Exception as e:
-        return {}, str(e)
-    if cp.returncode != 0:
-        err = (cp.stderr or cp.stdout or "").strip()
-        return {}, f"exit_{cp.returncode}:{err[:120]}"
-    out = (cp.stdout or "").strip()
+    out, err = _run_ollama_generate(model=model, prompt=prompt, timeout_s=timeout_s)
+    if err:
+        return {}, err
     m = re.search(r"\{.*\}", out, re.S)
     if not m:
         return {}, "no_json"
@@ -2342,6 +2395,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     ai_rationale = ""
     ai_to_cat = str(fp.get("category") or "unk")
     ai_skip_reason = ""
+    if ai_cfg and bool(ai_cfg.get("enabled")) and not bool(ai_cfg.get("available")):
+        ai_skip_reason = str(ai_cfg.get("availability_reason") or "runtime_unreachable")
     if ai_cfg and _should_run_ai_for_asset(ai_cfg, fp, ports, banners, hostname, ai_attempts):
         ai_enrichment_attempted = True
         ai_doc, ai_err = _run_ai_enrichment_ollama(ai_cfg, fp, hostname, ports, banners)
@@ -2564,6 +2619,12 @@ def run_scan(job: dict) -> None:
                 f"ambiguous_only={ai_cfg.get('ambiguous_only')} suggest_only={ai_cfg.get('suggest_only')} "
                 f"conflict_only={ai_cfg.get('conflict_only')} conf={ai_cfg.get('conf_threshold')} "
                 f"conf_net_srv={ai_cfg.get('conf_threshold_net_srv')}"
+            )
+        elif bool(ai_cfg.get("enabled")):
+            log_event(
+                conn, job_id, "INFO",
+                f"AI enrichment unavailable: reason={ai_cfg.get('availability_reason') or 'runtime_unreachable'} "
+                f"provider={ai_cfg.get('provider')} model={ai_cfg.get('model')}"
             )
     excl_raw  = job["exclusions"] or ""
 

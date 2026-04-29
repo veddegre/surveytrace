@@ -507,8 +507,8 @@
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
-      <tbody id="scan-hist"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+      <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>AI</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
+      <tbody id="scan-hist"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -3612,6 +3612,13 @@ async function loadScanHistory(history) {
     const canTrash = (j) => canManage && ['done', 'aborted', 'failed'].includes(j.status) && !j.deleted_at;
     const canRestore = (j) => canManage && !!j.deleted_at;
     const canPurge = (j) => !!j.deleted_at && stRoleIsAdmin();
+    const aiStat = (j) => {
+        const s = j && j.summary && typeof j.summary === 'object' ? j.summary : null;
+        const a = s ? Number(s.ai_enrichment_attempts || 0) : 0;
+        const p = s ? Number(s.ai_enrichment_applied || 0) : 0;
+        if (!a && !p) return '<span class="text-dim">—</span>';
+        return `<span class="mono">${a}/${p}</span>`;
+    };
     document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
       <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
@@ -3619,6 +3626,7 @@ async function loadScanHistory(history) {
       <td><span class="status-chip" style="color:${statColors2[j.status]||'var(--tx2)'}">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div class="text-micro" style="color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
       <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
       <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
+      <td class="mono" title="AI attempted/applied">${aiStat(j)}</td>
       <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10">${localDate(j.finished_at)}</td>
       <td class="nowrap-cell">
@@ -3628,7 +3636,7 @@ async function loadScanHistory(history) {
         ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
         ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
       </td>
-    </tr>`).join('') || '<tr><td colspan="9" class="loading">' + emptyMsg + '</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="10" class="loading">' + emptyMsg + '</td></tr>';
     bindScanHistoryDelegates();
 }
 
@@ -3920,6 +3928,7 @@ function renderScanSummary(summary) {
       <div class="summary-line">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
       <div class="summary-line">Top ports: <span class="mono">${esc(portText)}</span></div>
       <div class="summary-line">Categories: <span class="mono">${esc(cats || '—')}</span></div>
+      <div class="summary-line">AI enrichment: attempted <b>${summary.ai_enrichment_attempts || 0}</b> &nbsp;|&nbsp; applied <b>${summary.ai_enrichment_applied || 0}</b></div>
       ${aiBlock}
     `;
 }
@@ -4002,7 +4011,7 @@ function renderCompareOptions(jobId, job, options, selectedCompareId, scope) {
     if (sameProfileEl) sameProfileEl.onchange = runCompare;
 }
 
-async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
+async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', triedAutoCompare = false) {
     const bg = document.getElementById('scan-hist-detail-bg');
     const title = document.getElementById('scan-hist-detail-title');
     const meta = document.getElementById('scan-hist-detail-meta');
@@ -4064,6 +4073,14 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any') {
     renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
     sum.innerHTML = renderScanSummary(j.summary);
     diff.innerHTML = renderScanDiff(d.compare);
+    if (!d.compare && !triedAutoCompare) {
+        const opts = Array.isArray(d.compare_options) ? d.compare_options : [];
+        const auto = opts.find(o => Number(o.id) > 0);
+        if (auto) {
+            await openScanHistDetail(id, Number(auto.id), d.compare_scope || compareScope || 'any', true);
+            return;
+        }
+    }
 
     const assets = Array.isArray(d.assets) ? d.assets : [];
     const hint = document.getElementById('scan-hist-detail-assets-hint');
