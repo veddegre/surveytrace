@@ -985,7 +985,8 @@
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.6.2', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
-          <span class="text-dim">Data stored in data/surveytrace.db</span>
+          <span class="text-dim">Data stored in data/surveytrace.db</span><br>
+          <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
         </div>
       </div>
       <div class="card">
@@ -1024,11 +1025,15 @@
           <label class="flbl" style="min-width:130px">Backup cron</label>
           <input class="finp" id="st-db-backup-cron" style="min-width:170px" placeholder="15 2 * * *">
         </div>
-        <div class="row-wrap gap6 mb8">
-          <label class="flbl" style="min-width:130px">Retention (days)</label>
-          <input class="finp" type="number" id="st-db-backup-retention" min="1" max="365" step="1" style="width:90px" value="14">
-          <label class="flbl" style="min-width:110px">Keep latest</label>
-          <input class="finp" type="number" id="st-db-backup-keep-count" min="1" max="500" step="1" style="width:90px" value="30">
+        <div class="row-wrap gap8 mb8">
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600">Retention (days)</label>
+            <input class="finp" type="number" id="st-db-backup-retention" min="1" max="365" step="1" style="width:90px" value="14">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:78px;color:var(--tx);font-weight:600">Keep latest</label>
+            <input class="finp" type="number" id="st-db-backup-keep-count" min="1" max="500" step="1" style="width:90px" value="30">
+          </div>
           <button type="button" class="tbtn btn-xs" onclick="saveDbBackupSettings()">Save backup settings</button>
           <button type="button" class="btnp btn-xs" id="st-db-backup-run-now" onclick="runDbBackupNow()">Run backup now</button>
         </div>

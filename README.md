@@ -112,6 +112,7 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 ## Changelog
 
 `0.2.0` is the first GitHub release baseline. Earlier work was internal pre-release iteration.
+Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Unreleased
 

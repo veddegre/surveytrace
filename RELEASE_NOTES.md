@@ -1,0 +1,26 @@
+# SurveyTrace Release Notes
+
+Release notes for shipped app versions.  
+For roadmap and deep technical context, see `README.md`.
+
+## 0.6.2 (2026-04-29)
+
+- Host rescan modal now mirrors manual/scheduled scan controls:
+  profile defaults, phases, rates, discovery mode, exclusions, and per-run enrichment.
+- Clarified Deep Scan vs Full/Fast Full TCP behavior in UI/help text and profile descriptions.
+- Improved `full_tcp` behavior for small scopes with longer host-timeout tiers.
+- Protected existing inventory from weak full-port passes by merging prior open-port evidence on upsert.
+- Added scheduler-managed database backups (`backup_db.sh`) with Settings controls:
+  enable, cron, retention days, keep-count.
+- Added admin **Run backup now** action in Settings.
+- Added `restore_db.sh` helper for controlled restore workflow.
+- Added enrichment file-path jail controls for file-based sources (DHCP/DNS/firewall logs).
+- Fixed CVE host filter race where “View CVEs” could show unfiltered results.
+
+## 0.6.1
+
+- Phase 7 scan delete hardening:
+  trash lifecycle, restore flow, admin-only permanent purge, retention-based cleanup.
+- Scan history Active/Trash/All views with role enforcement.
+- Audit attribution for trash lifecycle actions.
+
