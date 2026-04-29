@@ -1386,6 +1386,7 @@ function applyRoleAwareUi() {
     disableByOnclick('resumeSchedule(', !canScanManage);
     disableByOnclick('saveReclassify(', !canScanManage);
     disableByOnclick('resolveFinding(', !canScanManage);
+    disableByOnclick('queueHostRescan(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
@@ -2784,6 +2785,71 @@ async function startScan() {
     document.getElementById('btn-start').textContent = '\u25b6 Queue scan';
     loadScanHistory();   // refresh queue panel immediately
     startPoll(activeJobId);
+}
+
+/**
+ * Queue a single-host scan (/32) using the Scan tab profile, phases, rate, and enrichment settings.
+ * Requires scan_editor or admin (enforced server-side by /api/scan_start.php).
+ */
+async function queueHostRescan(ip) {
+    const ipTrim = String(ip || '').trim();
+    if (!ipTrim) {
+        toast('No IP to scan', 'err');
+        return;
+    }
+    if (!stRoleCanManageScans()) {
+        toast('Permission denied — scan editor or admin role required', 'err');
+        return;
+    }
+
+    const phases = [];
+    ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'].forEach(p => {
+        if (document.getElementById('ph-' + p)?.checked) phases.push(p);
+    });
+    if (!phases.length) {
+        ['passive', 'icmp', 'banner', 'fingerprint', 'cve'].forEach(p => phases.push(p));
+    }
+
+    const profileEl = document.querySelector('input[name="scan_profile"]:checked');
+    const profileVal = profileEl ? profileEl.value : 'standard_inventory';
+
+    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
+        const ok = await showConfirmModal(
+            `Profile "${profileVal}" is aggressive for a single-host scan.\n\nProceed for ${ipTrim}?`,
+            { title: 'Rescan host', okText: 'Proceed' }
+        );
+        if (!ok) return;
+    }
+
+    const modeEl = document.querySelector('input[name="scan_mode"]:checked');
+    const body = {
+        cidr: ipTrim + '/32',
+        exclusions: document.getElementById('sc-excl') ? document.getElementById('sc-excl').value : '',
+        phases,
+        rate_pps: parseInt(document.getElementById('sc-pps')?.value || '5', 10) || 5,
+        inter_delay: parseInt(document.getElementById('sc-delay')?.value || '200', 10) || 200,
+        label: 'Host ' + ipTrim,
+        scan_mode: modeEl ? modeEl.value : 'auto',
+        profile: profileVal,
+        confirmed: true,
+    };
+    const enrSel = typeof scanEnrichmentPayloadField === 'function' ? scanEnrichmentPayloadField() : undefined;
+    if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
+
+    const r = await apiPost('/api/scan_start.php', body);
+    if (!r) {
+        toast('API error starting scan', 'err');
+        return;
+    }
+    if (r.error || r.ok === false) {
+        toast(r.error || 'Permission denied', 'err');
+        return;
+    }
+
+    activeJobId = r.job_id;
+    toast('Scan #' + r.job_id + ' queued for ' + ipTrim, 'ok');
+    loadScanHistory();
+    startPoll(r.job_id);
 }
 
 async function abortScan() {
@@ -5816,6 +5882,7 @@ async function openHostPanel(id, ip) {
       <div class="mb10">${scanHistoryRows}</div>
 
       <div class="hp-actions">
+        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='queueHostRescan(${JSON.stringify(a.ip)})' title="${stRoleCanManageScans() ? 'Queue scan for this IP only (uses Scan tab profile and phases)' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
         <button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
       </div>`;

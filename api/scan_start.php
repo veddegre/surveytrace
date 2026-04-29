@@ -20,6 +20,7 @@
  * }
  *
  * Response 200: {"job_id": 42, "status": "queued", "target_cidr": "...", "phases": [...]}
+ * Response 403: {"ok": false, "error": "Permission denied", ...} — requires scan_editor or admin
  * Response 409: {"error": "...", "running_job": N}    — scan already running
  * Response 400: {"error": "...", "field": "cidr"}     — validation failure
  */
