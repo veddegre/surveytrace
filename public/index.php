@@ -3923,10 +3923,16 @@ function renderHpAiOperatorSection(a, assetId, ip) {
       </div>`;
 }
 
-function setHostPanelAiBusy(busy) {
+/** POST explain_host in flight for this asset id (0 = none). Survives closing the host panel so reopening can show Running again. */
+let stAiHostExplainInflightAssetId = 0;
+
+function syncHostPanelExplainBusyUi() {
     const panel = document.getElementById('host-panel');
     if (!panel) return;
-    panel.querySelectorAll('button[data-st-ai-action]').forEach((b) => {
+    const openAid = parseInt(panel.dataset.hpAssetId || '0', 10);
+    const inflight = stAiHostExplainInflightAssetId;
+    const busy = inflight > 0 && inflight === openAid;
+    panel.querySelectorAll('button[data-st-ai-action="explain"]').forEach((b) => {
         if (busy) {
             if (b.dataset.stAiSavedHtml === undefined) {
                 b.dataset.stAiSavedHtml = b.innerHTML;
@@ -3950,7 +3956,16 @@ async function runAiHostExplain(assetId, ip, force) {
         toast('Permission denied — scan editor or admin role required', 'err');
         return;
     }
-    setHostPanelAiBusy(true);
+    if (stAiHostExplainInflightAssetId !== 0) {
+        if (stAiHostExplainInflightAssetId === assetId) {
+            toast('Host summary is still generating for this host.', 'ok');
+        } else {
+            toast('Another host summary is still running; wait for it to finish.', 'ok');
+        }
+        return;
+    }
+    stAiHostExplainInflightAssetId = assetId;
+    syncHostPanelExplainBusyUi();
     try {
         toast('Calling local model for host summary (may take up to a few minutes)…', 'ok');
         const r = await apiPost('/api/ai_actions.php', {
@@ -3972,7 +3987,8 @@ async function runAiHostExplain(assetId, ip, force) {
         );
         await openHostPanel(assetId, ip);
     } finally {
-        setHostPanelAiBusy(false);
+        stAiHostExplainInflightAssetId = 0;
+        syncHostPanelExplainBusyUi();
     }
 }
 
@@ -7150,10 +7166,13 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
 // ==========================================================================
 async function openHostPanel(id, ip) {
     closeDevicePanel();
-    document.getElementById('host-panel').style.display = 'block';
+    const hpEl = document.getElementById('host-panel');
+    hpEl.style.display = 'block';
     document.getElementById('host-panel-bg').style.display = 'block';
+    hpEl.dataset.hpAssetId = String(id);
     document.getElementById('hp-title').textContent = ip;
     document.getElementById('hp-body').innerHTML = '<div class="loading">Loading…</div>';
+    syncHostPanelExplainBusyUi();
 
     const [assetData, findingsData] = await Promise.all([
         api('/api/assets.php?id=' + id),
@@ -7162,6 +7181,8 @@ async function openHostPanel(id, ip) {
 
     if (!assetData || !assetData.asset) {
         document.getElementById('hp-body').innerHTML = '<div class="loading">Failed to load</div>';
+        delete hpEl.dataset.hpAssetId;
+        syncHostPanelExplainBusyUi();
         return;
     }
 
@@ -7315,11 +7336,15 @@ async function openHostPanel(id, ip) {
         <div class="hp-head-line"></div>
       </div>
       <div class="mb10">${scanHistoryRows}</div>`;
+    syncHostPanelExplainBusyUi();
 }
 
 function closeHostPanel() {
-    document.getElementById('host-panel').style.display = 'none';
+    const hpEl = document.getElementById('host-panel');
+    hpEl.style.display = 'none';
     document.getElementById('host-panel-bg').style.display = 'none';
+    delete hpEl.dataset.hpAssetId;
+    syncHostPanelExplainBusyUi();
 }
 
 // ==========================================================================
