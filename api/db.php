@@ -40,6 +40,15 @@ function st_db(): PDO {
     $pdo->exec('PRAGMA busy_timeout = 30000');
     $pdo->exec('PRAGMA synchronous = NORMAL');
 
+    // Heavy ALTER/CREATE bootstrap runs once per PHP worker (Apache child / FPM worker), not on every
+    // new PDO. Otherwise reconnecting during long AI calls replays hundreds of exec()s and locks SQLite.
+    // After a deploy that adds migrations: restart Apache/php-fpm so all workers re-run bootstrap once.
+    static $st_db_worker_migrations_done = false;
+    if ($st_db_worker_migrations_done) {
+        $GLOBALS['st_surveytrace_pdo'] = $pdo;
+        return $pdo;
+    }
+
     // Auto-bootstrap schema on first run
     $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('assets', $tables)) {
@@ -302,8 +311,18 @@ function st_db(): PDO {
 
     st_migrate_device_identity_v1($pdo);
 
+    $st_db_worker_migrations_done = true;
+
     $GLOBALS['st_surveytrace_pdo'] = $pdo;
     return $pdo;
+}
+
+/**
+ * Drop the shared PDO so another connection can write during long local I/O in the same request.
+ * The next st_db() opens a new PDO (PRAGMAs only — migrations skipped after first connect in this worker).
+ */
+function st_db_release_connection(): void {
+    unset($GLOBALS['st_surveytrace_pdo']);
 }
 
 /**

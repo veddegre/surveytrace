@@ -129,6 +129,8 @@ When libcurl returns an empty body, the API falls back to **`proc_open()` + `cur
 
 **`database is locked` / `lsof` shows many `apache2` lines:** That list is normal — each Apache worker that has served the app holds the SQLite file open. Restarting **`surveytrace-daemon`** alone does **not** recycle PHP; run **`sudo systemctl restart apache2`** (or your vhost’s PHP-FPM pool) to drop those handles. With writers stopped, optional maintenance: `sqlite3 /opt/surveytrace/data/surveytrace.db 'PRAGMA wal_checkpoint(TRUNCATE);'`.
 
+**After upgrading `api/db.php` with new SQLite migrations:** restart **Apache or php-fpm** once so every PHP worker re-runs the one-time bootstrap (migrations are skipped on later reconnects inside the same worker for speed).
+
 **Feed sync from the browser:** Under **PHP-FPM**, sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`**, the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
 
 SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
