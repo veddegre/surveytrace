@@ -34,7 +34,7 @@ if (!in_array('deleted_at', $jobCols, true)) {
     }
 }
 
-$stmt = $db->prepare("SELECT id, status, deleted_at FROM scan_jobs WHERE id = ? LIMIT 1");
+$stmt = $db->prepare("SELECT id, status, deleted_at, target_cidr, label FROM scan_jobs WHERE id = ? LIMIT 1");
 $stmt->execute([$jobId]);
 $job = $stmt->fetch();
 if (!$job) {
@@ -42,6 +42,8 @@ if (!$job) {
 }
 $status = (string)($job['status'] ?? '');
 $deletedAt = trim((string)($job['deleted_at'] ?? ''));
+$jobTargetCidr = (string)($job['target_cidr'] ?? '');
+$jobLabel = (string)($job['label'] ?? '');
 
 if ($action === 'trash') {
     if (in_array($status, ['queued', 'running', 'retrying'], true)) {
@@ -55,6 +57,8 @@ if ($action === 'trash') {
     st_audit_log('scan.job_trashed', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'job_id' => $jobId,
         'previous_status' => $status,
+        'target_cidr' => $jobTargetCidr,
+        'label' => $jobLabel,
     ]);
     st_json(['ok' => true, 'trashed_job_id' => $jobId, 'deleted_at' => $newDeletedAt]);
 }
@@ -67,6 +71,8 @@ if ($action === 'restore') {
     st_audit_log('scan.job_restored', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'job_id' => $jobId,
         'previous_status' => $status,
+        'target_cidr' => $jobTargetCidr,
+        'label' => $jobLabel,
     ]);
     st_json(['ok' => true, 'restored_job_id' => $jobId]);
 }
@@ -96,6 +102,8 @@ try {
 st_audit_log('scan.job_purged', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
     'job_id' => $jobId,
     'previous_status' => $status,
+    'target_cidr' => $jobTargetCidr,
+    'label' => $jobLabel,
 ]);
 st_json(['ok' => true, 'purged_job_id' => $jobId]);
 

@@ -185,6 +185,8 @@ if (isset($_GET['run_now'])) {
         'schedule_id' => $id,
         'schedule_name' => (string)($s['name'] ?? ''),
         'job_id' => $job_id,
+        'target_cidr' => (string)($s['target_cidr'] ?? ''),
+        'profile' => (string)($s['profile'] ?? 'standard_inventory'),
     ]);
 
     st_json(['ok' => true, 'job_id' => $job_id]);
@@ -382,6 +384,7 @@ if ($id > 0) {
     st_audit_log('scan.schedule_updated', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
         'name' => $name,
+        'target_cidr' => $target_cidr,
         'profile' => $profile,
         'scan_mode' => $scan_mode,
         'enabled' => $enabled,
@@ -402,6 +405,7 @@ if ($id > 0) {
     st_audit_log('scan.schedule_created', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
         'name' => $name,
+        'target_cidr' => $target_cidr,
         'profile' => $profile,
         'scan_mode' => $scan_mode,
         'enabled' => $enabled,

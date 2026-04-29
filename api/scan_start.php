@@ -101,6 +101,8 @@ if (!empty($body['retry_job_id'])) {
         'source_job_id' => $orig_id,
         'status_suffix' => (($orig['status'] ?? '') === 'failed') ? 'retry' : 're-run',
         'profile' => (string)($orig['profile'] ?? 'standard_inventory'),
+        'target_cidr' => (string)($orig['target_cidr'] ?? ''),
+        'label' => $newLabel !== null && $newLabel !== '' ? $newLabel : null,
     ]);
     st_json(['ok' => true, 'job_id' => $newJobId, 'status' => 'queued']);
 }
@@ -281,12 +283,17 @@ $stmt->execute([
 ]);
 
 $job_id = (int)$db->lastInsertId();
+$resolved_job_label = $label !== '' ? $label : ('Scan ' . date('Y-m-d H:i'));
 st_audit_log('scan.job_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
     'job_id' => $job_id,
     'target_cidr' => implode(', ', $validated_cidrs),
+    'label' => $resolved_job_label,
     'profile' => $profile,
     'scan_mode' => $scan_mode,
     'priority' => $priority,
+    'phases' => $phases,
+    'rate_pps' => $rate_pps,
+    'inter_delay_ms' => $inter_delay,
 ]);
 
 // Write initial audit log entry

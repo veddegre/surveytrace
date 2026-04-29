@@ -4060,6 +4060,72 @@ function renderAuditAction(action) {
     return s.replace(/^admin\./, '').replace(/^auth\./, '').replace(/_/g, ' ');
 }
 
+/** Historical audit TARGET column: user targets stay in target_username; scans use details_json. */
+function formatAuditTarget(ev) {
+    const tu = (ev.target_username || '').trim();
+    if (tu) return tu;
+    let d = {};
+    try {
+        if (ev.details_json && typeof ev.details_json === 'string') {
+            d = JSON.parse(ev.details_json);
+        }
+    } catch (e) {
+        d = {};
+    }
+    const act = String(ev.action || '');
+    const prof = d.profile ? String(d.profile).replace(/_/g, ' ') : '';
+    if (act === 'scan.job_queued') {
+        const parts = [];
+        if (d.label) parts.push(String(d.label));
+        if (d.target_cidr) parts.push(String(d.target_cidr));
+        if (prof) parts.push(prof);
+        if (Array.isArray(d.phases) && d.phases.length) parts.push('phases: ' + d.phases.join(', '));
+        if (d.job_id != null && d.job_id !== '') parts.push('job #' + d.job_id);
+        if (parts.length) return parts.join(' · ').slice(0, 220);
+    }
+    if (act === 'scan.rerun_queued') {
+        const parts = [];
+        if (d.target_cidr) parts.push(String(d.target_cidr));
+        if (prof) parts.push(prof);
+        if (d.label) parts.push(String(d.label));
+        if (d.job_id != null) parts.push('job #' + d.job_id);
+        if (d.source_job_id != null) parts.push('from #' + d.source_job_id);
+        if (parts.length) return parts.join(' · ').slice(0, 220);
+    }
+    if (act === 'scan.schedule_run_now') {
+        const parts = [];
+        if (d.schedule_name) parts.push(String(d.schedule_name));
+        if (d.target_cidr) parts.push(String(d.target_cidr));
+        if (prof) parts.push(prof);
+        if (d.job_id != null) parts.push('job #' + d.job_id);
+        if (d.schedule_id != null) parts.push('schedule #' + d.schedule_id);
+        if (parts.length) return parts.join(' · ').slice(0, 220);
+    }
+    if (act.indexOf('scan.schedule_') === 0) {
+        const parts = [];
+        const nm = d.name || d.schedule_name;
+        if (nm) parts.push(String(nm));
+        if (d.target_cidr) parts.push(String(d.target_cidr));
+        if (prof) parts.push(prof);
+        if (d.schedule_id != null) parts.push('#' + d.schedule_id);
+        if (d.enabled === true || d.enabled === false) parts.push(d.enabled ? 'on' : 'off');
+        if (parts.length) return parts.join(' · ').slice(0, 220);
+    }
+    if (act.startsWith('scan.job_')) {
+        const parts = [];
+        if (d.job_id != null) parts.push('job #' + d.job_id);
+        if (d.target_cidr) parts.push(String(d.target_cidr));
+        if (d.label) parts.push(String(d.label));
+        if (d.previous_status) parts.push('was ' + d.previous_status);
+        if (parts.length) return parts.join(' · ').slice(0, 220);
+    }
+    if (d.reason || d.summary) {
+        const s = d.summary ? String(d.summary) : ('reason: ' + String(d.reason));
+        return s.slice(0, 160);
+    }
+    return '—';
+}
+
 async function loadAuthLive() {
     const tbody = document.getElementById('auth-live-tbody');
     if (!tbody) return;
@@ -4117,7 +4183,7 @@ async function loadAuthAudit() {
             <td class="mono-sm">${esc(localTime(ev.created_at || ''))}</td>
             <td class="mono-sm">${esc(renderAuditAction(ev.action || ''))}</td>
             <td class="mono-sm">${esc(ev.actor_username || 'system')}</td>
-            <td class="mono-sm">${esc(ev.target_username || '—')}</td>
+            <td class="mono-sm">${esc(formatAuditTarget(ev))}</td>
             <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
           </tr>`).join('')
           : '<tr><td colspan="5" class="text-dim">No user activity yet.</td></tr>';
