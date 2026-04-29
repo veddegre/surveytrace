@@ -18,7 +18,8 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required); optional NIST API key via **Settings** or `NVD_API_KEY` for faster NVD sync rate limits
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
 - **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
-- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful
+- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful (see **Scan Profiles** below: **Deep Scan** uses a large fixed port list; **Full TCP** is the only profile that scans **all** TCP ports `-p-`)
+- **Host rescan** — from Assets host detail, scan editors get a modal with the same levers as the Scan tab: profile, phases, rates, discovery mode, exclusions, and per-run enrichment toggles; the Scan tab syncs after a successful queue
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
 - **Scan history** — dedicated **Scan history** sidebar page: job queue, finished runs, Active/Trash views, and a debounced filter by **scan label**, target CIDR, or job id (`GET /api/scan_history.php` with **`q`**, up to **`limit=200`**; see `api/scan_history.php`). From a run’s **Details** modal, click a catalogued host row to jump to **Devices** (when `device_id` is set) or **Assets** host detail by IP. **Scan control** remains the page to queue new jobs.
@@ -112,7 +113,9 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ### Unreleased
 
-- (no entries yet)
+- **Host rescan modal** — profile picker plus phases, rate limits, discovery mode, exclusion list, and enrichment source toggles (aligned with manual scan / schedule defaults). Scan tab updated after a successful rescan queue.
+- **Deep Scan vs Full TCP (UI + daemon)** — copy and help text clarify that Deep Scan is aggressive `-sV` on SurveyTrace’s **fixed** expanded port list, while **Full TCP** / **Fast Full TCP** run **`-p-`** (all TCP ports). `full_tcp` uses longer nmap `--host-timeout` tiers on small scopes so single-host jobs are less likely to finish with an empty port list.
+- **Full TCP asset upsert** — when a `full_tcp` or `fast_full_tcp` job yields **fewer** open ports than the asset already had, the daemon **unions** prior `open_ports`, merges `banners` (new data wins on the same port), and retains prior `nmap_cpes` if the pass returns none, so a weak run does not wipe a good Standard Inventory row. Discovery may include `prior_inventory_ports_merged`.
 
 ### 0.6.1
 
@@ -306,10 +309,12 @@ surveytrace/
 |---------|-------------|:------------:|:-----------:|
 | IoT Safe | Passive only — ARP/ICMP, no port scanning | ✅ | ✅ |
 | Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ | ❌ |
-| Deep Scan | Full nmap -sV, SNMP, all ports — requires confirmation | ❌ | ❌ |
-| Full TCP | All TCP ports (-p-) with service detection, high coverage, slower | ❌ | ❌ |
-| Fast Full TCP | All TCP ports (-p-) with lighter/faster service detection | ❌ | ❌ |
-| OT Careful | Passive only, 2pps max rate | ✅ | ✅ |
+| Deep Scan | Aggressive nmap `-sV` + SNMP on SurveyTrace’s **expanded fixed port list** (~60+ ports, not `1–65535`); requires confirmation | ❌ | ❌ |
+| Full TCP | **All** TCP ports (`-p-`) with `-sV`; longest per-host runtime; requires confirmation | ❌ | ❌ |
+| Fast Full TCP | **All** TCP ports (`-p-`) with lighter `-sV`; routed jobs may use a finite port set (see scanner logs) | ❌ | ❌ |
+| OT Careful | Passive-first OT baseline; very low scan rates; requires confirmation | ✅ | ✅ |
+
+**Full TCP / Fast Full TCP and existing inventory:** the scanner unions new results with any **open ports already stored** for that IP so a timed-out or filtered `-p-` pass does not clear a good prior inventory row (`prior_inventory_ports_merged` may appear in discovery metadata).
 
 ## Discovery Modes
 
