@@ -2215,7 +2215,7 @@ def ensure_device_id_for_upsert(conn: sqlite3.Connection, ip: str, mac: str) -> 
 # ---------------------------------------------------------------------------
 # Asset upsert
 # ---------------------------------------------------------------------------
-def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
+def upsert_asset(job_id: int, ip: str, mac: str,
                   ports: list[int], banners: dict[str, str],
                   nmap_cpes: list[str] | None = None,
                   http_titles: dict[int, str] | None = None,
@@ -2228,7 +2228,11 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   ai_cfg: dict[str, object] | None = None,
                   ai_attempts: int = 0,
                   ipv6_addrs: list[str] | None = None) -> dict:
-    """Upsert an asset row and return the full row dict."""
+    """Upsert an asset row and return the full row dict.
+
+    Ollama / network I/O for AI enrichment runs only between short DB transactions
+    so slow local inference does not hold SQLite locks (which would stall the web UI).
+    """
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
     # zero opens and wiping a good standard_inventory row. Union with prior opens
     # so inventory evidence is never strictly reduced by these profiles alone.
@@ -2236,10 +2240,11 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     existing_banners: dict[str, str] = {}
     existing_ncpes: list[str] = []
     existing_ipv6: list[str] = []
-    cur = conn.execute(
-        "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
-        (ip,),
-    ).fetchone()
+    with db_conn() as conn:
+        cur = conn.execute(
+            "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
+            (ip,),
+        ).fetchone()
     if cur:
         try:
             ep = json.loads(cur["open_ports"] or "[]")
@@ -2487,99 +2492,100 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             bool(routed_override.get("has_net_cpe")),
         )
 
-    device_id = ensure_device_id_for_upsert(conn, ip, mac)
+    with db_conn() as conn:
+        device_id = ensure_device_id_for_upsert(conn, ip, mac)
 
-    conn.execute("""
-        INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
-                            ai_last_confidence, ai_last_rationale, ai_last_applied, ai_last_suggested_category,
-                            ai_last_reason, ai_last_attempted, ai_last_decision_ts,
-                            connected_via, open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
-        VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,
-                :ai_confidence,:ai_rationale,:ai_applied,:ai_suggested_cat,:ai_reason,:ai_attempted,CURRENT_TIMESTAMP,
-                :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
-        ON CONFLICT(ip) DO UPDATE SET
-            hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
-            mac        = COALESCE(excluded.mac, mac),
-            mac_vendor = COALESCE(excluded.mac_vendor, mac_vendor),
-            category   = CASE WHEN excluded.category != 'unk' THEN excluded.category ELSE category END,
-            vendor     = COALESCE(NULLIF(excluded.vendor,''), vendor),
-            cpe        = CASE
-                           WHEN :clear_cpe = 1 THEN ''
-                           ELSE COALESCE(NULLIF(excluded.cpe,''), cpe)
-                         END,
-            os_guess   = COALESCE(NULLIF(excluded.os_guess,''), os_guess),
-            ai_last_confidence = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_confidence
-                           ELSE ai_last_confidence
-                         END,
-            ai_last_rationale = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_rationale
-                           ELSE ai_last_rationale
-                         END,
-            ai_last_applied = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_applied
-                           ELSE ai_last_applied
-                         END,
-            ai_last_suggested_category = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_suggested_category
-                           ELSE ai_last_suggested_category
-                         END,
-            ai_last_reason = CASE
-                           WHEN excluded.ai_last_reason IS NOT NULL AND excluded.ai_last_reason != '' THEN excluded.ai_last_reason
-                           WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_reason
-                           ELSE ai_last_reason
-                         END,
-            ai_last_attempted = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN 1
-                           ELSE ai_last_attempted
-                         END,
-            ai_last_decision_ts = CASE
-                           WHEN excluded.ai_last_attempted = 1 THEN CURRENT_TIMESTAMP
-                           ELSE ai_last_decision_ts
-                         END,
-            connected_via = COALESCE(NULLIF(excluded.connected_via,''), connected_via),
-            open_ports = excluded.open_ports,
-            banners    = excluded.banners,
-            nmap_cpes  = excluded.nmap_cpes,
-            discovery_sources = COALESCE(NULLIF(excluded.discovery_sources,''), discovery_sources),
-            ipv6_addrs = CASE
-                           WHEN excluded.ipv6_addrs IS NOT NULL AND excluded.ipv6_addrs != '' THEN excluded.ipv6_addrs
-                           ELSE ipv6_addrs
-                         END,
-            last_seen  = CURRENT_TIMESTAMP,
-            last_scan_id = excluded.last_scan_id
-    """, {
-        "ip": ip, "host": hostname, "mac": mac, "mv": mac_vendor,
-        "cat": fp["category"], "vnd": vendor,
-        "cpe": fp["cpe"], "os": fp["os_guess"],
-        "ai_confidence": ai_conf,
-        "ai_rationale": ai_rationale,
-        "ai_applied": 1 if ai_enrichment_applied else 0,
-        "ai_suggested_cat": ai_to_cat if ai_enrichment_attempted else "",
-        "ai_reason": ai_skip_reason,
-        "ai_attempted": 1 if ai_enrichment_attempted else 0,
-        "clear_cpe": 1 if (not fp.get("cpe") and not ports and fp.get("category") in ("unk", "")) else 0,
-        "cv": (connected_via or "").strip()[:240],
-        "ports":   json.dumps(ports),
-        "banners": json.dumps(banners),
-        "ncpes":   json.dumps(nmap_cpes or []),
-        "ds":      json.dumps(sorted(set(discovery_sources or []))),
-        "v6":      json.dumps(merged_ipv6_list),
-        "did":     device_id,
-        "jid":     job_id,
-    })
+        conn.execute("""
+            INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
+                                ai_last_confidence, ai_last_rationale, ai_last_applied, ai_last_suggested_category,
+                                ai_last_reason, ai_last_attempted, ai_last_decision_ts,
+                                connected_via, open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
+            VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,
+                    :ai_confidence,:ai_rationale,:ai_applied,:ai_suggested_cat,:ai_reason,:ai_attempted,CURRENT_TIMESTAMP,
+                    :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
+            ON CONFLICT(ip) DO UPDATE SET
+                hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
+                mac        = COALESCE(excluded.mac, mac),
+                mac_vendor = COALESCE(excluded.mac_vendor, mac_vendor),
+                category   = CASE WHEN excluded.category != 'unk' THEN excluded.category ELSE category END,
+                vendor     = COALESCE(NULLIF(excluded.vendor,''), vendor),
+                cpe        = CASE
+                               WHEN :clear_cpe = 1 THEN ''
+                               ELSE COALESCE(NULLIF(excluded.cpe,''), cpe)
+                             END,
+                os_guess   = COALESCE(NULLIF(excluded.os_guess,''), os_guess),
+                ai_last_confidence = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_confidence
+                               ELSE ai_last_confidence
+                             END,
+                ai_last_rationale = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_rationale
+                               ELSE ai_last_rationale
+                             END,
+                ai_last_applied = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_applied
+                               ELSE ai_last_applied
+                             END,
+                ai_last_suggested_category = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_suggested_category
+                               ELSE ai_last_suggested_category
+                             END,
+                ai_last_reason = CASE
+                               WHEN excluded.ai_last_reason IS NOT NULL AND excluded.ai_last_reason != '' THEN excluded.ai_last_reason
+                               WHEN excluded.ai_last_attempted = 1 THEN excluded.ai_last_reason
+                               ELSE ai_last_reason
+                             END,
+                ai_last_attempted = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN 1
+                               ELSE ai_last_attempted
+                             END,
+                ai_last_decision_ts = CASE
+                               WHEN excluded.ai_last_attempted = 1 THEN CURRENT_TIMESTAMP
+                               ELSE ai_last_decision_ts
+                             END,
+                connected_via = COALESCE(NULLIF(excluded.connected_via,''), connected_via),
+                open_ports = excluded.open_ports,
+                banners    = excluded.banners,
+                nmap_cpes  = excluded.nmap_cpes,
+                discovery_sources = COALESCE(NULLIF(excluded.discovery_sources,''), discovery_sources),
+                ipv6_addrs = CASE
+                               WHEN excluded.ipv6_addrs IS NOT NULL AND excluded.ipv6_addrs != '' THEN excluded.ipv6_addrs
+                               ELSE ipv6_addrs
+                             END,
+                last_seen  = CURRENT_TIMESTAMP,
+                last_scan_id = excluded.last_scan_id
+        """, {
+            "ip": ip, "host": hostname, "mac": mac, "mv": mac_vendor,
+            "cat": fp["category"], "vnd": vendor,
+            "cpe": fp["cpe"], "os": fp["os_guess"],
+            "ai_confidence": ai_conf,
+            "ai_rationale": ai_rationale,
+            "ai_applied": 1 if ai_enrichment_applied else 0,
+            "ai_suggested_cat": ai_to_cat if ai_enrichment_attempted else "",
+            "ai_reason": ai_skip_reason,
+            "ai_attempted": 1 if ai_enrichment_attempted else 0,
+            "clear_cpe": 1 if (not fp.get("cpe") and not ports and fp.get("category") in ("unk", "")) else 0,
+            "cv": (connected_via or "").strip()[:240],
+            "ports":   json.dumps(ports),
+            "banners": json.dumps(banners),
+            "ncpes":   json.dumps(nmap_cpes or []),
+            "ds":      json.dumps(sorted(set(discovery_sources or []))),
+            "v6":      json.dumps(merged_ipv6_list),
+            "did":     device_id,
+            "jid":     job_id,
+        })
 
-    nm = _norm_mac(mac)
-    if nm:
-        conn.execute(
-            """UPDATE devices SET updated_at=CURRENT_TIMESTAMP,
-               primary_mac_norm=COALESCE(primary_mac_norm, ?)
-               WHERE id=?""",
-            (nm, device_id),
-        )
+        nm = _norm_mac(mac)
+        if nm:
+            conn.execute(
+                """UPDATE devices SET updated_at=CURRENT_TIMESTAMP,
+                   primary_mac_norm=COALESCE(primary_mac_norm, ?)
+                   WHERE id=?""",
+                (nm, device_id),
+            )
 
-    row = conn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
-    result = dict(row)
+        row = conn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
+        result = dict(row)
     result["nmap_cpes"] = json.loads(result.get("nmap_cpes") or "[]")
     result["_routed_net_override_applied"] = isinstance(routed_override, dict)
     result["_ai_enrichment_attempted"] = ai_enrichment_attempted
@@ -2982,31 +2988,31 @@ def run_scan(job: dict) -> None:
         if not mac and not ports and ip not in passive_hosts and not enrich:
             continue
 
+        asset = upsert_asset(
+            job_id, ip, mac, ports, banners, nmap_cpes,
+            http_titles=http_titles.get(ip, {}),
+            http_probe=http_probes.get(ip),
+            discovery_sources=sources,
+            connected_via=connected_via,
+            hostname=hostname,
+            scan_profile=profile_name,
+            scan_mode=scan_mode,
+            ai_cfg=ai_cfg,
+            ai_attempts=ai_enrichment_attempts,
+            ipv6_addrs=ipv6_addrs,
+        )
+        upserted_assets.append(asset)
+        if asset.get("_routed_net_override_applied"):
+            routed_override_count += 1
+        if asset.get("_ai_enrichment_attempted"):
+            ai_enrichment_attempts += 1
+        if asset.get("_ai_enrichment_applied"):
+            ai_enrichment_applied += 1
+        ai_reason = str(asset.get("_ai_enrichment_reason") or "").strip()
+        if ai_reason:
+            ai_reason_counts[ai_reason] = ai_reason_counts.get(ai_reason, 0) + 1
+        scanned += 1
         with db_conn() as conn:
-            asset = upsert_asset(
-                conn, job_id, ip, mac, ports, banners, nmap_cpes,
-                http_titles=http_titles.get(ip, {}),
-                http_probe=http_probes.get(ip),
-                discovery_sources=sources,
-                connected_via=connected_via,
-                hostname=hostname,
-                scan_profile=profile_name,
-                scan_mode=scan_mode,
-                ai_cfg=ai_cfg,
-                ai_attempts=ai_enrichment_attempts,
-                ipv6_addrs=ipv6_addrs,
-            )
-            upserted_assets.append(asset)
-            if asset.get("_routed_net_override_applied"):
-                routed_override_count += 1
-            if asset.get("_ai_enrichment_attempted"):
-                ai_enrichment_attempts += 1
-            if asset.get("_ai_enrichment_applied"):
-                ai_enrichment_applied += 1
-            ai_reason = str(asset.get("_ai_enrichment_reason") or "").strip()
-            if ai_reason:
-                ai_reason_counts[ai_reason] = ai_reason_counts.get(ai_reason, 0) + 1
-            scanned += 1
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
 
         # Periodic abort check — every 10 hosts

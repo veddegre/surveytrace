@@ -3915,7 +3915,6 @@ function hpAiExplainDocHtml(doc) {
 function renderHpAiOperatorSection(a, assetId, ip) {
     const fg = a.ai_findings_guidance && typeof a.ai_findings_guidance === 'object' ? a.ai_findings_guidance : null;
     const ex = a.ai_host_explain && typeof a.ai_host_explain === 'object' ? a.ai_host_explain : null;
-    const ipJs = JSON.stringify(String(ip || ''));
     const can = stRoleCanManageScans();
 
     let fgInner = hpAiEnvelopeBody(fg);
@@ -3926,12 +3925,12 @@ function renderHpAiOperatorSection(a, assetId, ip) {
 
     const fgBtns = can
         ? `<div class="row-wrap gap6 mt6">
-            <button type="button" class="tbtn btn-xs" onclick="void runAiHostGuidance(${assetId}, ${ipJs}, ${fg ? 'true' : 'false'})">${fg ? 'Regenerate' : 'Generate'} CVE guidance</button>
+            <button type="button" class="tbtn btn-xs" data-st-ai-action="guidance" data-asset-id="${assetId}" data-ip="${esc(String(ip || ''))}" data-force="${fg ? '1' : '0'}">${fg ? 'Regenerate' : 'Generate'} CVE guidance</button>
           </div>`
         : '<div class="hint-micro mt6">Scan editor or admin role required to run AI.</div>';
     const exBtns = can
         ? `<div class="row-wrap gap6 mt6">
-            <button type="button" class="tbtn btn-xs" onclick="void runAiHostExplain(${assetId}, ${ipJs}, ${ex ? 'true' : 'false'})">${ex ? 'Regenerate' : 'Generate'} host summary</button>
+            <button type="button" class="tbtn btn-xs" data-st-ai-action="explain" data-asset-id="${assetId}" data-ip="${esc(String(ip || ''))}" data-force="${ex ? '1' : '0'}">${ex ? 'Regenerate' : 'Generate'} host summary</button>
           </div>`
         : '';
 
@@ -3960,6 +3959,7 @@ async function runAiHostGuidance(assetId, ip, force) {
         toast('Permission denied — scan editor or admin role required', 'err');
         return;
     }
+    toast('Calling local model for CVE guidance (may take up to a few minutes)…', 'ok');
     const r = await apiPost('/api/ai_actions.php', {
         action: 'findings_guidance',
         asset_id: assetId,
@@ -3985,6 +3985,7 @@ async function runAiHostExplain(assetId, ip, force) {
         toast('Permission denied — scan editor or admin role required', 'err');
         return;
     }
+    toast('Calling local model for host summary (may take up to a few minutes)…', 'ok');
     const r = await apiPost('/api/ai_actions.php', {
         action: 'explain_host',
         asset_id: assetId,
@@ -4022,6 +4023,31 @@ function bindScanDetailAssetDelegates() {
     tbody.dataset.scanAssetDelegatesBound = '1';
 }
 bindScanDetailAssetDelegates();
+
+/**
+ * Host panel AI buttons must not use inline onclick calling async top-level functions —
+ * those names are not guaranteed to exist on `window`, so clicks can fail silently.
+ */
+function bindHostPanelAiDelegatesOnce() {
+    const panel = document.getElementById('host-panel');
+    if (!panel || panel.dataset.stAiDelegate === '1') return;
+    panel.addEventListener('click', (ev) => {
+        const el = ev.target;
+        const btn = el && el.closest ? el.closest('button[data-st-ai-action]') : null;
+        if (!btn || !panel.contains(btn)) return;
+        const action = btn.getAttribute('data-st-ai-action') || '';
+        if (action !== 'guidance' && action !== 'explain') return;
+        ev.preventDefault();
+        const assetId = parseInt(btn.getAttribute('data-asset-id') || '0', 10);
+        const ip = btn.getAttribute('data-ip') || '';
+        const force = btn.getAttribute('data-force') === '1';
+        if (!assetId) return;
+        if (action === 'guidance') void runAiHostGuidance(assetId, ip, force);
+        else void runAiHostExplain(assetId, ip, force);
+    });
+    panel.dataset.stAiDelegate = '1';
+}
+bindHostPanelAiDelegatesOnce();
 
 // ==========================================================================
 // Job queue management
@@ -7289,14 +7315,19 @@ async function openHostPanel(id, ip) {
       </div>
       <div class="mb14">${portRows}</div>
 
+      ${renderHpAiOperatorSection(a, id, a.ip)}
+
+      <div class="hp-actions hp-actions-host-primary mb14">
+        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, phases, rates, discovery, exclusions, and enrichment in the modal; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
+        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
+        ${findings.length ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
+      </div>
+
       <div class="hp-head">
         Vulnerabilities (${findings.length})
         <div class="hp-head-line"></div>
-        ${findings.length ? `<button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View all</button>` : ''}
       </div>
       <div class="mb14">${findingRows}</div>
-
-      ${renderHpAiOperatorSection(a, id, a.ip)}
 
       <div class="hp-head">
         Port history
@@ -7314,13 +7345,7 @@ async function openHostPanel(id, ip) {
         Scan change history
         <div class="hp-head-line"></div>
       </div>
-      <div class="mb10">${scanHistoryRows}</div>
-
-      <div class="hp-actions">
-        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, phases, rates, discovery, exclusions, and enrichment in the modal; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
-        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
-        <button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
-      </div>`;
+      <div class="mb10">${scanHistoryRows}</div>`;
 }
 
 function closeHostPanel() {

@@ -495,7 +495,8 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .hp-history-row{display:flex;gap:10px;font-family:var(--mf);font-size:11px;padding:4px 0;border-bottom:1px solid var(--bd)}
 .hp-history-ts{color:var(--tx3);min-width:100px}
 .hp-history-ports{color:var(--tx2)}
-.hp-actions{margin-top:12px;display:flex;gap:8px}
+.hp-actions{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.hp-actions-host-primary{border-bottom:1px solid var(--bd);padding-bottom:12px}
 .hp-ai-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
 @media (max-width: 720px) {
   .hp-ai-cols{grid-template-columns:1fr}
