@@ -11,6 +11,14 @@
  *   - db_backup_cron: cron expression (5-field or @preset)
  *   - db_backup_retention_days: int (1..365)
  *   - db_backup_keep_count: int (1..500)
+ *   - ai_enrichment_enabled: bool
+ *   - ai_provider: string ("ollama" only for now)
+ *   - ai_model: string (Ollama tag, e.g. phi3:mini)
+ *   - ai_timeout_ms: int (100..5000)
+ *   - ai_max_hosts_per_scan: int (1..5000)
+ *   - ai_ambiguous_only: bool
+ *   - ai_install_ollama: truthy — attempt local Ollama install/start
+ *   - ai_pull_model: string — pull a model with ollama pull
  *   - nvd_api_key: string (optional; NIST UUID key, 30–128 chars) — saved only when no key exists yet; never returned on GET
  *   - nvd_api_key_remove: truthy — clears stored key (required before saving a replacement from the UI)
  */
@@ -19,6 +27,55 @@ require_once __DIR__ . '/db.php';
 
 st_auth();
 st_require_role(['admin']);
+
+function st_shell_available_for_settings(): bool {
+    $df = (string)ini_get('disable_functions');
+    if ($df === '') return true;
+    $parts = array_map('trim', explode(',', $df));
+    return !in_array('exec', $parts, true) && !in_array('shell_exec', $parts, true);
+}
+
+function st_cmd_available(string $cmd): bool {
+    if (!st_shell_available_for_settings()) return false;
+    $out = @shell_exec('command -v ' . escapeshellarg($cmd) . ' 2>/dev/null');
+    return is_string($out) && trim($out) !== '';
+}
+
+function st_ollama_runtime_status(): array {
+    $installed = st_cmd_available('ollama');
+    $running = false;
+    $version = '';
+    $models = [];
+    if ($installed && st_shell_available_for_settings()) {
+        $vout = @shell_exec('ollama --version 2>/dev/null');
+        if (is_string($vout)) {
+            $version = trim($vout);
+        }
+        $rows = [];
+        $code = 1;
+        @exec('ollama list 2>&1', $rows, $code);
+        if ($code === 0) {
+            $running = true;
+            foreach ($rows as $idx => $line) {
+                if ($idx === 0 && stripos((string)$line, 'NAME') !== false) {
+                    continue;
+                }
+                $line = trim((string)$line);
+                if ($line === '') continue;
+                $parts = preg_split('/\s+/', $line);
+                if (!$parts || !$parts[0]) continue;
+                $models[] = (string)$parts[0];
+            }
+        }
+    }
+    return [
+        'installed' => $installed,
+        'running' => $running,
+        'version' => $version,
+        'models' => array_values(array_unique($models)),
+        'compact_recommended_model' => 'phi3:mini',
+    ];
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $mode = strtolower(trim(st_config('auth_mode', 'session')));
@@ -40,6 +97,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $dbBackupLastStatus = trim((string)st_config('db_backup_last_status', ''));
     $dbBackupLastPath = trim((string)st_config('db_backup_last_path', ''));
     $dbBackupLastError = trim((string)st_config('db_backup_last_error', ''));
+    $ai = st_ollama_runtime_status();
     st_json([
         'ok' => true,
         'session_timeout_minutes' => $m,
@@ -66,6 +124,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'db_backup_last_status' => $dbBackupLastStatus,
         'db_backup_last_path' => $dbBackupLastPath,
         'db_backup_last_error' => $dbBackupLastError,
+        'ai_enrichment_enabled' => st_config('ai_enrichment_enabled', '0') === '1',
+        'ai_provider' => (string)st_config('ai_provider', 'ollama'),
+        'ai_model' => (string)st_config('ai_model', 'phi3:mini'),
+        'ai_timeout_ms' => max(100, min(5000, (int)st_config('ai_timeout_ms', '700'))),
+        'ai_max_hosts_per_scan' => max(1, min(5000, (int)st_config('ai_max_hosts_per_scan', '40'))),
+        'ai_ambiguous_only' => st_config('ai_ambiguous_only', '1') === '1',
+        'ai_runtime' => $ai,
         'scan_trash_retention_days' => max(1, min(365, (int)st_config('scan_trash_retention_days', '30'))),
         'nvd_api_key_configured' => $nvdKey !== '',
     ]);
@@ -117,6 +182,64 @@ if (!empty($body['db_backup_run_now'])) {
         'error' => substr($err, 0, 500),
     ]);
     st_json(['error' => 'Backup failed: ' . substr($err, 0, 220)], 500);
+}
+
+if (!empty($body['ai_install_ollama'])) {
+    if (!st_shell_available_for_settings()) {
+        st_json(['error' => 'Command execution is disabled in PHP (exec/shell_exec).'], 503);
+    }
+    $os = strtolower(PHP_OS_FAMILY);
+    $log = [];
+    $code = 0;
+    if (!st_cmd_available('ollama')) {
+        if ($os === 'darwin') {
+            if (!st_cmd_available('brew')) {
+                st_json(['error' => 'Homebrew is required to install Ollama on macOS. Install brew first.'], 400);
+            }
+            @exec('brew install ollama 2>&1', $log, $code);
+            if ($code !== 0) {
+                st_json(['error' => 'brew install ollama failed', 'output' => array_slice($log, -8)], 500);
+            }
+        } else {
+            st_json(['error' => 'Automatic Ollama install is currently supported only on macOS in this UI.'], 400);
+        }
+    }
+    $startOut = [];
+    $startCode = 0;
+    if ($os === 'darwin' && st_cmd_available('brew')) {
+        @exec('brew services start ollama 2>&1', $startOut, $startCode);
+    }
+    if ($startCode !== 0) {
+        @exec('ollama serve >/dev/null 2>&1 &', $startOut, $startCode);
+    }
+    $changed['ai_runtime'] = st_ollama_runtime_status();
+    $changed['ai_install_ollama'] = true;
+}
+
+if (array_key_exists('ai_pull_model', $body)) {
+    $model = trim((string)$body['ai_pull_model']);
+    if ($model === '') {
+        st_json(['error' => 'ai_pull_model cannot be empty'], 400);
+    }
+    if (!preg_match('/^[A-Za-z0-9._:-]{2,120}$/', $model)) {
+        st_json(['error' => 'Invalid model tag format'], 400);
+    }
+    if (!st_cmd_available('ollama')) {
+        st_json(['error' => 'Ollama is not installed on this server yet'], 400);
+    }
+    if (!st_shell_available_for_settings()) {
+        st_json(['error' => 'Command execution is disabled in PHP (exec/shell_exec).'], 503);
+    }
+    @set_time_limit(0);
+    $out = [];
+    $code = 1;
+    @exec('ollama pull ' . escapeshellarg($model) . ' 2>&1', $out, $code);
+    if ($code !== 0) {
+        st_json(['error' => 'ollama pull failed', 'output' => array_slice($out, -12)], 500);
+    }
+    st_config_set('ai_model', $model);
+    $changed['ai_model'] = $model;
+    $changed['ai_runtime'] = st_ollama_runtime_status();
 }
 
 if (array_key_exists('session_timeout_minutes', $body)) {
@@ -284,6 +407,45 @@ if (array_key_exists('db_backup_keep_count', $body)) {
     $v = max(1, min(500, $v));
     st_config_set('db_backup_keep_count', (string)$v);
     $changed['db_backup_keep_count'] = $v;
+}
+
+if (array_key_exists('ai_enrichment_enabled', $body)) {
+    $v = !empty($body['ai_enrichment_enabled']);
+    st_config_set('ai_enrichment_enabled', $v ? '1' : '0');
+    $changed['ai_enrichment_enabled'] = $v;
+}
+if (array_key_exists('ai_provider', $body)) {
+    $v = strtolower(trim((string)$body['ai_provider']));
+    if ($v !== 'ollama') {
+        st_json(['error' => 'ai_provider must be ollama'], 400);
+    }
+    st_config_set('ai_provider', $v);
+    $changed['ai_provider'] = $v;
+}
+if (array_key_exists('ai_model', $body)) {
+    $v = trim((string)$body['ai_model']);
+    if ($v === '' || !preg_match('/^[A-Za-z0-9._:-]{2,120}$/', $v)) {
+        st_json(['error' => 'Invalid ai_model value'], 400);
+    }
+    st_config_set('ai_model', $v);
+    $changed['ai_model'] = $v;
+}
+if (array_key_exists('ai_timeout_ms', $body)) {
+    $v = (int)$body['ai_timeout_ms'];
+    $v = max(100, min(5000, $v));
+    st_config_set('ai_timeout_ms', (string)$v);
+    $changed['ai_timeout_ms'] = $v;
+}
+if (array_key_exists('ai_max_hosts_per_scan', $body)) {
+    $v = (int)$body['ai_max_hosts_per_scan'];
+    $v = max(1, min(5000, $v));
+    st_config_set('ai_max_hosts_per_scan', (string)$v);
+    $changed['ai_max_hosts_per_scan'] = $v;
+}
+if (array_key_exists('ai_ambiguous_only', $body)) {
+    $v = !empty($body['ai_ambiguous_only']);
+    st_config_set('ai_ambiguous_only', $v ? '1' : '0');
+    $changed['ai_ambiguous_only'] = $v;
 }
 
 $dbBackupTouched = array_intersect_key($changed, array_flip([

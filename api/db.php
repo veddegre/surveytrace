@@ -57,6 +57,24 @@ function st_db(): PDO {
     $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('scan_trash_retention_days', '30')"
     );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_enrichment_enabled', '0')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_provider', 'ollama')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_model', 'phi3:mini')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_timeout_ms', '700')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_max_hosts_per_scan', '40')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_ambiguous_only', '1')"
+    );
 
     // Lightweight schema migration for newer scan history snapshot support
     try {

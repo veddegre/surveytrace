@@ -17,9 +17,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import ssl
 import sqlite3
+import subprocess
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -261,6 +263,134 @@ def _load_extra_safe_ports() -> list[int]:
         if 1 <= p <= 65535:
             out.add(p)
     return sorted(out)
+
+
+def _load_ai_enrichment_settings() -> dict[str, object]:
+    """
+    Load AI enrichment settings from config with safe defaults.
+    """
+    defaults: dict[str, str] = {
+        "ai_enrichment_enabled": "0",
+        "ai_provider": "ollama",
+        "ai_model": "phi3:mini",
+        "ai_timeout_ms": "700",
+        "ai_max_hosts_per_scan": "40",
+        "ai_ambiguous_only": "1",
+    }
+    vals = dict(defaults)
+    try:
+        with db_conn() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM config WHERE key IN ("
+                "'ai_enrichment_enabled','ai_provider','ai_model',"
+                "'ai_timeout_ms','ai_max_hosts_per_scan','ai_ambiguous_only'"
+                ")"
+            ).fetchall()
+        for r in rows:
+            k = str(r["key"] or "")
+            if k in vals:
+                vals[k] = str(r["value"] or "")
+    except Exception:
+        pass
+
+    enabled = vals["ai_enrichment_enabled"] == "1"
+    provider = (vals["ai_provider"] or "ollama").strip().lower()
+    model = (vals["ai_model"] or "phi3:mini").strip()
+    try:
+        timeout_ms = int(vals["ai_timeout_ms"] or "700")
+    except ValueError:
+        timeout_ms = 700
+    timeout_ms = max(100, min(5000, timeout_ms))
+    try:
+        max_hosts = int(vals["ai_max_hosts_per_scan"] or "40")
+    except ValueError:
+        max_hosts = 40
+    max_hosts = max(1, min(5000, max_hosts))
+    ambiguous_only = vals["ai_ambiguous_only"] != "0"
+
+    return {
+        "enabled": enabled,
+        "provider": provider,
+        "model": model,
+        "timeout_ms": timeout_ms,
+        "max_hosts_per_scan": max_hosts,
+        "ambiguous_only": ambiguous_only,
+        "available": enabled and provider == "ollama" and bool(model) and (shutil.which("ollama") is not None),
+    }
+
+
+def _should_run_ai_for_asset(
+    ai_cfg: dict[str, object],
+    fp: dict,
+    ports: list[int],
+    banners: dict[str, str],
+    hostname: str,
+    ai_attempts: int,
+) -> bool:
+    if not bool(ai_cfg.get("available")):
+        return False
+    if ai_attempts >= int(ai_cfg.get("max_hosts_per_scan") or 0):
+        return False
+    if not ports and not banners and not hostname:
+        return False
+    cat = str(fp.get("category") or "unk")
+    if bool(ai_cfg.get("ambiguous_only", True)):
+        return cat in {"unk", "net", "srv"}
+    return True
+
+
+def _run_ai_enrichment_ollama(
+    ai_cfg: dict[str, object],
+    fp: dict,
+    hostname: str,
+    ports: list[int],
+    banners: dict[str, str],
+) -> tuple[dict, str]:
+    """
+    Return (parsed_json, error). parsed_json is empty dict on failure.
+    """
+    model = str(ai_cfg.get("model") or "phi3:mini")
+    timeout_s = max(0.2, float(int(ai_cfg.get("timeout_ms") or 700)) / 1000.0)
+    top_ports = sorted({int(p) for p in ports if isinstance(p, int) or str(p).isdigit()})[:24]
+    banner_pairs: list[str] = []
+    for k, v in list(banners.items())[:8]:
+        ks = str(k)
+        vs = str(v or "").strip().replace("\n", " ")[:180]
+        if vs:
+            banner_pairs.append(f"{ks}:{vs}")
+    prompt = (
+        "Classify this network host for inventory enrichment.\n"
+        "Allowed categories: srv, ws, net, iot, prn, hv, ot, voi, unk.\n"
+        "Use evidence only; prefer unk when uncertain.\n"
+        "Return ONLY JSON with keys: category, confidence, rationale.\n\n"
+        f"Current category: {fp.get('category','unk')}\n"
+        f"Hostname: {hostname or ''}\n"
+        f"Open ports: {top_ports}\n"
+        f"Banners: {banner_pairs}\n"
+    )
+    try:
+        cp = subprocess.run(
+            ["ollama", "run", model, prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return {}, "timeout"
+    except Exception as e:
+        return {}, str(e)
+    if cp.returncode != 0:
+        err = (cp.stderr or cp.stdout or "").strip()
+        return {}, f"exit_{cp.returncode}:{err[:120]}"
+    out = (cp.stdout or "").strip()
+    m = re.search(r"\{.*\}", out, re.S)
+    if not m:
+        return {}, "no_json"
+    try:
+        doc = json.loads(m.group(0))
+    except Exception:
+        return {}, "bad_json"
+    return doc if isinstance(doc, dict) else {}, ""
 
 
 def log_event(conn: sqlite3.Connection, job_id: int, level: str, message: str, ip: str = "") -> None:
@@ -1956,6 +2086,8 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   hostname: str = "",
                   scan_profile: str = "",
                   scan_mode: str = "auto",
+                  ai_cfg: dict[str, object] | None = None,
+                  ai_attempts: int = 0,
                   ipv6_addrs: list[str] | None = None) -> dict:
     """Upsert an asset row and return the full row dict."""
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
@@ -2118,6 +2250,46 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
             if gv and not fp.get("vendor") and fp["category"] in ("unk", "srv", "ws"):
                 fp["vendor"] = gv
 
+    ai_enrichment_applied = False
+    ai_enrichment_attempted = False
+    ai_conf = 0.0
+    if ai_cfg and _should_run_ai_for_asset(ai_cfg, fp, ports, banners, hostname, ai_attempts):
+        ai_enrichment_attempted = True
+        ai_doc, ai_err = _run_ai_enrichment_ollama(ai_cfg, fp, hostname, ports, banners)
+        if ai_doc:
+            ai_cat = str(ai_doc.get("category") or "").strip().lower()
+            try:
+                ai_conf = float(ai_doc.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                ai_conf = 0.0
+            ai_why = str(ai_doc.get("rationale") or "").strip()
+            if ai_cat not in {"srv", "ws", "net", "iot", "prn", "hv", "ot", "voi", "unk"}:
+                ai_cat = ""
+            # Conservative override policy:
+            # - only for ambiguous current categories
+            # - require moderate confidence
+            # - never downgrade strong OT/HV signals
+            if (
+                ai_cat
+                and ai_conf >= 0.72
+                and fp["category"] in {"unk", "net", "srv"}
+                and port_cat_effective not in {"hv", "ot"}
+                and not (fp["category"] == "net" and ai_cat == "iot")
+            ):
+                if ai_cat != fp["category"]:
+                    prev_cat = fp["category"]
+                    fp["category"] = ai_cat
+                    ai_enrichment_applied = True
+                    if discovery_sources is not None:
+                        discovery_sources.append("ai_local_inference")
+                    log.info(
+                        "[job %d] ai_enrichment_override ip=%s from=%s to=%s conf=%.2f model=%s rationale=%s",
+                        job_id, ip, prev_cat, ai_cat, ai_conf, str(ai_cfg.get("model") or ""),
+                        (ai_why[:120] if ai_why else ""),
+                    )
+        elif ai_err and ai_err not in {"timeout", "no_json"}:
+            log.info("[job %d] ai_enrichment_skip ip=%s reason=%s", job_id, ip, ai_err[:120])
+
     # Vendor precedence:
     #  - vendor: detected service/product identity (Proxmox, Zabbix, etc.)
     #  - mac_vendor: hardware/OUI manufacturer (HP, Dell, etc.)
@@ -2207,6 +2379,9 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     result = dict(row)
     result["nmap_cpes"] = json.loads(result.get("nmap_cpes") or "[]")
     result["_routed_net_override_applied"] = isinstance(routed_override, dict)
+    result["_ai_enrichment_attempted"] = ai_enrichment_attempted
+    result["_ai_enrichment_applied"] = ai_enrichment_applied
+    result["_ai_enrichment_confidence"] = ai_conf
     return result
 
 
@@ -2227,12 +2402,20 @@ def run_scan(job: dict) -> None:
     rate_pps     = min(rate_pps, profile_obj.max_rate_pps_cap)
     inter_ms     = max(inter_ms, profile_obj.min_delay_ms)
     phases       = validate_phases(profile_obj, phases)
+    ai_cfg = _load_ai_enrichment_settings()
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
                   f"Profile: {profile_name} — allowed phases: {phases} "
                   f"rate_cap={profile_obj.max_rate_pps_cap}pps "
                   f"min_delay={profile_obj.min_delay_ms}ms")
+        if bool(ai_cfg.get("available")):
+            log_event(
+                conn, job_id, "INFO",
+                f"AI enrichment enabled: provider={ai_cfg.get('provider')} model={ai_cfg.get('model')} "
+                f"timeout_ms={ai_cfg.get('timeout_ms')} max_hosts={ai_cfg.get('max_hosts_per_scan')} "
+                f"ambiguous_only={ai_cfg.get('ambiguous_only')}"
+            )
     excl_raw  = job["exclusions"] or ""
 
     # Parse exclusion list (IPs, CIDR ranges, comments)
@@ -2433,6 +2616,8 @@ def run_scan(job: dict) -> None:
     upserted_assets: list[dict] = []
     scanned = 0
     routed_override_count = 0
+    ai_enrichment_attempts = 0
+    ai_enrichment_applied = 0
     # Resolve hostnames for all discovered hosts (not just those with open ports)
     # This is important for ARP-only hosts like phones/tablets with randomized MACs
     log.info("[job %d] Resolving hostnames for %d hosts...", job_id, len(all_ips))
@@ -2593,11 +2778,17 @@ def run_scan(job: dict) -> None:
                 hostname=hostname,
                 scan_profile=profile_name,
                 scan_mode=scan_mode,
+                ai_cfg=ai_cfg,
+                ai_attempts=ai_enrichment_attempts,
                 ipv6_addrs=ipv6_addrs,
             )
             upserted_assets.append(asset)
             if asset.get("_routed_net_override_applied"):
                 routed_override_count += 1
+            if asset.get("_ai_enrichment_attempted"):
+                ai_enrichment_attempts += 1
+            if asset.get("_ai_enrichment_applied"):
+                ai_enrichment_applied += 1
             scanned += 1
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
 
@@ -2647,6 +2838,8 @@ def run_scan(job: dict) -> None:
         "hosts_found": int(len(all_ips)),
         "open_findings": 0,
         "routed_net_overrides": int(routed_override_count),
+        "ai_enrichment_attempts": int(ai_enrichment_attempts),
+        "ai_enrichment_applied": int(ai_enrichment_applied),
         "open_ports_total": 0,
         "top_ports": [],
         "categories": {},
@@ -2770,7 +2963,9 @@ def run_scan(job: dict) -> None:
             WHERE id=?
         """, (scanned, json.dumps(summary), job_id))
         log_event(conn, job_id, "INFO",
-                  f"Scan complete — {scanned} assets catalogued, {len(upserted_assets)} upserted, routed_net_overrides={routed_override_count}")
+                  f"Scan complete — {scanned} assets catalogued, {len(upserted_assets)} upserted, "
+                  f"routed_net_overrides={routed_override_count}, "
+                  f"ai_enrichment_attempts={ai_enrichment_attempts}, ai_enrichment_applied={ai_enrichment_applied}")
 
 
 # ---------------------------------------------------------------------------

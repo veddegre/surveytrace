@@ -1039,6 +1039,61 @@
         </div>
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
+      <div class="card">
+        <div class="ct">Local AI enrichment (optional)</div>
+        <div class="help-line mb8">
+          Lightweight local model for ambiguous fingerprint interpretation. Compact default:
+          <code class="code-accent">phi3:mini</code> (runs on lower-end hardware via Ollama).
+        </div>
+        <div class="help-line mb8 text-dim" style="font-size:12px">
+          Sizing guide:
+          <strong>/24 homelab</strong> → 4 vCPU / 8-12 GB RAM / 64+ GB disk ·
+          <strong>multi-/24 batches</strong> → 6-8 vCPU / 12-16 GB RAM / 80+ GB disk.
+          Keep scans split by /24 and run sequentially for best stability on smaller hosts.
+        </div>
+        <div class="help-mono mb8" id="st-ai-runtime-status">Runtime: checking…</div>
+        <div class="help-mono mb10" id="st-ai-models-status">Models: —</div>
+
+        <div class="row-wrap gap6 mb6">
+          <label class="flbl" style="min-width:130px">Enable AI enrichment</label>
+          <input class="accent-radio" type="checkbox" id="st-ai-enabled">
+        </div>
+        <div class="row-wrap gap6 mb6">
+          <label class="flbl" style="min-width:130px">Provider</label>
+          <select class="finp" id="st-ai-provider" style="min-width:170px">
+            <option value="ollama">ollama (local)</option>
+          </select>
+        </div>
+        <div class="row-wrap gap6 mb6">
+          <label class="flbl" style="min-width:130px">Model tag</label>
+          <input class="finp" id="st-ai-model" style="min-width:190px" placeholder="phi3:mini">
+        </div>
+        <div class="row-wrap gap8 mb8">
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600">Timeout (ms)</label>
+            <input class="finp" type="number" id="st-ai-timeout-ms" min="100" max="5000" step="50" style="width:90px" value="700">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:78px;color:var(--tx);font-weight:600">Max hosts/scan</label>
+            <input class="finp" type="number" id="st-ai-max-hosts" min="1" max="5000" step="1" style="width:90px" value="40">
+          </div>
+        </div>
+        <div class="row-wrap gap6 mb10">
+          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+            <input type="checkbox" id="st-ai-ambiguous-only" checked>
+            Only run on ambiguous classification cases
+          </label>
+        </div>
+        <div class="row-wrap gap6 mb8">
+          <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('homelab_24')">Preset: /24 homelab</button>
+          <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('batch_multi_24')">Preset: multi-/24 batch</button>
+        </div>
+        <div class="row-wrap gap6">
+          <button type="button" class="tbtn btn-xs" onclick="saveAiEnrichmentSettings()">Save AI settings</button>
+          <button type="button" class="tbtn btn-xs" id="btn-ai-install-ollama" onclick="installOllamaRuntime()">Install/start Ollama</button>
+          <button type="button" class="btnp btn-xs" id="btn-ai-pull-model" onclick="pullAiModel()">Download model</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -4204,6 +4259,30 @@ async function loadUiSettings() {
             ? (`Last run: ${lastRun} · status: error · ${e || 'unknown error'}`)
             : (`Last run: ${lastRun} · status: ${st}${p ? (' · ' + p) : ''}`);
     }
+    const aiEnabled = document.getElementById('st-ai-enabled');
+    if (aiEnabled) aiEnabled.checked = !!d.ai_enrichment_enabled;
+    const aiProvider = document.getElementById('st-ai-provider');
+    if (aiProvider) aiProvider.value = String(d.ai_provider || 'ollama');
+    const aiModel = document.getElementById('st-ai-model');
+    if (aiModel) aiModel.value = String(d.ai_model || 'phi3:mini');
+    const aiTimeout = document.getElementById('st-ai-timeout-ms');
+    if (aiTimeout) aiTimeout.value = String(Math.max(100, Math.min(5000, Number(d.ai_timeout_ms || 700))));
+    const aiMaxHosts = document.getElementById('st-ai-max-hosts');
+    if (aiMaxHosts) aiMaxHosts.value = String(Math.max(1, Math.min(5000, Number(d.ai_max_hosts_per_scan || 40))));
+    const aiAmbig = document.getElementById('st-ai-ambiguous-only');
+    if (aiAmbig) aiAmbig.checked = !!d.ai_ambiguous_only;
+    const aiRuntime = d.ai_runtime || {};
+    const aiRtEl = document.getElementById('st-ai-runtime-status');
+    if (aiRtEl) {
+        const ver = aiRuntime.version ? String(aiRuntime.version) : 'n/a';
+        aiRtEl.textContent = `Runtime: installed=${!!aiRuntime.installed} · running=${!!aiRuntime.running} · version=${ver}`;
+    }
+    const aiModelsEl = document.getElementById('st-ai-models-status');
+    if (aiModelsEl) {
+        const models = Array.isArray(aiRuntime.models) ? aiRuntime.models : [];
+        const rec = String(aiRuntime.compact_recommended_model || 'phi3:mini');
+        aiModelsEl.textContent = `Models: ${models.length ? models.join(', ') : 'none installed'} · compact recommended: ${rec}`;
+    }
     updateScanHistoryViewButtons();
     await loadAuthUsers();
     updateMfaActionButtons();
@@ -4948,6 +5027,106 @@ async function runDbBackupNow() {
         if (btn) {
             btn.disabled = false;
             btn.textContent = prev || 'Run backup now';
+        }
+    }
+}
+
+async function saveAiEnrichmentSettings() {
+    const body = {
+        ai_enrichment_enabled: !!document.getElementById('st-ai-enabled')?.checked,
+        ai_provider: String(document.getElementById('st-ai-provider')?.value || 'ollama'),
+        ai_model: String(document.getElementById('st-ai-model')?.value || 'phi3:mini').trim(),
+        ai_timeout_ms: Number(document.getElementById('st-ai-timeout-ms')?.value || 700),
+        ai_max_hosts_per_scan: Number(document.getElementById('st-ai-max-hosts')?.value || 40),
+        ai_ambiguous_only: !!document.getElementById('st-ai-ambiguous-only')?.checked,
+    };
+    if (!body.ai_model) {
+        toast('Model tag is required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/settings.php', body);
+    if (r && r.ok) {
+        toast('AI enrichment settings updated', 'ok');
+        await loadUiSettings();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+function applyAiPreset(preset) {
+    const modelEl = document.getElementById('st-ai-model');
+    const timeoutEl = document.getElementById('st-ai-timeout-ms');
+    const maxHostsEl = document.getElementById('st-ai-max-hosts');
+    const ambigEl = document.getElementById('st-ai-ambiguous-only');
+    const enabledEl = document.getElementById('st-ai-enabled');
+    if (!modelEl || !timeoutEl || !maxHostsEl || !ambigEl || !enabledEl) return;
+
+    if (preset === 'homelab_24') {
+        modelEl.value = 'phi3:mini';
+        timeoutEl.value = '700';
+        maxHostsEl.value = '20';
+        ambigEl.checked = true;
+        enabledEl.checked = true;
+        toast('Applied preset: /24 homelab (AI enabled, conservative limits)', 'ok');
+        return;
+    }
+    if (preset === 'batch_multi_24') {
+        modelEl.value = 'phi3:mini';
+        timeoutEl.value = '500';
+        maxHostsEl.value = '60';
+        ambigEl.checked = true;
+        enabledEl.checked = true;
+        toast('Applied preset: multi-/24 batch (higher throughput)', 'ok');
+    }
+}
+
+async function installOllamaRuntime() {
+    const btn = document.getElementById('btn-ai-install-ollama');
+    const prev = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Installing…';
+    }
+    try {
+        const r = await apiPost('/api/settings.php', { ai_install_ollama: true });
+        if (r && r.ok) {
+            toast('Ollama install/start completed', 'ok');
+            await loadUiSettings();
+        } else {
+            toast((r && r.error) ? r.error : 'Install failed', 'err');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || 'Install/start Ollama';
+        }
+    }
+}
+
+async function pullAiModel() {
+    const btn = document.getElementById('btn-ai-pull-model');
+    const prev = btn ? btn.textContent : '';
+    const model = String(document.getElementById('st-ai-model')?.value || 'phi3:mini').trim();
+    if (!model) {
+        toast('Set a model tag first', 'err');
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Downloading…';
+    }
+    try {
+        const r = await apiPost('/api/settings.php', { ai_pull_model: model });
+        if (r && r.ok) {
+            toast(`Model downloaded: ${model}`, 'ok');
+            await loadUiSettings();
+        } else {
+            toast((r && r.error) ? r.error : 'Model download failed', 'err');
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = prev || 'Download model';
         }
     }
 }
@@ -6439,6 +6618,8 @@ async function openHostPanel(id, ip) {
     const ports = a.open_ports || [];
     const banners = a.banners || {};
     const httpProbe = String(banners._http || '');
+    const discoverySources = Array.isArray(a.discovery_sources) ? a.discovery_sources : [];
+    const aiInfluenced = discoverySources.includes('ai_local_inference');
 
     const hn = String(a.hostname || '').trim();
     document.getElementById('hp-title').textContent = hn
@@ -6508,6 +6689,7 @@ async function openHostPanel(id, ip) {
       <div class="hp-meta">
         <div class="hp-meta-title">
           <span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span>
+          ${aiInfluenced ? '<span class="hp-chip" title="Category was adjusted by local AI enrichment">AI-assisted</span>' : ''}
           <span class="hp-meta-host">${esc(a.hostname||'—')}</span>
         </div>
         <table class="hp-meta-table">
@@ -6528,7 +6710,8 @@ async function openHostPanel(id, ip) {
           <tr><td class="hp-meta-key">Connected via</td><td class="hp-meta-val-dim">${esc(a.connected_via||'—')}</td></tr>
           <tr><td class="hp-meta-key">First seen</td><td class="hp-meta-val-dim">${localTime(a.first_seen)}</td></tr>
           <tr><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>
-          <tr><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${(a.discovery_sources||[]).length ? esc((a.discovery_sources||[]).join(', ')) : '—'}</td></tr>
+          <tr><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${discoverySources.length ? esc(discoverySources.join(', ')) : '—'}</td></tr>
+          ${aiInfluenced ? '<tr><td class="hp-meta-key">Classification</td><td class="hp-meta-val-dim">Local AI enrichment influenced category</td></tr>' : ''}
           ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>

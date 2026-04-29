@@ -30,6 +30,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
+- **Local AI enrichment (optional)** — Ollama-backed, compact-model-assisted classification hints for ambiguous hosts (`unk`/borderline `net` vs `srv`) with strict timeout/fail-open behavior
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
 - **Device identity** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
@@ -44,6 +45,22 @@ Together, the name describes exactly what the tool does: it surveys your network
 - `samba-common-bin` (for `nmblookup` NetBIOS hostname fallback)
 - `qrencode` (for local-only MFA QR rendering)
 - 2GB RAM, 10GB disk (NVD database is ~1GB)
+
+### Optional Local AI Enrichment Sizing
+
+Local AI enrichment is optional and off by default. If enabled, use a compact model (recommended:
+`phi3:mini`) and size the VM for inference overhead:
+
+- **Single `/24` homelab run profile** — `4 vCPU`, `8-12 GB RAM`, `64+ GB` disk
+- **Multiple `/24` batch runs profile** — `6-8 vCPU`, `12-16 GB RAM`, `80+ GB` disk
+- Keep large environments split into `/24` runs and schedule them sequentially on lower-end hosts
+
+Suggested AI settings for lower-end systems:
+
+- `ai_model=phi3:mini`
+- `ai_timeout_ms=500-700`
+- `ai_max_hosts_per_scan=20` (`/24`) or `60` (multi-`/24` batch host)
+- `ai_ambiguous_only=true`
 
 ## Quick Start
 
