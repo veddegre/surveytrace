@@ -36,7 +36,8 @@ function st_db(): PDO {
 
     $pdo->exec('PRAGMA journal_mode = WAL');
     $pdo->exec('PRAGMA foreign_keys = ON');
-    $pdo->exec('PRAGMA busy_timeout = 8000');
+    // Milliseconds to wait when another connection holds the write lock (scanner + many Apache workers).
+    $pdo->exec('PRAGMA busy_timeout = 30000');
     $pdo->exec('PRAGMA synchronous = NORMAL');
 
     // Auto-bootstrap schema on first run
