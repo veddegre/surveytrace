@@ -189,25 +189,37 @@ if (!empty($body['ai_install_ollama'])) {
         st_json(['error' => 'Command execution is disabled in PHP (exec/shell_exec).'], 503);
     }
     $os = strtolower(PHP_OS_FAMILY);
+    if ($os !== 'linux') {
+        st_json(['error' => 'Automatic Ollama install from Settings is supported on Linux only (SurveyTrace server target).'], 400);
+    }
     $log = [];
     $code = 0;
     if (!st_cmd_available('ollama')) {
-        if ($os === 'darwin') {
-            if (!st_cmd_available('brew')) {
-                st_json(['error' => 'Homebrew is required to install Ollama on macOS. Install brew first.'], 400);
-            }
-            @exec('brew install ollama 2>&1', $log, $code);
-            if ($code !== 0) {
-                st_json(['error' => 'brew install ollama failed', 'output' => array_slice($log, -8)], 500);
-            }
+        if (st_cmd_available('curl')) {
+            @exec('curl -fsSL https://ollama.com/install.sh | sh 2>&1', $log, $code);
+        } elseif (st_cmd_available('wget')) {
+            @exec('wget -qO- https://ollama.com/install.sh | sh 2>&1', $log, $code);
         } else {
-            st_json(['error' => 'Automatic Ollama install is currently supported only on macOS in this UI.'], 400);
+            st_json([
+                'error' => 'curl or wget is required to install Ollama on Linux',
+                'hint' => 'Install one of them and retry: sudo apt install -y curl',
+            ], 400);
+        }
+        if ($code !== 0) {
+            st_json([
+                'error' => 'Linux Ollama install failed',
+                'hint' => 'Run manually on the server shell: curl -fsSL https://ollama.com/install.sh | sh',
+                'output' => array_slice($log, -12),
+            ], 500);
         }
     }
     $startOut = [];
     $startCode = 0;
-    if ($os === 'darwin' && st_cmd_available('brew')) {
-        @exec('brew services start ollama 2>&1', $startOut, $startCode);
+    if (st_cmd_available('systemctl')) {
+        @exec('systemctl --user start ollama 2>&1', $startOut, $startCode);
+        if ($startCode !== 0) {
+            @exec('systemctl start ollama 2>&1', $startOut, $startCode);
+        }
     }
     if ($startCode !== 0) {
         @exec('ollama serve >/dev/null 2>&1 &', $startOut, $startCode);

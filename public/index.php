@@ -1053,6 +1053,12 @@
         </div>
         <div class="help-mono mb8" id="st-ai-runtime-status">Runtime: checking…</div>
         <div class="help-mono mb10" id="st-ai-models-status">Models: —</div>
+        <div class="help-line mb10 hide" id="st-ai-install-hint" style="font-size:12px;line-height:1.45">
+          Ollama is not installed on this server.
+          Run on the SurveyTrace host shell:
+          <code class="code-accent" id="st-ai-install-cmd">curl -fsSL https://ollama.com/install.sh | sh</code>
+          <button type="button" class="tbtn btn-xs" onclick="openAiInstallHelpModal()">View full Ubuntu setup/tests</button>
+        </div>
 
         <div class="row-wrap gap6 mb6">
           <label class="flbl" style="min-width:130px">Enable AI enrichment</label>
@@ -1347,6 +1353,31 @@
     <div class="row-end">
       <button class="tbtn" type="button" onclick="closeUserPasswordModal()">Cancel</button>
       <button class="btnp" type="button" onclick="submitAuthUserSave()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<div id="ai-install-help-bg" class="modal-bg z220">
+  <div class="modal-card modal-w640">
+    <div class="modal-title">Ubuntu Ollama setup</div>
+    <div class="text-muted mb10">Run these commands on the SurveyTrace server shell.</div>
+    <pre class="fsync-pre" id="ai-install-help-text">sudo apt update
+sudo apt install -y curl
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Start service (if not already running)
+sudo systemctl enable --now ollama || true
+
+# Pull compact model used by SurveyTrace defaults
+ollama pull phi3:mini
+
+# Quick tests
+ollama --version
+ollama list
+ollama run phi3:mini "Return JSON: {\"ok\":true}"</pre>
+    <div class="row-end mt10">
+      <button class="tbtn" type="button" onclick="copyAiInstallHelp()">Copy commands</button>
+      <button class="btnp" type="button" onclick="closeAiInstallHelpModal()">Close</button>
     </div>
   </div>
 </div>
@@ -4140,6 +4171,9 @@ document.getElementById('pw-change-bg')?.addEventListener('click', function(e) {
 document.getElementById('user-pw-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeUserPasswordModal();
 });
+document.getElementById('ai-install-help-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeAiInstallHelpModal();
+});
 
 // ==========================================================================
 // Enrichment sources
@@ -4283,9 +4317,38 @@ async function loadUiSettings() {
         const rec = String(aiRuntime.compact_recommended_model || 'phi3:mini');
         aiModelsEl.textContent = `Models: ${models.length ? models.join(', ') : 'none installed'} · compact recommended: ${rec}`;
     }
+    const installHint = document.getElementById('st-ai-install-hint');
+    if (installHint) {
+        if (aiRuntime.installed) installHint.classList.add('hide');
+        else installHint.classList.remove('hide');
+    }
+    const installBtn = document.getElementById('btn-ai-install-ollama');
+    if (installBtn) installBtn.style.display = aiRuntime.installed ? 'none' : '';
     updateScanHistoryViewButtons();
     await loadAuthUsers();
     updateMfaActionButtons();
+}
+
+function openAiInstallHelpModal() {
+    const bg = document.getElementById('ai-install-help-bg');
+    if (!bg) return;
+    bg.style.display = 'flex';
+}
+
+function closeAiInstallHelpModal() {
+    const bg = document.getElementById('ai-install-help-bg');
+    if (!bg) return;
+    bg.style.display = 'none';
+}
+
+function copyAiInstallHelp() {
+    const el = document.getElementById('ai-install-help-text');
+    if (!el) return;
+    const txt = el.textContent || '';
+    navigator.clipboard.writeText(txt).then(
+        () => toast('Commands copied', 'ok'),
+        () => toast('Could not copy commands', 'err'),
+    );
 }
 
 async function savePasswordPolicy() {
