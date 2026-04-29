@@ -213,10 +213,9 @@ DEEP_SCAN = ScanProfile(
     name        = "deep_scan",
     label       = "Deep Scan",
     description = (
-        "Full service detection with nmap -sV at high intensity, SNMP "
-        "polling, and comprehensive CVE correlation. Generates significant "
-        "network traffic. Requires confirmation. Not safe for IoT or OT. "
-        "Use for targeted investigation of specific hosts."
+        "Aggressive nmap -sV at high intensity on SurveyTrace's expanded fixed "
+        "port list (not a 1-65535 sweep). SNMP on; strong CVE correlation. "
+        "High traffic; requires confirmation. For every TCP port use full_tcp."
     ),
     icon        = "🔬",
 
@@ -250,9 +249,9 @@ FULL_TCP = ScanProfile(
     name        = "full_tcp",
     label       = "Full TCP",
     description = (
-        "Scans all 65,535 TCP ports with service detection (-sV -p-). "
-        "Useful when services run on non-standard ports or are hidden from "
-        "common-port profiles. High traffic and slower runtime; use carefully."
+        "Only profile that scans all 65,535 TCP ports (-p-) with nmap -sV. "
+        "Use when services run outside SurveyTrace's fixed port lists "
+        "(including Deep Scan). High traffic and long per-host runtime."
     ),
     icon        = "🧭",
 

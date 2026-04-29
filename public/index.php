@@ -394,21 +394,21 @@
             </div>
             <div class="pc-badge safe">Safe for IoT</div>
           </label>
-          <label class="profile-card" id="prof-deep_scan" title="Deep inspection: more probes, higher traffic, best for targeted investigations">
+          <label class="profile-card" id="prof-deep_scan" title="Aggressive -sV on a large fixed port list (~60+ ports), SNMP on — not a 1–65535 sweep">
             <input class="radio-hidden" type="radio" name="scan_profile" value="deep_scan">
             <div class="pc-icon">&#128300;</div>
             <div class="profile-copy">
               <div class="pc-name">Deep Scan</div>
-              <div class="pc-desc">Full nmap -sV, SNMP, all ports — requires confirmation</div>
+              <div class="pc-desc">Intense service detection on SurveyTrace&rsquo;s full port list — use Full TCP for every TCP port</div>
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
-          <label class="profile-card" id="prof-full_tcp" title="All 65,535 TCP ports with stronger service detection; slowest but deepest coverage">
+          <label class="profile-card" id="prof-full_tcp" title="Only profile that runs nmap across all 65,535 TCP ports (-p-) with -sV; longest per-host runtime">
             <input class="radio-hidden" type="radio" name="scan_profile" value="full_tcp">
             <div class="pc-icon">&#129517;</div>
             <div class="profile-copy">
               <div class="pc-name">Full TCP</div>
-              <div class="pc-desc">All TCP ports (-p-) + service detect — slower, high coverage</div>
+              <div class="pc-desc">Every TCP port 1&ndash;65535 (-p-) + service detect — use when services are off the common lists</div>
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
@@ -545,9 +545,9 @@
       <select class="finp w100 mb10" id="sched-profile">
         <option value="standard_inventory">Standard Inventory</option>
         <option value="iot_safe">IoT Safe</option>
-        <option value="deep_scan">Deep Scan</option>
-        <option value="full_tcp">Full TCP</option>
-        <option value="fast_full_tcp">Fast Full TCP</option>
+        <option value="deep_scan">Deep Scan — fixed large port list (not 1–65535)</option>
+        <option value="full_tcp">Full TCP — all 65,535 TCP ports</option>
+        <option value="fast_full_tcp">Fast Full TCP — all ports, lighter -sV</option>
         <option value="ot_careful">OT Careful</option>
       </select>
       <div id="sched-profile-help" class="help-box mb8"></div>
@@ -1104,8 +1104,8 @@
       <option value="iot_safe">IoT Safe — passive-first, no TCP port scan</option>
       <option value="ot_careful">OT Careful — passive-first, strict rate limits</option>
       <option value="standard_inventory">Standard Inventory — common ports, light banners</option>
-      <option value="deep_scan">Deep Scan — intensive service detection (high traffic)</option>
-      <option value="full_tcp">Full TCP — all ports + service detect (very high traffic)</option>
+      <option value="deep_scan">Deep Scan — aggressive -sV on ~60+ listed ports (not 1&ndash;65535)</option>
+      <option value="full_tcp">Full TCP — all 65,535 TCP ports + -sV (longest; true full sweep)</option>
       <option value="fast_full_tcp">Fast Full TCP — all ports, lighter detect (still very high traffic)</option>
     </select>
     <div id="host-rescan-hint" class="hint-micro mb6" style="min-height:2.6em"></div>
@@ -2863,8 +2863,11 @@ const HOST_RESCAN_PROFILE_IDS = new Set([
 
 function hostRescanProfileHintText(profile) {
     const p = profile || 'standard_inventory';
-    if (p === 'deep_scan' || p === 'full_tcp' || p === 'fast_full_tcp') {
-        return 'Warning: this profile sends substantial active traffic to this host. Avoid on fragile IoT, cameras, or OT gear unless you accept disruption risk.';
+    if (p === 'deep_scan') {
+        return 'Deep Scan: aggressive -sV on a fixed large port list (~60+ ports), not a 1–65535 sweep. For every TCP port, pick Full TCP.';
+    }
+    if (p === 'full_tcp' || p === 'fast_full_tcp') {
+        return 'Warning: scans all 65,535 TCP ports with active service detection. Avoid on fragile IoT, cameras, or OT gear unless you accept disruption risk.';
     }
     if (p === 'iot_safe' || p === 'ot_careful') {
         return 'Lower impact: passive-first profile with minimal or no TCP service scanning.';
@@ -5802,11 +5805,11 @@ const PROFILE_HELP_TEXT = {
     },
     deep_scan: {
         title: 'Deep Scan',
-        text:  'Higher depth and higher traffic. Uses stronger service detection and enrichment for detailed investigations of selected scopes.'
+        text:  'Intense nmap -sV on SurveyTrace’s expanded port list (not every TCP port). Stronger probes and SNMP than Standard Inventory. For a true 1–65535 sweep, choose Full TCP.'
     },
     full_tcp: {
         title: 'Full TCP',
-        text:  'Scans all 65,535 TCP ports with deeper service detection. Highest coverage, longest runtime.'
+        text:  'The only profile that scans all 65,535 TCP ports (-p-) with service detection. Slowest per host; use when Deep Scan’s fixed list misses services on unusual ports.'
     },
     fast_full_tcp: {
         title: 'Fast Full TCP',
@@ -6055,8 +6058,8 @@ function updateSchedProfileWarn(profile) {
     if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
         w.style.display = 'block';
         const lines = {
-            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
-            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
             fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };
@@ -6073,8 +6076,8 @@ function updateScanProfileWarn(profile) {
     if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
         w.style.display = 'block';
         const lines = {
-            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
-            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
             fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };
@@ -6091,8 +6094,8 @@ function updateHostRescanProfileWarn(profile) {
     if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
         w.style.display = 'block';
         const lines = {
-            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
-            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
             fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };

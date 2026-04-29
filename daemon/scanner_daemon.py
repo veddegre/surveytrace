@@ -628,6 +628,19 @@ def phase_banner(
             # Previous caps (e.g. 30s on wide jobs) left nmap incomplete vs standard_inventory.
             if scan_all_tcp:
                 timeout_secs = max(timeout_secs, 120)
+        elif profile_obj.name == "full_tcp" and scan_all_tcp:
+            # full_tcp uses -p- + -sV; a flat 120s host-timeout routinely aborts before nmap
+            # finishes on single-host /32 jobs, producing empty port lists while fingerprinting
+            # still infers OS from hostname/DNS. Scale by scope; keep caps for large sweeps.
+            nh = len(hosts)
+            if nh <= 1:
+                timeout_secs = 900
+            elif nh <= 8:
+                timeout_secs = 600
+            elif nh <= 32:
+                timeout_secs = 300
+            else:
+                timeout_secs = 180
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
@@ -644,10 +657,9 @@ def phase_banner(
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
                       f"Phase 3 batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts")
-        # python-nmap subprocess timeout:
-        # - if nmap host-timeout is active, keep a short guard window
-        # - keep an upper bound so one target cannot block progress for 15m.
-        scan_timeout = timeout_secs + 90
+        # python-nmap subprocess timeout: must exceed nmap --host-timeout so the
+        # subprocess is not killed mid-scan (especially full_tcp -p- on one host).
+        scan_timeout = min(3600, max(timeout_secs + 120, 240))
         try:
             # python-nmap timeout guards against a hung subprocess/read.
             nm.scan(
@@ -663,7 +675,7 @@ def phase_banner(
             # does not stall the entire job.
             for one_host in chunk:
                 try:
-                    one_host_timeout = max(45, min(timeout_secs, 180) + 30)
+                    one_host_timeout = min(3600, max(90, timeout_secs + 90))
                     nm.scan(
                         hosts=one_host,
                         arguments=nmap_args,
@@ -1833,8 +1845,76 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
                   http_probe: str | None = None,
                   discovery_sources: list[str] | None = None,
                   connected_via: str = "",
-                  hostname: str = "") -> dict:
+                  hostname: str = "",
+                  scan_profile: str = "") -> dict:
     """Upsert an asset row and return the full row dict."""
+    # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
+    # zero opens and wiping a good standard_inventory row. Union with prior opens
+    # so inventory evidence is never strictly reduced by these profiles alone.
+    existing_ports: list[int] = []
+    existing_banners: dict[str, str] = {}
+    existing_ncpes: list[str] = []
+    cur = conn.execute(
+        "SELECT open_ports, banners, nmap_cpes FROM assets WHERE ip=?",
+        (ip,),
+    ).fetchone()
+    if cur:
+        try:
+            ep = json.loads(cur["open_ports"] or "[]")
+            if isinstance(ep, list):
+                for x in ep:
+                    try:
+                        existing_ports.append(int(x))
+                    except (TypeError, ValueError):
+                        continue
+        except (json.JSONDecodeError, TypeError):
+            existing_ports = []
+        try:
+            eb = json.loads(cur["banners"] or "{}")
+            if isinstance(eb, dict):
+                existing_banners = {str(k): str(v) for k, v in eb.items() if v is not None}
+        except (json.JSONDecodeError, TypeError):
+            existing_banners = {}
+        try:
+            en = json.loads(cur["nmap_cpes"] or "[]")
+            if isinstance(en, list):
+                existing_ncpes = [str(x) for x in en if x]
+        except (json.JSONDecodeError, TypeError):
+            existing_ncpes = []
+
+    if scan_profile in ("full_tcp", "fast_full_tcp") and existing_ports:
+        new_port_set = set()
+        for x in ports or []:
+            try:
+                new_port_set.add(int(x))
+            except (TypeError, ValueError):
+                continue
+        merged = sorted(new_port_set | set(existing_ports))
+        prior_merged = len(merged) > len(new_port_set)
+        if prior_merged:
+            log.info(
+                "[job %d] upsert %s: merging prior open_ports (%d) with scan (%d) → %d for profile=%s",
+                job_id,
+                ip,
+                len(set(existing_ports)),
+                len(new_port_set),
+                len(merged),
+                scan_profile,
+            )
+        ports = merged
+        mb = dict(existing_banners)
+        for k, v in (banners or {}).items():
+            if v is not None and str(v).strip() != "":
+                mb[str(k)] = str(v)
+        banners = mb
+        if not nmap_cpes and existing_ncpes:
+            nmap_cpes = list(existing_ncpes)
+        if prior_merged:
+            dsc = list(discovery_sources or [])
+            if "prior_inventory_ports_merged" not in dsc:
+                dsc.append("prior_inventory_ports_merged")
+            discovery_sources = dsc
+
     fp = fingerprint(mac, ports, banners, hostname=hostname)
     oui_vendor_pre, oui_cat_pre = oui_lookup(mac)
 
@@ -2340,6 +2420,7 @@ def run_scan(job: dict) -> None:
                 discovery_sources=sources,
                 connected_via=connected_via,
                 hostname=hostname,
+                scan_profile=profile_name,
             )
             upserted_assets.append(asset)
             scanned += 1
