@@ -224,9 +224,14 @@ def load_external_webfp_rules(path: Path) -> int:
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+# Commit every N rows inside one `with db_conn()` so SQLite releases the writer
+# between batches (WAL still allows only one writer, but duration drops sharply).
+_BULK_WRITE_COMMIT_INTERVAL = 100
+
+
 @contextmanager
 def db_conn() -> Generator[sqlite3.Connection, None, None]:
-    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -3028,8 +3033,7 @@ def run_scan(job: dict) -> None:
         findings = phase_cve(job_id, upserted_assets)
 
         with db_conn() as conn:
-            for f in findings:
-                # Determine top CVSS per asset
+            for i, f in enumerate(findings):
                 conn.execute("""
                     INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published)
                     VALUES (:aid,:ip,:cve,:cvss,:sev,:desc,:pub)
@@ -3042,6 +3046,8 @@ def run_scan(job: dict) -> None:
                     "sev":  f["severity"], "desc": f["description"],
                     "pub":  f["published"],
                 })
+                if (i + 1) % _BULK_WRITE_COMMIT_INTERVAL == 0:
+                    conn.commit()
 
             # Update top_cve / top_cvss on each asset
             conn.execute("""
@@ -3166,28 +3172,29 @@ def run_scan(job: dict) -> None:
         ).fetchall()
         conn.execute("DELETE FROM scan_asset_snapshots WHERE job_id = ?", (job_id,))
         if snap_rows:
-            conn.executemany(
-                """
+            snap_data = [
+                (
+                    job_id,
+                    int(r["id"]) if r["id"] is not None else None,
+                    r["ip"],
+                    r["hostname"],
+                    r["category"],
+                    r["vendor"],
+                    r["top_cve"],
+                    r["top_cvss"],
+                    r["open_ports"],
+                    int(r["device_id"]) if r["device_id"] is not None else None,
+                )
+                for r in snap_rows
+            ]
+            ins_snap = """
                 INSERT INTO scan_asset_snapshots
                     (job_id, asset_id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        job_id,
-                        int(r["id"]) if r["id"] is not None else None,
-                        r["ip"],
-                        r["hostname"],
-                        r["category"],
-                        r["vendor"],
-                        r["top_cve"],
-                        r["top_cvss"],
-                        r["open_ports"],
-                        int(r["device_id"]) if r["device_id"] is not None else None,
-                    )
-                    for r in snap_rows
-                ],
-            )
+            """
+            for j in range(0, len(snap_data), _BULK_WRITE_COMMIT_INTERVAL):
+                conn.executemany(ins_snap, snap_data[j : j + _BULK_WRITE_COMMIT_INTERVAL])
+                conn.commit()
         conn.execute("DELETE FROM scan_finding_snapshots WHERE job_id = ?", (job_id,))
         finding_rows = conn.execute(
             """
@@ -3199,24 +3206,25 @@ def run_scan(job: dict) -> None:
             (job_id,),
         ).fetchall()
         if finding_rows:
-            conn.executemany(
-                """
+            fr_data = [
+                (
+                    job_id,
+                    int(fr["asset_id"]),
+                    fr["cve_id"],
+                    fr["cvss"],
+                    fr["severity"],
+                    int(fr["resolved"] or 0),
+                )
+                for fr in finding_rows
+            ]
+            ins_fs = """
                 INSERT INTO scan_finding_snapshots
                     (job_id, asset_id, cve_id, cvss, severity, resolved)
                 VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        job_id,
-                        int(fr["asset_id"]),
-                        fr["cve_id"],
-                        fr["cvss"],
-                        fr["severity"],
-                        int(fr["resolved"] or 0),
-                    )
-                    for fr in finding_rows
-                ],
-            )
+            """
+            for j in range(0, len(fr_data), _BULK_WRITE_COMMIT_INTERVAL):
+                conn.executemany(ins_fs, fr_data[j : j + _BULK_WRITE_COMMIT_INTERVAL])
+                conn.commit()
 
         conn.execute("""
             UPDATE scan_jobs
