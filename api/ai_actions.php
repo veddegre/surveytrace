@@ -1,4 +1,43 @@
 <?php
+
+/**
+ * Emit JSON on fatal errors (missing includes, compile errors) so clients never see an empty HTTP 500.
+ */
+register_shutdown_function(static function (): void {
+    $err = error_get_last();
+    if ($err === null) {
+        return;
+    }
+    $type = (int)($err['type'] ?? 0);
+    $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+    if (!in_array($type, $fatalTypes, true)) {
+        return;
+    }
+    if (headers_sent()) {
+        return;
+    }
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    $msg = (string)($err['message'] ?? '');
+    $file = (string)($err['file'] ?? '');
+    $line = (int)($err['line'] ?? 0);
+    $hint = '';
+    if (stripos($msg, 'lib_ai_ollama') !== false || stripos($msg, 'Failed opening required') !== false) {
+        $hint = 'Deploy api/lib_ai_ollama.php next to api/ai_actions.php (see deploy.sh).';
+    }
+    $payload = [
+        'ok' => false,
+        'error' => 'Fatal error in AI endpoint',
+        'detail' => $msg,
+        'file' => $file,
+        'line' => $line,
+        'hint' => $hint,
+    ];
+    $out = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    echo ($out !== false) ? $out : '{"ok":false,"error":"fatal"}';
+});
+
 /**
  * SurveyTrace — POST /api/ai_actions.php
  *
@@ -386,10 +425,16 @@ try {
     st_json(['error' => 'Unknown action'], 400);
 } catch (Throwable $e) {
     @error_log('SurveyTrace ai_actions: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    $detail = $e->getMessage();
+    $hint = '';
+    if (stripos($detail, 'no such column') !== false) {
+        $hint = 'SQLite schema is missing AI cache columns — open any SurveyTrace page once (runs migrations) or redeploy api/db.php.';
+    }
     st_json([
         'ok' => false,
         'error' => 'AI action failed',
-        'detail' => $e->getMessage(),
+        'detail' => $detail,
         'exception' => get_class($e),
+        'hint' => $hint,
     ], 500);
 }

@@ -2107,10 +2107,13 @@ async function apiPost(url, body) {
             const hint = (txt && txt.trim())
                 ? txt.replace(/\s+/g, ' ').trim().slice(0, 220)
                 : '';
+            const emptyHint = (url && String(url).indexOf('ai_actions.php') >= 0)
+                ? 'Empty response — deploy api/lib_ai_ollama.php with api/ai_actions.php, reload the app once for DB migrations, then check php-fpm/nginx logs if it persists.'
+                : 'Empty body — check PHP / nginx error log';
             toast(
                 hint
                     ? ('Request failed: HTTP ' + r.status + ' — ' + hint)
-                    : ('Request failed: HTTP ' + r.status + ' (empty body — check PHP / nginx error log)'),
+                    : ('Request failed: HTTP ' + r.status + ' (' + emptyHint + ')'),
                 'err'
             );
             return { ok: false, error: 'HTTP ' + r.status + (hint ? ': ' + hint : ''), _httpError: true };
@@ -3858,7 +3861,12 @@ async function refreshScanHistAiSummary() {
         await openScanHistDetail(jobId, cmp > 0 ? cmp : 0, scope, true);
         return;
     }
-    toast((r.error || 'Refresh failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+    toast(
+        (r.error || 'Refresh failed')
+            + (r.detail ? ': ' + r.detail : '')
+            + (r.hint ? ' — ' + r.hint : ''),
+        'err'
+    );
 }
 
 function hpAiEnvelopeBody(env) {
@@ -3963,7 +3971,12 @@ async function runAiHostGuidance(assetId, ip, force) {
         await openHostPanel(assetId, ip);
         return;
     }
-    toast((r.error || 'CVE guidance failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+    toast(
+        (r.error || 'CVE guidance failed')
+            + (r.detail ? ': ' + r.detail : '')
+            + (r.hint ? ' — ' + r.hint : ''),
+        'err'
+    );
     if (r.envelope || r.ok === false) await openHostPanel(assetId, ip);
 }
 
@@ -3983,7 +3996,12 @@ async function runAiHostExplain(assetId, ip, force) {
         await openHostPanel(assetId, ip);
         return;
     }
-    toast((r.error || 'Host summary failed') + (r.detail ? ': ' + r.detail : ''), 'err');
+    toast(
+        (r.error || 'Host summary failed')
+            + (r.detail ? ': ' + r.detail : '')
+            + (r.hint ? ' — ' + r.hint : ''),
+        'err'
+    );
     await openHostPanel(assetId, ip);
 }
 
