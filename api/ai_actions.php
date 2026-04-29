@@ -154,6 +154,69 @@ function st_ai_operator_runtime(): array {
 }
 
 /**
+ * POST JSON to Ollama using the system curl binary (same path as `sudo -u www-data curl`).
+ * Used when PHP's libcurl returns an empty body under php-fpm.
+ *
+ * @return array{raw: string, stderr: string, exit: int}
+ */
+function st_ai_ollama_post_via_cli_curl(string $url, string $jsonBody, int $timeoutSec): array {
+    $out = ['raw' => '', 'stderr' => '', 'exit' => -1];
+    if (!function_exists('proc_open')) {
+        $out['stderr'] = 'proc_open unavailable';
+        return $out;
+    }
+    $curlBin = '';
+    foreach (['/usr/bin/curl', '/bin/curl', '/usr/local/bin/curl'] as $c) {
+        if (@is_executable($c)) {
+            $curlBin = $c;
+            break;
+        }
+    }
+    if ($curlBin === '') {
+        $out['stderr'] = 'curl binary not found (checked /usr/bin, /bin, /usr/local/bin)';
+        return $out;
+    }
+    $tmp = @tempnam(sys_get_temp_dir(), 'stol_');
+    if ($tmp === false) {
+        $out['stderr'] = 'tempnam failed';
+        return $out;
+    }
+    if (@file_put_contents($tmp, $jsonBody) === false) {
+        @unlink($tmp);
+        $out['stderr'] = 'could not write temp JSON body';
+        return $out;
+    }
+    @chmod($tmp, 0600);
+    $m = (string)max(1, min(120, $timeoutSec));
+    $cmd = [
+        $curlBin,
+        '-sS',
+        '-m', $m,
+        '-X', 'POST',
+        '-H', 'Content-Type: application/json',
+        '-d', '@' . $tmp,
+        $url,
+    ];
+    $desc = [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']];
+    $proc = @proc_open($cmd, $desc, $pipes, null, null, ['bypass_shell' => true]);
+    if (!is_resource($proc)) {
+        @unlink($tmp);
+        $out['stderr'] = 'proc_open failed';
+        return $out;
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $out['exit'] = proc_close($proc);
+    @unlink($tmp);
+    $out['raw'] = is_string($stdout) ? $stdout : '';
+    $out['stderr'] = is_string($stderr) ? trim($stderr) : '';
+    return $out;
+}
+
+/**
  * @return array{ok: bool, text: string, err: string}
  */
 function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s): array {
@@ -217,6 +280,22 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
         if (is_string($res) && $res !== '') {
             $raw = $res;
             $curlNote = '';
+        }
+    }
+    if ($raw === '') {
+        $cli = st_ai_ollama_post_via_cli_curl($url, $body, $timeoutSec);
+        if ($cli['raw'] !== '') {
+            $raw = $cli['raw'];
+        } else {
+            $cliHint = '';
+            if ($cli['stderr'] !== '') {
+                $cliHint = 'cli_curl: ' . $cli['stderr'];
+            } elseif ($cli['exit'] !== 0 && $cli['exit'] !== -1) {
+                $cliHint = 'cli_curl exit ' . (string)$cli['exit'];
+            }
+            if ($cliHint !== '') {
+                $curlNote = trim($curlNote . ' ' . $cliHint);
+            }
         }
     }
     if ($raw === '') {
