@@ -51,7 +51,11 @@ function st_ollama_api_tags(): array {
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 1500);
+        if (defined('CURLOPT_NOSIGNAL')) {
+            curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
         $res = curl_exec($ch);
         if (is_string($res)) {
             $raw = $res;

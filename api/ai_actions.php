@@ -58,11 +58,15 @@ require_once __DIR__ . '/db.php';
 function st_ai_ollama_api_tags(float $timeout_s = 1.5): ?array {
     $url = 'http://127.0.0.1:11434/api/tags';
     $raw = '';
-    $ms = (int)max(200, min(5000, (int)($timeout_s * 1000)));
+    $sec = max(2, min(10, (int)ceil($timeout_s)));
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, $ms);
+        if (defined('CURLOPT_NOSIGNAL')) {
+            curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $sec);
         $res = curl_exec($ch);
         if (is_string($res)) {
             $raw = $res;
@@ -164,8 +168,13 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
     }
 
     $raw = '';
-    $ms = (int)max(500, min(120000, (int)($timeout_s * 1000)));
-    $connectMs = (int)max(1000, min(15000, $ms));
+    // Whole-second timeouts + CURLOPT_NOSIGNAL: under php-fpm, CURLOPT_TIMEOUT_MS without
+    // CURLOPT_NOSIGNAL can make libcurl return an empty body (alarm/signal vs threads).
+    $timeoutSec = max(1, min(120, (int)ceil($timeout_s)));
+    $connectSec = max(2, min(30, (int)ceil($timeout_s / 4)));
+    if ($connectSec > $timeoutSec) {
+        $connectSec = min($connectSec, $timeoutSec);
+    }
     $curlNote = '';
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
@@ -173,8 +182,11 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $connectMs);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, $ms);
+        if (defined('CURLOPT_NOSIGNAL')) {
+            curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connectSec);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeoutSec);
         $res = curl_exec($ch);
         $errno = (int)curl_errno($ch);
         $cerr = trim((string)curl_error($ch));

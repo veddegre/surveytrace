@@ -472,7 +472,11 @@ if ((string)$health['ai']['provider'] === 'ollama') {
     if (function_exists('curl_init')) {
         $ch = curl_init($tagsUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 1500);
+        if (defined('CURLOPT_NOSIGNAL')) {
+            curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
         $res = curl_exec($ch);
         if (is_string($res)) {
             $tagsRaw = $res;
