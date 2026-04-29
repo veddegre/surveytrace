@@ -187,7 +187,7 @@ function st_ai_ollama_post_via_cli_curl(string $url, string $jsonBody, int $time
         return $out;
     }
     @chmod($tmp, 0600);
-    $m = (string)max(1, min(120, $timeoutSec));
+    $m = (string)max(1, min(180, $timeoutSec));
     $cmd = [
         $curlBin,
         '-sS',
@@ -233,7 +233,7 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
     $raw = '';
     // Whole-second timeouts + CURLOPT_NOSIGNAL: under php-fpm, CURLOPT_TIMEOUT_MS without
     // CURLOPT_NOSIGNAL can make libcurl return an empty body (alarm/signal vs threads).
-    $timeoutSec = max(1, min(120, (int)ceil($timeout_s)));
+    $timeoutSec = max(1, min(180, (int)ceil($timeout_s)));
     $connectSec = max(2, min(30, (int)ceil($timeout_s / 4)));
     if ($connectSec > $timeoutSec) {
         $connectSec = min($connectSec, $timeoutSec);
@@ -600,9 +600,10 @@ try {
                 . 'Host: ' . ($row['ip'] ?? '') . ' category=' . ($row['category'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . "\n"
                 . "Open findings (CVE rows):\n" . implode("\n", $lines) . "\n";
 
-            @set_time_limit(120);
+            @set_time_limit(180);
             @ignore_user_abort(true);
-            $timeoutS = max(8.0, min(90.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
+            // Local models often need >10s for JSON; scale from settings but never below 60s wall clock.
+            $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
             $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
             if (!$gen['ok']) {
                 $envelope = [
@@ -692,9 +693,9 @@ try {
             . 'open_ports=' . $portStr . " open_findings=" . $openCount . ' top_cves=' . implode(',', $topCves) . "\n"
             . "banner_snippets:\n" . implode("\n", $bannerLines) . "\n";
 
-        @set_time_limit(120);
+        @set_time_limit(180);
         @ignore_user_abort(true);
-        $timeoutS = max(8.0, min(90.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
+        $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 10.0));
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
         if (!$gen['ok']) {
             $envelope = [
@@ -798,9 +799,9 @@ try {
             . "Be concise, practical, and avoid alarmist language.\n\n"
             . "Scan data JSON:\n{$compactJson}\n";
 
-        @set_time_limit(120);
+        @set_time_limit(180);
         @ignore_user_abort(true);
-        $timeoutS = max(5.0, min(90.0, ($rt['timeout_ms'] / 1000.0) * 8.0));
+        $timeoutS = max(60.0, min(180.0, ($rt['timeout_ms'] / 1000.0) * 8.0));
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
         if (!$gen['ok']) {
             $summary['ai_scan_summary_status'] = 'failed';

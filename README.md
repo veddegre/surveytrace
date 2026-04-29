@@ -125,6 +125,8 @@ It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 
 If **AI operator** buttons fail, redeploy **`api/ai_actions.php`** (single file; see `deploy.sh`) and load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
 
+When libcurl returns an empty body, the API falls back to **`proc_open()` + `curl`** (system `curl`, not PHP’s extension). Confirm it is allowed for the FPM user (often `www-data`): `sudo -u www-data php -r 'var_export(function_exists("proc_open")); echo PHP_EOL;'` should print `true`. If `php.ini` / pool config lists **`proc_open`** in **`disable_functions`**, remove it (or the fallback cannot run). Align **`request_terminate_timeout`** / **`max_execution_time`** with long Ollama calls (the API raises limits for AI actions; nginx/php-fpm must not kill the worker first).
+
 **Feed sync from the browser:** Under **PHP-FPM**, sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`**, the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
 
 SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
