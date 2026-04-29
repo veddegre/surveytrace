@@ -503,6 +503,10 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 }
 .hp-ai-col{border-bottom:none;padding:10px;background:var(--bg4);border-radius:8px;border:1px solid var(--bd)}
 .hp-ai-ul{margin:6px 0 0;padding-left:18px;color:var(--tx2);font-size:12px;line-height:1.45}
+.hp-ai-spin{display:inline-block;width:11px;height:11px;border:2px solid var(--bd2);border-top-color:var(--acc);border-radius:50%;animation:hp-ai-spin .65s linear infinite;vertical-align:-2px;margin-right:6px;flex-shrink:0}
+@keyframes hp-ai-spin{to{transform:rotate(360deg)}}
+.hp-ai-overview-clamp{display:-webkit-box;-webkit-line-clamp:5;line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45}
+button[data-st-ai-action]:disabled{opacity:.88;cursor:wait}
 .sv-sm{font-size:17px;color:var(--tx)}
 .sv-md{font-size:19px;color:var(--tx)}
 .mb16{margin-bottom:16px}

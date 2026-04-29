@@ -3873,9 +3873,6 @@ function hpAiEnvelopeBody(env) {
     if (!env || typeof env !== 'object') return '<div class="hp-empty">Not generated yet.</div>';
     const st = String(env.status || '');
     const det = env.detail != null ? String(env.detail) : '';
-    if (st === 'skipped' && det === 'no_open_findings') {
-        return '<div class="hp-empty">No open CVEs on this host — nothing to triage.</div>';
-    }
     if (st === 'failed' || st === 'skipped') {
         return `<div class="hp-empty">${
             st === 'failed' ? 'Generation failed' : 'Skipped'
@@ -3886,19 +3883,8 @@ function hpAiEnvelopeBody(env) {
     return '';
 }
 
-function hpAiFindingsDocHtml(doc) {
-    const rs = doc.risk_summary ? `<div class="summary-line" style="margin-top:6px">${esc(String(doc.risk_summary))}</div>` : '';
-    const pr = doc.prioritize ? `<div class="summary-line text-dim" style="margin-top:6px"><b>Prioritize:</b> ${esc(String(doc.prioritize))}</div>` : '';
-    const bl = Array.isArray(doc.remediation_bullets) && doc.remediation_bullets.length
-        ? `<ul class="hp-ai-ul">${doc.remediation_bullets.map(b => `<li>${esc(String(b))}</li>`).join('')}</ul>`
-        : '';
-    const note = doc.note ? `<div class="hint-micro mt6">${esc(String(doc.note))}</div>` : '';
-    if (!rs && !pr && !bl && !note) return '<div class="hp-empty">Model returned an empty structure.</div>';
-    return rs + pr + bl + note;
-}
-
 function hpAiExplainDocHtml(doc) {
-    const ov = doc.overview ? `<div class="summary-line" style="margin-top:6px">${esc(String(doc.overview))}</div>` : '';
+    const ov = doc.overview ? `<div class="summary-line hp-ai-overview-clamp" style="margin-top:6px">${esc(String(doc.overview))}</div>` : '';
     const roles = Array.isArray(doc.likely_roles) && doc.likely_roles.length
         ? `<div class="summary-line mt6"><b>Likely roles</b><ul class="hp-ai-ul">${doc.likely_roles.map(x => `<li>${esc(String(x))}</li>`).join('')}</ul></div>`
         : '';
@@ -3913,71 +3899,50 @@ function hpAiExplainDocHtml(doc) {
 }
 
 function renderHpAiOperatorSection(a, assetId, ip) {
-    const fg = a.ai_findings_guidance && typeof a.ai_findings_guidance === 'object' ? a.ai_findings_guidance : null;
     const ex = a.ai_host_explain && typeof a.ai_host_explain === 'object' ? a.ai_host_explain : null;
     const can = stRoleCanManageScans();
-
-    let fgInner = hpAiEnvelopeBody(fg);
-    if (fg && String(fg.status || '') === 'ok' && fg.doc) fgInner = hpAiFindingsDocHtml(fg.doc);
 
     let exInner = hpAiEnvelopeBody(ex);
     if (ex && String(ex.status || '') === 'ok' && ex.doc) exInner = hpAiExplainDocHtml(ex.doc);
 
-    const fgBtns = can
-        ? `<div class="row-wrap gap6 mt6">
-            <button type="button" class="tbtn btn-xs" data-st-ai-action="guidance" data-asset-id="${assetId}" data-ip="${esc(String(ip || ''))}" data-force="${fg ? '1' : '0'}">${fg ? 'Regenerate' : 'Generate'} CVE guidance</button>
-          </div>`
-        : '<div class="hint-micro mt6">Scan editor or admin role required to run AI.</div>';
     const exBtns = can
         ? `<div class="row-wrap gap6 mt6">
             <button type="button" class="tbtn btn-xs" data-st-ai-action="explain" data-asset-id="${assetId}" data-ip="${esc(String(ip || ''))}" data-force="${ex ? '1' : '0'}">${ex ? 'Regenerate' : 'Generate'} host summary</button>
           </div>`
-        : '';
+        : '<div class="hint-micro mt6">Scan editor or admin role required to run AI.</div>';
 
-    const tsFg = fg && fg.ts ? `<span class="text-micro text-dim"> · ${esc(String(fg.ts))}</span>` : '';
     const tsEx = ex && ex.ts ? `<span class="text-micro text-dim"> · ${esc(String(ex.ts))}</span>` : '';
 
     return `
-      <div class="hp-head">AI operator hints <span class="text-dim">(suggestions only — verify before acting)</span></div>
-      <p class="hint-micro" style="margin:4px 0 10px">Local model output may be wrong; use findings and change logs as source of truth.</p>
-      <div class="hp-ai-cols">
-        <div class="hp-block hp-ai-col">
-          <div class="text-micro" style="font-weight:600;margin-bottom:4px">CVE triage${tsFg}</div>
-          ${fgInner}
-          ${fgBtns}
-        </div>
-        <div class="hp-block hp-ai-col">
-          <div class="text-micro" style="font-weight:600;margin-bottom:4px">Explain this host${tsEx}</div>
-          ${exInner}
-          ${exBtns}
-        </div>
+      <div class="hp-head">AI host summary <span class="text-dim">(suggestions only — verify before acting)</span></div>
+      <p class="hint-micro" style="margin:4px 0 10px">Local model output may be wrong; use open ports, banners, and the findings list above as source of truth.</p>
+      <div class="hp-block hp-ai-col" style="margin-bottom:0">
+        <div class="text-micro" style="font-weight:600;margin-bottom:4px">Summary${tsEx}</div>
+        ${exInner}
+        ${exBtns}
       </div>`;
 }
 
-async function runAiHostGuidance(assetId, ip, force) {
-    if (!stRoleCanManageScans()) {
-        toast('Permission denied — scan editor or admin role required', 'err');
-        return;
-    }
-    toast('Calling local model for CVE guidance (may take up to a few minutes)…', 'ok');
-    const r = await apiPost('/api/ai_actions.php', {
-        action: 'findings_guidance',
-        asset_id: assetId,
-        force: !!force,
+function setHostPanelAiBusy(busy) {
+    const panel = document.getElementById('host-panel');
+    if (!panel) return;
+    panel.querySelectorAll('button[data-st-ai-action]').forEach((b) => {
+        if (busy) {
+            if (b.dataset.stAiSavedHtml === undefined) {
+                b.dataset.stAiSavedHtml = b.innerHTML;
+            }
+            b.disabled = true;
+            b.setAttribute('aria-busy', 'true');
+            b.innerHTML = '<span class="hp-ai-spin" aria-hidden="true"></span> Running…';
+        } else {
+            b.disabled = false;
+            b.removeAttribute('aria-busy');
+            if (b.dataset.stAiSavedHtml !== undefined) {
+                b.innerHTML = b.dataset.stAiSavedHtml;
+                delete b.dataset.stAiSavedHtml;
+            }
+        }
     });
-    if (!r) return;
-    if (r.ok) {
-        toast(r.cached ? 'Showing cached CVE guidance' : 'CVE guidance ready', 'ok');
-        await openHostPanel(assetId, ip);
-        return;
-    }
-    toast(
-        (r.error || 'CVE guidance failed')
-            + (r.detail ? ': ' + r.detail : '')
-            + (r.hint ? ' — ' + r.hint : ''),
-        'err'
-    );
-    if (r.envelope || r.ok === false) await openHostPanel(assetId, ip);
 }
 
 async function runAiHostExplain(assetId, ip, force) {
@@ -3985,25 +3950,30 @@ async function runAiHostExplain(assetId, ip, force) {
         toast('Permission denied — scan editor or admin role required', 'err');
         return;
     }
-    toast('Calling local model for host summary (may take up to a few minutes)…', 'ok');
-    const r = await apiPost('/api/ai_actions.php', {
-        action: 'explain_host',
-        asset_id: assetId,
-        force: !!force,
-    });
-    if (!r) return;
-    if (r.ok) {
-        toast(r.cached ? 'Showing cached host summary' : 'Host summary ready', 'ok');
+    setHostPanelAiBusy(true);
+    try {
+        toast('Calling local model for host summary (may take up to a few minutes)…', 'ok');
+        const r = await apiPost('/api/ai_actions.php', {
+            action: 'explain_host',
+            asset_id: assetId,
+            force: !!force,
+        });
+        if (!r) return;
+        if (r.ok) {
+            toast(r.cached ? 'Showing cached host summary' : 'Host summary ready', 'ok');
+            await openHostPanel(assetId, ip);
+            return;
+        }
+        toast(
+            (r.error || 'Host summary failed')
+                + (r.detail ? ': ' + r.detail : '')
+                + (r.hint ? ' — ' + r.hint : ''),
+            'err'
+        );
         await openHostPanel(assetId, ip);
-        return;
+    } finally {
+        setHostPanelAiBusy(false);
     }
-    toast(
-        (r.error || 'Host summary failed')
-            + (r.detail ? ': ' + r.detail : '')
-            + (r.hint ? ' — ' + r.hint : ''),
-        'err'
-    );
-    await openHostPanel(assetId, ip);
 }
 
 function bindScanDetailAssetDelegates() {
@@ -4036,14 +4006,13 @@ function bindHostPanelAiDelegatesOnce() {
         const btn = el && el.closest ? el.closest('button[data-st-ai-action]') : null;
         if (!btn || !panel.contains(btn)) return;
         const action = btn.getAttribute('data-st-ai-action') || '';
-        if (action !== 'guidance' && action !== 'explain') return;
+        if (action !== 'explain') return;
         ev.preventDefault();
         const assetId = parseInt(btn.getAttribute('data-asset-id') || '0', 10);
         const ip = btn.getAttribute('data-ip') || '';
         const force = btn.getAttribute('data-force') === '1';
         if (!assetId) return;
-        if (action === 'guidance') void runAiHostGuidance(assetId, ip, force);
-        else void runAiHostExplain(assetId, ip, force);
+        void runAiHostExplain(assetId, ip, force);
     });
     panel.dataset.stAiDelegate = '1';
 }

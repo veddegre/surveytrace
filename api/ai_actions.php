@@ -346,6 +346,69 @@ function st_ai_json_decode_assoc(string $raw): ?array {
     return null;
 }
 
+/**
+ * Union of current open_ports and ports seen in port_history snapshots (deduped, sorted).
+ *
+ * @param array<int|string,mixed> $basePorts
+ * @param list<array{ports?:string}> $historyRows
+ * @return list<int>
+ */
+function st_ai_merge_ports_with_history(array $basePorts, array $historyRows): array {
+    $set = [];
+    foreach ($basePorts as $p) {
+        $i = (int)$p;
+        if ($i >= 1 && $i <= 65535) {
+            $set[$i] = true;
+        }
+    }
+    foreach ($historyRows as $r) {
+        $raw = $r['ports'] ?? '[]';
+        $arr = is_string($raw) ? (json_decode($raw, true) ?: []) : (is_array($raw) ? $raw : []);
+        if (!is_array($arr)) {
+            continue;
+        }
+        foreach ($arr as $p) {
+            $i = (int)$p;
+            if ($i >= 1 && $i <= 65535) {
+                $set[$i] = true;
+            }
+        }
+    }
+    $out = array_keys($set);
+    sort($out, SORT_NUMERIC);
+    return $out;
+}
+
+/**
+ * All banner/title keys for the model, size-capped (not only the first N keys).
+ *
+ * @param array<string|int,string> $banners
+ * @return list<string>
+ */
+function st_ai_banner_lines_for_prompt(array $banners, int $maxLines = 140, int $valMax = 120, int $maxTotalChars = 12000): array {
+    if ($banners === []) {
+        return [];
+    }
+    $keys = array_map('strval', array_keys($banners));
+    sort($keys, SORT_NATURAL);
+    $lines = [];
+    $total = 0;
+    foreach ($keys as $k) {
+        if (count($lines) >= $maxLines) {
+            break;
+        }
+        $v = $banners[$k] ?? '';
+        $s = substr((string)preg_replace('/\s+/', ' ', trim((string)$v)), 0, $valMax);
+        $line = $k . ':' . $s;
+        if ($total + strlen($line) + 1 > $maxTotalChars) {
+            break;
+        }
+        $lines[] = $line;
+        $total += strlen($line) + 1;
+    }
+    return $lines;
+}
+
 function st_ai_save_asset_cache(PDO $db, int $assetId, string $column, array $envelope): void {
     if (!in_array($column, ['ai_findings_guidance_cache', 'ai_host_explain_cache'], true)) {
         return;
@@ -387,15 +450,12 @@ function st_ai_explain_fingerprint(array $asset, array $ports, array $banners, i
     $portList = array_values(array_unique(array_map(static function ($p) {
         return (int)$p;
     }, $ports)));
-    sort($portList);
-    $bannerDigest = [];
-    $n = 0;
-    foreach ($banners as $k => $v) {
-        if ($n++ >= 8) {
-            break;
-        }
-        $vs = substr((string)preg_replace('/\s+/', ' ', trim((string)$v)), 0, 120);
-        $bannerDigest[] = (string)$k . '=' . $vs;
+    sort($portList, SORT_NUMERIC);
+    $bcopy = $banners;
+    ksort($bcopy, SORT_STRING);
+    $bj = json_encode($bcopy, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($bj === false) {
+        $bj = '';
     }
     $blob = implode('|', [
         (string)($asset['ip'] ?? ''),
@@ -405,7 +465,7 @@ function st_ai_explain_fingerprint(array $asset, array $ports, array $banners, i
         json_encode($portList, JSON_UNESCAPED_UNICODE),
         (string)$openFindingCount,
         implode(',', $topCves),
-        implode(';', $bannerDigest),
+        sha1($bj),
     ]);
     return sha1($blob);
 }
@@ -464,27 +524,27 @@ function st_ai_normalize_explain_doc(?array $doc): array {
     $nr = [];
     foreach ($roles as $x) {
         $s = trim((string)$x);
-        if ($s !== '' && count($nr) < 5) {
-            $nr[] = substr($s, 0, 200);
+        if ($s !== '' && count($nr) < 4) {
+            $nr[] = substr($s, 0, 100);
         }
     }
     $nt = [];
     foreach ($tips as $x) {
         $s = trim((string)$x);
-        if ($s !== '' && count($nt) < 6) {
-            $nt[] = substr($s, 0, 400);
+        if ($s !== '' && count($nt) < 4) {
+            $nt[] = substr($s, 0, 220);
         }
     }
     $nq = [];
     foreach ($qs as $x) {
         $s = trim((string)$x);
-        if ($s !== '' && count($nq) < 4) {
-            $nq[] = substr($s, 0, 300);
+        if ($s !== '' && count($nq) < 3) {
+            $nq[] = substr($s, 0, 180);
         }
     }
     $out = [];
     if ($overview !== '') {
-        $out['overview'] = substr($overview, 0, 2000);
+        $out['overview'] = substr($overview, 0, 420);
     }
     if ($nr) {
         $out['likely_roles'] = $nr;
@@ -548,6 +608,19 @@ try {
         $banners = json_decode((string)($row['banners'] ?? '{}'), true);
         if (!is_array($banners)) {
             $banners = [];
+        }
+
+        $portsForExplain = $ports;
+        if ($action === 'explain_host') {
+            try {
+                $ph = $db->prepare(
+                    'SELECT ports FROM port_history WHERE asset_id = ? ORDER BY seen_at DESC LIMIT 80'
+                );
+                $ph->execute([$assetId]);
+                $portsForExplain = st_ai_merge_ports_with_history($ports, $ph->fetchAll(PDO::FETCH_ASSOC) ?: []);
+            } catch (Throwable $e) {
+                $portsForExplain = $ports;
+            }
         }
 
         if ($action === 'findings_guidance') {
@@ -665,7 +738,7 @@ try {
             }
         }
         $openCount = count($openFindings);
-        $fp = st_ai_explain_fingerprint($row, $ports, $banners, $openCount, $topCves);
+        $fp = st_ai_explain_fingerprint($row, $portsForExplain, $banners, $openCount, $topCves);
 
         if (!$force && is_array($cached) && ($cached['fp'] ?? '') === $fp && ($cached['status'] ?? '') === 'ok') {
             st_json([
@@ -684,25 +757,52 @@ try {
             ], 503);
         }
 
-        $portStr = implode(',', array_slice(array_map('intval', $ports), 0, 32));
-        $bannerLines = [];
-        $bn = 0;
-        foreach ($banners as $k => $v) {
-            if ($bn++ >= 6) {
-                break;
-            }
-            $vs = substr((string)preg_replace('/\s+/', ' ', trim((string)$v)), 0, 160);
-            $bannerLines[] = (string)$k . ':' . $vs;
+        $portInts = array_map('intval', $portsForExplain);
+        $portOverflow = '';
+        if (count($portInts) > 640) {
+            $extra = count($portInts) - 640;
+            $portInts = array_slice($portInts, 0, 640);
+            $portOverflow = "\nNote: " . $extra . " additional open ports exist beyond the list above; mention that inventory is large if relevant.\n";
         }
+        $portStr = implode(',', $portInts);
+        $bannerLines = st_ai_banner_lines_for_prompt($banners);
+        $bannerTail = '';
+        if ($bannerLines === []) {
+            $bannerBlock = "(no banner/title strings stored)\n";
+        } else {
+            $bannerBlock = "Per-port banners and HTTP titles (use ALL lines; do not infer only from fingerprint category):\n"
+                . implode("\n", $bannerLines) . "\n";
+            $kcount = count(array_keys($banners));
+            if ($kcount > count($bannerLines)) {
+                $bannerTail = "(Some banner keys omitted from prompt due to size cap; still ground summary in listed evidence.)\n";
+            }
+        }
+        $cpes = json_decode((string)($row['nmap_cpes'] ?? '[]'), true);
+        if (!is_array($cpes)) {
+            $cpes = [];
+        }
+        $cpes = array_values(array_filter(array_map('strval', $cpes), static function ($s) {
+            return $s !== '';
+        }));
+        $cpesStr = implode(', ', array_slice($cpes, 0, 24));
+        if (count($cpes) > 24) {
+            $cpesStr .= ' …(+' . (string)(count($cpes) - 24) . ' more)';
+        }
+        $osGuess = trim((string)($row['os_guess'] ?? ''));
+        $cpeGuess = trim((string)($row['cpe'] ?? ''));
 
         $prompt = "You summarize a single discovered host for a network inventory operator.\n"
-            . "Return ONLY JSON with keys: overview (string <=900 chars), likely_roles (array <=5 short strings), "
-            . "hardening_tips (array <=6 short strings), owner_questions (array <=4 short questions an operator could ask the asset owner).\n"
-            . "Ground answers in the evidence; mark uncertainty in the overview if signals are weak.\n\n"
+            . "Return ONLY JSON with keys: overview (string <=380 chars, one tight paragraph), likely_roles (array <=4 strings <=90 chars each), "
+            . "hardening_tips (array <=4 strings <=200 chars each), owner_questions (array <=3 short questions).\n"
+            . "Use the full open port list and every banner/title line below (not only vendor/category fields). "
+            . "If evidence is thin, say so in the overview.\n\n"
             . 'IP=' . ($row['ip'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . ' category=' . ($row['category'] ?? '')
             . ' vendor=' . ($row['vendor'] ?? '') . ' model=' . ($row['model'] ?? '') . "\n"
-            . 'open_ports=' . $portStr . " open_findings=" . $openCount . ' top_cves=' . implode(',', $topCves) . "\n"
-            . "banner_snippets:\n" . implode("\n", $bannerLines) . "\n";
+            . 'os_guess=' . $osGuess . ' cpe=' . $cpeGuess . ' nmap_cpes=' . ($cpesStr !== '' ? $cpesStr : '—') . "\n"
+            . 'open_ports_union_current_and_history=' . $portStr . $portOverflow
+            . 'open_findings=' . $openCount . ' top_cves=' . implode(',', $topCves) . "\n"
+            . $bannerBlock
+            . $bannerTail;
 
         @set_time_limit(240);
         @ignore_user_abort(true);
