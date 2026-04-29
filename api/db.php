@@ -309,8 +309,9 @@ function st_db(): PDO {
  * Close the shared PDO so SQLite does not keep a connection busy across slow local I/O
  * (Ollama, CLI curl, etc.). The next st_db() opens a new connection.
  *
- * Callers must assign $db = null (or drop other references) after this if they hold
- * a local variable pointing at the old PDO.
+ * Callers must drop all references to the old PDO first: assign $db = null and set any
+ * PDOStatement variables to null (statements keep a reference to the parent PDO until
+ * destroyed, which would otherwise prevent SQLite from closing).
  */
 function st_db_release_connection(): void {
     unset($GLOBALS['st_surveytrace_pdo']);

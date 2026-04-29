@@ -605,6 +605,9 @@ try {
             // Host CVE triage: long prompts + local CPU can exceed 60s. Do not tie wall clock to
             // ai_timeout_ms (that knob is for daemon per-host enrichment, 100–5000 ms).
             $timeoutS = 180.0;
+            // PDOStatement keeps a reference to PDO — drop it so release actually closes SQLite.
+            $stmt = null;
+            $fstmt = null;
             // Release SQLite before Ollama so the worker does not hold DB state for minutes.
             st_db_release_connection();
             $db = null;
@@ -701,6 +704,8 @@ try {
         @set_time_limit(240);
         @ignore_user_abort(true);
         $timeoutS = 180.0;
+        $stmt = null;
+        $fstmt = null;
         st_db_release_connection();
         $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
@@ -810,6 +815,7 @@ try {
         @set_time_limit(240);
         @ignore_user_abort(true);
         $timeoutS = 180.0;
+        $jstmt = null;
         st_db_release_connection();
         $db = null;
         $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
