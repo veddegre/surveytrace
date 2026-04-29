@@ -749,6 +749,8 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"gitea|gitlab|github",          "srv",   ""),
     (r"nextcloud|owncloud",           "srv",   ""),
     (r"portainer",                    "srv",   ""),
+    # Photon OS hostnames — category only; hardware vendor stays from OUI (e.g. HP mini)
+    (r"\bphoton\b",                   "srv",   ""),
     (r"proxmox|pve\.|\.pve\b",        "hv",    "Proxmox"),
     (r"zabbix",                       "srv",   "Zabbix"),
     (r"kasm",                         "voi",   "Kasm Workspaces"),
@@ -849,6 +851,10 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"Cisco IP Phone|SEP[0-9A-F]{12}",  "voi",  "cisco:ip_phone"),
     (r"Asterisk",                    "voi",  "digium:asterisk"),
     (r"FreeSWITCH",                  "voi",  "freeswitch:freeswitch"),
+
+    # VMware Photon OS — before printer patterns (some dashboards embed HPHTTP / LaserJet-like text)
+    (r"VMware\s+Photon|Photon\s+OS|PHOTON_BUILD|photon-release",
+                                     "srv",  "vmware:photon_os"),
 
     # Printers
     # Keep HP printer detection strict; broad "HP.*Jet" caused false positives
@@ -1002,6 +1008,16 @@ def cpe_uri_from_port_fragment(cpe_fragment: str) -> str:
     return f"cpe:/{_cpe_type(cpe_fragment)}:{cpe_fragment}:*"
 
 
+def _printer_banner_conflicts_with_homelab_ports(port_set: set[int]) -> bool:
+    """SSH plus typical container-dashboard ports — not a JetDirect-style printer."""
+    if 22 not in port_set:
+        return False
+    if 9443 in port_set:  # Portainer HTTPS
+        return True
+    # Many distinct app ports + SSH is almost never a single-function printer
+    return len(port_set) >= 10
+
+
 def classify_from_banners(banners: dict[str, str]) -> tuple[str, str]:
     """
     Scan all banner strings against BANNER_PATTERNS.
@@ -1034,6 +1050,7 @@ _CPE_APP_PREFIXES = {
 _CPE_OS_PREFIXES = {
     "linux", "microsoft:windows", "apple:macos", "apple:ios",
     "android", "freebsd", "openbsd",
+    "vmware:photon",  # VMware Photon OS (container host)
 }
 
 def _cpe_type(cpe_fragment: str) -> str:
@@ -1119,6 +1136,8 @@ def fingerprint(
         "canonical:ubuntu_linux", "debian:debian_linux", "redhat:enterprise_linux",
         "microsoft:iis",
     }
+    banner_cat, banner_cpe = "", ""
+    skip_generic_banner = False
     if hostname and NETWORK_HOSTNAMES.search(hostname):
         result["category"] = "net"
         # Don't let banner override net category for network devices
@@ -1127,11 +1146,14 @@ def fingerprint(
             result["cpe"] = f"cpe:/h:{banner_cpe}:*"
     else:
         banner_cat, banner_cpe = classify_from_banners({"all": combined})
-        skip_generic_banner = False
         if banner_cat:
             # Do not let a generic printer banner override stronger endpoint/server
             # protocol signals (e.g., RDP/SMB, hypervisor, OT).
             if banner_cat == "prn" and port_cat in ("ws", "srv", "hv", "ot"):
+                skip_generic_banner = True
+            elif banner_cat == "prn" and hostname and re.search(r"\bphoton\b", hostname, re.I):
+                skip_generic_banner = True
+            elif banner_cat == "prn" and _printer_banner_conflicts_with_homelab_ports(port_set):
                 skip_generic_banner = True
             # If protocol signals already indicate Windows workstation/server traits,
             # avoid downgrading CPE to generic web stack software.
@@ -1141,7 +1163,8 @@ def fingerprint(
                 skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
             elif port_set & {902, 903} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
                 skip_generic_banner = True  # keep hv from ESXi port profile
-            else:
+
+            if not skip_generic_banner:
                 result["category"] = banner_cat
         if banner_cpe and not skip_generic_banner:
             result["cpe"] = f"cpe:/{_cpe_type(banner_cpe)}:{banner_cpe}:*"
@@ -1153,10 +1176,19 @@ def fingerprint(
         "openbsd", "canonical", "debian", "redhat", "centos", "ubuntu",
         "sip", "mqtt", "http_alt", "printer", "ipp", "vnc",
     }
-    if banner_cpe and not result["vendor"]:
+    if banner_cpe and not result["vendor"] and not skip_generic_banner:
         vendor_key = banner_cpe.split(":")[0].lower()
         if vendor_key not in SKIP_AS_VENDOR:
             result["vendor"] = banner_cpe.split(":")[0].replace("_", " ").title()
+
+    # Skipped printer banner on SSH + Portainer-style stacks — classify as server, not unk
+    if (
+        skip_generic_banner
+        and banner_cat == "prn"
+        and _printer_banner_conflicts_with_homelab_ports(port_set)
+        and result["category"] == "unk"
+    ):
+        result["category"] = "srv"
 
     # Kasm / browser VDI often exposes RDP (3389) — hostname is a stronger signal than "RDP → Windows"
     if hostname and re.search(r"kasm", hostname, re.I):
@@ -1164,6 +1196,15 @@ def fingerprint(
             result["category"] = "voi"
         if not result["vendor"]:
             result["vendor"] = "Kasm Workspaces"
+
+    # Photon OS hostname — keep srv + OS CPE; do not replace hardware OEM (e.g. HP) with VMware branding
+    if hostname and re.search(r"\bphoton\b", hostname, re.I):
+        result["category"] = "srv"
+        low_cpe = (result.get("cpe") or "").lower()
+        if not result["cpe"] or "laserjet" in low_cpe or ":hp:" in low_cpe:
+            result["cpe"] = "cpe:/o:vmware:photon_os:*"
+        if not result.get("os_guess"):
+            result["os_guess"] = "Photon OS"
 
     # Hyper-V MAC (00:15:5D) means the VM runs ON Hyper-V, not that it IS Hyper-V.
     # Only classify as hv if hostname/banner confirms it's a hypervisor host.
@@ -1176,6 +1217,8 @@ def fingerprint(
         combined, re.I
     ):
         result["os_guess"] = m.group(1)
+    elif m := re.search(r"(VMware Photon|Photon OS|PHOTON_BUILD|photon-release)", combined, re.I):
+        result["os_guess"] = "Photon OS"
     elif m := re.search(r"(Ubuntu|Debian|CentOS|Rocky|Alma|Fedora|Arch)", combined, re.I):
         result["os_guess"] = m.group(1)
     elif port_cat == "ws" and (3389 in port_set or 445 in port_set or 5985 in port_set or 5986 in port_set):

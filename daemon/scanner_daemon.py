@@ -49,6 +49,7 @@ from fingerprint import (
     load_external_oui_map,
     oui_lookup,
     vendor_hint_from_port_cpe,
+    _printer_banner_conflicts_with_homelab_ports,
 )
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE
 
@@ -1856,7 +1857,16 @@ def upsert_asset(conn: sqlite3.Connection, job_id: int, ip: str, mac: str,
     # Port profile category takes highest priority (e.g. port 8006 → hv/Proxmox)
     port_cat_effective = ""
     port_cat, port_cpe, _ = classify_from_ports(ports)
-    if port_cat and port_cat != "unk":
+    # IPP (631) / JetDirect (9100) hit before DB rules — CUPS on Linux/Photon is not a printer.
+    # Must not run after fingerprint() or inventory rescans overwrite VMware Photon → prn.
+    skip_printer_port_profile = (
+        port_cat == "prn"
+        and (
+            (hostname and re.search(r"\bphoton\b", hostname, re.I))
+            or _printer_banner_conflicts_with_homelab_ports(set(ports))
+        )
+    )
+    if port_cat and port_cat != "unk" and not skip_printer_port_profile:
         port_cat_effective = port_cat
         fp["category"] = port_cat
         if port_cpe:
