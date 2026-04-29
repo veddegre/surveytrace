@@ -1093,11 +1093,11 @@
   </div>
 </div>
 
-<!-- Rescan single host — must pick profile (avoids accidental aggressive rescans) -->
+<!-- Rescan single host — profile + scan options (matches Scan tab: rates, discovery, phases, exclusions, enrichment) -->
 <div id="host-rescan-bg" class="modal-bg z220" style="display:none" role="dialog" aria-labelledby="host-rescan-title">
-  <div class="modal-card modal-w440" onclick="event.stopPropagation()">
+  <div class="modal-card modal-w600" onclick="event.stopPropagation()">
     <div id="host-rescan-title" class="modal-title mb6">Rescan host</div>
-    <p class="text-muted mb10" style="line-height:1.45">Pick the scan profile for this host. What is selected on the <strong>Scan</strong> tab is not used until you confirm here — aggressive profiles can disrupt fragile, IoT, or OT gear.</p>
+    <p class="text-muted mb10" style="line-height:1.45">Choose profile and scan options for this host only. Changing the profile applies the same defaults as the <strong>Scan</strong> tab and schedules. Values load from the Scan tab when you open this dialog; edit here without leaving the host view.</p>
     <p class="mb8">Target: <strong class="mono" id="host-rescan-ip"></strong></p>
     <label class="flbl" for="host-rescan-profile">Scan profile</label>
     <select id="host-rescan-profile" class="finput w100 mb6">
@@ -1108,7 +1108,48 @@
       <option value="full_tcp">Full TCP — all ports + service detect (very high traffic)</option>
       <option value="fast_full_tcp">Fast Full TCP — all ports, lighter detect (still very high traffic)</option>
     </select>
-    <div id="host-rescan-hint" class="hint-micro mb14" style="min-height:2.6em"></div>
+    <div id="host-rescan-hint" class="hint-micro mb6" style="min-height:2.6em"></div>
+    <div id="host-rescan-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber);font-size:0.9em"></div>
+    <div id="host-rescan-scroll" class="mb10" style="max-height:min(52vh,520px);overflow-y:auto;padding-right:6px">
+      <div class="ct mb4">Rate limiting</div>
+      <div class="rr">
+        <label class="flbl">Max packets/sec per host</label>
+        <div class="rv"><span>1</span><span id="hr-pps-val">5 pps</span><span>50</span></div>
+        <input class="rng" type="range" id="hr-pps" min="1" max="50" step="1" value="5" oninput="document.getElementById('hr-pps-val').textContent=this.value+' pps'">
+      </div>
+      <div class="rr">
+        <label class="flbl">Inter-host delay</label>
+        <div class="rv"><span>0</span><span id="hr-delay-val">200 ms</span><span>2000</span></div>
+        <input class="rng" type="range" id="hr-delay" min="0" max="2000" step="10" value="200" oninput="document.getElementById('hr-delay-val').textContent=this.value+' ms'">
+      </div>
+      <div class="ct mb4 mt8">Discovery mode</div>
+      <div class="tr2">
+        <div><div class="tl">Auto</div><div class="tsubl">ARP for same-subnet, ping scan for routed</div></div>
+        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-auto" value="auto" checked>
+      </div>
+      <div class="tr2">
+        <div><div class="tl">Routed</div><div class="tsubl">ICMP/TCP ping scan only — no ARP</div></div>
+        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-routed" value="routed">
+      </div>
+      <div class="tr2">
+        <div><div class="tl">Force (-Pn)</div><div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping</div></div>
+        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-force" value="force">
+      </div>
+      <div class="ct mb4 mt8">Scan phases</div>
+      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS — zero packets sent</div></div><label class="tog"><input type="checkbox" id="hr-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep</div></div><label class="tog"><input type="checkbox" id="hr-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list</div></div><label class="tog"><input type="checkbox" id="hr-ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="hr-ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="hr-ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only probes</div></div><label class="tog"><input type="checkbox" id="hr-ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE vs local NVD</div></div><label class="tog"><input type="checkbox" id="hr-ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="ct mb4 mt8">Exclusion list (optional)</div>
+      <label class="flbl">IPs, CIDRs, ranges, # comments</label>
+      <textarea class="finput w100 mb6" id="hr-excl" rows="4" style="min-height:76px" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
+      <div class="ct mb4 mt8">Network enrichment (this scan)</div>
+      <div class="tsubl mb6">Phase 3b uses sources from <strong>Enrichment</strong>. Uncheck to skip a source for this job only; all checked matches the Scan tab default (omit subset in API).</div>
+      <div id="host-rescan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
+    </div>
     <div class="row-end">
       <button type="button" class="tbtn" id="host-rescan-cancel-btn">Cancel</button>
       <button type="button" class="btnp" id="host-rescan-queue-btn">Queue scan</button>
@@ -2812,7 +2853,7 @@ async function startScan() {
 }
 
 // ---------------------------------------------------------------------------
-// Host rescan — modal picks profile (Scan tab selection is not used blindly)
+// Host rescan — modal: profile + phases/rates/discovery (Scan tab syncs after queue)
 // ---------------------------------------------------------------------------
 var hostRescanModalResolve = null;
 
@@ -2831,11 +2872,121 @@ function hostRescanProfileHintText(profile) {
     return 'Moderate: scans a fixed list of common TCP ports with light service detection.';
 }
 
+function applyHostRescanModalRateSlidersForProfile(profile) {
+    const rdef = SCHED_PROFILE_RATE_DEFAULTS[profile] || SCHED_PROFILE_RATE_DEFAULTS.standard_inventory;
+    const pps = Math.max(1, Math.min(50, rdef.pps));
+    const del = Math.max(0, Math.min(2000, rdef.delay));
+    const ppsEl = document.getElementById('hr-pps');
+    const delEl = document.getElementById('hr-delay');
+    const ppsVal = document.getElementById('hr-pps-val');
+    const delVal = document.getElementById('hr-delay-val');
+    if (ppsEl) ppsEl.value = String(pps);
+    if (ppsVal) ppsVal.textContent = pps + ' pps';
+    if (delEl) delEl.value = String(del);
+    if (delVal) delVal.textContent = del + ' ms';
+}
+
+function syncHostRescanModalPhaseBannerOpacity() {
+    ['hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        const tr = el && el.closest('.tr2');
+        if (tr) tr.style.opacity = el.checked ? '1' : '0.4';
+    });
+}
+
+function readScanTabIntoHostRescanModal() {
+    ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'].forEach(p => {
+        const src = document.getElementById('ph-' + p);
+        const dst = document.getElementById('hr-ph-' + p);
+        if (src && dst) dst.checked = src.checked;
+    });
+    const pps = document.getElementById('sc-pps');
+    const del = document.getElementById('sc-delay');
+    const hpps = document.getElementById('hr-pps');
+    const hdel = document.getElementById('hr-delay');
+    const hppsV = document.getElementById('hr-pps-val');
+    const hdelV = document.getElementById('hr-delay-val');
+    if (pps && hpps) {
+        hpps.value = pps.value;
+        if (hppsV) hppsV.textContent = hpps.value + ' pps';
+    }
+    if (del && hdel) {
+        hdel.value = del.value;
+        if (hdelV) hdelV.textContent = hdel.value + ' ms';
+    }
+    const mode = document.querySelector('input[name="scan_mode"]:checked');
+    const v = mode ? mode.value : 'auto';
+    const rid = v === 'routed' ? 'hr-sm-routed' : v === 'force' ? 'hr-sm-force' : 'hr-sm-auto';
+    const m = document.getElementById(rid);
+    if (m) m.checked = true;
+    const exs = document.getElementById('sc-excl');
+    const hex = document.getElementById('hr-excl');
+    if (exs && hex) hex.value = exs.value;
+}
+
+/** After host-rescan enrichment list is built, mirror checked state from the Scan tab pickers. */
+function syncHostRescanEnrichmentFromScanTab() {
+    const scanWrap = document.getElementById('scan-enrichment-wrap');
+    const hrWrap = document.getElementById('host-rescan-enrichment-wrap');
+    if (!scanWrap || scanWrap.dataset.ready !== '1' || !hrWrap || hrWrap.dataset.ready !== '1') return;
+    hrWrap.querySelectorAll('input[data-enr-id]:not(:disabled)').forEach(hCb => {
+        const id = hCb.dataset.enrId;
+        const sCb = scanWrap.querySelector('input[data-enr-id="' + id + '"]');
+        if (sCb && !sCb.disabled) hCb.checked = sCb.checked;
+    });
+}
+
+/** Same preset rules as applyScanTabProfileDefaults, for host-rescan modal controls (hr-*). */
+function applyHostRescanModalProfileDefaults(profile) {
+    const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
+    ['hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.checked = allowBanner;
+            const tr = el.closest('.tr2');
+            if (tr) tr.style.opacity = allowBanner ? '1' : '0.4';
+        }
+    });
+    const passive = document.getElementById('hr-ph-passive');
+    const icmp = document.getElementById('hr-ph-icmp');
+    if (passive) passive.checked = true;
+    if (icmp) icmp.checked = true;
+    const snmpEl = document.getElementById('hr-ph-snmp');
+    const otEl = document.getElementById('hr-ph-ot');
+    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+        if (snmpEl) snmpEl.checked = true;
+        if (otEl) otEl.checked = false;
+    } else if (profile === 'ot_careful') {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = true;
+    } else {
+        if (snmpEl) snmpEl.checked = false;
+        if (otEl) otEl.checked = false;
+    }
+    applyHostRescanModalRateSlidersForProfile(profile);
+
+    const smForce = document.getElementById('hr-sm-force');
+    const smAuto = document.getElementById('hr-sm-auto');
+    if (smForce && smAuto && (profile === 'iot_safe' || profile === 'ot_careful') && smForce.checked) {
+        smAuto.checked = true;
+        toast('Discovery mode set to Auto — this profile does not allow Force (-Pn).', 'ok');
+    }
+    if (!['iot_safe', 'ot_careful'].includes(profile)) {
+        ['hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-cve'].forEach(id => {
+            const el = document.getElementById(id);
+            const tr = el && el.closest('.tr2');
+            if (tr) tr.style.opacity = '1';
+        });
+    }
+    updateHostRescanHint();
+}
+
 function updateHostRescanHint() {
     const sel = document.getElementById('host-rescan-profile');
     const hint = document.getElementById('host-rescan-hint');
     if (!sel || !hint) return;
     hint.textContent = hostRescanProfileHintText(sel.value);
+    updateHostRescanProfileWarn(sel.value);
 }
 
 function openHostRescanModal(ipTrim) {
@@ -2851,12 +3002,23 @@ function openHostRescanModal(ipTrim) {
             try { hostRescanModalResolve(null); } catch (e) {}
             hostRescanModalResolve = null;
         }
-        ipEl.textContent = ipTrim;
-        const cur = document.querySelector('input[name="scan_profile"]:checked');
-        sel.value = cur && HOST_RESCAN_PROFILE_IDS.has(cur.value) ? cur.value : 'standard_inventory';
-        updateHostRescanHint();
-        hostRescanModalResolve = resolve;
-        bg.style.display = 'flex';
+        void (async () => {
+            try {
+                ipEl.textContent = ipTrim;
+                const cur = document.querySelector('input[name="scan_profile"]:checked');
+                sel.value = cur && HOST_RESCAN_PROFILE_IDS.has(cur.value) ? cur.value : 'standard_inventory';
+                readScanTabIntoHostRescanModal();
+                syncHostRescanModalPhaseBannerOpacity();
+                await refreshScanEnrichmentPicker('host-rescan-enrichment-wrap');
+                syncHostRescanEnrichmentFromScanTab();
+                updateHostRescanHint();
+                hostRescanModalResolve = resolve;
+                bg.style.display = 'flex';
+            } catch (e) {
+                toast('Could not open rescan dialog', 'err');
+                resolve(null);
+            }
+        })();
     });
 }
 
@@ -2875,18 +3037,42 @@ function wireHostRescanModalOnce() {
     bg.addEventListener('click', (e) => {
         if (e.target === bg) closeHostRescanModal(null);
     });
-    document.getElementById('host-rescan-profile')?.addEventListener('change', updateHostRescanHint);
+    document.getElementById('host-rescan-profile')?.addEventListener('change', function() {
+        applyHostRescanModalProfileDefaults(this.value);
+    });
     document.getElementById('host-rescan-cancel-btn')?.addEventListener('click', () => closeHostRescanModal(null));
+    ['hr-ph-passive', 'hr-ph-icmp', 'hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-snmp', 'hr-ph-ot', 'hr-ph-cve'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', syncHostRescanModalPhaseBannerOpacity);
+    });
     document.getElementById('host-rescan-queue-btn')?.addEventListener('click', () => {
         const s = document.getElementById('host-rescan-profile');
         const profile = s && s.value && HOST_RESCAN_PROFILE_IDS.has(s.value) ? s.value : 'standard_inventory';
-        closeHostRescanModal({ profile });
+        const phases = [];
+        ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'].forEach(p => {
+            if (document.getElementById('hr-ph-' + p)?.checked) phases.push(p);
+        });
+        if (!phases.length) {
+            ['passive', 'icmp', 'banner', 'fingerprint', 'cve'].forEach(p => phases.push(p));
+        }
+        const modeEl = document.querySelector('input[name="hr_scan_mode"]:checked');
+        const rate_pps = parseInt(document.getElementById('hr-pps')?.value || '5', 10) || 5;
+        const inter_delay = parseInt(document.getElementById('hr-delay')?.value || '200', 10) || 200;
+        const hex = document.getElementById('hr-excl');
+        closeHostRescanModal({
+            profile,
+            phases,
+            rate_pps,
+            inter_delay,
+            scan_mode: modeEl ? modeEl.value : 'auto',
+            exclusions: hex ? hex.value : '',
+            enrichment_source_ids: hostEnrichmentPayloadField(),
+        });
     });
 }
 
 /**
- * Queue a single-host scan (/32). Opens a profile picker first; then syncs the Scan tab
- * (profile card, phases, rate sliders) and POSTs. Requires scan_editor or admin (API enforced).
+ * Queue a single-host scan (/32). Host modal sets profile, phases, rates, discovery, exclusions, enrichment; then POSTs.
+ * On success, the Scan tab is updated to match. Requires scan_editor or admin (API enforced).
  */
 async function queueHostRescan(ip, triggerBtn) {
     const ipTrim = String(ip || '').trim();
@@ -2903,7 +3089,6 @@ async function queueHostRescan(ip, triggerBtn) {
     if (!choice || !choice.profile) return;
 
     const profileVal = choice.profile;
-    applyScanTabProfileDefaults(profileVal);
 
     if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
@@ -2913,13 +3098,15 @@ async function queueHostRescan(ip, triggerBtn) {
         if (!ok) return;
     }
 
-    const phases = [];
-    ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'].forEach(p => {
-        if (document.getElementById('ph-' + p)?.checked) phases.push(p);
-    });
+    let phases = Array.isArray(choice.phases) && choice.phases.length
+        ? choice.phases.slice()
+        : [];
     if (!phases.length) {
         ['passive', 'icmp', 'banner', 'fingerprint', 'cve'].forEach(p => phases.push(p));
     }
+    const rate_pps = Math.max(1, Math.min(50, parseInt(String(choice.rate_pps ?? '5'), 10) || 5));
+    const inter_delay = Math.max(0, Math.min(2000, parseInt(String(choice.inter_delay ?? '200'), 10) || 200));
+    const scanModeEff = clampRescanScanModeForProfile(profileVal, choice.scan_mode || 'auto');
 
     const targetCidr = ipTrim + '/32';
     const hostLabel = 'Host ' + ipTrim;
@@ -2928,20 +3115,22 @@ async function queueHostRescan(ip, triggerBtn) {
     const labelInput = document.getElementById('sc-label');
     if (labelInput && !String(labelInput.value || '').trim()) labelInput.value = hostLabel;
 
-    const modeEl = document.querySelector('input[name="scan_mode"]:checked');
     const body = {
         cidr: targetCidr,
-        exclusions: document.getElementById('sc-excl') ? document.getElementById('sc-excl').value : '',
+        exclusions: choice.exclusions !== undefined
+            ? choice.exclusions
+            : (document.getElementById('sc-excl') ? document.getElementById('sc-excl').value : ''),
         phases,
-        rate_pps: parseInt(document.getElementById('sc-pps')?.value || '5', 10) || 5,
-        inter_delay: parseInt(document.getElementById('sc-delay')?.value || '200', 10) || 200,
+        rate_pps,
+        inter_delay,
         label: hostLabel,
-        scan_mode: modeEl ? modeEl.value : 'auto',
+        scan_mode: scanModeEff,
         profile: profileVal,
         confirmed: true,
     };
-    const enrSel = typeof scanEnrichmentPayloadField === 'function' ? scanEnrichmentPayloadField() : undefined;
-    if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
+    if (choice.enrichment_source_ids !== undefined) {
+        body.enrichment_source_ids = choice.enrichment_source_ids;
+    }
 
     const btn = triggerBtn instanceof HTMLElement ? triggerBtn : null;
     const prevText = btn ? btn.textContent : '';
@@ -2970,6 +3159,15 @@ async function queueHostRescan(ip, triggerBtn) {
         toast('Scan was not queued (unexpected server response)', 'err');
         return;
     }
+
+    applyRescanChoiceToScanTab({
+        profile: profileVal,
+        phases,
+        rate_pps,
+        inter_delay,
+        exclusions: choice.exclusions,
+        enrichment_source_ids: choice.enrichment_source_ids,
+    }, scanModeEff);
 
     activeJobId = r.job_id;
     showScanRunning(activeJobId);
@@ -3086,8 +3284,21 @@ function scanEnrichmentPayloadField() {
     return checked;
 }
 
-async function refreshScanEnrichmentPicker() {
-    const wrap = document.getElementById('scan-enrichment-wrap');
+/** Host-rescan modal enrichment; same semantics as scanEnrichmentPayloadField(). */
+function hostEnrichmentPayloadField() {
+    const wrap = document.getElementById('host-rescan-enrichment-wrap');
+    if (!wrap || wrap.dataset.ready !== '1') return undefined;
+    const enabledBoxes = wrap.querySelectorAll('input[data-enr-id]:not(:disabled)');
+    if (!enabledBoxes.length) return undefined;
+    const checked = [];
+    enabledBoxes.forEach(cb => { if (cb.checked) checked.push(parseInt(cb.dataset.enrId, 10)); });
+    if (checked.length === enabledBoxes.length) return undefined;
+    return checked;
+}
+
+/** @param {string} [wrapId] Default scan-enrichment-wrap; use host-rescan-enrichment-wrap for rescan modal */
+async function refreshScanEnrichmentPicker(wrapId) {
+    const wrap = document.getElementById(wrapId || 'scan-enrichment-wrap');
     if (!wrap) return;
     wrap.dataset.ready = '0';
     wrap.innerHTML = '<div class="hint-micro">Loading…</div>';
@@ -5701,6 +5912,82 @@ function applyScanTabProfileDefaults(profile) {
     updateScanProfileWarn(profile);
 }
 
+/** Apply enrichment checkbox state on the Scan tab (undefined = all enabled). */
+function applyEnrichmentIdsToScanWrap(ids) {
+    const wrap = document.getElementById('scan-enrichment-wrap');
+    if (!wrap || wrap.dataset.ready !== '1') return;
+    const boxes = wrap.querySelectorAll('input[data-enr-id]:not(:disabled)');
+    if (!boxes.length) return;
+    if (ids === undefined || ids === null) {
+        boxes.forEach(cb => { cb.checked = true; });
+        return;
+    }
+    if (!Array.isArray(ids)) return;
+    const set = new Set(ids.map(id => parseInt(id, 10)));
+    boxes.forEach(cb => {
+        const id = parseInt(cb.dataset.enrId, 10);
+        cb.checked = set.has(id);
+    });
+}
+
+/** After a successful host rescan, mirror the job settings on the Scan tab (no extra preset overrides). */
+function applyRescanChoiceToScanTab(choice, scanModeEffective) {
+    const profile = choice.profile;
+    document.querySelectorAll('.profile-card').forEach(c => c.classList.remove('on'));
+    const profCard = document.getElementById('prof-' + profile);
+    if (profCard) {
+        profCard.classList.add('on');
+        const radio = profCard.querySelector('input[name="scan_profile"]');
+        if (radio) radio.checked = true;
+    } else {
+        const radio = document.querySelector('input[name="scan_profile"][value="' + profile + '"]');
+        if (radio) {
+            radio.checked = true;
+            radio.closest('.profile-card')?.classList.add('on');
+        }
+    }
+    const phasesSet = new Set(choice.phases || []);
+    ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'].forEach(p => {
+        const el = document.getElementById('ph-' + p);
+        if (el) el.checked = phasesSet.has(p);
+    });
+    const rp = Math.max(1, Math.min(50, parseInt(String(choice.rate_pps ?? '5'), 10) || 5));
+    const rd = Math.max(0, Math.min(2000, parseInt(String(choice.inter_delay ?? '200'), 10) || 200));
+    const ppsEl = document.getElementById('sc-pps');
+    const delEl = document.getElementById('sc-delay');
+    const ppsVal = document.getElementById('pps-val');
+    const delVal = document.getElementById('delay-val');
+    if (ppsEl) ppsEl.value = String(rp);
+    if (ppsVal) ppsVal.textContent = rp + ' pps';
+    if (delEl) delEl.value = String(rd);
+    if (delVal) delVal.textContent = rd + ' ms';
+    const mode = scanModeEffective || 'auto';
+    const radioId = mode === 'routed' ? 'sm-routed' : mode === 'force' ? 'sm-force' : 'sm-auto';
+    const rad = document.getElementById(radioId);
+    if (rad) rad.checked = true;
+    ['ph-banner', 'ph-fingerprint', 'ph-cve'].forEach(id => {
+        const el = document.getElementById(id);
+        const tr = el && el.closest('.tr2');
+        if (tr) tr.style.opacity = el.checked ? '1' : '0.4';
+    });
+    const scEx = document.getElementById('sc-excl');
+    if (scEx && choice.exclusions !== undefined) scEx.value = choice.exclusions;
+    if ('enrichment_source_ids' in choice) {
+        applyEnrichmentIdsToScanWrap(choice.enrichment_source_ids);
+    }
+    updateProfileHelp(profile);
+    updateScanProfileWarn(profile);
+}
+
+function clampRescanScanModeForProfile(profile, scanMode) {
+    const m = scanMode || 'auto';
+    if (['iot_safe', 'ot_careful'].includes(profile) && m === 'force') {
+        toast('Discovery mode set to Auto — this profile does not allow Force (-Pn).', 'ok');
+        return 'auto';
+    }
+    return m;
+}
+
 function applySchedProfileDefaults(profile) {
     const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
     ['sched-ph-banner', 'sched-ph-fingerprint', 'sched-ph-cve'].forEach(id => {
@@ -5782,6 +6069,24 @@ function updateSchedProfileWarn(profile) {
 
 function updateScanProfileWarn(profile) {
     const w = document.getElementById('scan-profile-warn');
+    if (!w) return;
+    if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
+        w.style.display = 'block';
+        const lines = {
+            deep_scan: 'Deep Scan uses stronger service detection and more probes. Traffic and runtime are higher than Standard Inventory.',
+            full_tcp: 'Full TCP probes all 65,535 TCP ports. Expect high traffic and long runtimes on larger ranges.',
+            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
+            ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
+        };
+        w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');
+    } else {
+        w.style.display = 'none';
+        w.innerHTML = '';
+    }
+}
+
+function updateHostRescanProfileWarn(profile) {
+    const w = document.getElementById('host-rescan-profile-warn');
     if (!w) return;
     if (SCHED_HIGH_IMPACT_PROFILES.includes(profile)) {
         w.style.display = 'block';
@@ -6146,7 +6451,7 @@ async function openHostPanel(id, ip) {
       <div class="mb10">${scanHistoryRows}</div>
 
       <div class="hp-actions">
-        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Choose scan profile, then queue a single-host job; updates Scan tab to match' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
+        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, phases, rates, discovery, exclusions, and enrichment in the modal; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
         <button class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">View CVEs</button>
       </div>`;

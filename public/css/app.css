@@ -521,6 +521,7 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .nowrap{white-space:nowrap}
 .modal-w480{width:480px;max-height:90vh;overflow-y:auto}
 .modal-w560{width:560px;max-height:85vh;overflow-y:auto}
+.modal-w600{width:600px;max-height:88vh;overflow-y:auto}
 .modal-w760{width:760px;max-height:88vh;overflow-y:auto}
 .modal-w360{width:360px;font-family:var(--sf)}
 .modal-w440{padding:24px;width:440px;max-height:80vh;overflow-y:auto;font-family:var(--sf)}
