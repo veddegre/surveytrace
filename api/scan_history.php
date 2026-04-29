@@ -42,6 +42,19 @@ foreach ($scanJobMigrations as $col => $defn) {
     }
 }
 
+$existingTables = [];
+try {
+    $tblRows = $db->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ((array)$tblRows as $tn) {
+        $existingTables[(string)$tn] = true;
+    }
+} catch (Throwable $e) {
+    $existingTables = [];
+}
+$hasTable = function(string $name) use ($existingTables): bool {
+    return isset($existingTables[$name]);
+};
+
 if ($id > 0) {
     $stmt = $db->prepare("
         SELECT id, status, target_cidr, label, exclusions, phases, rate_pps, inter_delay,
@@ -69,17 +82,24 @@ if ($id > 0) {
     $job['summary'] = json_decode((string)($job['summary_json'] ?? ''), true) ?: null;
     unset($job['summary_json']);
 
-    $snapStmt = $db->prepare("
-        SELECT
-            COALESCE(asset_id, 0) AS id,
-            ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
-        FROM scan_asset_snapshots
-        WHERE job_id = ?
-        ORDER BY ip ASC, id ASC
-        LIMIT 300
-    ");
-    $snapStmt->execute([$id]);
-    $assets = $snapStmt->fetchAll();
+    $assets = [];
+    if ($hasTable('scan_asset_snapshots')) {
+        try {
+            $snapStmt = $db->prepare("
+                SELECT
+                    COALESCE(asset_id, 0) AS id,
+                    ip, hostname, category, vendor, top_cve, top_cvss, open_ports, device_id
+                FROM scan_asset_snapshots
+                WHERE job_id = ?
+                ORDER BY ip ASC, id ASC
+                LIMIT 300
+            ");
+            $snapStmt->execute([$id]);
+            $assets = $snapStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = [];
+        }
+    }
 
     // Fallback for older runs created before scan_asset_snapshots existed.
     if (!$assets) {
@@ -96,7 +116,7 @@ if ($id > 0) {
 
     // Second fallback: reconstruct run evidence from port_history snapshots
     // for this scan id, joined to current asset metadata when available.
-    if (!$assets) {
+    if (!$assets && $hasTable('port_history')) {
         $phStmt = $db->prepare("
             SELECT
                 COALESCE(a.id, ph.asset_id, 0) AS id,
@@ -114,8 +134,12 @@ if ($id > 0) {
             ORDER BY ip ASC, id ASC
             LIMIT 300
         ");
-        $phStmt->execute([$id]);
-        $assets = $phStmt->fetchAll();
+        try {
+            $phStmt->execute([$id]);
+            $assets = $phStmt->fetchAll();
+        } catch (Throwable $e) {
+            $assets = [];
+        }
     }
 
     $assets = array_map(function($a) {
@@ -198,24 +222,36 @@ if ($id > 0) {
     }
 
     if ($cmpJob) {
-        $loadAssetsForJob = function(int $jid) use ($db): array {
-            $s = $db->prepare("
-                SELECT ip, open_ports
-                FROM scan_asset_snapshots
-                WHERE job_id = ?
-                ORDER BY ip ASC
-            ");
-            $s->execute([$jid]);
-            $rows = $s->fetchAll();
-            if (!$rows) {
-                $s = $db->prepare("
-                    SELECT ip, ports AS open_ports
-                    FROM port_history
-                    WHERE scan_id = ?
-                    ORDER BY id ASC
-                ");
-                $s->execute([$jid]);
-                $rows = $s->fetchAll();
+        $loadAssetsForJob = function(int $jid) use ($db, $hasTable): array {
+            $rows = [];
+            if ($hasTable('scan_asset_snapshots')) {
+                try {
+                    $s = $db->prepare("
+                        SELECT ip, open_ports
+                        FROM scan_asset_snapshots
+                        WHERE job_id = ?
+                        ORDER BY ip ASC
+                    ");
+                    $s->execute([$jid]);
+                    $rows = $s->fetchAll();
+                } catch (Throwable $e) {
+                    $rows = [];
+                }
+            }
+            if (!$rows && $hasTable('port_history')) {
+                try {
+                    $s = $db->prepare("
+                        SELECT COALESCE(a.ip, '') AS ip, ph.ports AS open_ports
+                        FROM port_history ph
+                        LEFT JOIN assets a ON a.id = ph.asset_id
+                        WHERE scan_id = ?
+                        ORDER BY ph.id ASC
+                    ");
+                    $s->execute([$jid]);
+                    $rows = $s->fetchAll();
+                } catch (Throwable $e) {
+                    $rows = [];
+                }
             }
             $ips = [];
             $ipPorts = [];
@@ -233,14 +269,21 @@ if ($id > 0) {
             }
             return [array_keys($ips), array_keys($ipPorts)];
         };
-        $loadOpenCvesForJob = function(int $jid) use ($db): array {
-            $s = $db->prepare("
-                SELECT DISTINCT cve_id
-                FROM scan_finding_snapshots
-                WHERE job_id = ? AND COALESCE(resolved, 0) = 0
-            ");
-            $s->execute([$jid]);
-            return array_values(array_filter(array_map('strval', $s->fetchAll(PDO::FETCH_COLUMN))));
+        $loadOpenCvesForJob = function(int $jid) use ($db, $hasTable): array {
+            if (!$hasTable('scan_finding_snapshots')) {
+                return [];
+            }
+            try {
+                $s = $db->prepare("
+                    SELECT DISTINCT cve_id
+                    FROM scan_finding_snapshots
+                    WHERE job_id = ? AND COALESCE(resolved, 0) = 0
+                ");
+                $s->execute([$jid]);
+                return array_values(array_filter(array_map('strval', $s->fetchAll(PDO::FETCH_COLUMN))));
+            } catch (Throwable $e) {
+                return [];
+            }
         };
 
         [$curIps, $curIpPorts] = $loadAssetsForJob((int)$id);
