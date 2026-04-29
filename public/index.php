@@ -1101,6 +1101,11 @@
             <input class="finp" type="number" id="st-ai-max-hosts" min="1" max="5000" step="1" style="width:90px" value="40">
           </div>
         </div>
+        <div class="row-wrap gap6 mb8">
+          <label class="flbl" style="min-width:130px">Operator AI wait (s)</label>
+          <input class="finp" type="number" id="st-ai-operator-timeout-s" min="120" max="3600" step="30" style="width:90px" value="900" title="Max seconds for one Ollama generate call from the UI (host summary, scan AI refresh). Raise if you see curl timeout 28.">
+          <span class="text-micro text-dim" style="max-width:420px">Host panel / scan summary calls Ollama with this wall clock (curl <code class="code-accent">-m</code>). Default 900. If you still see <code class="code-accent">180</code> timeouts, redeploy <code class="code-accent">api/db.php</code> + <code class="code-accent">api/ai_actions.php</code> or save this setting once.</span>
+        </div>
         <div class="row-wrap gap6 mb10">
           <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
             <input type="checkbox" id="st-ai-ambiguous-only" checked>
@@ -4725,6 +4730,8 @@ async function loadUiSettings() {
     if (aiModel) aiModel.value = String(d.ai_model || 'phi3:mini');
     const aiTimeout = document.getElementById('st-ai-timeout-ms');
     if (aiTimeout) aiTimeout.value = String(Math.max(100, Math.min(5000, Number(d.ai_timeout_ms || 700))));
+    const aiOpSec = document.getElementById('st-ai-operator-timeout-s');
+    if (aiOpSec) aiOpSec.value = String(Math.max(120, Math.min(3600, Number(d.ai_operator_ollama_timeout_s || 900))));
     const aiMaxHosts = document.getElementById('st-ai-max-hosts');
     if (aiMaxHosts) aiMaxHosts.value = String(Math.max(1, Math.min(5000, Number(d.ai_max_hosts_per_scan || 40))));
     const aiAmbig = document.getElementById('st-ai-ambiguous-only');
@@ -5559,6 +5566,7 @@ async function saveAiEnrichmentSettings() {
         ai_provider: String(document.getElementById('st-ai-provider')?.value || 'ollama'),
         ai_model: String(document.getElementById('st-ai-model')?.value || 'phi3:mini').trim(),
         ai_timeout_ms: Number(document.getElementById('st-ai-timeout-ms')?.value || 700),
+        ai_operator_ollama_timeout_s: Number(document.getElementById('st-ai-operator-timeout-s')?.value || 900),
         ai_max_hosts_per_scan: Number(document.getElementById('st-ai-max-hosts')?.value || 40),
         ai_ambiguous_only: !!document.getElementById('st-ai-ambiguous-only')?.checked,
         ai_suggest_only: !!document.getElementById('st-ai-suggest-only')?.checked,

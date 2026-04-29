@@ -15,6 +15,7 @@
  *   - ai_provider: string ("ollama" only for now)
  *   - ai_model: string (Ollama tag, e.g. phi3:mini)
  *   - ai_timeout_ms: int (100..5000)
+ *   - ai_operator_ollama_timeout_s: int (120..3600) — UI host summary / scan AI refresh Ollama wall clock
  *   - ai_max_hosts_per_scan: int (1..5000)
  *   - ai_ambiguous_only: bool
  *   - ai_suggest_only: bool
@@ -278,6 +279,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'ai_provider' => (string)st_config('ai_provider', 'ollama'),
         'ai_model' => (string)st_config('ai_model', 'phi3:mini'),
         'ai_timeout_ms' => max(100, min(5000, (int)st_config('ai_timeout_ms', '700'))),
+        'ai_operator_ollama_timeout_s' => st_ai_operator_ollama_timeout_cap(),
         'ai_max_hosts_per_scan' => max(1, min(5000, (int)st_config('ai_max_hosts_per_scan', '40'))),
         'ai_ambiguous_only' => st_config('ai_ambiguous_only', '1') === '1',
         'ai_suggest_only' => st_config('ai_suggest_only', '0') === '1',
@@ -569,6 +571,12 @@ if (array_key_exists('ai_timeout_ms', $body)) {
     $v = max(100, min(5000, $v));
     st_config_set('ai_timeout_ms', (string)$v);
     $changed['ai_timeout_ms'] = $v;
+}
+if (array_key_exists('ai_operator_ollama_timeout_s', $body)) {
+    $v = (int)$body['ai_operator_ollama_timeout_s'];
+    $v = max(120, min(3600, $v));
+    st_config_set('ai_operator_ollama_timeout_s', (string)$v);
+    $changed['ai_operator_ollama_timeout_s'] = $v;
 }
 if (array_key_exists('ai_max_hosts_per_scan', $body)) {
     $v = (int)$body['ai_max_hosts_per_scan'];

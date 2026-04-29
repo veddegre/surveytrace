@@ -48,9 +48,6 @@ register_shutdown_function(static function (): void {
 
 require_once __DIR__ . '/db.php';
 
-/** Wall-clock seconds to wait for Ollama on operator endpoints (host summary, scan AI refresh, CVE triage API). */
-define('ST_AI_OPERATOR_OLLAMA_TIMEOUT_S', 600);
-
 // ---------------------------------------------------------------------------
 // Ollama + operator-AI helpers (inlined so deploy only needs this one file)
 // ---------------------------------------------------------------------------
@@ -190,7 +187,7 @@ function st_ai_ollama_post_via_cli_curl(string $url, string $jsonBody, int $time
         return $out;
     }
     @chmod($tmp, 0600);
-    $cap = (int)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S;
+    $cap = st_ai_operator_ollama_timeout_cap();
     $m = (string)max(1, min($cap, $timeoutSec));
     $cmd = [
         $curlBin,
@@ -237,7 +234,7 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
     $raw = '';
     // Whole-second timeouts + CURLOPT_NOSIGNAL: under php-fpm, CURLOPT_TIMEOUT_MS without
     // CURLOPT_NOSIGNAL can make libcurl return an empty body (alarm/signal vs threads).
-    $cap = (int)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S;
+    $cap = st_ai_operator_ollama_timeout_cap();
     $timeoutSec = max(1, min($cap, (int)ceil($timeout_s)));
     $connectSec = max(2, min(30, (int)ceil($timeout_s / 4)));
     if ($connectSec > $timeoutSec) {
@@ -681,11 +678,11 @@ try {
                 . 'Host: ' . ($row['ip'] ?? '') . ' category=' . ($row['category'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . "\n"
                 . "Open findings (CVE rows):\n" . implode("\n", $lines) . "\n";
 
-            @set_time_limit((int)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S + 120);
+            @set_time_limit(st_ai_operator_ollama_timeout_cap() + 120);
             @ignore_user_abort(true);
             // Host CVE triage: long prompts + local CPU can exceed 60s. Do not tie wall clock to
             // ai_timeout_ms (that knob is for daemon per-host enrichment, 100–5000 ms).
-            $timeoutS = (float)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S;
+            $timeoutS = (float)st_ai_operator_ollama_timeout_cap();
             // Close PDO during Ollama so this Apache worker does not hold SQLite open for minutes.
             // st_db() reconnect is cheap after the first connect in this worker (migrations run once per worker).
             $stmt = null;
@@ -809,9 +806,9 @@ try {
             . $bannerBlock
             . $bannerTail;
 
-        @set_time_limit((int)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S + 120);
+        @set_time_limit(st_ai_operator_ollama_timeout_cap() + 120);
         @ignore_user_abort(true);
-        $timeoutS = (float)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S;
+        $timeoutS = (float)st_ai_operator_ollama_timeout_cap();
         $stmt = null;
         $fstmt = null;
         st_db_release_connection();
@@ -920,9 +917,9 @@ try {
             . "Be concise, practical, and avoid alarmist language.\n\n"
             . "Scan data JSON:\n{$compactJson}\n";
 
-        @set_time_limit((int)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S + 120);
+        @set_time_limit(st_ai_operator_ollama_timeout_cap() + 120);
         @ignore_user_abort(true);
-        $timeoutS = (float)ST_AI_OPERATOR_OLLAMA_TIMEOUT_S;
+        $timeoutS = (float)st_ai_operator_ollama_timeout_cap();
         $jstmt = null;
         st_db_release_connection();
         $db = null;

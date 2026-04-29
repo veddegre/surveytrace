@@ -91,6 +91,9 @@ function st_db(): PDO {
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_max_hosts_per_scan', '40')"
     );
     $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_timeout_s', '900')"
+    );
+    $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_ambiguous_only', '1')"
     );
     $pdo->exec(
@@ -404,8 +407,13 @@ function st_migrate_device_identity_v1(PDO $pdo): void {
 // Config helpers
 // ---------------------------------------------------------------------------
 function st_config(string $key, string $default = ''): string {
-    static $cache = [];
-    if (isset($cache[$key])) return $cache[$key];
+    if (!isset($GLOBALS['st_config_cache']) || !is_array($GLOBALS['st_config_cache'])) {
+        $GLOBALS['st_config_cache'] = [];
+    }
+    $cache = &$GLOBALS['st_config_cache'];
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
     $row = st_db()->prepare("SELECT value FROM config WHERE key = ?")->execute([$key])
         ? st_db()->prepare("SELECT value FROM config WHERE key = ?")->execute([$key]) && false
         : null;
@@ -420,6 +428,18 @@ function st_config(string $key, string $default = ''): string {
 function st_config_set(string $key, string $value): void {
     st_db()->prepare("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)")
            ->execute([$key, $value]);
+    if (isset($GLOBALS['st_config_cache']) && is_array($GLOBALS['st_config_cache'])) {
+        unset($GLOBALS['st_config_cache'][$key]);
+    }
+}
+
+/**
+ * Wall-clock seconds to wait for Ollama /api/generate on operator HTTP flows (host panel summary,
+ * scan AI refresh, CVE triage API). Config key ai_operator_ollama_timeout_s; clamped 120–3600.
+ */
+function st_ai_operator_ollama_timeout_cap(): int {
+    $v = (int)st_config('ai_operator_ollama_timeout_s', '900');
+    return max(120, min(3600, $v));
 }
 
 // ---------------------------------------------------------------------------
