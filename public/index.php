@@ -5774,23 +5774,39 @@ document.getElementById('modal-bg')?.addEventListener('click', function(e) {
 // View vulns for a specific asset IP
 // ==========================================================================
 function viewAssetVulns(ip) {
-    goTab('vulns');
+    const ipStr = String(ip || '').trim();
+    const ipEl = document.getElementById('vf-ip');
+    if (ipEl) ipEl.value = ipStr;
+    const clr = document.getElementById('vf-clear-ip');
+    if (clr) {
+        clr.style.display = ipStr ? '' : 'none';
+        clr.textContent = ipStr ? ('\u2715 ' + ipStr) : '\u2715 clear';
+    }
     hiNav('nvulns');
-    document.getElementById('vf-ip').value = ip;
-    loadFindings(1);
+    if (currentTab !== 'vulns') {
+        goTab('vulns'); // goTab('vulns') already triggers loadFindings(1)
+    } else {
+        loadFindings(1);
+    }
 }
 
 function filterVulnsByIP(ip) {
-    goTab('vulns');
-    hiNav('nvulns');
-    document.getElementById('vf-ip').value = ip;
-    document.getElementById('vf-cve').value = '';
+    const ipStr = String(ip || '').trim();
+    const ipEl = document.getElementById('vf-ip');
+    if (ipEl) ipEl.value = ipStr;
+    const cveEl = document.getElementById('vf-cve');
+    if (cveEl) cveEl.value = '';
     const clr = document.getElementById('vf-clear-ip');
     if (clr) {
-        clr.style.display = ip ? '' : 'none';
-        clr.textContent = '\u2715 ' + ip;
+        clr.style.display = ipStr ? '' : 'none';
+        clr.textContent = ipStr ? ('\u2715 ' + ipStr) : '\u2715 clear';
     }
-    loadFindings(1);
+    hiNav('nvulns');
+    if (currentTab !== 'vulns') {
+        goTab('vulns'); // goTab('vulns') already triggers loadFindings(1)
+    } else {
+        loadFindings(1);
+    }
 }
 
 // Profile card selection
