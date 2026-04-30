@@ -530,6 +530,13 @@ if (array_key_exists('collector_install_token', $body)) {
     st_config_set('collector_install_token', $v);
     $changed['collector_install_token_configured'] = ($v !== '');
 }
+if (!empty($body['collector_install_token_generate'])) {
+    $v = 'st_install_' . bin2hex(random_bytes(24));
+    st_config_set('collector_install_token', $v);
+    $changed['collector_install_token_configured'] = true;
+    $changed['collector_install_token_generated'] = true;
+    $changed['collector_install_token'] = $v;
+}
 if (array_key_exists('collector_artifact_store', $body)) {
     $v = strtolower(trim((string)$body['collector_artifact_store']));
     if (!in_array($v, ['s3'], true)) {

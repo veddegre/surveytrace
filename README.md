@@ -2,6 +2,32 @@
 
 A self-hosted network asset discovery and inventory platform for general-purpose networks.
 
+## Table of Contents
+
+- [Deployment Models](#deployment-models)
+- [Name and Purpose](#name-and-purpose)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
+- [Quick Start](#quick-start)
+- [Manual Installation](#manual-installation)
+- [Updating / Deploying Changes](#updating--deploying-changes)
+- [Collector Deployment (Multi-System)](#collector-deployment-multi-system)
+- [Changelog](#changelog)
+- [NVD Database Setup](#nvd-database-setup)
+- [Roadmap](#roadmap)
+- [License](#license)
+- [Author](#author)
+
+## Deployment Models
+
+SurveyTrace supports both single-host and multi-system deployments:
+
+- **Single-host**: scanner, scheduler, web UI, and data store run on one server.
+- **Multi-system (with collectors)**: one master server handles UI/scheduling/ingest while one or more remote collectors run scans in their local networks and submit results back to master.
+
+Use collectors when you need local-segment visibility (ARP/mDNS/passive signals) in remote sites without exposing those networks directly to the master scanner.
+
 ## Name and Purpose
 
 SurveyTrace combines two ideas at the core of network visibility.
@@ -30,7 +56,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Database backups** — scheduler-driven SQLite backups via `daemon/backup_db.sh`, configurable in **Settings** (enable, cron, retention days, keep-count)
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
-- **Collector architecture (Phase 8)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
+- **Collector architecture (MVP + parity runner)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -48,7 +74,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - `qrencode` (for local-only MFA QR rendering)
 - 2GB RAM, 10GB disk (NVD database is ~1GB)
 
-### Settings → AI enrichment (optional)
+### Settings - AI enrichment (optional)
 
 All of these are edited in the web UI (**Settings** card **AI enrichment (optional)**) and stored in SQLite `config` (keys below). Cloud keys and Open WebUI URL may be overridden by the env vars listed in **Features** above.
 
@@ -195,10 +221,11 @@ bash deploy.sh
 It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 If present, deploy also restarts `surveytrace-collector-ingest` (optional master-side ingest worker service for collector uploads).
 
-## Collector Deployment (Phase 8)
+## Collector Deployment (Multi-System)
 
 Collectors are packaged under `collector/` and are intended for remote network sites.
 
+- Full collector install/onboarding guide: **`collector/README.md`**
 - `collector/setup.sh` — installs a parity collector runtime and systemd service (`surveytrace-collector`) with passive capture capability defaults (`CAP_NET_RAW`, `CAP_NET_ADMIN`)
 - `collector/deploy.sh` — updates runtime files on an existing collector node
 - `collector/hardening.sh` — applies baseline host hardening
@@ -503,9 +530,9 @@ surveytrace/
 - **Phase 5 — Device identity** — Logical **`devices`** linked from **`assets`**; scanner + migrations; Devices UI; **`POST /api/devices.php`** merge (logged to **`scan_log`**). Details: **`docs/DEVICE_IDENTITY.md`**. *Not built:* un-merge, split/reassign assets, findings-by-device filter, `device_identifiers` table (optional follow-ons).
 - **Phase 6 — Identity & access** — OIDC-first auth, local accounts + role management, MFA/recovery flows, profile self-service, endpoint RBAC coverage, and expanded account/audit logging.
 - **Phase 7 — Scan delete hardening** — soft delete/trash lifecycle for scan runs, restore flow, admin-only permanent purge, retention-based purge, and audit coverage.
+- **Phase 8 — Collector architecture (MVP + parity runner)** — remote collector registration + bearer auth, collector control APIs/UI, unified schedule targeting (`collector_id`), scan source visibility, per-collector rate limits, centralized ingest + enrichment worker, and CIDR allowlist guardrails for safe remote execution.
 
 ### Upcoming
-- **Phase 8 — Collector architecture** — `collectors` table; registration + API token auth (scopes informed by **Phase 6** when RBAC is enabled); **`collector_checkin.php`**, **`collector_jobs.php`**, **`collector_submit.php`**; **`collector_agent.py`** for remote sites; management UI (status, last seen, schedule assignment); per-collector rate limits; health monitoring; first remote production collector deployment. **Processing model:** collectors upload scan result payloads/artifacts to the master server; master persists them to an ingest queue/file store; one/few worker processes apply them into assets/findings/history and run fingerprint/CVE enrichment asynchronously (idempotent, chunked submissions, retry-safe).
 - **Phase 9**: Change detection — alerts on new assets, port changes, new CVEs; finding lifecycle states (`new`, `active`, `mitigated`, `accepted`, `reopened`) with regression/reopen handling.
 - **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring, and provenance metadata (`source`, `method`, `confidence`) for explainable triage.
 - **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.

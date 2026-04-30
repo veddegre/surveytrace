@@ -1080,6 +1080,7 @@ if (is_readable($dbProbe)) {
         <div class="row-wrap gap6 mb6">
           <input class="finp" type="password" id="st-collector-install-token" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste collector install token">
           <button class="btnp btn-xs" type="button" onclick="saveCollectorInstallToken()">Save token</button>
+          <button class="tbtn btn-xs" type="button" onclick="generateCollectorInstallToken()">Generate token</button>
         </div>
         <div class="hint-micro" id="st-collector-install-token-status">Not configured</div>
       </div>
@@ -5776,6 +5777,22 @@ async function saveCollectorInstallToken() {
         toast('Collector install token saved', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function generateCollectorInstallToken() {
+    if (!(await showConfirmModal('Generate a new collector install token now?', {title:'Generate collector token', okText:'Generate'}))) return;
+    const r = await apiPost('/api/settings.php', { collector_install_token_generate: true });
+    if (r && r.ok && r.collector_install_token) {
+        const token = String(r.collector_install_token);
+        const inp = document.getElementById('st-collector-install-token');
+        if (inp) inp.value = token;
+        const st = document.getElementById('st-collector-install-token-status');
+        if (st) st.textContent = 'Install token configured (new token generated)';
+        if (await stCopyTextToClipboard(token)) toast('New install token generated and copied', 'ok');
+        else toast('New install token generated', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Generate failed', 'err');
     }
 }
 
