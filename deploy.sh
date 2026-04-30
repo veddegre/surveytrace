@@ -39,11 +39,6 @@ API_FILES=(
   health.php
   export.php
   devices.php
-  collector_checkin.php
-  collector_jobs.php
-  collector_submit.php
-  collectors.php
-  lib_collectors.php
 )
 for f in "${API_FILES[@]}"; do
   sudo cp "$SRC/api/$f" "$DEST/api/"
@@ -57,7 +52,6 @@ sudo mkdir -p "$DEST/public/css"
 sudo cp "$SRC/public/css/app.css" "$DEST/public/css/"
 sudo cp "$SRC/public/index.php" "$DEST/public/"
 echo "  Web UI deployed"
-echo "    Note: Collector scheduling/visibility controls live in public/index.php and api/collectors.php"
 
 # ---------------------------------------------------------------------------
 # Daemon
@@ -68,9 +62,6 @@ DAEMON_CORE=(
   ai_cloud_client.py
   fingerprint.py
   profiles.py
-  collector_ingest_worker.py
-  collector_agent.py
-  collector_parity_runner.py
 )
 for f in "${DAEMON_CORE[@]}"; do
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
@@ -99,7 +90,6 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
-echo "    Note: scheduler_daemon.py enforces collector CIDR allowlists when enqueueing scheduled jobs"
 
 # ---------------------------------------------------------------------------
 # Permission sanity for UI-triggered feed sync + daemon runtime
@@ -132,7 +122,6 @@ echo "  Schema file updated"
 echo "Restarting daemons..."
 sudo systemctl restart surveytrace-daemon
 sudo systemctl restart surveytrace-scheduler
-sudo systemctl restart surveytrace-collector-ingest 2>/dev/null || true
 
 sleep 2
 if sudo systemctl is-active --quiet surveytrace-daemon; then
@@ -147,12 +136,6 @@ if sudo systemctl is-active --quiet surveytrace-scheduler; then
 else
   echo "  surveytrace-scheduler: FAILED"
   echo "      sudo journalctl -u surveytrace-scheduler -n 20"
-fi
-
-if sudo systemctl is-active --quiet surveytrace-collector-ingest; then
-  echo "  surveytrace-collector-ingest: running"
-else
-  echo "  surveytrace-collector-ingest: not installed or not running (optional)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -209,22 +192,15 @@ check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"
 check_file "$DEST/api/lib_ai_cloud.php" "lib_ai_cloud (cloud AI)"
-check_file "$DEST/api/lib_collectors.php" "lib_collectors API helper"
-check_file "$DEST/api/collector_checkin.php" "collector checkin API"
-check_file "$DEST/api/collector_jobs.php" "collector jobs API"
-check_file "$DEST/api/collector_submit.php" "collector submit API"
-check_file "$DEST/api/collectors.php" "collectors management API"
 check_file "$DEST/api/ai_actions.php" "ai_actions API"
 check_file "$DEST/daemon/ai_cloud_client.py" "ai_cloud_client (scanner cloud AI)"
-check_file "$DEST/daemon/collector_ingest_worker.py" "collector ingest worker"
-check_file "$DEST/daemon/collector_parity_runner.py" "collector parity runner"
-check_file "$DEST/daemon/collector_agent.py" "collector agent"
 check_file "$DEST/daemon/feed_sync_worker.php" "feed_sync_worker (UI sync)"
 check_file "$DEST/daemon/feed_sync_cancel.py" "feed_sync_cancel"
 check_file "$DEST/daemon/sync_nvd.py" "sync_nvd.py"
 check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
+check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
 
 check_as_user "www-data" "test -r \"$DEST/daemon/feed_sync_worker.php\"" \
