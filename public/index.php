@@ -784,20 +784,6 @@ if (is_readable($dbProbe)) {
     </table>
   </div>
 </div>
-<div id="collector-sched-bg" class="modal-bg z101">
-  <div class="modal-card modal-w560">
-    <div class="row-between mb10 gap10">
-      <div class="modal-title" id="collector-sched-title">Assign schedules</div>
-      <button type="button" class="modal-close-x" onclick="closeCollectorScheduleModal()" aria-label="Close without saving">×</button>
-    </div>
-    <div class="hint-micro mb8">Checked schedules run on this collector. Unchecked schedules are left unassigned from this collector.</div>
-    <div id="collector-sched-list" class="mb10"><div class="loading">Loading…</div></div>
-    <div class="row-wrap gap6">
-      <button type="button" class="btnp" onclick="saveCollectorScheduleAssignments()">Save assignment</button>
-      <button type="button" class="tbtn" onclick="closeCollectorScheduleModal()">Cancel</button>
-    </div>
-  </div>
-</div>
 
 <div class="tab" id="t-logs">
   <div class="fbar">
@@ -1075,16 +1061,6 @@ if (is_readable($dbProbe)) {
     </div>
     <div>
       <div class="card">
-        <div class="ct">Collector setup</div>
-        <div class="help-line mb8">Install token used by remote collector setup/registration. Rotating it invalidates future registrations (existing collector bearer tokens remain until rotated/revoked).</div>
-        <div class="row-wrap gap6 mb6">
-          <input class="finp" type="password" id="st-collector-install-token" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste collector install token">
-          <button class="btnp btn-xs" type="button" onclick="saveCollectorInstallToken()">Save token</button>
-          <button class="tbtn btn-xs" type="button" onclick="generateCollectorInstallToken()">Generate token</button>
-        </div>
-        <div class="hint-micro" id="st-collector-install-token-status">Not configured</div>
-      </div>
-      <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.8.0', ENT_QUOTES, 'UTF-8') ?><br>
@@ -1105,6 +1081,23 @@ if (is_readable($dbProbe)) {
           <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
           <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
         </table>
+      </div>
+      <div class="card">
+        <div class="ct">Collector setup</div>
+        <div class="help-line mb8">Install token used by remote collector setup/registration. Rotating it invalidates future registrations (existing collector bearer tokens remain until rotated/revoked).</div>
+        <div class="row-wrap gap6 mb6">
+          <input class="finp" type="password" id="st-collector-install-token" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste collector install token">
+          <button class="btnp btn-xs" type="button" onclick="saveCollectorInstallToken()">Save token</button>
+          <button class="tbtn btn-xs" type="button" onclick="generateCollectorInstallToken()">Generate token</button>
+        </div>
+        <div class="hint-micro mb6" id="st-collector-install-token-status">Not configured</div>
+        <div id="st-collector-install-token-generated-wrap" class="hide">
+          <label class="flbl">Generated token (copy now)</label>
+          <div class="row-wrap gap6">
+            <input class="finp" type="text" id="st-collector-install-token-generated" readonly style="min-width:260px;flex:1">
+            <button class="tbtn btn-xs" type="button" onclick="copyGeneratedCollectorInstallToken()">Copy</button>
+          </div>
+        </div>
       </div>
       <div class="card">
         <div class="ct">Scan trash retention</div>
@@ -1731,7 +1724,6 @@ var scanHistoryView = 'active';
 var scanTrashRetentionDays = 30;
 var collectorsCache = [];
 var collectorSchedulesCache = [];
-var collectorAssignTargetId = 0;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -4881,6 +4873,10 @@ async function loadUiSettings() {
     if (extra) extra.value = String(d.extra_safe_ports || '');
     const cTok = document.getElementById('st-collector-install-token');
     if (cTok) cTok.value = '';
+    const cTokGenWrap = document.getElementById('st-collector-install-token-generated-wrap');
+    if (cTokGenWrap) cTokGenWrap.classList.add('hide');
+    const cTokGen = document.getElementById('st-collector-install-token-generated');
+    if (cTokGen) cTokGen.value = '';
     const cTokSt = document.getElementById('st-collector-install-token-status');
     if (cTokSt) {
         cTokSt.textContent = d.collector_install_token_configured
@@ -5786,14 +5782,29 @@ async function generateCollectorInstallToken() {
     if (r && r.ok && r.collector_install_token) {
         const token = String(r.collector_install_token);
         const inp = document.getElementById('st-collector-install-token');
-        if (inp) inp.value = token;
+        if (inp) inp.value = '';
         const st = document.getElementById('st-collector-install-token-status');
         if (st) st.textContent = 'Install token configured (new token generated)';
+        const genWrap = document.getElementById('st-collector-install-token-generated-wrap');
+        const genInp = document.getElementById('st-collector-install-token-generated');
+        if (genInp) genInp.value = token;
+        if (genWrap) genWrap.classList.remove('hide');
         if (await stCopyTextToClipboard(token)) toast('New install token generated and copied', 'ok');
         else toast('New install token generated', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Generate failed', 'err');
     }
+}
+
+async function copyGeneratedCollectorInstallToken() {
+    const genInp = document.getElementById('st-collector-install-token-generated');
+    const token = String(genInp && genInp.value ? genInp.value : '').trim();
+    if (!token) {
+        toast('No generated token to copy', 'err');
+        return;
+    }
+    if (await stCopyTextToClipboard(token)) toast('Generated token copied', 'ok');
+    else toast('Could not copy generated token', 'err');
 }
 
 async function saveDbBackupSettings() {
@@ -6625,9 +6636,14 @@ async function loadCollectorsOverview() {
             const arr = JSON.parse(String(c.allowed_cidrs_json || '[]'));
             if (Array.isArray(arr) && arr.length) ranges = arr.join(', ');
         } catch (e) {}
+        const assignedSchedules = (collectorSchedulesCache || []).filter(s => Number(s.collector_id || 0) === id);
+        const schedSummary = assignedSchedules.length
+            ? assignedSchedules.map(s => String(s.name || ('#' + Number(s.id || 0)))).slice(0, 2).join(', ')
+                + (assignedSchedules.length > 2 ? ` (+${assignedSchedules.length - 2} more)` : '')
+            : 'None';
         return `<tr>
           <td class="mono">#${id}</td>
-          <td class="text-primary">${esc(collectorDisplayName(c))}<div class="text-micro text-dim">ranges: ${esc(ranges)}</div></td>
+          <td class="text-primary">${esc(collectorDisplayName(c))}<div class="text-micro text-dim">ranges: ${esc(ranges)}</div><div class="text-micro text-dim">schedules: ${esc(schedSummary)}</div></td>
           <td class="mono-sm">${esc(st)}</td>
           <td class="mono-sm">${seen}</td>
           <td class="mono-sm">${ip}</td>
@@ -6635,57 +6651,12 @@ async function loadCollectorsOverview() {
           <td class="mono-sm">${failed}</td>
           <td class="row-actions">
             <button class="tbtn btn-xxs" onclick="setCollectorAllowedCidrs(${id})">Set ranges</button>
-            <button class="tbtn btn-xxs" onclick="openCollectorScheduleModal(${id})">Assign schedules</button>
+            <button class="tbtn btn-xxs" onclick="goTab('sched')">Manage in schedules</button>
             <button class="tbtn btn-xxs" onclick="rotateCollectorToken(${id})">Rotate token</button>
             <button class="tbtn btn-xxs" style="color:var(--red)" onclick="revokeCollector(${id})">Revoke</button>
           </td>
         </tr>`;
     }).join('');
-}
-
-function closeCollectorScheduleModal() {
-    const bg = document.getElementById('collector-sched-bg');
-    if (bg) bg.style.display = 'none';
-}
-
-function openCollectorScheduleModal(collectorId) {
-    collectorAssignTargetId = Number(collectorId || 0);
-    const collector = (collectorsCache || []).find(c => Number(c.id || 0) === collectorAssignTargetId);
-    const title = document.getElementById('collector-sched-title');
-    if (title) title.textContent = `Assign schedules — ${collector ? collectorDisplayName(collector) : ('Collector #' + collectorAssignTargetId)}`;
-    const list = document.getElementById('collector-sched-list');
-    if (!list) return;
-    if (!collectorSchedulesCache.length) {
-        list.innerHTML = '<div class="loading">No schedules available</div>';
-    } else {
-        list.innerHTML = collectorSchedulesCache.map(s => {
-            const sid = Number(s.id || 0);
-            const on = Number(s.enabled || 0) === 1;
-            const checked = Number(s.collector_id || 0) === collectorAssignTargetId;
-            return `<label class="tr2" style="${on ? '' : 'opacity:0.65'}"><div><div class="tl">${esc(String(s.name || ('Schedule #' + sid)))}</div><div class="tsubl mono">${esc(String(s.target_cidr || ''))}</div></div><input type="checkbox" data-csched-id="${sid}" ${checked ? 'checked' : ''}></label>`;
-        }).join('');
-    }
-    const bg = document.getElementById('collector-sched-bg');
-    if (bg) bg.style.display = 'flex';
-}
-
-async function saveCollectorScheduleAssignments() {
-    const id = Number(collectorAssignTargetId || 0);
-    if (id <= 0) {
-        toast('No collector selected', 'err');
-        return;
-    }
-    const boxes = Array.from(document.querySelectorAll('#collector-sched-list input[data-csched-id]'));
-    const scheduleIds = boxes.filter(b => b.checked).map(b => parseInt(String(b.dataset.cschedId || '0'), 10)).filter(n => n > 0);
-    const r = await apiPost('/api/collectors.php', {action: 'assign_schedules', collector_id: id, schedule_ids: scheduleIds});
-    if (r && r.ok) {
-        toast('Schedule assignment saved', 'ok');
-        closeCollectorScheduleModal();
-        await loadCollectorsOverview();
-        await loadSchedules();
-    } else {
-        toast((r && r.error) || 'Assignment failed', 'err');
-    }
 }
 
 async function setCollectorAllowedCidrs(id) {

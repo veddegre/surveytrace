@@ -418,11 +418,18 @@ Set `auth_mode` in **Access control** (or directly in `config`). Supported UI mo
 ## Architecture
 
 ```
-Browser → Apache → PHP API → SQLite
-                                 ↕
-             scanner_daemon.py     ← processes queued jobs
-             scheduler_daemon.py   ← enqueues jobs on schedule
-             nvd.db                ← local CVE database
+Browser → Apache/PHP-FPM → PHP API → data/surveytrace.db (app state: users, assets, findings, scans, schedules, config)
+                                           ↕
+                      scanner_daemon.py    ← processes queued jobs
+                      scheduler_daemon.py  ← enqueues jobs on schedule + retention tasks
+
+Feed/CVE data path:
+  daemon/sync_nvd.py   → data/nvd.db            (local CVE corpus used for correlation)
+  daemon/sync_oui.py   → data/oui.txt           (MAC vendor cache)
+  daemon/sync_webfp.py → data/webfp_signatures.json (web fingerprint signatures)
+
+Collector ingest path (when collectors are enabled):
+  collector_agent.py → api/collector_submit.php → data/collector_ingest/ + collector queue tables (then async apply into surveytrace.db)
 ```
 
 ### Directory Structure
