@@ -32,6 +32,11 @@ API_FILES=(
   dashboard.php
   feeds.php
   feed_sync_lib.php
+  lib_collectors.php
+  collector_checkin.php
+  collector_jobs.php
+  collector_submit.php
+  collectors.php
   scan_history.php
   scan_priority.php
   logout.php
@@ -88,6 +93,7 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_oui.py" ] && sudo cp "$SRC/daemon/sync_oui.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/collector_ingest_worker.py" ] && sudo cp "$SRC/daemon/collector_ingest_worker.py" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
 
@@ -122,6 +128,9 @@ echo "  Schema file updated"
 echo "Restarting daemons..."
 sudo systemctl restart surveytrace-daemon
 sudo systemctl restart surveytrace-scheduler
+if sudo systemctl list-unit-files | rg -q '^surveytrace-collector-ingest\.service'; then
+  sudo systemctl restart surveytrace-collector-ingest || true
+fi
 
 sleep 2
 if sudo systemctl is-active --quiet surveytrace-daemon; then
@@ -188,6 +197,11 @@ check_as_user() {
 check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
+check_file "$DEST/api/lib_collectors.php" "lib_collectors"
+check_file "$DEST/api/collector_checkin.php" "collector_checkin API"
+check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
+check_file "$DEST/api/collector_submit.php" "collector_submit API"
+check_file "$DEST/api/collectors.php" "collectors API"
 check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"
@@ -199,6 +213,7 @@ check_file "$DEST/daemon/feed_sync_cancel.py" "feed_sync_cancel"
 check_file "$DEST/daemon/sync_nvd.py" "sync_nvd.py"
 check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
+check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
