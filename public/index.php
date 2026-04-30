@@ -4607,6 +4607,34 @@ function fmtDuration(secs) {
     return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
 }
 
+/** Clipboard API when allowed; else textarea + execCommand (HTTP, Safari, some modal contexts). */
+async function stCopyTextToClipboard(text) {
+    const t = String(text || '');
+    if (!t) return false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(t);
+            return true;
+        }
+    } catch (_) { /* fall through */ }
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = t;
+        ta.setAttribute('readonly', '');
+        ta.setAttribute('aria-hidden', 'true');
+        ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;margin:0;border:none;opacity:0;pointer-events:none;';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, t.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch (_) {
+        return false;
+    }
+}
+
 function toast(msg, type) {
     const w = document.getElementById('toasts');
     const d = document.createElement('div');
@@ -4902,14 +4930,12 @@ function closeAiInstallHelpModal() {
     bg.style.display = 'none';
 }
 
-function copyAiInstallHelp() {
+async function copyAiInstallHelp() {
     const el = document.getElementById('ai-install-help-text');
     if (!el) return;
     const txt = el.textContent || '';
-    navigator.clipboard.writeText(txt).then(
-        () => toast('Commands copied', 'ok'),
-        () => toast('Could not copy commands', 'err'),
-    );
+    if (await stCopyTextToClipboard(txt)) toast('Commands copied', 'ok');
+    else toast('Could not copy commands', 'err');
 }
 
 async function savePasswordPolicy() {
@@ -5340,12 +5366,8 @@ async function beginMfaSetup() {
     if (copyBtn) {
         copyBtn.onclick = async () => {
             if (!pendingMfaOtpUri) return;
-            try {
-                await navigator.clipboard.writeText(pendingMfaOtpUri);
-                toast('Setup link copied', 'ok');
-            } catch (e) {
-                toast('Could not copy setup link; use the secret above instead', 'err');
-            }
+            if (await stCopyTextToClipboard(pendingMfaOtpUri)) toast('Setup link copied', 'ok');
+            else toast('Could not copy setup link; use the secret above instead', 'err');
         };
     }
     pendingRecoveryCodes = [];
@@ -5509,16 +5531,14 @@ async function submitPasswordChange() {
     }
 }
 
-function copyMfaRecoveryCodes() {
+async function copyMfaRecoveryCodes() {
     const text = pendingRecoveryCodes.join('\n');
     if (!text) {
         toast('No recovery codes to copy', 'err');
         return;
     }
-    navigator.clipboard.writeText(text).then(
-        () => toast('Recovery codes copied', 'ok'),
-        () => toast('Copy failed', 'err')
-    );
+    if (await stCopyTextToClipboard(text)) toast('Recovery codes copied', 'ok');
+    else toast('Copy failed', 'err');
 }
 
 function downloadMfaRecoveryCodesTxt() {
@@ -5923,7 +5943,7 @@ async function checkAiUpdates() {
     }
 }
 
-function copyAiUpdateCommand() {
+async function copyAiUpdateCommand() {
     const el = document.getElementById('st-ai-update-cmd');
     if (!el) {
         toast('No update command available', 'err');
@@ -5934,13 +5954,11 @@ function copyAiUpdateCommand() {
         toast('No update command available', 'err');
         return;
     }
-    navigator.clipboard.writeText(cmd).then(
-        () => toast('Update command copied', 'ok'),
-        () => toast('Could not copy command', 'err'),
-    );
+    if (await stCopyTextToClipboard(cmd)) toast('Update command copied', 'ok');
+    else toast('Could not copy command', 'err');
 }
 
-function copyAiModelUpdateCommand() {
+async function copyAiModelUpdateCommand() {
     const el = document.getElementById('st-ai-model-update-cmd');
     if (!el) {
         toast('No model command available', 'err');
@@ -5951,10 +5969,8 @@ function copyAiModelUpdateCommand() {
         toast('No model command available', 'err');
         return;
     }
-    navigator.clipboard.writeText(cmd).then(
-        () => toast('Model update command copied', 'ok'),
-        () => toast('Could not copy command', 'err'),
-    );
+    if (await stCopyTextToClipboard(cmd)) toast('Model update command copied', 'ok');
+    else toast('Could not copy command', 'err');
 }
 
 async function saveNvdApiKey() {

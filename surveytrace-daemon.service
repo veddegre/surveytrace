@@ -2,6 +2,8 @@
 Description=SurveyTrace scanner daemon
 After=network.target
 Documentation=https://github.com/yourorg/surveytrace
+# Do not start until the SQLite file exists (avoids crash loops during first-time setup / ordering).
+ConditionPathExists=/opt/surveytrace/data/surveytrace.db
 
 [Service]
 Type=simple

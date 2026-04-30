@@ -78,8 +78,8 @@ The web UI will be available at `http://your-server-ip/`
 ```bash
 # System dependencies
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 \
-    apache2 libapache2-mod-php nmap sqlite3 qrencode samba-common-bin
+sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 php-fpm \
+    apache2 libapache2-mod-proxy-fcgi nmap sqlite3 qrencode samba-common-bin
 
 # Service user
 sudo useradd -r -s /bin/false -d /opt/surveytrace surveytrace
@@ -132,7 +132,7 @@ When libcurl returns an empty body, the API falls back to **`proc_open()` + `cur
 
 **After upgrading `api/db.php` with new SQLite migrations:** restart **Apache or php-fpm** once so every PHP worker re-runs the one-time bootstrap (migrations are skipped on later reconnects inside the same worker for speed).
 
-**Feed sync from the browser:** Under **PHP-FPM**, sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`**, the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
+**Feed sync from the browser:** Under **PHP-FPM** (default for nginx and for Apache when installed with `setup.sh`, which uses `mod_proxy_fcgi` to the FPM socket), sync runs in the same request after `fastcgi_finish_request()`. Under **Apache `mod_php`** (unusual if you followed `setup.sh`), the API spawns `php daemon/feed_sync_worker.php …` in the background, which requires `exec()` not to be in `disable_functions`, and requires `feed_sync_worker.php` to be present on disk (deploy copies it). NVD runs with **`--recent`** from PHP so the job matches weekly cron behavior and stays within typical HTTP worker limits.
 
 SQLite schema changes apply automatically on next API or daemon startup (`ALTER TABLE` migrations); fresh installs use `sql/schema.sql` with a complete `scan_jobs` definition.
 

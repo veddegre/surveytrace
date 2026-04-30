@@ -69,7 +69,7 @@ REQUIRED_PKGS=(
 
 OPTIONAL_PKGS=(
     apache2         # default stack with setup.sh auto-install
-    libapache2-mod-php
+    libapache2-mod-proxy-fcgi  # Apache + php-fpm (mod_php requires mpm_prefork; proxy_fcgi works with mpm_event)
     nginx           # optional alternative if you configure it manually
     tcpdump         # passive sniff fallback
     avahi-utils     # mDNS hostname resolution (avahi-resolve)
@@ -81,13 +81,33 @@ apt-get install -y --no-install-recommends "${REQUIRED_PKGS[@]}" || \
     die "Failed to install required packages"
 ok "Required packages installed"
 
-# ---- PHP version check (before web server: fresh Apache needs mod_php version) --
+# ---- PHP version check (before web server: vhost uses php${PHP_VER}-fpm socket) --
 PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "0.0")
 if awk "BEGIN{exit !($PHP_VER >= $PHP_MIN_VER)}"; then
     ok "PHP $PHP_VER found (>= $PHP_MIN_VER required)"
 else
     die "PHP $PHP_VER found but $PHP_MIN_VER+ required. Install php$PHP_MIN_VER from ppa:ondrej/php"
 fi
+
+# FPM socket path is /run/php/php${PHP_VER}-fpm.sock — install the versioned unit (not only meta php-fpm).
+if apt-cache show "php${PHP_VER}-fpm" &>/dev/null; then
+    apt-get install -y --no-install-recommends "php${PHP_VER}-fpm" || \
+        warn "Could not install php${PHP_VER}-fpm — web server PHP may fail until it is installed"
+fi
+
+# Debian/Ubuntu: mod_proxy_fcgi lives here; package name is libapache2-mod-proxy-fcgi.
+MOD_PROXY_FCGI_SO="/usr/lib/apache2/modules/mod_proxy_fcgi.so"
+install_mod_proxy_fcgi() {
+    if [[ -f "$MOD_PROXY_FCGI_SO" ]]; then
+        return 0
+    fi
+    if apt-get install -y --no-install-recommends libapache2-mod-proxy-fcgi; then
+        return 0
+    fi
+    info "apt could not install libapache2-mod-proxy-fcgi — refreshing package index and retrying…"
+    apt-get update -qq && apt-get install -y --no-install-recommends libapache2-mod-proxy-fcgi && return 0
+    return 1
+}
 
 # ---- Detect / install web server (Apache first; nginx only if already installed) --
 if command -v apache2 &>/dev/null; then
@@ -97,16 +117,12 @@ elif command -v nginx &>/dev/null; then
     WEB_SERVER="nginx"
     ok "nginx already present (no apache2 on host — using nginx)"
 else
-    info "Installing apache2 + mod_php…"
-    if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
-        apt-get install -y --no-install-recommends apache2 "libapache2-mod-php${PHP_VER}" \
-            || die "Failed to install apache2 / libapache2-mod-php${PHP_VER}"
-    else
-        apt-get install -y --no-install-recommends apache2 libapache2-mod-php \
-            || die "Failed to install apache2 / libapache2-mod-php"
-    fi
+    info "Installing apache2 + mod_proxy_fcgi (PHP via php-fpm; works with mpm_event)…"
+    apt-get install -y --no-install-recommends apache2 || die "Failed to install apache2"
+    install_mod_proxy_fcgi || [[ -f "$MOD_PROXY_FCGI_SO" ]] || \
+        die "mod_proxy_fcgi missing after apt (install libapache2-mod-proxy-fcgi or run apt-get update)"
     WEB_SERVER="apache2"
-    ok "apache2 + mod_php installed"
+    ok "apache2 installed (PHP via php-fpm + proxy_fcgi)"
 fi
 
 # ---- Python version check ---------------------------------------------------
@@ -214,6 +230,8 @@ fi
 
 [[ -f "$SCHEMA_FILE" ]] || die "schema.sql not found at $SCHEMA_FILE — ensure all subdirectories were copied"
 
+mkdir -p "$DATA_DIR" || die "Cannot create data directory $DATA_DIR"
+
 if [[ -f "$DB_FILE" ]]; then
     warn "Database already exists — skipping schema init (run with --reset to wipe)"
 else
@@ -226,10 +244,21 @@ fi
 # =============================================================================
 info "Setting permissions…"
 
-# App files: root owns, app user can read daemon dir
-chown -R root:root "$INSTALL_DIR"
-chown -R "$APP_USER":"$APP_USER" "$DATA_DIR"
-chmod 750 "$DATA_DIR"
+# Root-own install tree, but never chown -R the whole $INSTALL_DIR including $DATA_DIR:
+# that briefly makes surveytrace.db root:root and breaks daemons (sqlite: unable to open database file).
+shopt -s nullglob
+for item in "$INSTALL_DIR"/*; do
+    [[ -e "$item" ]] || continue
+    if [[ "$(readlink -f "$item")" == "$(readlink -f "$DATA_DIR")" ]]; then
+        continue
+    fi
+    chown -R root:root "$item"
+done
+shopt -u nullglob
+
+chown -R "$APP_USER":"$WEB_GROUP" "$DATA_DIR"
+chmod 770 "$DATA_DIR"
+chmod g+s "$DATA_DIR"
 [[ -f "$DB_FILE" ]] && chmod 660 "$DB_FILE" && chown "$APP_USER":"$WEB_GROUP" "$DB_FILE"
 
 # PHP can read/write db via www-data group
@@ -242,11 +271,6 @@ chown -R root:"$WEB_GROUP" "$INSTALL_DIR/public"
 chmod 750 "$INSTALL_DIR/daemon"
 chown -R "$APP_USER":"$APP_USER" "$INSTALL_DIR/daemon"
 
-# Make sure data dir group-writable by both daemon user and www-data
-chown -R "$APP_USER":"$WEB_GROUP" "$DATA_DIR"
-chmod 770 "$DATA_DIR"
-# Ensure newly created files inherit the shared group
-chmod g+s "$DATA_DIR"
 # Existing files should be writable by both daemon user + web group
 find "$DATA_DIR" -type d -exec chmod 2770 {} \; 2>/dev/null || true
 find "$DATA_DIR" -type f -exec chmod 660 {} \; 2>/dev/null || true
@@ -267,6 +291,15 @@ install_service() {
         sed -e "s|/opt/surveytrace|$INSTALL_DIR|g" \
             -e "s|User=surveytrace|User=$APP_USER|g" \
             "$svc_src" > "$svc_dest"
+        systemctl daemon-reload
+        [[ -f "$DB_FILE" ]] || die "Database missing at $DB_FILE — refusing to start $svc_name (bootstrap step failed?)"
+        if command -v runuser &>/dev/null; then
+            runuser -u "$APP_USER" -- sqlite3 "$DB_FILE" "SELECT 1;" >/dev/null \
+                || die "Database not readable as $APP_USER — fix ownership on $DATA_DIR (see STEP 6)"
+        else
+            sudo -u "$APP_USER" sqlite3 "$DB_FILE" "SELECT 1;" >/dev/null \
+                || die "Database not readable as $APP_USER — fix ownership on $DATA_DIR (see STEP 6)"
+        fi
         systemctl enable "$svc_name"
         systemctl start  "$svc_name"
         sleep 2
@@ -280,7 +313,6 @@ install_service() {
     fi
 }
 
-systemctl daemon-reload
 install_service "surveytrace-daemon"
 install_service "surveytrace-scheduler"
 
@@ -333,28 +365,26 @@ NGINX
         warn "nginx config test failed — check $NGINX_CONF"
 
 elif [[ "$WEB_SERVER" == "apache2" ]]; then
-    # A stray apache2 binary without the full Debian/Ubuntu config tree breaks cat > sites-available/…
-    if [[ ! -d /etc/apache2/sites-available ]]; then
-        info "Apache config directory missing — installing full apache2 + mod_php…"
-        if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
-            apt-get install -y --no-install-recommends apache2 "libapache2-mod-php${PHP_VER}" \
-                || die "Failed to install apache2 / libapache2-mod-php${PHP_VER}"
-        else
-            apt-get install -y --no-install-recommends apache2 libapache2-mod-php \
-                || die "Failed to install apache2 / libapache2-mod-php"
-        fi
-    fi
+    # Use php-fpm + mod_proxy_fcgi (default mpm_event works). libapache2-mod-php only runs under
+    # mpm_prefork; with mpm_event it often stays unloaded and Apache serves .php as literal source.
+    info "Configuring Apache with php-fpm (proxy_fcgi)…"
+    apt-get install -y --no-install-recommends apache2 || die "Failed to install apache2"
+    install_mod_proxy_fcgi || [[ -f "$MOD_PROXY_FCGI_SO" ]] || \
+        die "mod_proxy_fcgi missing (install libapache2-mod-proxy-fcgi; on stale mirrors: apt-get update)"
     mkdir -p /etc/apache2/sites-available
-    # Minimal/cloud images often have apache2 without mod_php — then .php is served as plain text.
-    if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
-        apt-get install -y --no-install-recommends "libapache2-mod-php${PHP_VER}" \
-            || warn "Could not install libapache2-mod-php${PHP_VER} — PHP may not execute"
-    else
-        apt-get install -y --no-install-recommends libapache2-mod-php \
-            || warn "Could not install libapache2-mod-php — PHP may not execute"
+    if apt-cache show "php${PHP_VER}-fpm" &>/dev/null; then
+        apt-get install -y --no-install-recommends "php${PHP_VER}-fpm" || \
+            warn "Could not install php${PHP_VER}-fpm"
     fi
-    a2enmod rewrite 2>/dev/null || true
-    a2enmod "php${PHP_VER}" 2>/dev/null || a2enmod php 2>/dev/null || true
+    # FPM must be listening before Apache proxies (socket below).
+    if systemctl list-unit-files "php${PHP_VER}-fpm.service" &>/dev/null; then
+        systemctl enable "php${PHP_VER}-fpm" && systemctl start "php${PHP_VER}-fpm" || \
+            warn "php${PHP_VER}-fpm failed to start — Apache PHP will fail until FPM runs"
+    else
+        warn "php${PHP_VER}-fpm unit missing — install php${PHP_VER}-fpm (must match: php -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;')"
+    fi
+    a2dismod php${PHP_VER} 2>/dev/null || true
+    a2enmod proxy proxy_fcgi setenvif rewrite 2>/dev/null || true
     APACHE_CONF="/etc/apache2/sites-available/surveytrace.conf"
     cat > "$APACHE_CONF" <<APACHE
 <VirtualHost *:80>
@@ -367,7 +397,7 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         AllowOverride None
         Require all granted
         <FilesMatch "\.php\$">
-            SetHandler application/x-httpd-php
+            SetHandler "proxy:unix:/run/php/php${PHP_VER}-fpm.sock|fcgi://localhost"
         </FilesMatch>
     </Directory>
 
@@ -376,7 +406,7 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         AllowOverride All
         Require all granted
         <FilesMatch "\.php\$">
-            SetHandler application/x-httpd-php
+            SetHandler "proxy:unix:/run/php/php${PHP_VER}-fpm.sock|fcgi://localhost"
         </FilesMatch>
     </Directory>
 
@@ -391,8 +421,12 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
 APACHE
     a2ensite surveytrace
     a2dissite 000-default 2>/dev/null || true
-    systemctl reload apache2 && ok "apache2 configured and reloaded" || \
-        warn "apache2 reload failed — check $APACHE_CONF"
+    if apache2ctl configtest 2>/dev/null; then
+        systemctl restart apache2 && ok "apache2 configured and restarted (php-fpm via proxy_fcgi)" || \
+            warn "apache2 restart failed — check $APACHE_CONF and journalctl -u apache2"
+    else
+        warn "apache2 config test failed — check $APACHE_CONF"
+    fi
 fi
 
 # ---- PHP-FPM ---------------------------------------------------------------
