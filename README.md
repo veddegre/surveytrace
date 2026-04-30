@@ -16,7 +16,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Passive discovery** — ARP sniff, mDNS/Bonjour service type detection
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required); optional NIST API key via **Settings** or `NVD_API_KEY` for faster NVD sync rate limits
-- **AI providers** — **Settings → Local AI**: **Ollama** (local) or **OpenAI**, **Anthropic Claude**, **Google Gemini**, or **Open WebUI** (OpenAI-compatible `POST …/api/chat/completions` on your instance). Keys and base URL live in SQLite or env: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `OPENWEBUI_BASE_URL`, `OPENWEBUI_API_KEY`. Host CVE triage, host summary, scan AI refresh, and scanner enrichment use the selected provider.
+- **AI providers** — **Settings → AI enrichment (optional)**: **Ollama** (local), **OpenAI**, **Anthropic Claude**, **Google Gemini**, or **Open WebUI** (OpenAI-compatible `POST …/api/chat/completions` on your instance). Keys and base URL live in SQLite **or** env: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `OPENWEBUI_BASE_URL`, `OPENWEBUI_API_KEY`. The **same** provider drives **scanner per-host enrichment** (when enabled), **per-run scan summaries**, and **operator AI** (host CVE triage, explain host, refresh scan summary via `POST /api/ai_actions.php`).
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
 - **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful (see **Scan Profiles** below: **Deep Scan** uses a large fixed port list; **Full TCP** is the only profile that scans **all** TCP ports `-p-`)
@@ -31,7 +31,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
-- **Local AI enrichment (optional)** — Ollama-backed, compact-model-assisted classification hints for ambiguous hosts (`unk`/borderline `net` vs `srv`) with strict timeout/fail-open behavior; per-run scan summary and **operator hints** (cached CVE triage + “explain this host” from the host panel, and **Refresh AI summary** on completed scan details) via `POST /api/ai_actions.php` when AI is enabled and Ollama is reachable
+- **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
 - **Device identity** — logical **`devices`** rows with **`assets.device_id`** (stable id per inventory host; merge duplicates via API/UI). See **`docs/DEVICE_IDENTITY.md`**.
@@ -47,18 +47,55 @@ Together, the name describes exactly what the tool does: it surveys your network
 - `qrencode` (for local-only MFA QR rendering)
 - 2GB RAM, 10GB disk (NVD database is ~1GB)
 
-### Optional Local AI Enrichment Sizing
+### Settings → AI enrichment (optional)
 
-Local AI enrichment is optional and off by default. If enabled, use a compact model (recommended:
-`phi3:mini`) and size the VM for inference overhead:
+All of these are edited in the web UI (**Settings** card **AI enrichment (optional)**) and stored in SQLite `config` (keys below). Cloud keys and Open WebUI URL may be overridden by the env vars listed in **Features** above.
+
+| Area | Config key / UI control | What it does |
+|------|-------------------------|--------------|
+| Master | **Enable AI enrichment** → `ai_enrichment_enabled` | Off by default. When off, the scanner records `ai_disabled` and skips model calls. |
+| Provider | **Provider** → `ai_provider` | `ollama` \| `openai` \| `anthropic` \| `google` \| `openwebui`. Scanner daemon and operator AI use this choice (Ollama: HTTP to `127.0.0.1:11434`; clouds: respective APIs; Open WebUI: chat completions on your base URL). |
+| Model | **Model tag / model id** → `ai_model` | Ollama tag (e.g. `phi3:mini`) or cloud/WebUI model id string. |
+| Scanner speed | **AI timeout (ms)** → `ai_timeout_ms` | Per-host scanner inference ceiling (100–5000 ms). |
+| Scanner volume | **Max hosts per scan** → `ai_max_hosts_per_scan` | Cap on hosts that run enrichment per job (1–5000). |
+| Scanner targeting | **Ambiguous hosts only** → `ai_ambiguous_only` | Default on: only `unk` / `net` / `srv` categories are sent to the model. |
+| Scanner apply | **Suggest only (no DB apply)** → `ai_suggest_only` | Log-style only; do not write AI category back to assets. |
+| Scanner apply | **Conflict only** → `ai_conflict_only` | Default on: do not apply when the model returns the **same** category as the fingerprint (reduces churn). |
+| Scanner apply | **Confidence** / **Net↔srv confidence** → `ai_conf_threshold`, `ai_conf_threshold_net_srv` | Minimum model confidence to apply a category change (stricter for `net`↔`srv` flips). |
+| Operator / scan summary | **Operator AI wait (s)** → `ai_operator_ollama_timeout_s` | Max wall clock for **operator AI** and long **PHP** completions (120–3600). Key name is historical: the same cap is applied to **cloud** calls in `api/lib_ai_cloud.php` (curl timeout), not only Ollama. Align web server / FPM timeouts (see Updating / Deploying). |
+| Tokens / temperature | **Max gen tokens**, **Temperature** → `ai_operator_ollama_num_predict`, `ai_operator_ollama_temperature` | **Ollama:** `num_predict` / temperature in **generate** options. **Cloud + Open WebUI:** daemon maps these to provider **max_tokens** / **temperature** (`daemon/ai_cloud_client.py`). |
+| Ollama-only tuning | **CPU threads**, **Ctx tokens** → `ai_operator_ollama_num_thread`, `ai_operator_ollama_num_ctx` | Sent only to **Ollama** `/api/generate` (ignored for OpenAI / Anthropic / Gemini / Open WebUI). |
+| Prompt size | **Banner lines** / related → `ai_operator_prompt_banner_max_lines`, `ai_operator_prompt_banner_val_max`, `ai_operator_prompt_banner_max_chars` | Truncate banners in AI prompts for **scanner and operator** paths (smaller = faster, less context). |
+| Admin | **Start/check Ollama**, **Check updates**, model pull | Ollama-only one-shots via `settings.php` (`ai_install_ollama`, `ai_check_updates`, `ai_pull_model`); see **View full Ubuntu setup** for first-time host commands. |
+
+#### External providers (OpenAI, Anthropic, Google Gemini, Open WebUI)
+
+When **`ai_provider`** is not `ollama`, the **scanner daemon** (`daemon/scanner_daemon.py` + **`daemon/ai_cloud_client.py`**) and **operator AI** in PHP (`api/ai_actions.php` + **`api/lib_ai_cloud.php`**) call the vendor HTTP APIs directly (stdlib / curl). **No SurveyTrace cloud proxy** — your keys talk straight to the provider (or to your self-hosted Open WebUI).
+
+| Provider | Credential (DB key / env) | Model field | HTTP surface (implementation) |
+|----------|---------------------------|-------------|--------------------------------|
+| **OpenAI** | `ai_openai_api_key` or `OPENAI_API_KEY` | OpenAI chat model id (e.g. `gpt-4o-mini`) | `POST https://api.openai.com/v1/chat/completions` |
+| **Anthropic** | `ai_anthropic_api_key` or `ANTHROPIC_API_KEY` | Claude model id | `POST https://api.anthropic.com/v1/messages` (`anthropic-version: 2023-06-01`) |
+| **Google** | `ai_gemini_api_key` or `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini model id (e.g. `gemini-2.0-flash`) | `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=…` |
+| **Open WebUI** | `ai_openwebui_base_url` + `ai_openwebui_api_key` or `OPENWEBUI_BASE_URL` + `OPENWEBUI_API_KEY` | Model id **as exposed by that server** (often same string as the backing Ollama tag) | `POST {base}/api/chat/completions` (OpenAI-compatible body; **Bearer** API key from Open WebUI settings) |
+
+**Base URL (Open WebUI):** use the **site origin only** (e.g. `https://chat.example.com`) — **no path**; SurveyTrace appends `/api/chat/completions`.
+
+**Privacy / cost:** scanner enrichment runs **once per eligible host per scan** (capped by **`ai_max_hosts_per_scan`**); operator actions run when an editor uses the buttons. Use **`ai_ambiguous_only`**, **`ai_timeout_ms`**, and prompt size limits to control spend and data sent off-host.
+
+**Scan job line items:** completed jobs show **AI enrichment: attempted N \| applied M** — *attempted* counts hosts that entered the model path; *applied* counts hosts where the stored **category** was changed (`ai_local_inference` may appear on `discovery_sources`).
+
+### VM sizing for local inference (Ollama / Open WebUI on same host)
+
+AI enrichment is optional and off by default. If you run **Ollama** (or models behind Open WebUI) on the SurveyTrace host, use a **compact** model (recommended: `phi3:mini`) and size the VM for inference overhead:
 
 - **Single `/24` homelab run profile** — `4 vCPU`, `8-12 GB RAM`, `64+ GB` disk
 - **Multiple `/24` batch runs profile** — `6-8 vCPU`, `12-16 GB RAM`, `80+ GB` disk
 - Keep large environments split into `/24` runs and schedule them sequentially on lower-end hosts
 
-Suggested AI settings for lower-end systems:
+Suggested **low-end** defaults (same keys as in the table):
 
-- `ai_model=phi3:mini`
+- `ai_model=phi3:mini` (or a smaller cloud model id if not using Ollama)
 - `ai_timeout_ms=500-700`
 - `ai_max_hosts_per_scan=20` (`/24`) or `60` (multi-`/24` batch host)
 - `ai_ambiguous_only=true`
@@ -67,7 +104,7 @@ Suggested AI settings for lower-end systems:
 
 **Note:** Detailed operator runbooks are expected to move to a project **wiki** when it exists; README and in-app copy will link there.
 
-The **Settings → AI → View full Ubuntu setup** modal only includes **first-time** install and smoke tests so a full copy-paste does not run the installer twice. Use the commands below when you intentionally want to upgrade or tidy the host.
+The **Settings → AI enrichment → View full Ubuntu setup** modal only includes **first-time** install and smoke tests so a full copy-paste does not run the installer twice. Use the commands below when you intentionally want to upgrade or tidy the host.
 
 **Upgrade Ollama** (re-running the official install script on Linux is supported upstream):
 
@@ -158,7 +195,7 @@ It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
 
 If **AI operator** buttons fail, redeploy **`api/ai_actions.php`** (single file; see `deploy.sh`) and load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
 
-When libcurl returns an empty body, the API falls back to **`proc_open()` + `curl`** (system `curl`, not PHP’s extension). Confirm it is allowed for the FPM user (often `www-data`): `sudo -u www-data php -r 'var_export(function_exists("proc_open")); echo PHP_EOL;'` should print `true`. If `php.ini` / pool config lists **`proc_open`** in **`disable_functions`**, remove it (or the fallback cannot run). Align **`request_terminate_timeout`** / **`max_execution_time`** / **`TimeOut`** (Apache proxy) with long Ollama calls: operator AI uses **`ai_operator_ollama_timeout_s`** in config (default **900** seconds, clamped 120–3600; **Settings → Local AI → Operator AI wait**). The API raises `set_time_limit` for those requests, but the web server must not kill the worker first. If errors still show **180** seconds, the server is likely running an old **`api/ai_actions.php`** / **`api/db.php`** build without `st_ai_operator_ollama_timeout_cap()`.
+When libcurl returns an empty body, the API falls back to **`proc_open()` + `curl`** (system `curl`, not PHP’s extension). Confirm it is allowed for the FPM user (often `www-data`): `sudo -u www-data php -r 'var_export(function_exists("proc_open")); echo PHP_EOL;'` should print `true`. If `php.ini` / pool config lists **`proc_open`** in **`disable_functions`**, remove it (or the fallback cannot run). Align **`request_terminate_timeout`** / **`max_execution_time`** / **`TimeOut`** (Apache proxy) with long Ollama calls: operator AI uses **`ai_operator_ollama_timeout_s`** in config (default **900** seconds, clamped 120–3600; **Settings → AI enrichment → Operator AI wait**). The API raises `set_time_limit` for those requests, but the web server must not kill the worker first. If errors still show **180** seconds, the server is likely running an old **`api/ai_actions.php`** / **`api/db.php`** build without `st_ai_operator_ollama_timeout_cap()`.
 
 **`database is locked` / `lsof` shows many `apache2` lines:** That list is normal — each Apache worker that has served the app holds the SQLite file open. Restarting **`surveytrace-daemon`** alone does **not** recycle PHP; run **`sudo systemctl restart apache2`** (or your vhost’s PHP-FPM pool) to drop those handles. With writers stopped, optional maintenance: `sqlite3 /opt/surveytrace/data/surveytrace.db 'PRAGMA wal_checkpoint(TRUNCATE);'`.
 
