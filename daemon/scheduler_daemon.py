@@ -602,6 +602,29 @@ def process_due_schedule(conn: sqlite3.Connection, row: sqlite3.Row, now: dateti
     log.info("Schedule '%s' → job #%d queued, next run: %s", s["name"], job_id, nr_str)
 
 
+def seed_missing_next_runs(conn: sqlite3.Connection, now: datetime) -> None:
+    """
+    Ensure enabled/unpaused schedules always have next_run populated from cron/timezone.
+    Needed for schedules created while scheduler_daemon is already running.
+    """
+    schedules = conn.execute(
+        """
+        SELECT * FROM scan_schedules
+        WHERE enabled = 1 AND COALESCE(paused, 0) = 0 AND next_run IS NULL
+        """
+    ).fetchall()
+    for s in schedules:
+        try:
+            nr = next_cron_run(s["cron_expr"], now, s.get("timezone") or "UTC")
+            conn.execute(
+                "UPDATE scan_schedules SET next_run=? WHERE id=?",
+                (nr.strftime("%Y-%m-%d %H:%M:%S"), s["id"]),
+            )
+            log.info("Schedule '%s' next run seeded: %s", s["name"], nr)
+        except Exception as e:
+            log.warning("Could not compute next_run for schedule '%s': %s", s["name"], e)
+
+
 # ---------------------------------------------------------------------------
 # Main scheduler loop
 # ---------------------------------------------------------------------------
@@ -613,22 +636,8 @@ def main() -> None:
     with db_conn() as conn:
         ensure_schema(conn)
 
-        # Initialize next_run for schedules that don't have one
-        schedules = conn.execute("""
-            SELECT * FROM scan_schedules
-            WHERE enabled = 1 AND COALESCE(paused, 0) = 0 AND next_run IS NULL
-        """).fetchall()
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        for s in schedules:
-            try:
-                nr = next_cron_run(s["cron_expr"], now, s.get("timezone") or "UTC")
-                conn.execute(
-                    "UPDATE scan_schedules SET next_run=? WHERE id=?",
-                    (nr.strftime("%Y-%m-%d %H:%M:%S"), s["id"])
-                )
-                log.info("Schedule '%s' next run: %s", s["name"], nr)
-            except Exception as e:
-                log.warning("Could not compute next_run for schedule '%s': %s", s["name"], e)
+        seed_missing_next_runs(conn, now)
 
     log.info("Scheduler ready — polling every %ds", POLL_SECS)
 
@@ -640,6 +649,7 @@ def main() -> None:
             with db_conn() as conn:
                 purge_expired_trashed_scans(conn)
                 maybe_run_db_backup(conn, now)
+                seed_missing_next_runs(conn, now)
                 # Find all enabled schedules due to run
                 due = conn.execute("""
                     SELECT * FROM scan_schedules
