@@ -128,7 +128,7 @@ echo "  Schema file updated"
 echo "Restarting daemons..."
 sudo systemctl restart surveytrace-daemon
 sudo systemctl restart surveytrace-scheduler
-if sudo systemctl list-unit-files | rg -q '^surveytrace-collector-ingest\.service'; then
+if sudo systemctl list-unit-files "surveytrace-collector-ingest.service" --no-legend 2>/dev/null | awk 'NF{found=1} END{exit(found?0:1)}'; then
   sudo systemctl restart surveytrace-collector-ingest || true
 fi
 
