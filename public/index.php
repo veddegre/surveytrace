@@ -1070,6 +1070,7 @@ if (is_readable($dbProbe)) {
           <label class="flbl" style="min-width:130px">Backup cron</label>
           <input class="finp" id="st-db-backup-cron" style="min-width:170px" placeholder="15 2 * * *">
         </div>
+        <div class="hint-micro mb8" id="st-db-backup-cron-desc">Format: minute hour day-of-month month day-of-week</div>
         <div class="row-wrap gap8 mb8">
           <div class="row-wrap gap6" style="flex-wrap:nowrap">
             <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600">Retention (days)</label>
@@ -4847,6 +4848,7 @@ async function loadUiSettings() {
     if (dbEn) dbEn.checked = !!d.db_backup_enabled;
     const dbCron = document.getElementById('st-db-backup-cron');
     if (dbCron) dbCron.value = String(d.db_backup_cron || '15 2 * * *');
+    updateDbBackupCronDesc();
     const dbRet = document.getElementById('st-db-backup-retention');
     if (dbRet) dbRet.value = String(Math.max(1, Math.min(365, Number(d.db_backup_retention_days || 14))));
     const dbKeep = document.getElementById('st-db-backup-keep-count');
@@ -5693,6 +5695,7 @@ async function saveDbBackupSettings() {
         if (retEl) retEl.value = String(r.db_backup_retention_days ?? ret);
         if (keepEl) keepEl.value = String(r.db_backup_keep_count ?? keep);
         if (cronEl) cronEl.value = String(r.db_backup_cron ?? cron);
+        updateDbBackupCronDesc();
         toast('Database backup settings updated', 'ok');
         await loadUiSettings();
     } else {
@@ -6770,33 +6773,41 @@ function _cronDescribe(expr) {
     return `At ${mDesc} past ${hDesc} on ${domDesc}, ${monDesc}, and ${dowDesc}.`;
 }
 
-function updateCronDesc() {
-    const expr = document.getElementById('sched-cron').value.trim();
+function _cronHumanText(expr) {
     const descs = {
         '@daily':'Every day at midnight','@weekly':'Every Sunday at midnight',
         '@monthly':'First of every month at midnight','@hourly':'Every hour',
         '@yearly':'Every year on Jan 1st','@annually':'Every year on Jan 1st',
         '@midnight':'Every day at midnight',
     };
-    const el = document.getElementById('sched-cron-desc');
-    if (descs[expr]) { el.textContent = descs[expr]; el.style.color='var(--green)'; return; }
+    if (descs[expr]) return descs[expr];
     const parts = expr.split(/\s+/);
-    if (parts.length === 5) {
-        const human = _cronDescribe(expr);
-        if (human) {
-            el.textContent = human;
-            el.style.color = 'var(--tx2)';
-        } else {
-            el.textContent = 'Custom: ' + expr;
-            el.style.color = 'var(--tx2)';
-        }
-    } else {
-        el.textContent = 'Format: minute hour day-of-month month day-of-week';
-        el.style.color = 'var(--tx3)';
-    }
+    if (parts.length === 5) return _cronDescribe(expr) || ('Custom: ' + expr);
+    return 'Format: minute hour day-of-month month day-of-week';
+}
+
+function updateCronDesc() {
+    const expr = document.getElementById('sched-cron').value.trim();
+    const el = document.getElementById('sched-cron-desc');
+    const txt = _cronHumanText(expr);
+    const parts = expr.split(/\s+/);
+    el.textContent = txt;
+    el.style.color = (parts.length === 5 || expr.startsWith('@')) ? 'var(--tx2)' : 'var(--tx3)';
 }
 
 document.getElementById('sched-cron')?.addEventListener('input', updateCronDesc);
+
+function updateDbBackupCronDesc() {
+    const expr = String(document.getElementById('st-db-backup-cron')?.value || '').trim();
+    const el = document.getElementById('st-db-backup-cron-desc');
+    if (!el) return;
+    const txt = _cronHumanText(expr);
+    const parts = expr.split(/\s+/);
+    el.textContent = txt;
+    el.style.color = (parts.length === 5 || expr.startsWith('@')) ? 'var(--tx2)' : 'var(--tx3)';
+}
+
+document.getElementById('st-db-backup-cron')?.addEventListener('input', updateDbBackupCronDesc);
 
 async function editSchedule(id) {
     const d = await api('/api/schedules.php');

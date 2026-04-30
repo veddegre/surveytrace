@@ -2130,12 +2130,15 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
         # OS / distro level — way too broad
         "linux", "canonical", "debian", "redhat", "centos", "fedora",
         "ubuntu", "suse", "opensuse", "arch", "alpine", "gentoo",
-        "freebsd", "openbsd", "netbsd", "apple",
+        "freebsd", "netbsd", "apple",
         "microsoft",    # windows OS CVEs — too generic
         # Generic protocol/service stubs from port profiles
         # These are port-profile guesses, not confirmed software identities
         "sip", "mqtt", "modbus", "dnp3", "ethernet_ip", "opc_ua",
         "printer", "ipp", "http_alt", "vnc",
+        # openbsd is intentionally NOT skipped here: nmap frequently emits
+        # legitimate app CPEs such as cpe:/a:openbsd:openssh:<ver>.
+        # We already skip OS-level CPEs via cpe_type == "o" above.
         # Note: database vendors are NOT skipped — if nmap returns a
         # versioned CPE like cpe:/a:postgresql:postgresql:14.5 that is
         # legitimate. The major.minor version requirement handles
