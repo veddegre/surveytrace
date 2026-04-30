@@ -580,7 +580,27 @@ function st_ai_normalize_explain_doc(?array $doc): array {
     }
     $nr = [];
     foreach ($roles as $x) {
-        $s = trim((string)$x);
+        if (is_array($x)) {
+            $role = trim((string)($x['role'] ?? ''));
+            $conf = strtolower(trim((string)($x['confidence'] ?? '')));
+            $evi = trim((string)($x['evidence'] ?? ''));
+            if ($role === '') {
+                continue;
+            }
+            if (!in_array($conf, ['high', 'medium', 'low'], true)) {
+                $conf = '';
+            }
+            $parts = [$role];
+            if ($conf !== '') {
+                $parts[] = '(' . $conf . ')';
+            }
+            $s = implode(' ', $parts);
+            if ($evi !== '') {
+                $s .= ' — ' . $evi;
+            }
+        } else {
+            $s = trim((string)$x);
+        }
         if ($s !== '' && count($nr) < 4) {
             $nr[] = substr($s, 0, 100);
         }
@@ -851,16 +871,35 @@ try {
         $osGuess = trim((string)($row['os_guess'] ?? ''));
         $cpeGuess = trim((string)($row['cpe'] ?? ''));
 
-        $prompt = "You summarize a single discovered host for a network inventory operator.\n"
-            . "Return ONLY JSON with keys: overview (string <=380 chars, one tight paragraph), likely_roles (array <=4 strings <=90 chars each), "
-            . "hardening_tips (array <=4 strings <=200 chars each), owner_questions (array <=3 short questions).\n"
-            . "Use the full open port list and every banner/title line below (not only vendor/category fields). "
-            . "If evidence is thin, say so in the overview.\n\n"
-            . 'IP=' . ($row['ip'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . ' category=' . ($row['category'] ?? '')
-            . ' vendor=' . ($row['vendor'] ?? '') . ' model=' . ($row['model'] ?? '') . "\n"
-            . 'os_guess=' . $osGuess . ' cpe=' . $cpeGuess . ' nmap_cpes=' . ($cpesStr !== '' ? $cpesStr : '—') . "\n"
-            . 'open_ports_union_current_and_history=' . $portStr . $portOverflow
-            . 'open_findings=' . $openCount . ' top_cves=' . implode(',', $topCves) . "\n"
+        $prompt = "You analyze ONE discovered host for a network inventory operator.\n"
+            . "Output STRICT JSON only with keys:\n"
+            . "- overview: string (<=380 chars, single concise paragraph)\n"
+            . "- likely_roles: array (<=4 objects with keys: role, confidence, evidence)\n"
+            . "- hardening_tips: array (<=4 strings, each <=200 chars)\n"
+            . "- owner_questions: array (<=3 short questions)\n\n"
+            . "For likely_roles:\n"
+            . "- role: short label\n"
+            . "- confidence: one of [high, medium, low]\n"
+            . "- evidence: brief justification using ports, banners, titles, or metadata\n"
+            . "- Use HIGH only when multiple strong signals agree (ports + banners + model/vendor)\n"
+            . "- Use MEDIUM when evidence is partial\n"
+            . "- Use LOW when evidence is weak or conflicting\n\n"
+            . "Prioritize evidence from open ports AND ALL banner/title lines. Use metadata (vendor/model/category/OS/CPE) only as supporting signals.\n"
+            . "Do NOT infer services or roles without evidence. If evidence is weak or conflicting, explicitly say so in overview.\n"
+            . "Be concrete, avoid fluff, no repetition.\n\n"
+            . "HOST DATA\n"
+            . "ip=" . ($row['ip'] ?? '')
+            . " hostname=" . ($row['hostname'] ?? '')
+            . " category=" . ($row['category'] ?? '')
+            . " vendor=" . ($row['vendor'] ?? '')
+            . " model=" . ($row['model'] ?? '') . "\n"
+            . "os_guess=" . $osGuess
+            . " cpe=" . $cpeGuess
+            . " nmap_cpes=" . ($cpesStr !== '' ? $cpesStr : '—') . "\n"
+            . "open_ports(all,current+history)=" . $portStr . $portOverflow . "\n"
+            . "open_findings=" . $openCount
+            . " top_cves=" . implode(',', $topCves) . "\n\n"
+            . "BANNERS\n"
             . $bannerBlock
             . $bannerTail;
 
