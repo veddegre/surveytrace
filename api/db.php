@@ -94,6 +94,27 @@ function st_db(): PDO {
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_timeout_s', '900')"
     );
     $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_num_predict', '768')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_temperature', '0.25')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_prompt_banner_max_lines', '72')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_prompt_banner_val_max', '96')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_prompt_banner_max_chars', '8000')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_num_thread', '0')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_num_ctx', '0')"
+    );
+    $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_ambiguous_only', '1')"
     );
     $pdo->exec(

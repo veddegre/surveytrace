@@ -218,15 +218,46 @@ function st_ai_ollama_post_via_cli_curl(string $url, string $jsonBody, int $time
 }
 
 /**
+ * Ollama /api/generate runner options. num_predict caps output tokens (lower = faster completions).
+ *
+ * @return array<string,int|float>
+ */
+function st_ai_operator_ollama_generate_options(): array {
+    $opts = [];
+    $np = (int)st_config('ai_operator_ollama_num_predict', '768');
+    if ($np > 0 && $np <= 8192) {
+        $opts['num_predict'] = $np;
+    }
+    $temp = (float)st_config('ai_operator_ollama_temperature', '0.25');
+    if ($temp >= 0.0 && $temp <= 2.0) {
+        $opts['temperature'] = $temp;
+    }
+    $nth = (int)st_config('ai_operator_ollama_num_thread', '0');
+    if ($nth > 0 && $nth <= 256) {
+        $opts['num_thread'] = $nth;
+    }
+    $nctx = (int)st_config('ai_operator_ollama_num_ctx', '0');
+    if ($nctx >= 512 && $nctx <= 131072) {
+        $opts['num_ctx'] = $nctx;
+    }
+    return $opts;
+}
+
+/**
  * @return array{ok: bool, text: string, err: string}
  */
 function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s): array {
     $url = 'http://127.0.0.1:11434/api/generate';
-    $body = json_encode([
+    $payload = [
         'model' => $model,
         'prompt' => $prompt,
         'stream' => false,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ];
+    $genOpts = st_ai_operator_ollama_generate_options();
+    if ($genOpts !== []) {
+        $payload['options'] = $genOpts;
+    }
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($body === false) {
         return ['ok' => false, 'text' => '', 'err' => 'json_encode_failed'];
     }
@@ -767,7 +798,10 @@ try {
             $portOverflow = "\nNote: " . $extra . " additional open ports exist beyond the list above; mention that inventory is large if relevant.\n";
         }
         $portStr = implode(',', $portInts);
-        $bannerLines = st_ai_banner_lines_for_prompt($banners);
+        $bMaxLines = max(12, min(200, (int)st_config('ai_operator_prompt_banner_max_lines', '72')));
+        $bValMax = max(40, min(240, (int)st_config('ai_operator_prompt_banner_val_max', '96')));
+        $bMaxChars = max(2000, min(20000, (int)st_config('ai_operator_prompt_banner_max_chars', '8000')));
+        $bannerLines = st_ai_banner_lines_for_prompt($banners, $bMaxLines, $bValMax, $bMaxChars);
         $bannerTail = '';
         if ($bannerLines === []) {
             $bannerBlock = "(no banner/title strings stored)\n";

@@ -1106,6 +1106,31 @@
           <input class="finp" type="number" id="st-ai-operator-timeout-s" min="120" max="3600" step="30" style="width:90px" value="900" title="Max seconds for one Ollama generate call from the UI (host summary, scan AI refresh). Raise if you see curl timeout 28.">
           <span class="text-micro text-dim" style="max-width:420px">Host panel / scan summary calls Ollama with this wall clock (curl <code class="code-accent">-m</code>). Default 900. If you still see <code class="code-accent">180</code> timeouts, redeploy <code class="code-accent">api/db.php</code> + <code class="code-accent">api/ai_actions.php</code> or save this setting once.</span>
         </div>
+        <div class="row-wrap gap8 mb8">
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" title="Ollama num_predict: max tokens to generate. Lower is faster; 0 = model default (uncapped).">Max gen tokens</label>
+            <input class="finp" type="number" id="st-ai-ollama-num-predict" min="0" max="8192" step="64" style="width:90px" value="768">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:56px;color:var(--tx);font-weight:600">Temp</label>
+            <input class="finp" type="number" id="st-ai-ollama-temperature" min="0" max="2" step="0.05" style="width:72px" value="0.25" title="Ollama temperature (0–2)">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:92px;color:var(--tx);font-weight:600" title="Host AI: how many banner/title lines to include (smaller prompt = faster).">Banner lines</label>
+            <input class="finp" type="number" id="st-ai-banner-max-lines" min="12" max="200" step="4" style="width:72px" value="72">
+          </div>
+        </div>
+        <div class="row-wrap gap8 mb8">
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" title="Ollama num_thread. Set to your vCPU count on small VMs (e.g. 2). 0 = Ollama default.">CPU threads</label>
+            <input class="finp" type="number" id="st-ai-ollama-num-thread" min="0" max="256" step="1" style="width:72px" value="0">
+          </div>
+          <div class="row-wrap gap6" style="flex-wrap:nowrap">
+            <label class="text-micro" style="min-width:72px;color:var(--tx);font-weight:600" title="Ollama num_ctx. Lower = faster CPU prefill; if too small, long host prompts truncate and JSON may fail. 0 = model default.">Ctx tokens</label>
+            <input class="finp" type="number" id="st-ai-ollama-num-ctx" min="0" max="131072" step="512" style="width:90px" value="0">
+          </div>
+        </div>
+        <p class="text-micro text-dim mb8" style="margin:0;max-width:640px">Speed: smaller model, lower max gen tokens, fewer banner lines, optional lower context (ctx) on CPU-only hosts. Match CPU threads to vCPUs (e.g. 2). Timeout only raises the ceiling; it does not make inference faster.</p>
         <div class="row-wrap gap6 mb10">
           <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
             <input type="checkbox" id="st-ai-ambiguous-only" checked>
@@ -4732,6 +4757,16 @@ async function loadUiSettings() {
     if (aiTimeout) aiTimeout.value = String(Math.max(100, Math.min(5000, Number(d.ai_timeout_ms || 700))));
     const aiOpSec = document.getElementById('st-ai-operator-timeout-s');
     if (aiOpSec) aiOpSec.value = String(Math.max(120, Math.min(3600, Number(d.ai_operator_ollama_timeout_s || 900))));
+    const aiNumPred = document.getElementById('st-ai-ollama-num-predict');
+    if (aiNumPred) aiNumPred.value = String(Math.max(0, Math.min(8192, Number(d.ai_operator_ollama_num_predict ?? 768)))));
+    const aiTemp = document.getElementById('st-ai-ollama-temperature');
+    if (aiTemp) aiTemp.value = String(Math.max(0, Math.min(2, Number(d.ai_operator_ollama_temperature ?? 0.25)))));
+    const aiBannerLines = document.getElementById('st-ai-banner-max-lines');
+    if (aiBannerLines) aiBannerLines.value = String(Math.max(12, Math.min(200, Number(d.ai_operator_prompt_banner_max_lines ?? 72)))));
+    const aiOllTh = document.getElementById('st-ai-ollama-num-thread');
+    if (aiOllTh) aiOllTh.value = String(Math.max(0, Math.min(256, Number(d.ai_operator_ollama_num_thread ?? 0)))));
+    const aiOllCtx = document.getElementById('st-ai-ollama-num-ctx');
+    if (aiOllCtx) aiOllCtx.value = String(Math.max(0, Math.min(131072, Number(d.ai_operator_ollama_num_ctx ?? 0)))));
     const aiMaxHosts = document.getElementById('st-ai-max-hosts');
     if (aiMaxHosts) aiMaxHosts.value = String(Math.max(1, Math.min(5000, Number(d.ai_max_hosts_per_scan || 40))));
     const aiAmbig = document.getElementById('st-ai-ambiguous-only');
@@ -5567,6 +5602,11 @@ async function saveAiEnrichmentSettings() {
         ai_model: String(document.getElementById('st-ai-model')?.value || 'phi3:mini').trim(),
         ai_timeout_ms: Number(document.getElementById('st-ai-timeout-ms')?.value || 700),
         ai_operator_ollama_timeout_s: Number(document.getElementById('st-ai-operator-timeout-s')?.value || 900),
+        ai_operator_ollama_num_predict: Number(document.getElementById('st-ai-ollama-num-predict')?.value ?? 768),
+        ai_operator_ollama_temperature: Number(document.getElementById('st-ai-ollama-temperature')?.value ?? 0.25),
+        ai_operator_prompt_banner_max_lines: Number(document.getElementById('st-ai-banner-max-lines')?.value ?? 72),
+        ai_operator_ollama_num_thread: Number(document.getElementById('st-ai-ollama-num-thread')?.value ?? 0),
+        ai_operator_ollama_num_ctx: Number(document.getElementById('st-ai-ollama-num-ctx')?.value ?? 0),
         ai_max_hosts_per_scan: Number(document.getElementById('st-ai-max-hosts')?.value || 40),
         ai_ambiguous_only: !!document.getElementById('st-ai-ambiguous-only')?.checked,
         ai_suggest_only: !!document.getElementById('st-ai-suggest-only')?.checked,
@@ -5609,6 +5649,12 @@ function applyAiPreset(preset) {
         thrEl.value = '0.72';
         thrNetSrvEl.value = '0.82';
         enabledEl.checked = true;
+        const npEl = document.getElementById('st-ai-ollama-num-predict');
+        const blEl = document.getElementById('st-ai-banner-max-lines');
+        const tmpEl = document.getElementById('st-ai-ollama-temperature');
+        if (npEl) npEl.value = '512';
+        if (blEl) blEl.value = '56';
+        if (tmpEl) tmpEl.value = '0.25';
         toast('Applied preset: /24 homelab (AI enabled, conservative limits)', 'ok');
         return;
     }
@@ -5622,6 +5668,12 @@ function applyAiPreset(preset) {
         thrEl.value = '0.74';
         thrNetSrvEl.value = '0.84';
         enabledEl.checked = true;
+        const npEl2 = document.getElementById('st-ai-ollama-num-predict');
+        const blEl2 = document.getElementById('st-ai-banner-max-lines');
+        const tmpEl2 = document.getElementById('st-ai-ollama-temperature');
+        if (npEl2) npEl2.value = '384';
+        if (blEl2) blEl2.value = '48';
+        if (tmpEl2) tmpEl2.value = '0.2';
         toast('Applied preset: multi-/24 batch (higher throughput)', 'ok');
     }
 }

@@ -287,6 +287,10 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "ai_conflict_only": "1",
         "ai_conf_threshold": "0.72",
         "ai_conf_threshold_net_srv": "0.82",
+        "ai_operator_ollama_num_predict": "768",
+        "ai_operator_ollama_temperature": "0.25",
+        "ai_operator_ollama_num_thread": "0",
+        "ai_operator_ollama_num_ctx": "0",
     }
     vals = dict(defaults)
     try:
@@ -295,7 +299,9 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
                 "SELECT key, value FROM config WHERE key IN ("
                 "'ai_enrichment_enabled','ai_provider','ai_model',"
                 "'ai_timeout_ms','ai_max_hosts_per_scan','ai_ambiguous_only',"
-                "'ai_suggest_only','ai_conflict_only','ai_conf_threshold','ai_conf_threshold_net_srv'"
+                "'ai_suggest_only','ai_conflict_only','ai_conf_threshold','ai_conf_threshold_net_srv',"
+                "'ai_operator_ollama_num_predict','ai_operator_ollama_temperature',"
+                "'ai_operator_ollama_num_thread','ai_operator_ollama_num_ctx'"
                 ")"
             ).fetchall()
         for r in rows:
@@ -338,6 +344,37 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
     availability_reason = ""
     if enabled and provider == "ollama" and model and not ollama_api_reachable:
         availability_reason = "runtime_unreachable"
+    try:
+        num_predict = int(vals.get("ai_operator_ollama_num_predict", "768") or "768")
+    except ValueError:
+        num_predict = 768
+    num_predict = max(0, min(8192, num_predict))
+    try:
+        ollama_temperature = float(vals.get("ai_operator_ollama_temperature", "0.25") or "0.25")
+    except ValueError:
+        ollama_temperature = 0.25
+    ollama_temperature = max(0.0, min(2.0, ollama_temperature))
+    try:
+        num_thread = int(vals.get("ai_operator_ollama_num_thread", "0") or "0")
+    except ValueError:
+        num_thread = 0
+    num_thread = max(0, min(256, num_thread))
+    try:
+        num_ctx = int(vals.get("ai_operator_ollama_num_ctx", "0") or "0")
+    except ValueError:
+        num_ctx = 0
+    num_ctx = max(0, min(131072, num_ctx))
+    if num_ctx != 0 and num_ctx < 512:
+        num_ctx = 0
+
+    ollama_generate_options: dict[str, int | float] = {}
+    if num_predict > 0:
+        ollama_generate_options["num_predict"] = num_predict
+    ollama_generate_options["temperature"] = ollama_temperature
+    if num_thread > 0:
+        ollama_generate_options["num_thread"] = num_thread
+    if num_ctx >= 512:
+        ollama_generate_options["num_ctx"] = num_ctx
     return {
         "enabled": enabled,
         "provider": provider,
@@ -351,6 +388,7 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "conf_threshold_net_srv": conf_threshold_net_srv,
         "available": available,
         "availability_reason": availability_reason,
+        "ollama_generate_options": ollama_generate_options,
     }
 
 
@@ -383,15 +421,22 @@ def _ollama_api_tags(timeout_s: float = 1.5) -> list[str] | None:
     return sorted(set(names))
 
 
-def _run_ollama_generate(model: str, prompt: str, timeout_s: float) -> tuple[str, str]:
+def _run_ollama_generate(
+    model: str,
+    prompt: str,
+    timeout_s: float,
+    ollama_options: dict[str, object] | None = None,
+) -> tuple[str, str]:
     """
     Return (response_text, error). error is empty string on success.
     """
-    body = {
+    body: dict[str, object] = {
         "model": model,
         "prompt": prompt,
         "stream": False,
     }
+    if ollama_options:
+        body["options"] = ollama_options
     req = urllib.request.Request(
         "http://127.0.0.1:11434/api/generate",
         data=json.dumps(body).encode("utf-8"),
@@ -472,7 +517,11 @@ def _run_ai_enrichment_ollama(
         f"Open ports: {top_ports}\n"
         f"Banners: {banner_pairs}\n"
     )
-    out, err = _run_ollama_generate(model=model, prompt=prompt, timeout_s=timeout_s)
+    opts = ai_cfg.get("ollama_generate_options")
+    ollama_opts = opts if isinstance(opts, dict) else None
+    out, err = _run_ollama_generate(
+        model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts
+    )
     if err:
         return {}, err
     m = re.search(r"\{.*\}", out, re.S)
@@ -514,7 +563,11 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         "Be concise, practical, and avoid alarmist language.\n\n"
         f"Scan data JSON:\n{json.dumps(compact, ensure_ascii=False)}\n"
     )
-    out, err = _run_ollama_generate(model=model, prompt=prompt, timeout_s=timeout_s)
+    opts2 = ai_cfg.get("ollama_generate_options")
+    ollama_opts2 = opts2 if isinstance(opts2, dict) else None
+    out, err = _run_ollama_generate(
+        model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts2
+    )
     if err:
         return {}, err
     m = re.search(r"\{.*\}", out, re.S)

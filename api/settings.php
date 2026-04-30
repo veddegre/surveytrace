@@ -16,6 +16,11 @@
  *   - ai_model: string (Ollama tag, e.g. phi3:mini)
  *   - ai_timeout_ms: int (100..5000)
  *   - ai_operator_ollama_timeout_s: int (120..3600) — UI host summary / scan AI refresh Ollama wall clock
+ *   - ai_operator_ollama_num_predict: int (0..8192) — Ollama num_predict; 0 = omit (model default, slower)
+ *   - ai_operator_ollama_temperature: float (0..2)
+ *   - ai_operator_prompt_banner_max_lines / val_max / max_chars — host AI prompt size (smaller = faster)
+ *   - ai_operator_ollama_num_thread: int (0..256) — Ollama num_thread; 0 = auto
+ *   - ai_operator_ollama_num_ctx: int (0 or 512..131072) — Ollama num_ctx; 0 = model default (lower = faster CPU prefill; too low truncates long prompts)
  *   - ai_max_hosts_per_scan: int (1..5000)
  *   - ai_ambiguous_only: bool
  *   - ai_suggest_only: bool
@@ -249,6 +254,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $dbBackupLastPath = trim((string)st_config('db_backup_last_path', ''));
     $dbBackupLastError = trim((string)st_config('db_backup_last_error', ''));
     $ai = st_ollama_runtime_status();
+    $aiOllamaNumCtx = (int)st_config('ai_operator_ollama_num_ctx', '0');
+    if ($aiOllamaNumCtx !== 0 && ($aiOllamaNumCtx < 512 || $aiOllamaNumCtx > 131072)) {
+        $aiOllamaNumCtx = 0;
+    }
     st_json([
         'ok' => true,
         'session_timeout_minutes' => $m,
@@ -280,6 +289,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'ai_model' => (string)st_config('ai_model', 'phi3:mini'),
         'ai_timeout_ms' => max(100, min(5000, (int)st_config('ai_timeout_ms', '700'))),
         'ai_operator_ollama_timeout_s' => st_ai_operator_ollama_timeout_cap(),
+        'ai_operator_ollama_num_predict' => max(0, min(8192, (int)st_config('ai_operator_ollama_num_predict', '768'))),
+        'ai_operator_ollama_temperature' => max(0.0, min(2.0, (float)st_config('ai_operator_ollama_temperature', '0.25'))),
+        'ai_operator_prompt_banner_max_lines' => max(12, min(200, (int)st_config('ai_operator_prompt_banner_max_lines', '72'))),
+        'ai_operator_prompt_banner_val_max' => max(40, min(240, (int)st_config('ai_operator_prompt_banner_val_max', '96'))),
+        'ai_operator_prompt_banner_max_chars' => max(2000, min(20000, (int)st_config('ai_operator_prompt_banner_max_chars', '8000'))),
+        'ai_operator_ollama_num_thread' => max(0, min(256, (int)st_config('ai_operator_ollama_num_thread', '0'))),
+        'ai_operator_ollama_num_ctx' => $aiOllamaNumCtx,
         'ai_max_hosts_per_scan' => max(1, min(5000, (int)st_config('ai_max_hosts_per_scan', '40'))),
         'ai_ambiguous_only' => st_config('ai_ambiguous_only', '1') === '1',
         'ai_suggest_only' => st_config('ai_suggest_only', '0') === '1',
@@ -577,6 +593,50 @@ if (array_key_exists('ai_operator_ollama_timeout_s', $body)) {
     $v = max(120, min(3600, $v));
     st_config_set('ai_operator_ollama_timeout_s', (string)$v);
     $changed['ai_operator_ollama_timeout_s'] = $v;
+}
+if (array_key_exists('ai_operator_ollama_num_predict', $body)) {
+    $v = (int)$body['ai_operator_ollama_num_predict'];
+    $v = max(0, min(8192, $v));
+    st_config_set('ai_operator_ollama_num_predict', (string)$v);
+    $changed['ai_operator_ollama_num_predict'] = $v;
+}
+if (array_key_exists('ai_operator_ollama_temperature', $body)) {
+    $v = (float)$body['ai_operator_ollama_temperature'];
+    $v = max(0.0, min(2.0, $v));
+    st_config_set('ai_operator_ollama_temperature', (string)$v);
+    $changed['ai_operator_ollama_temperature'] = $v;
+}
+if (array_key_exists('ai_operator_prompt_banner_max_lines', $body)) {
+    $v = (int)$body['ai_operator_prompt_banner_max_lines'];
+    $v = max(12, min(200, $v));
+    st_config_set('ai_operator_prompt_banner_max_lines', (string)$v);
+    $changed['ai_operator_prompt_banner_max_lines'] = $v;
+}
+if (array_key_exists('ai_operator_prompt_banner_val_max', $body)) {
+    $v = (int)$body['ai_operator_prompt_banner_val_max'];
+    $v = max(40, min(240, $v));
+    st_config_set('ai_operator_prompt_banner_val_max', (string)$v);
+    $changed['ai_operator_prompt_banner_val_max'] = $v;
+}
+if (array_key_exists('ai_operator_prompt_banner_max_chars', $body)) {
+    $v = (int)$body['ai_operator_prompt_banner_max_chars'];
+    $v = max(2000, min(20000, $v));
+    st_config_set('ai_operator_prompt_banner_max_chars', (string)$v);
+    $changed['ai_operator_prompt_banner_max_chars'] = $v;
+}
+if (array_key_exists('ai_operator_ollama_num_thread', $body)) {
+    $v = (int)$body['ai_operator_ollama_num_thread'];
+    $v = max(0, min(256, $v));
+    st_config_set('ai_operator_ollama_num_thread', (string)$v);
+    $changed['ai_operator_ollama_num_thread'] = $v;
+}
+if (array_key_exists('ai_operator_ollama_num_ctx', $body)) {
+    $v = (int)$body['ai_operator_ollama_num_ctx'];
+    if ($v !== 0 && ($v < 512 || $v > 131072)) {
+        st_json(['error' => 'ai_operator_ollama_num_ctx must be 0 or 512..131072'], 400);
+    }
+    st_config_set('ai_operator_ollama_num_ctx', (string)$v);
+    $changed['ai_operator_ollama_num_ctx'] = $v;
 }
 if (array_key_exists('ai_max_hosts_per_scan', $body)) {
     $v = (int)$body['ai_max_hosts_per_scan'];
