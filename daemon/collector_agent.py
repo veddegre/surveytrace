@@ -78,17 +78,22 @@ def main() -> None:
         install_token = str(cfg.get("install_token", "")).strip()
         if install_token == "":
             raise SystemExit("Missing install_token for first registration")
-        reg = _http_json(
-            f"{server}/api/collector_checkin.php",
-            {
-                "action": "register",
-                "name": cfg.get("name", socket.gethostname()),
-                "site_label": cfg.get("site_label", ""),
-                "version": cfg.get("version", "collector-agent-mvp"),
-                "capabilities": {"nmap": True},
-            },
-            headers={"X-Collector-Install-Token": install_token},
-        )
+        try:
+            reg = _http_json(
+                f"{server}/api/collector_checkin.php",
+                {
+                    "action": "register",
+                    "name": cfg.get("name", socket.gethostname()),
+                    "site_label": cfg.get("site_label", ""),
+                    "version": cfg.get("version", "collector-agent-mvp"),
+                    "capabilities": {"nmap": True},
+                },
+                headers={"X-Collector-Install-Token": install_token},
+            )
+        except urllib.error.HTTPError as he:
+            if he.code in (401, 403):
+                raise SystemExit("Collector install token denied; generate/save a new install token and re-register")
+            raise
         if not reg.get("ok"):
             raise SystemExit(f"Registration failed: {reg}")
         cfg["collector_id"] = int(reg["collector_id"])
