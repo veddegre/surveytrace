@@ -7,7 +7,7 @@
 // Always use UTC for all date/time operations regardless of server timezone
 date_default_timezone_set('UTC');
 
-define('ST_VERSION',  '0.7.0');
+define('ST_VERSION',  '0.8.0');
 define('ST_DB_PATH',  dirname(__DIR__) . '/data/surveytrace.db');
 define('ST_SCHEMA',   dirname(__DIR__) . '/sql/schema.sql');
 define('ST_DATA_DIR', dirname(__DIR__) . '/data');
@@ -136,6 +136,24 @@ function st_db(): PDO {
     $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_conf_threshold_net_srv', '0.82')"
     );
+    foreach ([
+        ['collector_install_token', ''],
+        ['collector_token_ttl_hours', '720'],
+        ['collector_lease_seconds', '600'],
+        ['collector_rate_default_rps', '5'],
+        ['collector_submit_max_mb', '8'],
+        ['collector_artifact_store', 's3'],
+        ['collector_artifact_s3_endpoint', ''],
+        ['collector_artifact_s3_bucket', ''],
+        ['collector_artifact_s3_region', 'us-east-1'],
+        ['collector_artifact_s3_access_key', ''],
+        ['collector_artifact_s3_secret_key', ''],
+        ['collector_artifact_s3_prefix', 'surveytrace/collector-artifacts'],
+        ['collector_artifact_s3_path_style', '1'],
+        ['collector_artifact_s3_tls_verify', '1'],
+    ] as $kv) {
+        $pdo->prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)")->execute($kv);
+    }
 
     // Lightweight schema migration for newer scan history snapshot support
     try {
@@ -152,6 +170,7 @@ function st_db(): PDO {
         "ALTER TABLE scan_jobs ADD COLUMN batch_id INTEGER DEFAULT 0",
         "ALTER TABLE scan_jobs ADD COLUMN batch_index INTEGER DEFAULT 0",
         "ALTER TABLE scan_jobs ADD COLUMN batch_total INTEGER DEFAULT 0",
+        "ALTER TABLE scan_jobs ADD COLUMN collector_id INTEGER DEFAULT 0",
     ] as $sql) {
         try {
             $pdo->exec($sql);

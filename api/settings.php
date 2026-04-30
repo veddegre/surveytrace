@@ -320,6 +320,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'ai_openwebui_base_url' => st_ai_resolve_openwebui_base(),
         'ai_openwebui_key_configured' => trim((string)(getenv('OPENWEBUI_API_KEY') ?: '')) !== ''
             || trim((string)st_config('ai_openwebui_api_key', '')) !== '',
+        'collector_install_token_configured' => trim((string)st_config('collector_install_token', '')) !== '',
+        'collector_token_ttl_hours' => max(1, min(24 * 365, (int)st_config('collector_token_ttl_hours', '720'))),
+        'collector_lease_seconds' => max(60, min(3600, (int)st_config('collector_lease_seconds', '600'))),
+        'collector_rate_default_rps' => max(1, min(50, (int)st_config('collector_rate_default_rps', '5'))),
+        'collector_submit_max_mb' => max(1, min(256, (int)st_config('collector_submit_max_mb', '8'))),
+        'collector_artifact_store' => (string)st_config('collector_artifact_store', 's3'),
+        'collector_artifact_s3_endpoint' => (string)st_config('collector_artifact_s3_endpoint', ''),
+        'collector_artifact_s3_bucket' => (string)st_config('collector_artifact_s3_bucket', ''),
+        'collector_artifact_s3_region' => (string)st_config('collector_artifact_s3_region', 'us-east-1'),
+        'collector_artifact_s3_access_key_configured' => trim((string)st_config('collector_artifact_s3_access_key', '')) !== '',
+        'collector_artifact_s3_secret_key_configured' => trim((string)st_config('collector_artifact_s3_secret_key', '')) !== '',
+        'collector_artifact_s3_prefix' => (string)st_config('collector_artifact_s3_prefix', 'surveytrace/collector-artifacts'),
+        'collector_artifact_s3_path_style' => st_config('collector_artifact_s3_path_style', '1') === '1',
+        'collector_artifact_s3_tls_verify' => st_config('collector_artifact_s3_tls_verify', '1') === '1',
     ]);
 }
 
@@ -490,6 +504,71 @@ if (array_key_exists('security_allow_private_outbound_targets', $body)) {
     $v = !empty($body['security_allow_private_outbound_targets']);
     st_config_set('security_allow_private_outbound_targets', $v ? '1' : '0');
     $changed['security_allow_private_outbound_targets'] = $v;
+}
+if (array_key_exists('collector_token_ttl_hours', $body)) {
+    $v = max(1, min(24 * 365, (int)$body['collector_token_ttl_hours']));
+    st_config_set('collector_token_ttl_hours', (string)$v);
+    $changed['collector_token_ttl_hours'] = $v;
+}
+if (array_key_exists('collector_lease_seconds', $body)) {
+    $v = max(60, min(3600, (int)$body['collector_lease_seconds']));
+    st_config_set('collector_lease_seconds', (string)$v);
+    $changed['collector_lease_seconds'] = $v;
+}
+if (array_key_exists('collector_rate_default_rps', $body)) {
+    $v = max(1, min(50, (int)$body['collector_rate_default_rps']));
+    st_config_set('collector_rate_default_rps', (string)$v);
+    $changed['collector_rate_default_rps'] = $v;
+}
+if (array_key_exists('collector_submit_max_mb', $body)) {
+    $v = max(1, min(256, (int)$body['collector_submit_max_mb']));
+    st_config_set('collector_submit_max_mb', (string)$v);
+    $changed['collector_submit_max_mb'] = $v;
+}
+if (array_key_exists('collector_install_token', $body)) {
+    $v = trim((string)$body['collector_install_token']);
+    st_config_set('collector_install_token', $v);
+    $changed['collector_install_token_configured'] = ($v !== '');
+}
+if (array_key_exists('collector_artifact_store', $body)) {
+    $v = strtolower(trim((string)$body['collector_artifact_store']));
+    if (!in_array($v, ['s3'], true)) {
+        st_json(['error' => 'collector_artifact_store must be s3'], 400);
+    }
+    st_config_set('collector_artifact_store', $v);
+    $changed['collector_artifact_store'] = $v;
+}
+foreach ([
+    'collector_artifact_s3_endpoint',
+    'collector_artifact_s3_bucket',
+    'collector_artifact_s3_region',
+    'collector_artifact_s3_prefix',
+] as $k) {
+    if (array_key_exists($k, $body)) {
+        $v = trim((string)$body[$k]);
+        st_config_set($k, $v);
+        $changed[$k] = $v;
+    }
+}
+if (array_key_exists('collector_artifact_s3_path_style', $body)) {
+    $v = !empty($body['collector_artifact_s3_path_style']);
+    st_config_set('collector_artifact_s3_path_style', $v ? '1' : '0');
+    $changed['collector_artifact_s3_path_style'] = $v;
+}
+if (array_key_exists('collector_artifact_s3_tls_verify', $body)) {
+    $v = !empty($body['collector_artifact_s3_tls_verify']);
+    st_config_set('collector_artifact_s3_tls_verify', $v ? '1' : '0');
+    $changed['collector_artifact_s3_tls_verify'] = $v;
+}
+if (array_key_exists('collector_artifact_s3_access_key', $body)) {
+    $v = trim((string)$body['collector_artifact_s3_access_key']);
+    st_config_set('collector_artifact_s3_access_key', $v);
+    $changed['collector_artifact_s3_access_key_configured'] = ($v !== '');
+}
+if (array_key_exists('collector_artifact_s3_secret_key', $body)) {
+    $v = trim((string)$body['collector_artifact_s3_secret_key']);
+    st_config_set('collector_artifact_s3_secret_key', $v);
+    $changed['collector_artifact_s3_secret_key_configured'] = ($v !== '');
 }
 
 if (array_key_exists('password_policy', $body)) {

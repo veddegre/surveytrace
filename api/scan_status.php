@@ -49,12 +49,14 @@ $scanJobMigrations = [
     'summary_json'=> "TEXT",
     'enrichment_source_ids' => "TEXT",
     'deleted_at' => "DATETIME",
+    'collector_id' => "INTEGER DEFAULT 0",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
         $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
     }
 }
+$hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
 
 // ---------------------------------------------------------------------------
 // Fetch job row
@@ -79,6 +81,13 @@ if (!$job) {
 // Enrich job row
 // ---------------------------------------------------------------------------
 $job['phases'] = json_decode($job['phases'] ?? '[]', true) ?: [];
+$job['collector_id'] = (int)($job['collector_id'] ?? 0);
+$job['collector_name'] = '';
+if ($hasCollectors && $job['collector_id'] > 0) {
+    $cstmt = $db->prepare("SELECT name FROM collectors WHERE id=? LIMIT 1");
+    $cstmt->execute([$job['collector_id']]);
+    $job['collector_name'] = (string)($cstmt->fetchColumn() ?: '');
+}
 
 $enrRaw = $job['enrichment_source_ids'] ?? null;
 if ($enrRaw === null || $enrRaw === '') {
@@ -184,19 +193,22 @@ $job['total_log_lines'] = (int)$cstmt->fetchColumn();
 // ---------------------------------------------------------------------------
 // Job history — all jobs for the UI (queue panel + history panel)
 // ---------------------------------------------------------------------------
-$history = $db->query("
-    SELECT id, status, target_cidr, label, hosts_found, hosts_scanned,
-           created_at, started_at, finished_at, error_msg, summary_json,
-           deleted_at,
-           COALESCE(profile, 'standard_inventory') AS profile,
-           COALESCE(scan_mode, 'auto') AS scan_mode,
-           COALESCE(priority, 10) AS priority,
-           CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
-    FROM scan_jobs
-    WHERE deleted_at IS NULL
-    ORDER BY id DESC
+$historySql = "
+    SELECT j.id, j.status, j.target_cidr, j.label, j.hosts_found, j.hosts_scanned,
+           j.created_at, j.started_at, j.finished_at, j.error_msg, j.summary_json,
+           j.deleted_at, COALESCE(j.collector_id, 0) AS collector_id,
+           COALESCE(j.profile, 'standard_inventory') AS profile,
+           COALESCE(j.scan_mode, 'auto') AS scan_mode,
+           COALESCE(j.priority, 10) AS priority,
+           " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
+           CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
+    FROM scan_jobs j
+    " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(j.collector_id, 0)" : "") . "
+    WHERE j.deleted_at IS NULL
+    ORDER BY j.id DESC
     LIMIT 30
-")->fetchAll();
+";
+$history = $db->query($historySql)->fetchAll();
 
 st_json([
     'job'         => $job,

@@ -40,7 +40,7 @@ if (is_readable($dbProbe)) {
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.7.0') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.8.0') ?>">
 </head>
 <body<?= !empty($stShellPreHidden) ? ' class="st-auth-locked"' : '' ?>>
 <div class="shell">
@@ -48,7 +48,7 @@ if (is_readable($dbProbe)) {
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.7.0' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.8.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -92,6 +92,10 @@ if (is_readable($dbProbe)) {
   <div class="ni" id="nsched" onclick="goTab('sched');hiNav('nsched')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
     Schedules
+  </div>
+  <div class="ni" id="ncollectors" onclick="goTab('collectors');hiNav('ncollectors')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.2" y="2" width="11.6" height="8.4" rx="1.2"/><path d="M3.2 5h7.6M4.2 8.5h5.6M5.5 12.2h3"/></svg>
+    Collectors
   </div>
   <div class="ni" id="nlogs" onclick="goTab('logs');hiNav('nlogs')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h10M2 7h6M2 11h4"/></svg>
@@ -485,6 +489,11 @@ if (is_readable($dbProbe)) {
       </div>
       <div class="card">
         <div class="ct">Launch</div>
+        <label class="flbl">Collector target</label>
+        <select class="finp w100 mb8" id="sc-collector">
+          <option value="0">Master scanner (local)</option>
+        </select>
+        <div class="hint-micro mb8">Route this run to a remote collector when you need local-site ARP/mDNS visibility.</div>
         <label class="flbl">Queue priority (1 = highest, 100 = lowest)</label>
         <input class="finp w100 mb8" type="number" id="sc-priority" min="1" max="100" value="10">
         <div class="brow">
@@ -542,6 +551,11 @@ if (is_readable($dbProbe)) {
       <button type="button" class="tbtn btn-xs" id="scan-view-trash" onclick="setScanHistoryView('trash')">Trash</button>
       <button type="button" class="tbtn btn-xs" id="scan-view-all" onclick="setScanHistoryView('all')">All</button>
     </div>
+    <select class="finp narrow" id="scan-source-filter" onchange="loadScanHistory()" title="Filter by scan execution source">
+      <option value="any">Any source</option>
+      <option value="master">Master only</option>
+      <option value="collector">Collectors only</option>
+    </select>
     <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
     <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
   </div>
@@ -656,6 +670,12 @@ if (is_readable($dbProbe)) {
         Cron times are interpreted in this timezone
       </div>
 
+      <label class="flbl">Collector target</label>
+      <select class="finp w100 mb8" id="sched-collector">
+        <option value="0">Master scanner (local)</option>
+      </select>
+      <div class="hint-micro mb10">Choose where scheduled jobs execute.</div>
+
       <label class="flbl">Exclusions (optional)</label>
       <textarea class="finp w100 mb10" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="min-height:100px;resize:vertical"></textarea>
 
@@ -742,11 +762,40 @@ if (is_readable($dbProbe)) {
     <table class="tbl">
       <thead><tr>
         <th>Name</th><th>Target</th><th>Profile</th><th>Cron</th>
-        <th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
+        <th>Collector</th><th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
         <th>On</th><th></th>
       </tr></thead>
-      <tbody id="sched-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+      <tbody id="sched-tbody"><tr><td colspan="11" class="loading">Loading…</td></tr></tbody>
     </table>
+  </div>
+</div>
+
+<div class="tab" id="t-collectors">
+  <div class="row-between mb12">
+    <div class="sth section-title-reset">Collector overview</div>
+    <button class="tbtn" onclick="loadCollectorsOverview()">&#8635; Refresh</button>
+  </div>
+  <div class="hint-micro mb10">Collectors register with install token, heartbeat to master, and submit chunked artifacts for async ingest/CVE+AI enrichment.</div>
+  <div id="collector-overview-stats" class="help-mono mb10">Loading…</div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Last seen</th><th>IP</th><th>Pending</th><th>Failed</th><th></th></tr></thead>
+      <tbody id="collector-overview-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<div id="collector-sched-bg" class="modal-bg z101">
+  <div class="modal-card modal-w560">
+    <div class="row-between mb10 gap10">
+      <div class="modal-title" id="collector-sched-title">Assign schedules</div>
+      <button type="button" class="modal-close-x" onclick="closeCollectorScheduleModal()" aria-label="Close without saving">×</button>
+    </div>
+    <div class="hint-micro mb8">Checked schedules run on this collector. Unchecked schedules are left unassigned from this collector.</div>
+    <div id="collector-sched-list" class="mb10"><div class="loading">Loading…</div></div>
+    <div class="row-wrap gap6">
+      <button type="button" class="btnp" onclick="saveCollectorScheduleAssignments()">Save assignment</button>
+      <button type="button" class="tbtn" onclick="closeCollectorScheduleModal()">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -1026,9 +1075,18 @@ if (is_readable($dbProbe)) {
     </div>
     <div>
       <div class="card">
+        <div class="ct">Collector setup</div>
+        <div class="help-line mb8">Install token used by remote collector setup/registration. Rotating it invalidates future registrations (existing collector bearer tokens remain until rotated/revoked).</div>
+        <div class="row-wrap gap6 mb6">
+          <input class="finp" type="password" id="st-collector-install-token" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste collector install token">
+          <button class="btnp btn-xs" type="button" onclick="saveCollectorInstallToken()">Save token</button>
+        </div>
+        <div class="hint-micro" id="st-collector-install-token-status">Not configured</div>
+      </div>
+      <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.7.0', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.8.0', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span><br>
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
@@ -1670,6 +1728,9 @@ var mustChangePasswordPending = false;
 var pendingUserSave = null;
 var scanHistoryView = 'active';
 var scanTrashRetentionDays = 30;
+var collectorsCache = [];
+var collectorSchedulesCache = [];
+var collectorAssignTargetId = 0;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -1688,6 +1749,7 @@ function applyRoleAwareUi() {
     };
     setHidden('nscan', !canScanManage);
     setHidden('nsched', !canScanManage);
+    setHidden('ncollectors', !isAdmin);
     setHidden('nenrich', !isAdmin);
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
@@ -2101,6 +2163,10 @@ function goTab(name) {
         toast('Settings are available to admin users only.', 'err');
         name = 'dash';
     }
+    if (name === 'collectors' && !stRoleIsAdmin()) {
+        toast('Collector management is available to admin users only.', 'err');
+        name = 'dash';
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
@@ -2114,6 +2180,9 @@ function goTab(name) {
     if (name === 'scanhist') loadScanStatus();
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
+    if (name === 'scan' || name === 'sched' || name === 'collectors') {
+        loadCollectorsOverview();
+    }
     if (name === 'health')   loadHealth();
     if (name === 'access') {
         loadUiSettings();
@@ -2361,6 +2430,7 @@ async function submitLogin() {
         if (currentTab === 'logs') loadLog();
         if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
         if (currentTab === 'sched') loadSchedules();
+        if (currentTab === 'collectors') loadCollectorsOverview();
         if (currentTab === 'health') loadHealth();
         loadEnrichment();
         loadScanStatus();
@@ -3203,6 +3273,8 @@ async function startScan(urgent = false) {
         priority:    scanPriority,
         auto_split_24: !!document.getElementById('sc-auto-split-24')?.checked,
     };
+    const collectorId = parseInt(document.getElementById('sc-collector')?.value || '0', 10) || 0;
+    if (collectorId > 0) body.collector_id = collectorId;
     const enrSel = scanEnrichmentPayloadField();
     if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
 
@@ -3787,6 +3859,7 @@ async function loadScanHistory(history) {
 
     const q = scanHistSearchQ();
     const view = scanHistoryView;
+    const sourceFilter = scanSourceFilterValue();
     let completedRows;
     if (q) {
         const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view) + '&q=' + encodeURIComponent(q), {quiet:true});
@@ -3798,6 +3871,11 @@ async function loadScanHistory(history) {
             const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view), {quiet:true});
             completedRows = (hd && hd.history) ? hd.history : [];
         }
+    }
+    if (sourceFilter === 'master') {
+        completedRows = (completedRows || []).filter(j => Number(j.collector_id || 0) === 0);
+    } else if (sourceFilter === 'collector') {
+        completedRows = (completedRows || []).filter(j => Number(j.collector_id || 0) > 0);
     }
 
     const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
@@ -3815,7 +3893,7 @@ async function loadScanHistory(history) {
     };
     document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
       <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
-      <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}</td>
+      <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}<div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div></td>
       <td class="mono font10">${esc(j.target_cidr)}</td>
       <td><span class="status-chip" style="color:${statColors2[j.status]||'var(--tx2)'}">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div class="text-micro" style="color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
       <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
@@ -3887,7 +3965,7 @@ function updateQueuePanel(history) {
             </div>` : '';
         return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
           <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
-          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button>${batchMeta}</td>
+          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button>${batchMeta}<div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div></td>
           <td class="mono font10">${esc(j.target_cidr)}</td>
           <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
           <td>
@@ -4492,6 +4570,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     meta.innerHTML = `
       Target: <span class="mono">${esc(j.target_cidr || '—')}</span>
       &nbsp;|&nbsp; Status: <b>${esc(j.status || '—')}</b>
+      &nbsp;|&nbsp; Source: <b>${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</b>
       &nbsp;|&nbsp; Started: ${esc(localTime(j.started_at))}
       &nbsp;|&nbsp; Finished: ${esc(localTime(j.finished_at))}
       &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
@@ -4799,6 +4878,14 @@ async function loadUiSettings() {
     if (inp) inp.value = String(d.session_timeout_minutes);
     const extra = document.getElementById('st-extra-safe-ports');
     if (extra) extra.value = String(d.extra_safe_ports || '');
+    const cTok = document.getElementById('st-collector-install-token');
+    if (cTok) cTok.value = '';
+    const cTokSt = document.getElementById('st-collector-install-token-status');
+    if (cTokSt) {
+        cTokSt.textContent = d.collector_install_token_configured
+            ? 'Install token configured'
+            : 'Install token not configured';
+    }
     syncNvdKeyFormVisibility(!!d.nvd_api_key_configured);
     const nvdSt = document.getElementById('st-nvd-api-key-status');
     if (nvdSt) {
@@ -4964,6 +5051,7 @@ async function loadUiSettings() {
     if (installBtn) installBtn.style.display = aiRuntime.installed ? 'none' : '';
     syncAiProviderUi();
     updateScanHistoryViewButtons();
+    await loadCollectorsOverview();
     await loadAuthUsers();
     updateMfaActionButtons();
 }
@@ -5668,6 +5756,24 @@ async function saveExtraSafePorts() {
     if (r && r.ok) {
         if (inp) inp.value = String(r.extra_safe_ports || '');
         toast('Extra routed safe ports updated', 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function saveCollectorInstallToken() {
+    const inp = document.getElementById('st-collector-install-token');
+    const token = String(inp && inp.value ? inp.value : '').trim();
+    if (!token) {
+        toast('Enter an install token', 'err');
+        return;
+    }
+    const r = await apiPost('/api/settings.php', { collector_install_token: token });
+    if (r && r.ok) {
+        if (inp) inp.value = '';
+        const st = document.getElementById('st-collector-install-token-status');
+        if (st) st.textContent = 'Install token configured';
+        toast('Collector install token saved', 'ok');
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
     }
@@ -6429,6 +6535,194 @@ function closeFeedSyncOutput() {
 // ==========================================================================
 // Schedules
 // ==========================================================================
+function collectorDisplayName(c) {
+    const id = Number(c && c.id || 0);
+    const n = String((c && c.name) || '').trim();
+    return n ? `${n} (#${id})` : `Collector #${id}`;
+}
+
+function refreshCollectorSelectors() {
+    const selectors = ['sc-collector', 'sched-collector'].map(id => document.getElementById(id)).filter(Boolean);
+    if (!selectors.length) return;
+    const options = ['<option value="0">Master scanner (local)</option>'];
+    (collectorsCache || []).forEach(c => {
+        let rangeHint = '';
+        try {
+            const arr = JSON.parse(String(c.allowed_cidrs_json || '[]'));
+            if (Array.isArray(arr) && arr.length) {
+                rangeHint = ' | ' + arr.join(',');
+            }
+        } catch (e) {}
+        options.push(`<option value="${Number(c.id || 0)}">${esc(collectorDisplayName(c) + rangeHint)}</option>`);
+    });
+    selectors.forEach(sel => {
+        const prev = String(sel.value || '0');
+        sel.innerHTML = options.join('');
+        sel.value = options.some(o => o.includes(`value="${prev}"`)) ? prev : '0';
+    });
+}
+
+function scanSourceFilterValue() {
+    const el = document.getElementById('scan-source-filter');
+    const raw = String(el && el.value ? el.value : 'any').toLowerCase();
+    return ['any', 'master', 'collector'].includes(raw) ? raw : 'any';
+}
+
+async function loadCollectorsOverview() {
+    const tbody = document.getElementById('collector-overview-tbody');
+    const stats = document.getElementById('collector-overview-stats');
+    let d = null;
+    try {
+        d = await api('/api/collectors.php', {quiet:true});
+    } catch (e) {
+        d = null;
+    }
+    if (!d || !d.ok) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="loading">Could not load collectors</td></tr>';
+        if (stats) stats.textContent = 'Collectors unavailable';
+        return;
+    }
+    collectorsCache = Array.isArray(d.collectors) ? d.collectors : [];
+    collectorSchedulesCache = Array.isArray(d.schedules) ? d.schedules : [];
+    refreshCollectorSelectors();
+    if (stats) {
+        const total = collectorsCache.length;
+        const online = collectorsCache.filter(c => Number(c.online_recent_2m || 0) === 1).length;
+        const stale = collectorsCache.filter(c => Number(c.online_recent_2m || 0) !== 1).length;
+        stats.textContent = `Collectors: ${total} total | ${online} online (<=2m) | ${stale} stale/offline`;
+    }
+    if (!tbody) return;
+    if (!collectorsCache.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="loading">No collectors registered yet</td></tr>';
+        return;
+    }
+    tbody.innerHTML = collectorsCache.map(c => {
+        const id = Number(c.id || 0);
+        const st = String(c.status || 'active');
+        const pending = Number(c.pending_chunks || 0);
+        const failed = Number(c.failed_chunks || 0);
+        const seen = c.last_seen_at ? relTime(c.last_seen_at) : 'never';
+        const ip = c.last_ip ? esc(String(c.last_ip)) : '—';
+        let ranges = 'any';
+        try {
+            const arr = JSON.parse(String(c.allowed_cidrs_json || '[]'));
+            if (Array.isArray(arr) && arr.length) ranges = arr.join(', ');
+        } catch (e) {}
+        return `<tr>
+          <td class="mono">#${id}</td>
+          <td class="text-primary">${esc(collectorDisplayName(c))}<div class="text-micro text-dim">ranges: ${esc(ranges)}</div></td>
+          <td class="mono-sm">${esc(st)}</td>
+          <td class="mono-sm">${seen}</td>
+          <td class="mono-sm">${ip}</td>
+          <td class="mono-sm">${pending}</td>
+          <td class="mono-sm">${failed}</td>
+          <td class="row-actions">
+            <button class="tbtn btn-xxs" onclick="setCollectorAllowedCidrs(${id})">Set ranges</button>
+            <button class="tbtn btn-xxs" onclick="openCollectorScheduleModal(${id})">Assign schedules</button>
+            <button class="tbtn btn-xxs" onclick="rotateCollectorToken(${id})">Rotate token</button>
+            <button class="tbtn btn-xxs" style="color:var(--red)" onclick="revokeCollector(${id})">Revoke</button>
+          </td>
+        </tr>`;
+    }).join('');
+}
+
+function closeCollectorScheduleModal() {
+    const bg = document.getElementById('collector-sched-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function openCollectorScheduleModal(collectorId) {
+    collectorAssignTargetId = Number(collectorId || 0);
+    const collector = (collectorsCache || []).find(c => Number(c.id || 0) === collectorAssignTargetId);
+    const title = document.getElementById('collector-sched-title');
+    if (title) title.textContent = `Assign schedules — ${collector ? collectorDisplayName(collector) : ('Collector #' + collectorAssignTargetId)}`;
+    const list = document.getElementById('collector-sched-list');
+    if (!list) return;
+    if (!collectorSchedulesCache.length) {
+        list.innerHTML = '<div class="loading">No schedules available</div>';
+    } else {
+        list.innerHTML = collectorSchedulesCache.map(s => {
+            const sid = Number(s.id || 0);
+            const on = Number(s.enabled || 0) === 1;
+            const checked = Number(s.collector_id || 0) === collectorAssignTargetId;
+            return `<label class="tr2" style="${on ? '' : 'opacity:0.65'}"><div><div class="tl">${esc(String(s.name || ('Schedule #' + sid)))}</div><div class="tsubl mono">${esc(String(s.target_cidr || ''))}</div></div><input type="checkbox" data-csched-id="${sid}" ${checked ? 'checked' : ''}></label>`;
+        }).join('');
+    }
+    const bg = document.getElementById('collector-sched-bg');
+    if (bg) bg.style.display = 'flex';
+}
+
+async function saveCollectorScheduleAssignments() {
+    const id = Number(collectorAssignTargetId || 0);
+    if (id <= 0) {
+        toast('No collector selected', 'err');
+        return;
+    }
+    const boxes = Array.from(document.querySelectorAll('#collector-sched-list input[data-csched-id]'));
+    const scheduleIds = boxes.filter(b => b.checked).map(b => parseInt(String(b.dataset.cschedId || '0'), 10)).filter(n => n > 0);
+    const r = await apiPost('/api/collectors.php', {action: 'assign_schedules', collector_id: id, schedule_ids: scheduleIds});
+    if (r && r.ok) {
+        toast('Schedule assignment saved', 'ok');
+        closeCollectorScheduleModal();
+        await loadCollectorsOverview();
+        await loadSchedules();
+    } else {
+        toast((r && r.error) || 'Assignment failed', 'err');
+    }
+}
+
+async function setCollectorAllowedCidrs(id) {
+    const collector = (collectorsCache || []).find(c => Number(c.id || 0) === Number(id || 0));
+    if (!collector) {
+        toast('Collector not found', 'err');
+        return;
+    }
+    let current = '';
+    try {
+        const arr = JSON.parse(String(collector.allowed_cidrs_json || '[]'));
+        if (Array.isArray(arr)) current = arr.join(', ');
+    } catch (e) {}
+    const raw = window.prompt('Allowed CIDRs (comma or space separated). Leave blank for unrestricted.', current);
+    if (raw === null) return;
+    const r = await apiPost('/api/collectors.php', {
+        action: 'set_allowed_cidrs',
+        collector_id: Number(id || 0),
+        allowed_cidrs: String(raw || ''),
+    });
+    if (r && r.ok) {
+        toast('Collector ranges updated', 'ok');
+        await loadCollectorsOverview();
+    } else {
+        toast((r && r.error) || 'Update failed', 'err');
+    }
+}
+
+async function rotateCollectorToken(id) {
+    if (!(await showConfirmModal('Rotate this collector token now?', {title:'Rotate collector token', okText:'Rotate'}))) return;
+    const r = await apiPost('/api/collectors.php', {action:'rotate_token', collector_id: Number(id || 0)});
+    if (r && r.ok) {
+        toast('Collector token rotated', 'ok');
+        if (r.token) {
+            await stCopyTextToClipboard(String(r.token));
+            toast('New token copied to clipboard', 'ok');
+        }
+        loadCollectorsOverview();
+    } else {
+        toast((r && r.error) || 'Rotate failed', 'err');
+    }
+}
+
+async function revokeCollector(id) {
+    if (!(await showConfirmModal('Revoke this collector and all of its tokens?', {title:'Revoke collector', okText:'Revoke'}))) return;
+    const r = await apiPost('/api/collectors.php', {action:'revoke', collector_id: Number(id || 0)});
+    if (r && r.ok) {
+        toast('Collector revoked', 'ok');
+        loadCollectorsOverview();
+    } else {
+        toast((r && r.error) || 'Revoke failed', 'err');
+    }
+}
+
 async function loadSchedules() {
     const d = await api('/api/schedules.php');
     if (!d) return;
@@ -6436,7 +6730,7 @@ async function loadSchedules() {
     const statColor = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)'};
     const tbody = document.getElementById('sched-tbody');
     if (!d.schedules || !d.schedules.length) {
-        tbody.innerHTML = '<tr><td colspan="10" class="loading">No schedules yet — create one to get started</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="loading">No schedules yet — create one to get started</td></tr>';
         return;
     }
 
@@ -6487,6 +6781,7 @@ async function loadSchedules() {
           <td class="mono">${esc(s.target_cidr)}</td>
           <td class="status-text">${esc((s.profile||'').replace(/_/g,' '))}</td>
           <td class="mono">${esc(s.cron_expr)}</td>
+          <td class="mono-sm">${s.collector_id ? esc(s.collector_name || ('#' + String(s.collector_id))) : 'master'}</td>
           <td class="status-text" title="Catch-up when overdue">${missedLbl}</td>
           <td class="status-text">${nextRun}</td>
           <td class="status-text">${lastRun}</td>
@@ -6572,11 +6867,17 @@ function schedEnrichmentPayloadField() {
 }
 
 async function openSchedModal(s) {
+    if (!collectorsCache.length) {
+        await loadCollectorsOverview();
+    } else {
+        refreshCollectorSelectors();
+    }
     document.getElementById('sched-id').value    = s ? s.id : '';
     document.getElementById('sched-title').textContent = s ? 'Edit schedule' : 'New schedule';
     document.getElementById('sched-name').value  = s ? s.name : '';
     document.getElementById('sched-cidr').value  = s ? s.target_cidr : '';
     document.getElementById('sched-cron').value  = s ? s.cron_expr : '0 3 * * 0';
+    document.getElementById('sched-collector').value = s ? String(parseInt(s.collector_id, 10) || 0) : '0';
     document.getElementById('sched-profile').value = s ? (s.profile||'standard_inventory') : 'standard_inventory';
     document.getElementById('sched-mode').value  = s ? (s.scan_mode||'auto') : 'auto';
     document.getElementById('sched-excl').value  = s ? (s.exclusions||'') : '';
@@ -6850,6 +7151,7 @@ async function saveSchedule() {
         rate_pps:    parseInt(document.getElementById('sched-pps')?.value || '5', 10) || 5,
         inter_delay: parseInt(document.getElementById('sched-delay')?.value || '200', 10) || 0,
         priority:    pr,
+        collector_id: parseInt(document.getElementById('sched-collector')?.value || '0', 10) || 0,
     };
     const enrSel = schedEnrichmentPayloadField();
     if (enrSel !== undefined) payload.enrichment_source_ids = enrSel;

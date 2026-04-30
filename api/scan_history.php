@@ -38,6 +38,7 @@ $scanJobMigrations = [
     'batch_id'    => "INTEGER DEFAULT 0",
     'batch_index' => "INTEGER DEFAULT 0",
     'batch_total' => "INTEGER DEFAULT 0",
+    'collector_id' => "INTEGER DEFAULT 0",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -57,12 +58,14 @@ try {
 $hasTable = function(string $name) use ($existingTables): bool {
     return isset($existingTables[$name]);
 };
+$hasCollectors = $hasTable('collectors');
 
 if ($id > 0) {
     $stmt = $db->prepare("
         SELECT id, status, target_cidr, label, exclusions, phases, rate_pps, inter_delay,
                created_at, started_at, finished_at, hosts_found, hosts_scanned,
                error_msg, COALESCE(profile, 'standard_inventory') AS profile,
+               COALESCE(collector_id, 0) AS collector_id,
                COALESCE(scan_mode, 'auto') AS scan_mode,
                COALESCE(batch_id, 0) AS batch_id,
                COALESCE(batch_index, 0) AS batch_index,
@@ -79,6 +82,12 @@ if ($id > 0) {
     $job = $stmt->fetch();
     if (!$job) {
         st_json(['error' => "Job #$id not found"], 404);
+    }
+    $job['collector_name'] = '';
+    if ($hasCollectors && (int)($job['collector_id'] ?? 0) > 0) {
+        $cstmt = $db->prepare("SELECT name FROM collectors WHERE id=? LIMIT 1");
+        $cstmt->execute([(int)$job['collector_id']]);
+        $job['collector_name'] = (string)($cstmt->fetchColumn() ?: '');
     }
     if (!empty($job['deleted_at']) && !in_array($currentRole, ['scan_editor', 'admin'], true)) {
         st_json(['ok' => false, 'error' => 'Viewing trashed scan details requires scan_editor or admin role'], 403);
@@ -367,32 +376,35 @@ if ($qRaw !== '') {
     $likePat = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $qRaw) . '%';
 }
 
-$listWhere = 'WHERE deleted_at IS NULL';
+$listWhere = 'WHERE j.deleted_at IS NULL';
 if ($view === 'trash') {
-    $listWhere = 'WHERE deleted_at IS NOT NULL';
+    $listWhere = 'WHERE j.deleted_at IS NOT NULL';
 } elseif ($view === 'all') {
     $listWhere = 'WHERE 1=1';
 }
 
 if ($likePat !== null) {
     $rows = $db->prepare("
-        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned, deleted_at,
-               created_at, started_at, finished_at, error_msg,
-               COALESCE(profile, 'standard_inventory') AS profile,
-               COALESCE(scan_mode, 'auto') AS scan_mode,
-               COALESCE(batch_id, 0) AS batch_id,
-               COALESCE(batch_index, 0) AS batch_index,
-               COALESCE(batch_total, 0) AS batch_total,
-               COALESCE(priority, 10) AS priority,
-               COALESCE(retry_count, 0) AS retry_count,
-               summary_json,
-               CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
-        FROM scan_jobs
+        SELECT j.id, j.status, j.target_cidr, j.label, j.hosts_found, j.hosts_scanned, j.deleted_at,
+               j.created_at, j.started_at, j.finished_at, j.error_msg,
+               COALESCE(j.collector_id, 0) AS collector_id,
+               " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
+               COALESCE(j.profile, 'standard_inventory') AS profile,
+               COALESCE(j.scan_mode, 'auto') AS scan_mode,
+               COALESCE(j.batch_id, 0) AS batch_id,
+               COALESCE(j.batch_index, 0) AS batch_index,
+               COALESCE(j.batch_total, 0) AS batch_total,
+               COALESCE(j.priority, 10) AS priority,
+               COALESCE(j.retry_count, 0) AS retry_count,
+               j.summary_json,
+               CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
+        FROM scan_jobs j
+        " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(j.collector_id, 0)" : "") . "
         $listWhere
-          AND (COALESCE(label, '') LIKE :qp1 ESCAPE '\\'
-            OR COALESCE(target_cidr, '') LIKE :qp2 ESCAPE '\\'
-            OR CAST(id AS TEXT) LIKE :qp3 ESCAPE '\\')
-        ORDER BY id DESC
+          AND (COALESCE(j.label, '') LIKE :qp1 ESCAPE '\\'
+            OR COALESCE(j.target_cidr, '') LIKE :qp2 ESCAPE '\\'
+            OR CAST(j.id AS TEXT) LIKE :qp3 ESCAPE '\\')
+        ORDER BY j.id DESC
         LIMIT :lim
     ");
     $rows->bindValue(':qp1', $likePat);
@@ -402,20 +414,23 @@ if ($likePat !== null) {
     $rows->execute();
 } else {
     $rows = $db->prepare("
-        SELECT id, status, target_cidr, label, hosts_found, hosts_scanned, deleted_at,
-               created_at, started_at, finished_at, error_msg,
-               COALESCE(profile, 'standard_inventory') AS profile,
-               COALESCE(scan_mode, 'auto') AS scan_mode,
-               COALESCE(batch_id, 0) AS batch_id,
-               COALESCE(batch_index, 0) AS batch_index,
-               COALESCE(batch_total, 0) AS batch_total,
-               COALESCE(priority, 10) AS priority,
-               COALESCE(retry_count, 0) AS retry_count,
-               summary_json,
-               CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
-        FROM scan_jobs
+        SELECT j.id, j.status, j.target_cidr, j.label, j.hosts_found, j.hosts_scanned, j.deleted_at,
+               j.created_at, j.started_at, j.finished_at, j.error_msg,
+               COALESCE(j.collector_id, 0) AS collector_id,
+               " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
+               COALESCE(j.profile, 'standard_inventory') AS profile,
+               COALESCE(j.scan_mode, 'auto') AS scan_mode,
+               COALESCE(j.batch_id, 0) AS batch_id,
+               COALESCE(j.batch_index, 0) AS batch_index,
+               COALESCE(j.batch_total, 0) AS batch_total,
+               COALESCE(j.priority, 10) AS priority,
+               COALESCE(j.retry_count, 0) AS retry_count,
+               j.summary_json,
+               CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
+        FROM scan_jobs j
+        " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(j.collector_id, 0)" : "") . "
         $listWhere
-        ORDER BY id DESC
+        ORDER BY j.id DESC
         LIMIT ?
     ");
     $rows->bindValue(1, $limit, PDO::PARAM_INT);

@@ -16,6 +16,7 @@
 date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_collectors.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -110,6 +111,7 @@ if ($method === 'DELETE') {
 // GET — list schedules with last job status
 // ---------------------------------------------------------------------------
 if ($method === 'GET') {
+    $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
     if (isset($_GET['history'])) {
         $hid = (int)($_GET['id'] ?? 0);
         $limit = max(1, min(100, (int)($_GET['limit'] ?? 20)));
@@ -133,6 +135,7 @@ if ($method === 'GET') {
             j.status AS last_job_status,
             j.hosts_found AS last_hosts_found,
             j.finished_at AS last_finished_at,
+            " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
             CASE
                 WHEN s.next_run IS NULL THEN NULL
                 WHEN s.next_run <= datetime('now') THEN 0
@@ -140,6 +143,7 @@ if ($method === 'GET') {
             END AS secs_until_next
         FROM scan_schedules s
         LEFT JOIN scan_jobs j ON j.id = s.last_job_id
+        " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(s.collector_id, 0)" : "") . "
         ORDER BY s.enabled DESC, COALESCE(s.paused, 0) ASC, s.next_run ASC
     ")->fetchAll();
     st_json(['schedules' => $rows]);
@@ -160,12 +164,16 @@ if (isset($_GET['run_now'])) {
     $stmt->execute([$id]);
     $s = $stmt->fetch();
     if (!$s) st_json(['error' => 'Schedule not found'], 404);
+    $runCollectorId = (int)($s['collector_id'] ?? 0);
+    if ($runCollectorId > 0 && !st_collector_target_allowed($runCollectorId, (string)($s['target_cidr'] ?? ''))) {
+        st_json(['error' => 'Schedule target is outside collector allowed CIDR ranges'], 400);
+    }
 
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, schedule_id, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
+             scan_mode, profile, priority, collector_id, schedule_id, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
     ")->execute([
         $s['target_cidr'],
         '[Scheduled] ' . $s['name'] . ' (manual)',
@@ -176,6 +184,7 @@ if (isset($_GET['run_now'])) {
         $s['scan_mode'] ?: 'auto',
         $s['profile'] ?: 'standard_inventory',
         5,   // higher priority than scheduled runs for manual trigger
+        (int)($s['collector_id'] ?? 0),
         $id,
         $s['enrichment_source_ids'] ?? null,
     ]);
@@ -270,6 +279,7 @@ $scan_mode = in_array($body['scan_mode'] ?? '', $allowed_modes, true)
 $rate_pps    = max(1, min(50, (int)($body['rate_pps'] ?? 5)));
 $inter_delay = max(0, min(2000, (int)($body['inter_delay'] ?? 200)));
 $priority    = max(1, min(100, (int)($body['priority'] ?? 20)));
+$collector_id = max(0, (int)($body['collector_id'] ?? 0));
 $enabled     = (int)($body['enabled'] ?? 1);
 $has_paused  = array_key_exists('paused', $body);
 $paused      = $has_paused ? (int)$body['paused'] : null;
@@ -278,6 +288,24 @@ $timezone    = trim($body['timezone'] ?? 'UTC');
 // Validate timezone
 if (!in_array($timezone, timezone_identifiers_list())) {
     $timezone = 'UTC';
+}
+if ($collector_id > 0) {
+    $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
+    if (!$hasCollectors) {
+        st_json(['error' => 'Collectors are not initialized yet', 'field' => 'collector_id'], 400);
+    }
+    $cstmt = $db->prepare("SELECT id, status, revoked_at FROM collectors WHERE id=? LIMIT 1");
+    $cstmt->execute([$collector_id]);
+    $crow = $cstmt->fetch(PDO::FETCH_ASSOC);
+    if (!$crow) {
+        st_json(['error' => 'Unknown collector_id', 'field' => 'collector_id'], 400);
+    }
+    if (!empty($crow['revoked_at']) || (string)($crow['status'] ?? '') === 'revoked') {
+        st_json(['error' => 'Selected collector is revoked', 'field' => 'collector_id'], 400);
+    }
+    if (!st_collector_target_allowed($collector_id, (string)$target_cidr)) {
+        st_json(['error' => 'Target is outside collector allowed CIDR ranges', 'field' => 'target_cidr'], 400);
+    }
 }
 
 $missed_run_policy = trim($body['missed_run_policy'] ?? 'run_once');
@@ -377,14 +405,14 @@ if ($id > 0) {
             UPDATE scan_schedules SET
                 name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
-                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
+                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
                 next_run = NULL
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
-            $enabled, $paused, $notes, $timezone,
+            $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
             $id,
         ]);
@@ -393,13 +421,13 @@ if ($id > 0) {
             UPDATE scan_schedules SET
                 name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
-                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
+                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
-            $enabled, $paused, $notes, $timezone,
+            $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
             $id,
         ]);
@@ -416,12 +444,12 @@ if ($id > 0) {
     $db->prepare("
         INSERT INTO scan_schedules
             (name, cron_expr, target_cidr, exclusions, phases, profile,
-             scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone,
+             scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone, collector_id,
              missed_run_policy, missed_run_max, next_run, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
-        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone,
+        $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone, $collector_id,
         $missed_run_policy, $missed_run_max, $enrichmentIdsJson
     ]);
     $id = (int)$db->lastInsertId();

@@ -379,6 +379,15 @@ $health = [
     'services' => [
         'daemon' => st_health_systemd_unit('surveytrace-daemon'),
         'scheduler' => st_health_systemd_unit('surveytrace-scheduler'),
+        'collector_ingest' => st_health_systemd_unit('surveytrace-collector-ingest'),
+    ],
+    'collectors' => [
+        'total' => 0,
+        'online_recent_2m' => 0,
+        'stale' => 0,
+        'queued_chunks' => 0,
+        'failed_chunks' => 0,
+        'oldest_pending_age_sec' => 0,
     ],
     'ai' => [
         'configured' => st_config('ai_enrichment_enabled', '0') === '1',
@@ -440,6 +449,26 @@ try {
     $health['scans']['retrying'] = (int)$db->query("SELECT COUNT(*) FROM scan_jobs WHERE status = 'retrying'")->fetchColumn();
 } catch (Throwable $e) {
     // keep zeros
+}
+try {
+    $health['collectors']['total'] = (int)$db->query("SELECT COUNT(*) FROM collectors")->fetchColumn();
+    $health['collectors']['online_recent_2m'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collectors WHERE last_seen_at >= datetime('now','-120 seconds') AND COALESCE(revoked_at,'')=''"
+    )->fetchColumn();
+    $health['collectors']['stale'] = max(0, $health['collectors']['total'] - $health['collectors']['online_recent_2m']);
+    $health['collectors']['queued_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='pending'"
+    )->fetchColumn();
+    $health['collectors']['failed_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='failed'"
+    )->fetchColumn();
+    $oldest = $db->query(
+        "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(created_at))) AS INTEGER)
+         FROM collector_ingest_queue WHERE status='pending'"
+    )->fetchColumn();
+    $health['collectors']['oldest_pending_age_sec'] = max(0, (int)($oldest ?: 0));
+} catch (Throwable $e) {
+    // collectors not yet initialized.
 }
 
 $row = $db->query("

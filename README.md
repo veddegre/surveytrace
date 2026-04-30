@@ -30,6 +30,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Database backups** — scheduler-driven SQLite backups via `daemon/backup_db.sh`, configurable in **Settings** (enable, cron, retention days, keep-count)
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
+- **Collector architecture (Phase 8)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -192,6 +193,30 @@ bash deploy.sh
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
 It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
+If present, deploy also restarts `surveytrace-collector-ingest` (optional master-side ingest worker service for collector uploads).
+
+## Collector Deployment (Phase 8)
+
+Collectors are packaged under `collector/` and are intended for remote network sites.
+
+- `collector/setup.sh` — installs a parity collector runtime and systemd service (`surveytrace-collector`) with passive capture capability defaults (`CAP_NET_RAW`, `CAP_NET_ADMIN`)
+- `collector/deploy.sh` — updates runtime files on an existing collector node
+- `collector/hardening.sh` — applies baseline host hardening
+
+Collector-to-master flow:
+
+1. Collector registers using install token (`collector_install_token`) and receives bearer token.
+2. Collector polls for assigned jobs.
+3. Collector runs local parity phases and submits chunked payloads.
+4. Master ingest queue/worker applies results and performs centralized CVE + AI enrichment.
+
+Scheduling and guardrails:
+
+- Collectors use the same `scan_schedules` pipeline as master runs (`collector_id` selects execution site).
+- You can assign collector targets from Scan/Schedules UI and from collector overview schedule assignment.
+- Optional per-collector CIDR allowlists prevent out-of-scope runs; enforcement is applied on queue/save and at runtime dispatch.
+
+This keeps collectors useful on isolated networks without requiring internet egress from collector nodes.
 
 If **AI operator** buttons fail, redeploy **`api/ai_actions.php`** (single file; see `deploy.sh`) and load any SurveyTrace page once so SQLite migrations add **`ai_findings_guidance_cache`** / **`ai_host_explain_cache`** to `assets`.
 
@@ -213,6 +238,14 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.8.0
+
+- **Collector architecture (MVP + parity runner)** — added collector registration/auth (`collector_checkin.php`, `collector_jobs.php`, `collector_submit.php`), management API (`collectors.php`), ingest worker (`collector_ingest_worker.py`), and remote collector packaging under `collector/`.
+- **Centralized enrichment + isolated collectors** — collectors run local parity discovery and upload chunked artifacts; master performs CVE/AI enrichment asynchronously.
+- **Unified scheduling model** — collectors use the same `scan_schedules` engine as master scans (`collector_id`), including cron, pause/resume, and missed-run policies.
+- **UX and role coverage** — scan/schedule forms support collector targeting, scan queue/history/detail show source, Settings adds install token management, collector overview adds status/assignment/token controls; scan editors can target collectors while collector mutations remain admin-only.
+- **Safety guardrails** — per-collector allowed CIDR ranges are enforced at queue/save, run-now, schedule assignment, scheduler enqueue, and collector dispatch.
 
 ### 0.7.0
 

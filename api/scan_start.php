@@ -26,6 +26,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_collectors.php';
 st_auth();
 st_require_role(['scan_editor', 'admin']);
 st_method('POST');
@@ -82,6 +83,7 @@ $scanJobMigrations = [
     'batch_id' => "INTEGER DEFAULT 0",
     'batch_index' => "INTEGER DEFAULT 0",
     'batch_total' => "INTEGER DEFAULT 0",
+    'collector_id' => "INTEGER DEFAULT 0",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
@@ -141,8 +143,8 @@ if (!empty($body['retry_job_id'])) {
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
+             scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
     ")->execute([
         $orig['target_cidr'],
         $newLabel,
@@ -153,6 +155,7 @@ if (!empty($body['retry_job_id'])) {
         $orig['scan_mode'] ?? 'auto',
         $orig['profile']   ?? 'standard_inventory',
         $prio,
+        (int)($orig['collector_id'] ?? 0),
         $enrRetry,
     ]);
     $newJobId = (int)$db->lastInsertId();
@@ -219,7 +222,6 @@ $scan_targets = array_values(array_unique($scan_targets));
 if (empty($scan_targets)) {
     st_json(['error' => 'No scan targets generated', 'field' => 'cidr'], 400);
 }
-
 // ---------------------------------------------------------------------------
 // 2. Phases whitelist
 // ---------------------------------------------------------------------------
@@ -260,6 +262,29 @@ $allowed_modes = ['auto', 'routed', 'force'];
 $scan_mode = in_array($body['scan_mode'] ?? '', $allowed_modes)
     ? $body['scan_mode']
     : 'auto';
+$collector_id = max(0, (int)($body['collector_id'] ?? 0));
+if ($collector_id > 0) {
+    $hasCollectors = (bool)$db->query(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1"
+    )->fetchColumn();
+    if (!$hasCollectors) {
+        st_json(['error' => 'Collectors are not initialized yet', 'field' => 'collector_id'], 400);
+    }
+    $cstmt = $db->prepare("SELECT id, status, revoked_at FROM collectors WHERE id=? LIMIT 1");
+    $cstmt->execute([$collector_id]);
+    $collectorRow = $cstmt->fetch(PDO::FETCH_ASSOC);
+    if (!$collectorRow) {
+        st_json(['error' => 'Unknown collector_id', 'field' => 'collector_id'], 400);
+    }
+    if (!empty($collectorRow['revoked_at']) || (string)($collectorRow['status'] ?? '') === 'revoked') {
+        st_json(['error' => 'Selected collector is revoked', 'field' => 'collector_id'], 400);
+    }
+    foreach ($scan_targets as $t) {
+        if (!st_collector_target_allowed($collector_id, (string)$t)) {
+            st_json(['error' => 'Target is outside collector allowed CIDR ranges', 'field' => 'cidr'], 400);
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // 4. Exclusions — accept freeform text, strip comment lines
@@ -344,8 +369,8 @@ $priority = max(1, min(100, (int)($body['priority'] ?? 10)));
 // ---------------------------------------------------------------------------
 $stmt = $db->prepare("
     INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-        scan_mode, profile, priority, created_by, enrichment_source_ids, batch_id, batch_index, batch_total)
-    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, 'web', :enrids, :bid, :bidx, :btotal)
+        scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids, batch_id, batch_index, batch_total)
+    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, :collector_id, 'web', :enrids, :bid, :bidx, :btotal)
 ");
 $resolved_job_label = $label !== '' ? $label : ('Scan ' . date('Y-m-d H:i'));
 $job_ids = [];
@@ -392,6 +417,7 @@ foreach (array_slice($scan_targets, 0, $enqueueNow) as $idx => $targetCidr) {
         ':mode'   => $scan_mode,
         ':profile'=> $profile,
         ':priority'=> $priority,
+        ':collector_id' => $collector_id,
         ':enrids' => $enrichmentIdsJson,
         ':bid'    => $batchId,
         ':bidx'   => $totalJobs > 1 ? ($idx + 1) : 0,

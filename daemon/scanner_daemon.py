@@ -3868,6 +3868,7 @@ def main() -> None:
                 job_row = conn.execute("""
                     SELECT * FROM scan_jobs
                     WHERE status = 'queued'
+                      AND COALESCE(collector_id, 0) = 0
                     ORDER BY priority ASC, id ASC
                     LIMIT 1
                 """).fetchone()

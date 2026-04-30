@@ -21,6 +21,7 @@ Features:
 from __future__ import annotations
 
 import json
+import ipaddress
 import logging
 import os
 import sqlite3
@@ -474,12 +475,42 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
     Returns the new job ID.
     """
     label = f"[Scheduled] {schedule['name']}{label_suffix}"
+    collector_id = int(schedule.get("collector_id") or 0)
+    if collector_id > 0:
+        row = conn.execute("SELECT allowed_cidrs_json FROM collectors WHERE id=? LIMIT 1", (collector_id,)).fetchone()
+        allow = []
+        if row:
+            try:
+                raw = row["allowed_cidrs_json"] if isinstance(row, sqlite3.Row) else row[0]
+                parsed = json.loads(raw or "[]")
+                if isinstance(parsed, list):
+                    allow = [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                allow = []
+        if allow:
+            target_parts = [p.strip() for p in str(schedule["target_cidr"]).replace("\n", ",").split(",") if p.strip()]
+            for t in target_parts:
+                try:
+                    tnet = ipaddress.ip_network(t, strict=False)
+                except Exception:
+                    raise RuntimeError(f"schedule target invalid for collector policy: {t}")
+                ok = False
+                for a in allow:
+                    try:
+                        anet = ipaddress.ip_network(a, strict=False)
+                    except Exception:
+                        continue
+                    if tnet.overlaps(anet):
+                        ok = True
+                        break
+                if not ok:
+                    raise RuntimeError(f"target outside collector allowlist: {t}")
     enr_ids = schedule.get("enrichment_source_ids")
     conn.execute("""
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, schedule_id, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler', ?)
+             scan_mode, profile, priority, schedule_id, collector_id, created_by, enrichment_source_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler', ?)
     """, (
         schedule["target_cidr"],
         label,
@@ -491,6 +522,7 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
         schedule["profile"] or "standard_inventory",
         schedule["priority"] or 20,
         schedule["id"],
+        collector_id,
         enr_ids,
     ))
     job_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
