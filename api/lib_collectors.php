@@ -148,11 +148,30 @@ function st_collector_new_token(): string {
 }
 
 function st_collector_bearer_token(): string {
-    $hdr = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
-    if ($hdr === '' || stripos($hdr, 'bearer ') !== 0) {
-        return '';
+    $candidates = [];
+    $candidates[] = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+    $candidates[] = trim((string)($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
+    $candidates[] = trim((string)($_SERVER['Authorization'] ?? ''));
+    $candidates[] = trim((string)($_SERVER['AUTHORIZATION'] ?? ''));
+    if (function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        if (is_array($headers)) {
+            foreach ($headers as $k => $v) {
+                if (strcasecmp((string)$k, 'Authorization') === 0) {
+                    $candidates[] = trim((string)$v);
+                }
+            }
+        }
     }
-    return trim(substr($hdr, 7));
+    foreach ($candidates as $hdr) {
+        if ($hdr !== '' && stripos($hdr, 'bearer ') === 0) {
+            $tok = trim(substr($hdr, 7));
+            if ($tok !== '') {
+                return $tok;
+            }
+        }
+    }
+    return '';
 }
 
 /**
