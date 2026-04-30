@@ -6652,6 +6652,124 @@ function setCron(expr) {
     updateCronDesc();
 }
 
+function _cronPlural(n, one, many) {
+    return `${n} ${n === 1 ? one : many}`;
+}
+
+function _cronOrd(n) {
+    const v = Math.abs(Number(n)) % 100;
+    if (v >= 11 && v <= 13) return `${n}th`;
+    const d = v % 10;
+    if (d === 1) return `${n}st`;
+    if (d === 2) return `${n}nd`;
+    if (d === 3) return `${n}rd`;
+    return `${n}th`;
+}
+
+function _cronJoin(list) {
+    if (!list.length) return '';
+    if (list.length === 1) return list[0];
+    if (list.length === 2) return `${list[0]} and ${list[1]}`;
+    return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
+}
+
+function _cronDescribeMinute(field) {
+    if (field === '*') return 'every minute';
+    let m = field.match(/^\*\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[1]), 'minute', 'minutes')}`;
+    m = field.match(/^(\d{1,2})$/);
+    if (m) return `minute ${m[1].padStart(2, '0')}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) return `every minute from ${m[1].padStart(2, '0')} through ${m[2].padStart(2, '0')}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[3]), 'minute', 'minutes')} from ${m[1].padStart(2, '0')} through ${m[2].padStart(2, '0')}`;
+    if (field.includes(',')) {
+        const vals = field.split(',').map(v => v.trim()).filter(Boolean).map(v => v.padStart(2, '0'));
+        return `minute ${_cronJoin(vals)}`;
+    }
+    return '';
+}
+
+function _cronDescribeHour(field) {
+    if (field === '*') return 'every hour';
+    let m = field.match(/^\*\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[1]), 'hour', 'hours')}`;
+    m = field.match(/^(\d{1,2})$/);
+    if (m) return `hour ${m[1].padStart(2, '0')}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) return `every hour from ${m[1].padStart(2, '0')} through ${m[2].padStart(2, '0')}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[3]), 'hour', 'hours')} from ${m[1].padStart(2, '0')} through ${m[2].padStart(2, '0')}`;
+    if (field.includes(',')) {
+        const vals = field.split(',').map(v => v.trim()).filter(Boolean).map(v => v.padStart(2, '0'));
+        return `hour ${_cronJoin(vals)}`;
+    }
+    return '';
+}
+
+function _cronDescribeDom(field) {
+    if (field === '*') return 'every day-of-month';
+    let m = field.match(/^\*\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[1]), 'day', 'days')} of the month`;
+    m = field.match(/^(\d{1,2})$/);
+    if (m) return `day-of-month ${_cronOrd(Number(m[1]))}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) return `day-of-month ${_cronOrd(Number(m[1]))} through ${_cronOrd(Number(m[2]))}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})\/(\d{1,2})$/);
+    if (m) return `every ${_cronPlural(Number(m[3]), 'day', 'days')} from day-of-month ${_cronOrd(Number(m[1]))} through ${_cronOrd(Number(m[2]))}`;
+    if (field.includes(',')) {
+        const vals = field.split(',').map(v => v.trim()).filter(Boolean).map(v => _cronOrd(Number(v)));
+        return `day-of-month ${_cronJoin(vals)}`;
+    }
+    return '';
+}
+
+function _cronDescribeMonth(field) {
+    const names = [null, 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (field === '*') return 'every month';
+    let m = field.match(/^(\d{1,2})$/);
+    if (m) return `in ${names[Number(m[1])] || m[1]}`;
+    m = field.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) return `from ${names[Number(m[1])] || m[1]} through ${names[Number(m[2])] || m[2]}`;
+    if (field.includes(',')) {
+        const vals = field.split(',').map(v => v.trim()).filter(Boolean).map(v => names[Number(v)] || v);
+        return `in ${_cronJoin(vals)}`;
+    }
+    return '';
+}
+
+function _cronDescribeDow(field) {
+    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    if (field === '*') return 'every day-of-week';
+    let m = field.match(/^(\d)$/);
+    if (m) return `on ${names[Number(m[1])]}`;
+    m = field.match(/^(\d)-(\d)$/);
+    if (m) return `on ${names[Number(m[1])]} through ${names[Number(m[2])]}`;
+    m = field.match(/^\*\/(\d)$/);
+    if (m) return `every ${_cronPlural(Number(m[1]), 'day', 'days')} of week`;
+    if (field.includes(',')) {
+        const vals = field.split(',').map(v => v.trim()).filter(Boolean).map(v => names[Number(v)] || v);
+        return `on ${_cronJoin(vals)}`;
+    }
+    return '';
+}
+
+function _cronDescribe(expr) {
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length !== 5) return '';
+    const [minF, hrF, domF, monF, dowF] = parts;
+    if (/^\d{1,2}$/.test(minF) && /^\d{1,2}$/.test(hrF) && domF === '*' && monF === '*' && dowF === '*') {
+        return `At ${hrF.padStart(2, '0')}:${minF.padStart(2, '0')}.`;
+    }
+    const mDesc = _cronDescribeMinute(minF);
+    const hDesc = _cronDescribeHour(hrF);
+    const domDesc = _cronDescribeDom(domF);
+    const monDesc = _cronDescribeMonth(monF);
+    const dowDesc = _cronDescribeDow(dowF);
+    if (!mDesc || !hDesc || !domDesc || !monDesc || !dowDesc) return '';
+    return `At ${mDesc} past ${hDesc} on ${domDesc}, ${monDesc}, and ${dowDesc}.`;
+}
+
 function updateCronDesc() {
     const expr = document.getElementById('sched-cron').value.trim();
     const descs = {
@@ -6664,8 +6782,14 @@ function updateCronDesc() {
     if (descs[expr]) { el.textContent = descs[expr]; el.style.color='var(--green)'; return; }
     const parts = expr.split(/\s+/);
     if (parts.length === 5) {
-        el.textContent = 'Custom: ' + expr;
-        el.style.color = 'var(--tx2)';
+        const human = _cronDescribe(expr);
+        if (human) {
+            el.textContent = human;
+            el.style.color = 'var(--tx2)';
+        } else {
+            el.textContent = 'Custom: ' + expr;
+            el.style.color = 'var(--tx2)';
+        }
     } else {
         el.textContent = 'Format: minute hour day-of-month month day-of-week';
         el.style.color = 'var(--tx3)';
