@@ -116,12 +116,71 @@ function st_ai_resolve_openwebui_key(): string {
     return trim((string)st_config('ai_openwebui_api_key', ''));
 }
 
-function st_ai_openwebui_base_url_valid(string $base): bool {
+function st_ai_allow_private_outbound_targets(): bool {
+    $env = strtolower(trim((string)(getenv('SURVEYTRACE_ALLOW_PRIVATE_OUTBOUND') ?: '')));
+    if (in_array($env, ['1', 'true', 'yes', 'on'], true)) {
+        return true;
+    }
+    return st_config('security_allow_private_outbound_targets', '0') === '1';
+}
+
+function st_ai_openwebui_base_url_valid(string $base, bool $allowPrivate = false): bool {
     if ($base === '' || !preg_match('#^https?://#i', $base)) {
         return false;
     }
     $u = filter_var($base, FILTER_VALIDATE_URL);
-    return is_string($u) && $u !== '';
+    if (!is_string($u) || $u === '') {
+        return false;
+    }
+    $parts = @parse_url($u);
+    if (!is_array($parts)) {
+        return false;
+    }
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    $host = strtolower((string)($parts['host'] ?? ''));
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+        return false;
+    }
+    // Allow explicit local loopback for same-host Open WebUI installs.
+    if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+        return true;
+    }
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        if ($allowPrivate) {
+            return true;
+        }
+        return filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+    }
+    $ips = [];
+    $a = @dns_get_record($host, DNS_A);
+    if (is_array($a)) {
+        foreach ($a as $row) {
+            $ip = (string)($row['ip'] ?? '');
+            if ($ip !== '') {
+                $ips[] = $ip;
+            }
+        }
+    }
+    if (defined('DNS_AAAA')) {
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) {
+            foreach ($aaaa as $row) {
+                $ip6 = (string)($row['ipv6'] ?? '');
+                if ($ip6 !== '') {
+                    $ips[] = $ip6;
+                }
+            }
+        }
+    }
+    if (!$ips) {
+        return false;
+    }
+    foreach ($ips as $ip) {
+        if (!$allowPrivate && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -145,7 +204,7 @@ function st_ai_cloud_provider_ready(string $provider): bool {
         'openai' => st_ai_resolve_openai_key() !== '',
         'anthropic' => st_ai_resolve_anthropic_key() !== '',
         'google' => st_ai_resolve_gemini_key() !== '',
-        'openwebui' => st_ai_openwebui_base_url_valid(st_ai_resolve_openwebui_base())
+        'openwebui' => st_ai_openwebui_base_url_valid(st_ai_resolve_openwebui_base(), st_ai_allow_private_outbound_targets())
             && st_ai_resolve_openwebui_key() !== '',
         default => false,
     };
@@ -211,7 +270,7 @@ function st_ai_cloud_completion(string $provider, string $model, string $prompt,
     if ($p === 'openwebui') {
         $base = st_ai_resolve_openwebui_base();
         $key = st_ai_resolve_openwebui_key();
-        if (!st_ai_openwebui_base_url_valid($base)) {
+        if (!st_ai_openwebui_base_url_valid($base, st_ai_allow_private_outbound_targets())) {
             return ['ok' => false, 'text' => '', 'err' => 'missing_or_invalid_openwebui_base_url'];
         }
         if ($key === '') {

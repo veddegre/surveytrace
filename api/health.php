@@ -317,7 +317,8 @@ function st_health_stat_file_bytes(string $path): ?float {
 try {
     $db = st_db();
 } catch (Throwable $e) {
-    st_json(['ok' => false, 'error' => 'database: ' . $e->getMessage()], 503);
+    @error_log('SurveyTrace health DB error: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+    st_json(['ok' => false, 'error' => 'database unavailable'], 503);
 }
 
 $dataDir = ST_DATA_DIR;

@@ -31,7 +31,8 @@ function st_db(): PDO {
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
     } catch (PDOException $e) {
-        st_json(['error' => 'Database unavailable: ' . $e->getMessage()], 503);
+        @error_log('SurveyTrace DB unavailable: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+        st_json(['error' => 'Database unavailable'], 503);
     }
 
     $pdo->exec('PRAGMA journal_mode = WAL');
@@ -661,6 +662,10 @@ function st_auth(): void {
 }
 
 function st_set_session_user(int $id, string $username, string $role, bool $mustChangePassword = false): void {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        @session_regenerate_id(true);
+        $_SESSION['st_csrf'] = bin2hex(random_bytes(32));
+    }
     $_SESSION['st_authed'] = true;
     $_SESSION['st_authed_at'] = time();
     $_SESSION['st_uid'] = $id;
@@ -744,10 +749,16 @@ function st_audit_log(
     array $details = []
 ): void {
     try {
+        $clean = static function (?string $s): ?string {
+            if ($s === null) return null;
+            $v = preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$s);
+            return trim((string)$v);
+        };
         st_ensure_user_audit_schema();
         $actor = st_current_user();
         $actorId = $actorUserId ?? (($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null);
-        $actorName = $actorUsername ?? (($actor['username'] ?? '') !== '' ? (string)$actor['username'] : null);
+        $actorName = $clean($actorUsername ?? (($actor['username'] ?? '') !== '' ? (string)$actor['username'] : null));
+        $targetUsername = $clean($targetUsername);
         $payload = $details ? json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
         st_db()->prepare(
             "INSERT INTO user_audit_log
@@ -764,7 +775,8 @@ function st_audit_log(
         ]);
     } catch (Throwable $e) {
         // Keep auth paths resilient even if logging fails, but emit diagnostics.
-        @error_log('SurveyTrace audit log write failed: ' . (string)$e->getMessage());
+        $msg = preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage());
+        @error_log('SurveyTrace audit log write failed: ' . trim((string)$msg));
     }
 }
 
@@ -871,8 +883,8 @@ function st_verify_totp(string $base32Secret, string $otp, int $window = 1): boo
 function st_generate_recovery_codes(int $count = 8): array {
     $out = [];
     for ($i = 0; $i < $count; $i++) {
-        $n = strtoupper(bin2hex(random_bytes(4)));
-        $out[] = substr($n, 0, 4) . '-' . substr($n, 4, 4);
+        $n = strtoupper(bin2hex(random_bytes(8))); // 64-bit entropy per code
+        $out[] = substr($n, 0, 4) . '-' . substr($n, 4, 4) . '-' . substr($n, 8, 4) . '-' . substr($n, 12, 4);
     }
     return $out;
 }
@@ -1096,5 +1108,8 @@ function st_require_same_origin(): void {
     $referer = trim((string)($_SERVER['HTTP_REFERER'] ?? ''));
     if ($referer !== '' && !st_same_origin_ok($referer)) {
         st_json(['error' => 'Cross-origin request rejected'], 403);
+    }
+    if ($origin === '' && $referer === '') {
+        st_json(['error' => 'Cross-origin request rejected (missing Origin/Referer)'], 403);
     }
 }

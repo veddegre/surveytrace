@@ -69,11 +69,9 @@ function st_auth_endpoint_error(Throwable $e): never {
         st_release_session_lock();
         st_json(['error' => 'Database is busy. Please retry in a few seconds.'], 503);
     }
+    @error_log('SurveyTrace auth endpoint error: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', $msg));
     st_release_session_lock();
-    st_json([
-        'error' => 'Authentication operation failed',
-        'detail' => $msg !== '' ? $msg : 'unexpected server error',
-    ], 500);
+    st_json(['error' => 'Authentication operation failed'], 500);
 }
 
 function st_consume_recovery_code(PDO $db, int $userId, string $code): bool {
@@ -198,8 +196,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit'])) {
         st_release_session_lock();
         st_json(['ok' => true, 'audit' => $rows]);
     } catch (Throwable $e) {
+        @error_log('SurveyTrace auth audit read failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
         st_release_session_lock();
-        st_json(['ok' => true, 'audit' => [], 'warning' => 'audit_unavailable', 'detail' => (string)$e->getMessage()]);
+        st_json(['ok' => true, 'audit' => [], 'warning' => 'audit_unavailable']);
     }
 }
 
@@ -226,8 +225,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && isset($_GET['audit_live']
         st_release_session_lock();
         st_json(['ok' => true, 'live' => $rows]);
     } catch (Throwable $e) {
+        @error_log('SurveyTrace auth live read failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
         st_release_session_lock();
-        st_json(['ok' => true, 'live' => [], 'warning' => 'live_unavailable', 'detail' => (string)$e->getMessage()]);
+        st_json(['ok' => true, 'live' => [], 'warning' => 'live_unavailable']);
     }
 }
 
@@ -384,6 +384,8 @@ if (isset($_GET['password_change'])) {
     }
     $db->prepare("UPDATE users SET password_hash=?, must_change_password=0, updated_at=datetime('now') WHERE id=?")
        ->execute([st_password_hash($newPassword), $u['id']]);
+    // Rotate session id + CSRF token after credential change.
+    st_set_session_user((int)$u['id'], (string)$u['username'], (string)$u['role'], false);
     st_audit_log('auth.password_change_self', (int)$u['id'], (string)$u['username'], (int)$u['id'], (string)$u['username']);
     st_release_session_lock();
     st_json(['ok' => true]);

@@ -29,8 +29,8 @@ if (isset($_GET['status'])) {
             'last_feed_sync' => st_feed_sync_truncate_result_for_api(st_feed_sync_last_result_read()),
         ]);
     } catch (Throwable $e) {
-        error_log('feeds.php status: ' . $e->getMessage());
-        st_json(['ok' => false, 'error' => 'feed status failed: ' . $e->getMessage()], 500);
+        error_log('feeds.php status: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+        st_json(['ok' => false, 'error' => 'feed status failed'], 500);
     }
 }
 
@@ -61,8 +61,8 @@ if (isset($_GET['cancel'])) {
         }
         st_json(['ok' => true, 'cancel_requested' => true]);
     } catch (Throwable $e) {
-        error_log('feeds.php cancel: ' . $e->getMessage());
-        st_json(['ok' => false, 'error' => 'cancel failed: ' . $e->getMessage()], 500);
+        error_log('feeds.php cancel: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+        st_json(['ok' => false, 'error' => 'cancel failed'], 500);
     }
 }
 
@@ -72,8 +72,8 @@ if (isset($_GET['clear_sync_state'])) {
         st_feed_sync_state_clear();
         st_json(['ok' => true, 'cleared' => true]);
     } catch (Throwable $e) {
-        error_log('feeds.php clear_sync_state: ' . $e->getMessage());
-        st_json(['ok' => false, 'error' => 'clear failed: ' . $e->getMessage()], 500);
+        error_log('feeds.php clear_sync_state: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+        st_json(['ok' => false, 'error' => 'clear failed'], 500);
     }
 }
 
@@ -197,7 +197,7 @@ try {
     st_feed_sync_spawn_worker($phpCli, $worker, $target, $root);
     st_json($asyncPayload);
 } catch (Throwable $e) {
-    error_log('feeds.php sync: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    error_log('feeds.php sync: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
     @st_feed_sync_state_clear();
-    st_json(['ok' => false, 'error' => 'feed sync failed: ' . $e->getMessage()], 500);
+    st_json(['ok' => false, 'error' => 'feed sync failed'], 500);
 }

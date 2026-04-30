@@ -83,6 +83,9 @@ foreach ($schedMigrations as $col => $def) {
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
+if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
+    st_json(['error' => 'method not allowed'], 405);
+}
 
 // ---------------------------------------------------------------------------
 // DELETE

@@ -530,12 +530,12 @@ echo ""
 
 if [[ -n "$UI_PASS" ]]; then
     # Pass password via env — embedding \$UI_PASS in php -r breaks on quotes, \$, etc.
-    HASH=$(UI_PASS="$UI_PASS" php -r '$p = getenv("UI_PASS"); echo password_hash($p, PASSWORD_BCRYPT);')
+    HASH=$(UI_PASS="$UI_PASS" php -r '$p = getenv("UI_PASS"); echo password_hash($p, PASSWORD_ARGON2ID);')
     sqlite3 "$DB_FILE" "UPDATE config SET value='$HASH' WHERE key='auth_hash';"
     ok "Web UI password set"
 else
     warn "No password set — UI is open. Set one via:"
-    echo "  HASH=\$(UI_PASS='YOURPASS' php -r '\$p = getenv(\"UI_PASS\"); echo password_hash(\$p, PASSWORD_BCRYPT);')"
+    echo "  HASH=\$(UI_PASS='YOURPASS' php -r '\$p = getenv(\"UI_PASS\"); echo password_hash(\$p, PASSWORD_ARGON2ID);')"
     echo "  sqlite3 $DB_FILE \"UPDATE config SET value='\$HASH' WHERE key='auth_hash';\""
 fi
 

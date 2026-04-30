@@ -96,7 +96,8 @@ try {
     $db->commit();
 } catch (Throwable $e) {
     if ($db->inTransaction()) $db->rollBack();
-    st_json(['ok' => false, 'error' => 'Delete failed: ' . $e->getMessage()], 500);
+    @error_log('SurveyTrace scan delete failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+    st_json(['ok' => false, 'error' => 'Delete failed'], 500);
 }
 
 st_audit_log('scan.job_purged', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [

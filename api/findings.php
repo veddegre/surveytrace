@@ -43,6 +43,7 @@ $db = st_db();
 // POST — resolve / unresolve
 // ---------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    st_method('POST');
     st_require_role(['scan_editor', 'admin']);
     $body      = st_input();
     $action    = st_str('action', '', ['resolve','unresolve','resolve_all']);

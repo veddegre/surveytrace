@@ -127,11 +127,13 @@ if ($job['started_at']) {
 }
 
 // Open CVE count for this job's assets (quick summary)
-$job['open_findings'] = (int)$db->query("
+$openFindingsStmt = $db->prepare("
     SELECT COUNT(*) FROM findings f
     JOIN assets a ON a.id = f.asset_id
-    WHERE f.resolved = 0 AND a.last_scan_id = {$job['id']}
-")->fetchColumn();
+    WHERE f.resolved = 0 AND a.last_scan_id = ?
+");
+$openFindingsStmt->execute([(int)$job['id']]);
+$job['open_findings'] = (int)$openFindingsStmt->fetchColumn();
 
 // Phase display label for UI progress message
 $phase_labels = [

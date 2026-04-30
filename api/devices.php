@@ -25,6 +25,9 @@ st_require_role(['viewer', 'scan_editor', 'admin']);
 
 $db = st_db();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if (!in_array($method, ['GET', 'POST'], true)) {
+    st_json(['error' => 'method not allowed'], 405);
+}
 
 // ---------------------------------------------------------------------------
 // POST — merge devices into one survivor
@@ -127,7 +130,8 @@ if ($method === 'POST') {
         if ($db->inTransaction()) {
             $db->rollBack();
         }
-        st_json(['ok' => false, 'error' => 'Merge failed: ' . $e->getMessage()], 500);
+        @error_log('SurveyTrace device merge failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+        st_json(['ok' => false, 'error' => 'Merge failed'], 500);
     }
 
     st_json([

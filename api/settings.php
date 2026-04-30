@@ -16,6 +16,7 @@
  *   - ai_openai_api_key / ai_anthropic_api_key / ai_gemini_api_key — optional; env OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY or GOOGLE_API_KEY overrides DB
  *   - ai_openwebui_base_url — http(s) origin of Open WebUI (no trailing slash required); env OPENWEBUI_BASE_URL overrides DB
  *   - ai_openwebui_api_key — Bearer token for Open WebUI API; env OPENWEBUI_API_KEY overrides DB
+ *   - security_allow_private_outbound_targets: bool (default false; allow private/loopback OIDC/OpenWebUI endpoints)
  *   - ai_model: string (Ollama tag, e.g. phi3:mini)
  *   - ai_timeout_ms: int (100..5000)
  *   - ai_operator_ollama_timeout_s: int (120..3600) — UI host summary / scan AI refresh Ollama wall clock
@@ -276,6 +277,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'sso_role_source' => (string)st_config('sso_role_source', 'surveytrace'),
         'breakglass_enabled' => st_config('breakglass_enabled', '1') === '1',
         'breakglass_username' => (string)st_config('breakglass_username', 'admin'),
+        'security_allow_private_outbound_targets' => st_config('security_allow_private_outbound_targets', '0') === '1',
         'password_policy' => st_password_policy(),
         'password_hash_algo' => st_password_hash_algo(),
         'login_max_attempts' => st_login_max_attempts(),
@@ -454,6 +456,9 @@ if (array_key_exists('oidc_enabled', $body)) {
 foreach (['oidc_issuer_url', 'oidc_client_id', 'oidc_client_secret', 'oidc_redirect_uri', 'oidc_role_claim', 'oidc_role_map'] as $k) {
     if (array_key_exists($k, $body)) {
         $v = trim((string)$body[$k]);
+        if ($k === 'oidc_role_map' && strlen($v) > 8192) {
+            st_json(['error' => 'oidc_role_map is too long (max 8192 chars)'], 400);
+        }
         st_config_set($k, $v);
         if ($k !== 'oidc_client_secret') {
             $changed[$k] = $v;
@@ -480,6 +485,11 @@ if (array_key_exists('breakglass_username', $body)) {
     if ($v === '') $v = 'admin';
     st_config_set('breakglass_username', $v);
     $changed['breakglass_username'] = $v;
+}
+if (array_key_exists('security_allow_private_outbound_targets', $body)) {
+    $v = !empty($body['security_allow_private_outbound_targets']);
+    st_config_set('security_allow_private_outbound_targets', $v ? '1' : '0');
+    $changed['security_allow_private_outbound_targets'] = $v;
 }
 
 if (array_key_exists('password_policy', $body)) {
@@ -730,12 +740,15 @@ if (!empty($body['ai_gemini_api_key_remove'])) {
 
 if (array_key_exists('ai_openwebui_base_url', $body)) {
     $bu = trim((string)$body['ai_openwebui_base_url']);
+    $allowPrivateOutbound = array_key_exists('security_allow_private_outbound_targets', $changed)
+        ? (bool)$changed['security_allow_private_outbound_targets']
+        : st_ai_allow_private_outbound_targets();
     if ($bu === '') {
         st_config_set('ai_openwebui_base_url', '');
         $changed['ai_openwebui_base_url'] = '';
     } else {
         $bu = rtrim($bu, '/');
-        if (!st_ai_openwebui_base_url_valid($bu)) {
+        if (!st_ai_openwebui_base_url_valid($bu, $allowPrivateOutbound)) {
             st_json(['error' => 'ai_openwebui_base_url must be a valid http(s) URL (e.g. http://127.0.0.1:3000)'], 400);
         }
         if (strlen($bu) > 500) {
