@@ -87,7 +87,7 @@ EOF
 
 chown -R "$APP_USER":"$GROUP" "$INSTALL_DIR" /var/lib/surveytrace
 chmod 750 "$INSTALL_DIR" "$INSTALL_DIR/daemon"
-chmod 640 "$CFG_FILE"
+chmod 660 "$CFG_FILE"
 chown root:"$GROUP" "$CFG_FILE"
 
 systemctl daemon-reload

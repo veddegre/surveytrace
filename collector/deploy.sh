@@ -17,5 +17,9 @@ for f in "$SRC"/daemon/sources/*.py; do
 done
 
 sudo chown -R surveytrace:surveytrace "$DEST/daemon" "$DEST/sql" 2>/dev/null || true
+if [[ -f /etc/surveytrace/collector.json ]]; then
+  sudo chown root:surveytrace /etc/surveytrace/collector.json 2>/dev/null || true
+  sudo chmod 660 /etc/surveytrace/collector.json 2>/dev/null || true
+fi
 sudo systemctl restart surveytrace-collector
 sudo systemctl is-active --quiet surveytrace-collector && echo "collector: running" || echo "collector: FAILED"

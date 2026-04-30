@@ -14,10 +14,10 @@ if command -v ufw >/dev/null 2>&1; then
   ufw --force enable || true
 fi
 
-# Ensure collector config only readable by root+group
+# Ensure collector config is writable by service group for token persistence.
 if [[ -f /etc/surveytrace/collector.json ]]; then
   chown root:surveytrace /etc/surveytrace/collector.json || true
-  chmod 640 /etc/surveytrace/collector.json || true
+  chmod 660 /etc/surveytrace/collector.json || true
 fi
 
 # Restrict service
