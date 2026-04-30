@@ -399,13 +399,38 @@ fi
 # STEP 10 — Initial NVD sync prompt
 # =============================================================================
 echo ""
+info "Optional NIST NVD API key (much faster full sync + weekly updates)."
+echo "  Request a free key: https://nvd.nist.gov/developers/request-an-api-key"
+read -rsp "Paste key here (input hidden), or press Enter to skip: " nvd_key_choice
+echo ""
+# Trim leading/trailing whitespace (NIST keys are UUID-like; no spaces expected)
+nvd_key_choice="${nvd_key_choice#"${nvd_key_choice%%[![:space:]]*}"}"
+nvd_key_choice="${nvd_key_choice%"${nvd_key_choice##*[![:space:]]}"}"
+nvd_key_choice="${nvd_key_choice//$'\r'/}"
+if [[ -n "$nvd_key_choice" ]]; then
+    if [[ ${#nvd_key_choice} -ge 30 && ${#nvd_key_choice} -le 128 ]] && [[ "$nvd_key_choice" =~ ^[A-Za-z0-9-]+$ ]]; then
+        nvd_esc=${nvd_key_choice//\'/\'\'}
+        if sudo -u "$APP_USER" sqlite3 "$DB_FILE" "INSERT OR REPLACE INTO config (key, value) VALUES ('nvd_api_key', '$nvd_esc');"; then
+            ok "NVD API key saved to config (same as Settings → NVD)"
+        else
+            warn "Could not save NVD API key to database — add it later in Settings"
+        fi
+    else
+        warn "NVD API key not saved (expect 30–128 chars: letters, digits, hyphens only)"
+    fi
+fi
+
+echo ""
 echo -e "${YLW}┌─────────────────────────────────────────────────────┐${NC}"
-echo -e "${YLW}│  NVD CVE feed sync                                  │${NC}"
-echo -e "${YLW}│  First sync downloads ~200MB and takes ~5 minutes.  │${NC}"
+printf "${YLW}│%-53s│${NC}\n" "  NVD CVE database - first-time full catalog sync    "
+printf "${YLW}│%-53s│${NC}\n" "  First run: full NVD CVE catalog import (~1+ GB).   "
+printf "${YLW}│%-53s│${NC}\n" "  Download is large; plan hours without an API key.  "
+printf "${YLW}│%-53s│${NC}\n" "  With NVD API key: often ~20-60+ minutes instead.   "
+printf "${YLW}│%-53s│${NC}\n" "  Add key in Settings (README: NVD Database Setup).  "
 echo -e "${YLW}└─────────────────────────────────────────────────────┘${NC}"
 read -rp "Run NVD sync now? [y/N] " run_nvd
 if [[ "${run_nvd,,}" == "y" ]]; then
-    info "Running NVD sync (this may take a while)…"
+    info "Running NVD full sync (often 20+ min with API key; much longer without)…"
     sudo -u "$APP_USER" "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/sync_nvd.py" && \
         ok "NVD sync complete" || warn "NVD sync encountered errors — retry with: sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py"
 else

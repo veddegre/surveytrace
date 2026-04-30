@@ -211,10 +211,13 @@ NIST offers a free API key for the public CVE API; it raises rate limits so `syn
 
 `daemon/sync_nvd.py` resolves the key in this order: **`NVD_API_KEY` env → Settings (database)**. Cron jobs run as `surveytrace` typically see only the DB key unless you export `NVD_API_KEY` in the crontab or wrapper script.
 
+**`setup.sh`** asks for an optional key (hidden input) before the first-sync prompt and stores it in `config` the same way as the web UI.
+
 ### Initial sync and cron
 
 ```bash
-# Initial download (~1GB, 5-10 minutes)
+# Initial full sync: large transfer + SQLite build (~1+ GB on disk).
+# With NVD_API_KEY: often tens of minutes; without a key: commonly multi-hour.
 sudo -u surveytrace /opt/surveytrace/venv/bin/python3 \
     /opt/surveytrace/daemon/sync_nvd.py
 
