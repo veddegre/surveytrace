@@ -6,6 +6,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
+function st_collector_require_post(): void {
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    if ($method !== 'POST') {
+        st_json(['error' => "Method $method not allowed"], 405);
+    }
+}
+
 function st_collector_bootstrap_schema(): void {
     $db = st_db();
     $db->exec(

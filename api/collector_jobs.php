@@ -4,7 +4,7 @@
  */
 require_once __DIR__ . '/lib_collectors.php';
 
-st_method('POST');
+st_collector_require_post();
 st_collector_bootstrap_schema();
 $auth = st_collector_auth_required('collector:jobs:read');
 $collectorId = (int)$auth['collector_id'];
