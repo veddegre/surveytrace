@@ -1489,19 +1489,8 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
 # - AI runtime: reachable
 # - AI models: includes phi3:mini
 
-# Update Ollama binary (Linux script re-run is safe)
-curl -fsSL https://ollama.com/install.sh | sh
-sudo systemctl restart ollama || true
-
-# Update model to latest tag contents
-ollama pull phi3:mini
-
-# Optional: remove unused/old local models (review first)
-ollama list
-ollama rm <old-model-tag>
-
-# Optional: prune unreferenced blobs to reclaim disk
-ollama prune -f</pre>
+# Updates, model refresh, and disk cleanup are documented in README.md
+# (not here — avoid pasting a second install.sh run by mistake).</pre>
     <div class="row-end mt10">
       <button class="tbtn" type="button" onclick="copyAiInstallHelp()">Copy commands</button>
       <button class="btnp" type="button" onclick="closeAiInstallHelpModal()">Close</button>

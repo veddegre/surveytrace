@@ -63,6 +63,38 @@ Suggested AI settings for lower-end systems:
 - `ai_max_hosts_per_scan=20` (`/24`) or `60` (multi-`/24` batch host)
 - `ai_ambiguous_only=true`
 
+### Ollama updates and maintenance (server shell)
+
+**Note:** Detailed operator runbooks are expected to move to a project **wiki** when it exists; README and in-app copy will link there.
+
+The **Settings → AI → View full Ubuntu setup** modal only includes **first-time** install and smoke tests so a full copy-paste does not run the installer twice. Use the commands below when you intentionally want to upgrade or tidy the host.
+
+**Upgrade Ollama** (re-running the official install script on Linux is supported upstream):
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl restart ollama || true
+```
+
+**Refresh a model** to the latest blobs for that tag (example: default SurveyTrace model):
+
+```bash
+ollama pull phi3:mini
+```
+
+**Optional — remove old local models** (replace the tag after checking `ollama list`):
+
+```bash
+ollama list
+ollama rm <old-model-tag>
+```
+
+**Optional — reclaim disk** from unreferenced model data (irreversible; review what you still need):
+
+```bash
+ollama prune -f
+```
+
 ## Quick Start
 
 ```bash
