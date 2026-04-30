@@ -24,7 +24,7 @@ APP_USER="surveytrace"
 WEB_GROUP="www-data"
 PHP_MIN_VER="8.1"
 PYTHON_MIN_VER="3.10"
-WEB_SERVER=""   # leave blank to auto-detect (nginx preferred over apache)
+WEB_SERVER=""   # leave blank to auto-detect (Apache preferred; nginx if already present)
 
 # ---- Source dir (directory containing this script) -------------------------
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +54,7 @@ REQUIRED_PKGS=(
     php-sqlite3
     php-json
     php-mbstring
+    php-fpm
     # Build deps for scapy / python packages
     libssl-dev
     libffi-dev
@@ -67,9 +68,9 @@ REQUIRED_PKGS=(
 )
 
 OPTIONAL_PKGS=(
-    nginx           # preferred web server
-    apache2         # fallback
+    apache2         # default stack with setup.sh auto-install
     libapache2-mod-php
+    nginx           # optional alternative if you configure it manually
     tcpdump         # passive sniff fallback
     avahi-utils     # mDNS hostname resolution (avahi-resolve)
     avahi-daemon    # mDNS/Bonjour daemon
@@ -80,26 +81,32 @@ apt-get install -y --no-install-recommends "${REQUIRED_PKGS[@]}" || \
     die "Failed to install required packages"
 ok "Required packages installed"
 
-# ---- Detect / install web server -------------------------------------------
-if command -v nginx &>/dev/null; then
-    WEB_SERVER="nginx"
-    ok "nginx already present"
-elif command -v apache2 &>/dev/null; then
-    WEB_SERVER="apache2"
-    ok "apache2 already present"
-else
-    info "Installing nginx…"
-    apt-get install -y --no-install-recommends nginx
-    WEB_SERVER="nginx"
-    ok "nginx installed"
-fi
-
-# ---- PHP version check ------------------------------------------------------
+# ---- PHP version check (before web server: fresh Apache needs mod_php version) --
 PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "0.0")
 if awk "BEGIN{exit !($PHP_VER >= $PHP_MIN_VER)}"; then
     ok "PHP $PHP_VER found (>= $PHP_MIN_VER required)"
 else
     die "PHP $PHP_VER found but $PHP_MIN_VER+ required. Install php$PHP_MIN_VER from ppa:ondrej/php"
+fi
+
+# ---- Detect / install web server (Apache first; nginx only if already installed) --
+if command -v apache2 &>/dev/null; then
+    WEB_SERVER="apache2"
+    ok "apache2 already present"
+elif command -v nginx &>/dev/null; then
+    WEB_SERVER="nginx"
+    ok "nginx already present (no apache2 on host — using nginx)"
+else
+    info "Installing apache2 + mod_php…"
+    if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
+        apt-get install -y --no-install-recommends apache2 "libapache2-mod-php${PHP_VER}" \
+            || die "Failed to install apache2 / libapache2-mod-php${PHP_VER}"
+    else
+        apt-get install -y --no-install-recommends apache2 libapache2-mod-php \
+            || die "Failed to install apache2 / libapache2-mod-php"
+    fi
+    WEB_SERVER="apache2"
+    ok "apache2 + mod_php installed"
 fi
 
 # ---- Python version check ---------------------------------------------------
@@ -283,6 +290,10 @@ install_service "surveytrace-scheduler"
 WEBROOT="$INSTALL_DIR/public"
 
 if [[ "$WEB_SERVER" == "nginx" ]]; then
+    # nginx matches the first regex location in file order; a generic "~ \.php$"
+    # must NOT win for /api/*.php or PHP is looked up under DocumentRoot/public and
+    # raw source or 404 can result. Nested "location /api/" + fastcgi-php.conf try_files
+    # also breaks with alias — use an explicit API regex before the generic PHP block.
     NGINX_CONF="/etc/nginx/sites-available/surveytrace"
     cat > "$NGINX_CONF" <<NGINX
 server {
@@ -294,22 +305,22 @@ server {
     # Block direct access to sensitive dirs
     location ~ ^/(data|sql|daemon|venv)/ { deny all; }
 
-    # PHP-FPM
+    # API PHP — must precede generic "~ \.php\$" (do not use fastcgi-php.conf here:
+    # its try_files is wrong for alias-style paths outside root).
+    location ~ ^/api/(.+\.php)\$ {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/api/\$1;
+        fastcgi_pass unix:/run/php/php${PHP_VER}-fpm.sock;
+    }
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
     location ~ \.php\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php${PHP_VER}-fpm.sock;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-    }
-
-    # API endpoints live one level up from webroot
-    location /api/ {
-        alias $INSTALL_DIR/api/;
-        try_files \$uri \$uri/ =404;
-        location ~ \.php\$ {
-            include snippets/fastcgi-php.conf;
-            fastcgi_pass unix:/run/php/php${PHP_VER}-fpm.sock;
-            fastcgi_param SCRIPT_FILENAME $INSTALL_DIR/api\$fastcgi_script_name;
-        }
     }
 
     access_log /var/log/nginx/surveytrace_access.log;
@@ -334,7 +345,16 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         fi
     fi
     mkdir -p /etc/apache2/sites-available
-    a2enmod rewrite php${PHP_VER} 2>/dev/null || true
+    # Minimal/cloud images often have apache2 without mod_php — then .php is served as plain text.
+    if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
+        apt-get install -y --no-install-recommends "libapache2-mod-php${PHP_VER}" \
+            || warn "Could not install libapache2-mod-php${PHP_VER} — PHP may not execute"
+    else
+        apt-get install -y --no-install-recommends libapache2-mod-php \
+            || warn "Could not install libapache2-mod-php — PHP may not execute"
+    fi
+    a2enmod rewrite 2>/dev/null || true
+    a2enmod "php${PHP_VER}" 2>/dev/null || a2enmod php 2>/dev/null || true
     APACHE_CONF="/etc/apache2/sites-available/surveytrace.conf"
     cat > "$APACHE_CONF" <<APACHE
 <VirtualHost *:80>
@@ -346,12 +366,18 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         Options -Indexes
         AllowOverride None
         Require all granted
+        <FilesMatch "\.php\$">
+            SetHandler application/x-httpd-php
+        </FilesMatch>
     </Directory>
 
     <Directory $WEBROOT>
         Options -Indexes
         AllowOverride All
         Require all granted
+        <FilesMatch "\.php\$">
+            SetHandler application/x-httpd-php
+        </FilesMatch>
     </Directory>
 
     # Block sensitive dirs
@@ -469,12 +495,14 @@ read -rsp "Password: " UI_PASS
 echo ""
 
 if [[ -n "$UI_PASS" ]]; then
-    HASH=$(php -r "echo password_hash('$UI_PASS', PASSWORD_BCRYPT);")
+    # Pass password via env — embedding \$UI_PASS in php -r breaks on quotes, \$, etc.
+    HASH=$(UI_PASS="$UI_PASS" php -r '$p = getenv("UI_PASS"); echo password_hash($p, PASSWORD_BCRYPT);')
     sqlite3 "$DB_FILE" "UPDATE config SET value='$HASH' WHERE key='auth_hash';"
     ok "Web UI password set"
 else
     warn "No password set — UI is open. Set one via:"
-    echo "  sqlite3 $DB_FILE \"UPDATE config SET value='\$(php -r \"echo password_hash('YOURPASS',PASSWORD_BCRYPT);\")' WHERE key='auth_hash';\""
+    echo "  HASH=\$(UI_PASS='YOURPASS' php -r '\$p = getenv(\"UI_PASS\"); echo password_hash(\$p, PASSWORD_BCRYPT);')"
+    echo "  sqlite3 $DB_FILE \"UPDATE config SET value='\$HASH' WHERE key='auth_hash';\""
 fi
 
 # =============================================================================

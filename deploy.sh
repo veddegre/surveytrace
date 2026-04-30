@@ -15,6 +15,7 @@ echo "Deploying SurveyTrace from $SRC to $DEST..."
 # ---------------------------------------------------------------------------
 API_FILES=(
   db.php
+  lib_ai_cloud.php
   ai_actions.php
   assets.php
   findings.php
@@ -58,6 +59,7 @@ echo "  Web UI deployed"
 DAEMON_CORE=(
   scanner_daemon.py
   scheduler_daemon.py
+  ai_cloud_client.py
   fingerprint.py
   profiles.py
 )
@@ -189,7 +191,9 @@ check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
 check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"
+check_file "$DEST/api/lib_ai_cloud.php" "lib_ai_cloud (cloud AI)"
 check_file "$DEST/api/ai_actions.php" "ai_actions API"
+check_file "$DEST/daemon/ai_cloud_client.py" "ai_cloud_client (scanner cloud AI)"
 check_file "$DEST/daemon/feed_sync_worker.php" "feed_sync_worker (UI sync)"
 check_file "$DEST/daemon/feed_sync_cancel.py" "feed_sync_cancel"
 check_file "$DEST/daemon/sync_nvd.py" "sync_nvd.py"

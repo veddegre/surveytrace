@@ -464,7 +464,8 @@ try {
     // leave defaults
 }
 
-if ((string)$health['ai']['provider'] === 'ollama') {
+$aiProvHealth = (string)$health['ai']['provider'];
+if ($aiProvHealth === 'ollama') {
     $health['ai']['installed'] = st_health_cmd_available('ollama');
     $apiModels = [];
     $tagsUrl = 'http://127.0.0.1:11434/api/tags';
@@ -535,6 +536,21 @@ if ((string)$health['ai']['provider'] === 'ollama') {
         }
     } else {
         $health['ai']['detail'] = 'ollama not installed';
+    }
+} elseif (in_array($aiProvHealth, ['openai', 'anthropic', 'google', 'openwebui'], true)) {
+    require_once __DIR__ . '/lib_ai_cloud.php';
+    $health['ai']['installed'] = true;
+    $cloudOk = st_ai_cloud_provider_ready($aiProvHealth);
+    $health['ai']['running'] = $cloudOk;
+    $health['ai']['models'] = [];
+    if ($cloudOk) {
+        $health['ai']['detail'] = $aiProvHealth === 'openwebui'
+            ? 'Open WebUI: base URL and API key present (env or Settings)'
+            : ('Cloud AI (' . $aiProvHealth . '): API key present (env or Settings)');
+    } else {
+        $health['ai']['detail'] = $aiProvHealth === 'openwebui'
+            ? 'Open WebUI: set a valid http(s) base URL and API key (env or Settings)'
+            : ('Cloud AI (' . $aiProvHealth . '): no API key in env or Settings');
     }
 }
 

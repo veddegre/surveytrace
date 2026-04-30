@@ -29,6 +29,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
+from ai_cloud_client import _openwebui_base_ok, cloud_chat_completion
+
 # Third-party — install with pip
 try:
     import nmap
@@ -291,6 +293,11 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "ai_operator_ollama_temperature": "0.25",
         "ai_operator_ollama_num_thread": "0",
         "ai_operator_ollama_num_ctx": "0",
+        "ai_openai_api_key": "",
+        "ai_anthropic_api_key": "",
+        "ai_gemini_api_key": "",
+        "ai_openwebui_base_url": "",
+        "ai_openwebui_api_key": "",
     }
     vals = dict(defaults)
     try:
@@ -301,7 +308,9 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
                 "'ai_timeout_ms','ai_max_hosts_per_scan','ai_ambiguous_only',"
                 "'ai_suggest_only','ai_conflict_only','ai_conf_threshold','ai_conf_threshold_net_srv',"
                 "'ai_operator_ollama_num_predict','ai_operator_ollama_temperature',"
-                "'ai_operator_ollama_num_thread','ai_operator_ollama_num_ctx'"
+                "'ai_operator_ollama_num_thread','ai_operator_ollama_num_ctx',"
+                "'ai_openai_api_key','ai_anthropic_api_key','ai_gemini_api_key',"
+                "'ai_openwebui_base_url','ai_openwebui_api_key'"
                 ")"
             ).fetchall()
         for r in rows:
@@ -313,7 +322,14 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
 
     enabled = vals["ai_enrichment_enabled"] == "1"
     provider = (vals["ai_provider"] or "ollama").strip().lower()
-    model = (vals["ai_model"] or "phi3:mini").strip()
+    model = (vals.get("ai_model") or "").strip()
+    if not model:
+        model = {
+            "openai": "gpt-4o-mini",
+            "anthropic": "claude-3-5-haiku-20241022",
+            "google": "gemini-2.0-flash",
+            "openwebui": "llama3.2",
+        }.get(provider, "phi3:mini")
     try:
         timeout_ms = int(vals["ai_timeout_ms"] or "700")
     except ValueError:
@@ -338,12 +354,46 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         conf_threshold_net_srv = 0.82
     conf_threshold_net_srv = max(0.50, min(0.99, conf_threshold_net_srv))
 
+    openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip() or str(vals.get("ai_openai_api_key") or "").strip()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip() or str(vals.get("ai_anthropic_api_key") or "").strip()
+    gemini_key = (
+        (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+        or str(vals.get("ai_gemini_api_key") or "").strip()
+    )
+    openwebui_base = (
+        (os.environ.get("OPENWEBUI_BASE_URL") or "").strip().rstrip("/")
+        or str(vals.get("ai_openwebui_base_url") or "").strip().rstrip("/")
+    )
+    openwebui_key = (os.environ.get("OPENWEBUI_API_KEY") or "").strip() or str(
+        vals.get("ai_openwebui_api_key") or ""
+    ).strip()
+
     ollama_api_timeout = max(0.2, min(3.0, float(timeout_ms) / 1000.0))
     ollama_api_reachable = _ollama_api_tags(timeout_s=ollama_api_timeout) is not None
-    available = enabled and provider == "ollama" and bool(model) and ollama_api_reachable
+
     availability_reason = ""
-    if enabled and provider == "ollama" and model and not ollama_api_reachable:
-        availability_reason = "runtime_unreachable"
+    available = False
+    if not enabled:
+        availability_reason = "ai_disabled"
+    elif provider not in ("ollama", "openai", "anthropic", "google", "openwebui"):
+        availability_reason = "unsupported_provider"
+    elif provider == "ollama":
+        if not ollama_api_reachable:
+            availability_reason = "runtime_unreachable"
+        else:
+            available = True
+    elif provider == "openai" and not openai_key:
+        availability_reason = "missing_api_key"
+    elif provider == "anthropic" and not anthropic_key:
+        availability_reason = "missing_api_key"
+    elif provider == "google" and not gemini_key:
+        availability_reason = "missing_api_key"
+    elif provider == "openwebui" and not _openwebui_base_ok(openwebui_base):
+        availability_reason = "missing_or_invalid_openwebui_base_url"
+    elif provider == "openwebui" and not openwebui_key:
+        availability_reason = "missing_api_key"
+    else:
+        available = True
     try:
         num_predict = int(vals.get("ai_operator_ollama_num_predict", "768") or "768")
     except ValueError:
@@ -389,6 +439,11 @@ def _load_ai_enrichment_settings() -> dict[str, object]:
         "available": available,
         "availability_reason": availability_reason,
         "ollama_generate_options": ollama_generate_options,
+        "openai_api_key": openai_key,
+        "anthropic_api_key": anthropic_key,
+        "gemini_api_key": gemini_key,
+        "openwebui_base_url": openwebui_base,
+        "openwebui_api_key": openwebui_key,
     }
 
 
@@ -519,9 +574,37 @@ def _run_ai_enrichment_ollama(
     )
     opts = ai_cfg.get("ollama_generate_options")
     ollama_opts = opts if isinstance(opts, dict) else None
-    out, err = _run_ollama_generate(
-        model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts
-    )
+    prov = str(ai_cfg.get("provider") or "ollama").lower()
+    if prov in ("openai", "anthropic", "google", "openwebui"):
+        np = 768
+        if isinstance(ollama_opts, dict) and ollama_opts.get("num_predict"):
+            try:
+                np = int(ollama_opts["num_predict"])
+            except (TypeError, ValueError):
+                np = 768
+        temp_f = 0.25
+        if isinstance(ollama_opts, dict) and "temperature" in ollama_opts:
+            try:
+                temp_f = float(ollama_opts["temperature"])
+            except (TypeError, ValueError):
+                temp_f = 0.25
+        out, err = cloud_chat_completion(
+            prov,
+            model,
+            prompt,
+            timeout_s,
+            temp_f,
+            np,
+            str(ai_cfg.get("openai_api_key") or ""),
+            str(ai_cfg.get("anthropic_api_key") or ""),
+            str(ai_cfg.get("gemini_api_key") or ""),
+            str(ai_cfg.get("openwebui_base_url") or ""),
+            str(ai_cfg.get("openwebui_api_key") or ""),
+        )
+    else:
+        out, err = _run_ollama_generate(
+            model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts
+        )
     if err:
         return {}, err
     m = re.search(r"\{.*\}", out, re.S)
@@ -565,9 +648,37 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
     )
     opts2 = ai_cfg.get("ollama_generate_options")
     ollama_opts2 = opts2 if isinstance(opts2, dict) else None
-    out, err = _run_ollama_generate(
-        model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts2
-    )
+    prov2 = str(ai_cfg.get("provider") or "ollama").lower()
+    if prov2 in ("openai", "anthropic", "google", "openwebui"):
+        np2 = 768
+        if isinstance(ollama_opts2, dict) and ollama_opts2.get("num_predict"):
+            try:
+                np2 = int(ollama_opts2["num_predict"])
+            except (TypeError, ValueError):
+                np2 = 768
+        temp2 = 0.25
+        if isinstance(ollama_opts2, dict) and "temperature" in ollama_opts2:
+            try:
+                temp2 = float(ollama_opts2["temperature"])
+            except (TypeError, ValueError):
+                temp2 = 0.25
+        out, err = cloud_chat_completion(
+            prov2,
+            model,
+            prompt,
+            timeout_s,
+            temp2,
+            np2,
+            str(ai_cfg.get("openai_api_key") or ""),
+            str(ai_cfg.get("anthropic_api_key") or ""),
+            str(ai_cfg.get("gemini_api_key") or ""),
+            str(ai_cfg.get("openwebui_base_url") or ""),
+            str(ai_cfg.get("openwebui_api_key") or ""),
+        )
+    else:
+        out, err = _run_ollama_generate(
+            model=model, prompt=prompt, timeout_s=timeout_s, ollama_options=ollama_opts2
+        )
     if err:
         return {}, err
     m = re.search(r"\{.*\}", out, re.S)

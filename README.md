@@ -16,6 +16,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Passive discovery** — ARP sniff, mDNS/Bonjour service type detection
 - **HTTP title grabbing** — identifies self-hosted services by page title (Portainer, Grafana, Jellyfin, ~80 others)
 - **CVE correlation** — matches detected CPEs against a local NVD database (no cloud API required); optional NIST API key via **Settings** or `NVD_API_KEY` for faster NVD sync rate limits
+- **AI providers** — **Settings → Local AI**: **Ollama** (local) or **OpenAI**, **Anthropic Claude**, **Google Gemini**, or **Open WebUI** (OpenAI-compatible `POST …/api/chat/completions` on your instance). Keys and base URL live in SQLite or env: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `OPENWEBUI_BASE_URL`, `OPENWEBUI_API_KEY`. Host CVE triage, host summary, scan AI refresh, and scanner enrichment use the selected provider.
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
 - **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
 - **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful (see **Scan Profiles** below: **Deep Scan** uses a large fixed port list; **Full TCP** is the only profile that scans **all** TCP ports `-p-`)

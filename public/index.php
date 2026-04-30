@@ -1056,25 +1056,24 @@
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
       <div class="card">
-        <div class="ct">Local AI enrichment (optional)</div>
-        <div class="help-line mb8">
-          Lightweight local model for ambiguous fingerprint interpretation. Compact default:
-          <code class="code-accent">phi3:mini</code> (runs on lower-end hardware via Ollama).
-        </div>
-        <div class="help-line mb8 text-dim" style="font-size:12px">
-          Sizing guide:
-          <strong>/24 homelab</strong> → 4 vCPU / 8-12 GB RAM / 64+ GB disk ·
-          <strong>multi-/24 batches</strong> → 6-8 vCPU / 12-16 GB RAM / 80+ GB disk.
-          Keep scans split by /24 and run sequentially for best stability on smaller hosts.
-        </div>
-        <div class="help-mono mb8" id="st-ai-runtime-status">Runtime: checking…</div>
-        <div class="help-mono mb10" id="st-ai-models-status">Models: —</div>
-        <div class="help-line mb10 hide" id="st-ai-update-status" style="font-size:12px;line-height:1.45"></div>
-        <div class="help-line mb10 hide" id="st-ai-install-hint" style="font-size:12px;line-height:1.45">
-          Ollama is not installed on this server.
-          Run on the SurveyTrace host shell:
-          <code class="code-accent" id="st-ai-install-cmd">curl -fsSL https://ollama.com/install.sh | sh</code>
-          <button type="button" class="tbtn btn-xs" onclick="openAiInstallHelpModal()">View full Ubuntu setup/tests</button>
+        <div class="ct" id="st-ai-section-title">AI enrichment (optional)</div>
+        <div id="st-ai-provider-blurb" class="help-line mb8 text-dim" style="font-size:13px;line-height:1.5"></div>
+        <div class="st-ai-ollama-only">
+          <div class="help-line mb8 text-dim" style="font-size:12px">
+            Sizing guide:
+            <strong>/24 homelab</strong> → 4 vCPU / 8-12 GB RAM / 64+ GB disk ·
+            <strong>multi-/24 batches</strong> → 6-8 vCPU / 12-16 GB RAM / 80+ GB disk.
+            Keep scans split by /24 and run sequentially for best stability on smaller hosts.
+          </div>
+          <div class="help-mono mb8" id="st-ai-runtime-status">Runtime: checking…</div>
+          <div class="help-mono mb10" id="st-ai-models-status">Models: —</div>
+          <div class="help-line mb10 hide" id="st-ai-update-status" style="font-size:12px;line-height:1.45"></div>
+          <div class="help-line mb10 hide" id="st-ai-install-hint" style="font-size:12px;line-height:1.45">
+            Ollama is not installed on this server.
+            Run on the SurveyTrace host shell:
+            <code class="code-accent" id="st-ai-install-cmd">curl -fsSL https://ollama.com/install.sh | sh</code>
+            <button type="button" class="tbtn btn-xs" onclick="openAiInstallHelpModal()">View full Ubuntu setup/tests</button>
+          </div>
         </div>
 
         <div class="row-wrap gap6 mb6">
@@ -1083,13 +1082,48 @@
         </div>
         <div class="row-wrap gap6 mb6">
           <label class="flbl" style="min-width:130px">Provider</label>
-          <select class="finp" id="st-ai-provider" style="min-width:170px">
-            <option value="ollama">ollama (local)</option>
+          <select class="finp" id="st-ai-provider" style="min-width:190px" onchange="syncAiProviderUi()">
+            <option value="ollama">Ollama (local)</option>
+            <option value="openai">OpenAI (API)</option>
+            <option value="anthropic">Anthropic Claude (API)</option>
+            <option value="google">Google Gemini (API)</option>
+            <option value="openwebui">Open WebUI (API)</option>
           </select>
         </div>
-        <div class="row-wrap gap6 mb6">
-          <label class="flbl" style="min-width:130px">Model tag</label>
+        <div class="row-wrap gap6 mb4">
+          <label class="flbl" style="min-width:130px" id="st-ai-model-label">Model tag</label>
           <input class="finp" id="st-ai-model" style="min-width:190px" placeholder="phi3:mini">
+        </div>
+        <p class="text-micro text-dim mb6" id="st-ai-model-desc" style="margin:0 0 8px 0;max-width:640px"></p>
+        <p class="text-micro text-dim mb6 hide" id="st-ai-env-hint" style="max-width:640px;margin-top:0"></p>
+        <div class="row-wrap gap6 mb6 st-ai-cred-row hide" data-show-for="openwebui">
+          <label class="flbl" style="min-width:130px">Open WebUI base URL</label>
+          <input class="finp" type="url" id="st-ai-openwebui-base" style="min-width:200px;flex:1" autocomplete="off" placeholder="http://127.0.0.1:3000" title="Open WebUI server origin (uses POST …/api/chat/completions)">
+          <span class="text-micro text-dim" id="st-ai-openwebui-base-hint">http(s) only</span>
+        </div>
+        <div class="row-wrap gap6 mb6 st-ai-cred-row hide" data-show-for="openai">
+          <label class="flbl" style="min-width:130px">OpenAI key</label>
+          <input class="finp" type="password" id="st-ai-openai-key" style="min-width:200px;flex:1" autocomplete="new-password" placeholder="sk-… (paste to save)">
+          <button type="button" class="tbtn btn-xs" onclick="clearAiCloudKey('openai')">Remove</button>
+          <span class="text-micro text-dim" id="st-ai-openai-key-st"></span>
+        </div>
+        <div class="row-wrap gap6 mb6 st-ai-cred-row hide" data-show-for="anthropic">
+          <label class="flbl" style="min-width:130px">Anthropic key</label>
+          <input class="finp" type="password" id="st-ai-anthropic-key" style="min-width:200px;flex:1" autocomplete="new-password" placeholder="sk-ant-… (paste to save)">
+          <button type="button" class="tbtn btn-xs" onclick="clearAiCloudKey('anthropic')">Remove</button>
+          <span class="text-micro text-dim" id="st-ai-anthropic-key-st"></span>
+        </div>
+        <div class="row-wrap gap6 mb6 st-ai-cred-row hide" data-show-for="google">
+          <label class="flbl" style="min-width:130px">Gemini key</label>
+          <input class="finp" type="password" id="st-ai-gemini-key" style="min-width:200px;flex:1" autocomplete="new-password" placeholder="Google AI Studio key (paste to save)">
+          <button type="button" class="tbtn btn-xs" onclick="clearAiCloudKey('gemini')">Remove</button>
+          <span class="text-micro text-dim" id="st-ai-gemini-key-st"></span>
+        </div>
+        <div class="row-wrap gap6 mb8 st-ai-cred-row hide" data-show-for="openwebui">
+          <label class="flbl" style="min-width:130px">Open WebUI key</label>
+          <input class="finp" type="password" id="st-ai-openwebui-key" style="min-width:200px;flex:1" autocomplete="new-password" placeholder="Bearer API key (paste to save)">
+          <button type="button" class="tbtn btn-xs" onclick="clearAiCloudKey('openwebui')">Remove</button>
+          <span class="text-micro text-dim" id="st-ai-openwebui-key-st"></span>
         </div>
         <div class="row-wrap gap8 mb8">
           <div class="row-wrap gap6" style="flex-wrap:nowrap">
@@ -1103,34 +1137,36 @@
         </div>
         <div class="row-wrap gap6 mb8">
           <label class="flbl" style="min-width:130px">Operator AI wait (s)</label>
-          <input class="finp" type="number" id="st-ai-operator-timeout-s" min="120" max="3600" step="30" style="width:90px" value="900" title="Max seconds for one Ollama generate call from the UI (host summary, scan AI refresh). Raise if you see curl timeout 28.">
-          <span class="text-micro text-dim" style="max-width:420px">Host panel / scan summary calls Ollama with this wall clock (curl <code class="code-accent">-m</code>). Default 900. If you still see <code class="code-accent">180</code> timeouts, redeploy <code class="code-accent">api/db.php</code> + <code class="code-accent">api/ai_actions.php</code> or save this setting once.</span>
+          <input class="finp" type="number" id="st-ai-operator-timeout-s" min="120" max="3600" step="30" style="width:90px" value="900" title="Max seconds for one model generate call from the UI (host summary, scan AI refresh). Raise if you see curl timeout 28.">
+          <span class="text-micro text-dim" id="st-ai-operator-wait-hint" style="max-width:420px"></span>
         </div>
         <div class="row-wrap gap8 mb8">
           <div class="row-wrap gap6" style="flex-wrap:nowrap">
-            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" title="Ollama num_predict: max tokens to generate. Lower is faster; 0 = model default (uncapped).">Max gen tokens</label>
+            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" id="st-ai-lbl-num-predict" title="Ollama num_predict: max tokens to generate. Lower is faster; 0 = model default (uncapped).">Max gen tokens</label>
             <input class="finp" type="number" id="st-ai-ollama-num-predict" min="0" max="8192" step="64" style="width:90px" value="768">
           </div>
           <div class="row-wrap gap6" style="flex-wrap:nowrap">
-            <label class="text-micro" style="min-width:56px;color:var(--tx);font-weight:600">Temp</label>
+            <label class="text-micro" style="min-width:56px;color:var(--tx);font-weight:600" id="st-ai-lbl-temp">Temp</label>
             <input class="finp" type="number" id="st-ai-ollama-temperature" min="0" max="2" step="0.05" style="width:72px" value="0.25" title="Ollama temperature (0–2)">
           </div>
           <div class="row-wrap gap6" style="flex-wrap:nowrap">
-            <label class="text-micro" style="min-width:92px;color:var(--tx);font-weight:600" title="Host AI: how many banner/title lines to include (smaller prompt = faster).">Banner lines</label>
+            <label class="text-micro" style="min-width:92px;color:var(--tx);font-weight:600" id="st-ai-lbl-banner" title="Host AI: how many banner/title lines to include (smaller prompt = faster).">Banner lines</label>
             <input class="finp" type="number" id="st-ai-banner-max-lines" min="12" max="200" step="4" style="width:72px" value="72">
           </div>
         </div>
-        <div class="row-wrap gap8 mb8">
-          <div class="row-wrap gap6" style="flex-wrap:nowrap">
-            <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" title="Ollama num_thread. Set to your vCPU count on small VMs (e.g. 2). 0 = Ollama default.">CPU threads</label>
-            <input class="finp" type="number" id="st-ai-ollama-num-thread" min="0" max="256" step="1" style="width:72px" value="0">
-          </div>
-          <div class="row-wrap gap6" style="flex-wrap:nowrap">
-            <label class="text-micro" style="min-width:72px;color:var(--tx);font-weight:600" title="Ollama num_ctx. Lower = faster CPU prefill; if too small, long host prompts truncate and JSON may fail. 0 = model default.">Ctx tokens</label>
-            <input class="finp" type="number" id="st-ai-ollama-num-ctx" min="0" max="131072" step="512" style="width:90px" value="0">
+        <p class="text-micro text-dim mb8" id="st-ai-gen-tuning-hint" style="margin:0;max-width:640px"></p>
+        <div class="st-ai-ollama-only">
+          <div class="row-wrap gap8 mb8">
+            <div class="row-wrap gap6" style="flex-wrap:nowrap">
+              <label class="text-micro" style="min-width:130px;color:var(--tx);font-weight:600" title="Ollama num_thread. Set to your vCPU count on small VMs (e.g. 2). 0 = Ollama default.">CPU threads</label>
+              <input class="finp" type="number" id="st-ai-ollama-num-thread" min="0" max="256" step="1" style="width:72px" value="0">
+            </div>
+            <div class="row-wrap gap6" style="flex-wrap:nowrap">
+              <label class="text-micro" style="min-width:72px;color:var(--tx);font-weight:600" title="Ollama num_ctx. Lower = faster CPU prefill; if too small, long host prompts truncate and JSON may fail. 0 = model default.">Ctx tokens</label>
+              <input class="finp" type="number" id="st-ai-ollama-num-ctx" min="0" max="131072" step="512" style="width:90px" value="0">
+            </div>
           </div>
         </div>
-        <p class="text-micro text-dim mb8" style="margin:0;max-width:640px">Speed: smaller model, lower max gen tokens, fewer banner lines, optional lower context (ctx) on CPU-only hosts. Match CPU threads to vCPUs (e.g. 2). Timeout only raises the ceiling; it does not make inference faster.</p>
         <div class="row-wrap gap6 mb10">
           <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
             <input type="checkbox" id="st-ai-ambiguous-only" checked>
@@ -1159,14 +1195,16 @@
             <input class="finp" type="number" id="st-ai-conf-threshold-netsrv" min="0.50" max="0.99" step="0.01" style="width:90px" value="0.82">
           </div>
         </div>
-        <div class="row-wrap gap6 mb8">
+        <div class="row-wrap gap6 mb8 st-ai-ollama-only">
           <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('homelab_24')">Preset: /24 homelab</button>
           <button type="button" class="tbtn btn-xs" onclick="applyAiPreset('batch_multi_24')">Preset: multi-/24 batch</button>
         </div>
         <div class="row-wrap gap6">
           <button type="button" class="tbtn btn-xs" onclick="saveAiEnrichmentSettings()">Save AI settings</button>
-          <button type="button" class="tbtn btn-xs" id="btn-ai-install-ollama" onclick="installOllamaRuntime()">Start/check Ollama</button>
-          <button type="button" class="tbtn btn-xs" id="btn-ai-check-updates" onclick="checkAiUpdates()">Check updates</button>
+          <div class="row-wrap gap6 st-ai-ollama-only">
+            <button type="button" class="tbtn btn-xs" id="btn-ai-install-ollama" onclick="installOllamaRuntime()">Start/check Ollama</button>
+            <button type="button" class="tbtn btn-xs" id="btn-ai-check-updates" onclick="checkAiUpdates()">Check updates</button>
+          </div>
         </div>
       </div>
     </div>
@@ -4750,7 +4788,28 @@ async function loadUiSettings() {
     const aiEnabled = document.getElementById('st-ai-enabled');
     if (aiEnabled) aiEnabled.checked = !!d.ai_enrichment_enabled;
     const aiProvider = document.getElementById('st-ai-provider');
-    if (aiProvider) aiProvider.value = String(d.ai_provider || 'ollama');
+    if (aiProvider) {
+        const pv = String(d.ai_provider || 'ollama').toLowerCase();
+        aiProvider.value = ['ollama', 'openai', 'anthropic', 'google', 'openwebui'].includes(pv) ? pv : 'ollama';
+    }
+    const stOai = document.getElementById('st-ai-openai-key-st');
+    if (stOai) stOai.textContent = d.ai_openai_key_configured ? 'configured (env or saved)' : 'not set';
+    const stAnt = document.getElementById('st-ai-anthropic-key-st');
+    if (stAnt) stAnt.textContent = d.ai_anthropic_key_configured ? 'configured (env or saved)' : 'not set';
+    const stGem = document.getElementById('st-ai-gemini-key-st');
+    if (stGem) stGem.textContent = d.ai_gemini_key_configured ? 'configured (env or saved)' : 'not set';
+    const stOw = document.getElementById('st-ai-openwebui-key-st');
+    if (stOw) stOw.textContent = d.ai_openwebui_key_configured ? 'configured (env or saved)' : 'not set';
+    const owBase = document.getElementById('st-ai-openwebui-base');
+    if (owBase) owBase.value = String(d.ai_openwebui_base_url || '');
+    const oaiK = document.getElementById('st-ai-openai-key');
+    if (oaiK) oaiK.value = '';
+    const antK = document.getElementById('st-ai-anthropic-key');
+    if (antK) antK.value = '';
+    const gemK = document.getElementById('st-ai-gemini-key');
+    if (gemK) gemK.value = '';
+    const owK = document.getElementById('st-ai-openwebui-key');
+    if (owK) owK.value = '';
     const aiModel = document.getElementById('st-ai-model');
     if (aiModel) aiModel.value = String(d.ai_model || 'phi3:mini');
     const aiTimeout = document.getElementById('st-ai-timeout-ms');
@@ -4825,6 +4884,7 @@ async function loadUiSettings() {
     }
     const installBtn = document.getElementById('btn-ai-install-ollama');
     if (installBtn) installBtn.style.display = aiRuntime.installed ? 'none' : '';
+    syncAiProviderUi();
     updateScanHistoryViewButtons();
     await loadAuthUsers();
     updateMfaActionButtons();
@@ -5595,6 +5655,131 @@ async function runDbBackupNow() {
     }
 }
 
+function updateAiModelPlaceholderForProvider() {
+    const sel = document.getElementById('st-ai-provider');
+    const mod = document.getElementById('st-ai-model');
+    if (!sel || !mod) return;
+    const ph = {
+        ollama: 'phi3:mini',
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-5-haiku-20241022',
+        google: 'gemini-2.0-flash',
+        openwebui: 'llama3.2',
+    }[sel.value] || 'phi3:mini';
+    mod.placeholder = ph;
+}
+
+function syncAiProviderUi() {
+    updateAiModelPlaceholderForProvider();
+    const sel = document.getElementById('st-ai-provider');
+    const p = String(sel && sel.value ? sel.value : 'ollama').toLowerCase();
+    const isOllama = p === 'ollama';
+    document.querySelectorAll('.st-ai-ollama-only').forEach((el) => {
+        el.classList.toggle('hide', !isOllama);
+    });
+    document.querySelectorAll('.st-ai-cred-row').forEach((el) => {
+        const forAttr = (el.getAttribute('data-show-for') || '').trim();
+        const show = !isOllama && forAttr === p;
+        el.classList.toggle('hide', !show);
+    });
+    const blurbs = {
+        ollama: 'Runs on this SurveyTrace host via Ollama. Install Ollama on the server, pull a compact model (see the placeholder under Model), then enable enrichment. Host summary, CVE triage, scan AI refresh, and scanner enrichment all use this provider.',
+        openai: 'Calls OpenAI from this server using the Chat Completions API. Use a model id your API key can access. The same provider is used for operator actions in the UI and for scanner enrichment on the daemon host.',
+        anthropic: 'Calls the Anthropic Messages API (Claude). The model id must be a Claude model enabled for your key. Used for UI operator AI and scanner enrichment.',
+        google: 'Calls Google Gemini generateContent. Create an API key in Google AI Studio and choose a model id your project allows. Used for UI operator AI and scanner enrichment.',
+        openwebui: 'Calls your Open WebUI instance at POST /api/chat/completions (OpenAI-compatible). Set the base URL to the site origin only (e.g. http://127.0.0.1:3000 — no path). Add an API key from Open WebUI settings; the model id must match a model that server exposes (often the same string as the backing Ollama model).',
+    };
+    const blurb = document.getElementById('st-ai-provider-blurb');
+    if (blurb) blurb.textContent = blurbs[p] || blurbs.ollama;
+    const sec = document.getElementById('st-ai-section-title');
+    if (sec) {
+        const titles = {
+            ollama: 'AI enrichment — Ollama (local)',
+            openai: 'AI enrichment — OpenAI',
+            anthropic: 'AI enrichment — Anthropic Claude',
+            google: 'AI enrichment — Google Gemini',
+            openwebui: 'AI enrichment — Open WebUI',
+        };
+        sec.textContent = titles[p] || titles.ollama;
+    }
+    const ml = document.getElementById('st-ai-model-label');
+    if (ml) ml.textContent = isOllama ? 'Model tag' : 'Model id';
+    const modelDesc = {
+        ollama: 'Same string as in ollama list (e.g. phi3:mini).',
+        openai: 'Exact OpenAI model name (e.g. gpt-4o-mini).',
+        anthropic: 'Exact Anthropic model id (e.g. claude-3-5-haiku-20241022).',
+        google: 'Exact Gemini model id (e.g. gemini-2.0-flash).',
+        openwebui: 'Model id as shown in Open WebUI (often matches the underlying Ollama tag, e.g. llama3.2).',
+    };
+    const md = document.getElementById('st-ai-model-desc');
+    if (md) md.textContent = modelDesc[p] || modelDesc.ollama;
+    const envHint = document.getElementById('st-ai-env-hint');
+    const envLines = {
+        openai: 'Optional: paste a key below, or set OPENAI_API_KEY on the server (environment overrides the database).',
+        anthropic: 'Optional: paste a key below, or set ANTHROPIC_API_KEY on the server (environment overrides the database).',
+        google: 'Optional: paste a key below, or set GEMINI_API_KEY or GOOGLE_API_KEY on the server (environment overrides the database).',
+        openwebui: 'Optional: paste a key below, or set OPENWEBUI_API_KEY. Base URL can be set here or via OPENWEBUI_BASE_URL (environment overrides the database).',
+    };
+    if (envHint) {
+        if (isOllama) {
+            envHint.classList.add('hide');
+            envHint.textContent = '';
+        } else {
+            envHint.classList.remove('hide');
+            envHint.textContent = envLines[p] || '';
+        }
+    }
+    const genHint = document.getElementById('st-ai-gen-tuning-hint');
+    if (genHint) {
+        genHint.textContent = isOllama
+            ? 'On Ollama: lower max gen tokens and fewer banner lines speed up CPU inference. Ctx and CPU threads affect prompt prefill; 0 ctx uses the model default. Raising operator wait only increases the timeout ceiling.'
+            : 'Max gen tokens and temperature are sent to the cloud API for scanner enrichment and related calls. Banner lines limit how much banner text is included in host prompts (smaller is faster and cheaper).';
+    }
+    const lp = document.getElementById('st-ai-lbl-num-predict');
+    if (lp) {
+        lp.textContent = isOllama ? 'Max gen tokens' : 'Max out tokens';
+        lp.title = isOllama
+            ? 'Ollama num_predict: max tokens to generate. Lower is faster; 0 = model default (uncapped).'
+            : 'Maximum completion tokens sent to the cloud API (scanner and UI).';
+    }
+    const lt = document.getElementById('st-ai-lbl-temp');
+    if (lt) {
+        lt.title = isOllama
+            ? 'Ollama temperature (0–2).'
+            : 'Sampling temperature for cloud chat requests (0–2).';
+    }
+    const lb = document.getElementById('st-ai-lbl-banner');
+    if (lb) {
+        lb.title = isOllama
+            ? 'Host AI: how many banner/title lines to include (smaller prompt = faster).'
+            : 'Caps banner lines embedded in host prompts for operator and scanner AI.';
+    }
+    const opHint = document.getElementById('st-ai-operator-wait-hint');
+    if (opHint) {
+        opHint.textContent = isOllama
+            ? 'Host panel and scan summary use this as the PHP/curl wall clock for Ollama (curl -m). Default 900. If you still see 180s, redeploy PHP and save this setting once.'
+            : 'Host panel and scan summary use this as the PHP/curl wall clock for cloud HTTP. Increase for slow models or long scan summaries. Default 900.';
+    }
+}
+
+async function clearAiCloudKey(which) {
+    const map = {
+        openai: 'ai_openai_api_key_remove',
+        anthropic: 'ai_anthropic_api_key_remove',
+        gemini: 'ai_gemini_api_key_remove',
+        openwebui: 'ai_openwebui_api_key_remove',
+    };
+    const k = map[which];
+    if (!k) return;
+    const r = await apiPost('/api/settings.php', { [k]: true });
+    if (r && r.ok) {
+        toast('API key cleared', 'ok');
+        await loadUiSettings();
+    } else {
+        toast((r && r.error) ? r.error : 'Remove failed', 'err');
+    }
+}
+
 async function saveAiEnrichmentSettings() {
     const body = {
         ai_enrichment_enabled: !!document.getElementById('st-ai-enabled')?.checked,
@@ -5614,6 +5799,19 @@ async function saveAiEnrichmentSettings() {
         ai_conf_threshold: Number(document.getElementById('st-ai-conf-threshold')?.value || 0.72),
         ai_conf_threshold_net_srv: Number(document.getElementById('st-ai-conf-threshold-netsrv')?.value || 0.82),
     };
+    const oaiKv = (document.getElementById('st-ai-openai-key')?.value || '').trim();
+    if (oaiKv) body.ai_openai_api_key = oaiKv;
+    const antKv = (document.getElementById('st-ai-anthropic-key')?.value || '').trim();
+    if (antKv) body.ai_anthropic_api_key = antKv;
+    const gemKv = (document.getElementById('st-ai-gemini-key')?.value || '').trim();
+    if (gemKv) body.ai_gemini_api_key = gemKv;
+    const provSave = String(document.getElementById('st-ai-provider')?.value || 'ollama');
+    const owBaseSave = (document.getElementById('st-ai-openwebui-base')?.value || '').trim();
+    if (provSave === 'openwebui' || owBaseSave !== '') {
+        body.ai_openwebui_base_url = owBaseSave;
+    }
+    const owKv = (document.getElementById('st-ai-openwebui-key')?.value || '').trim();
+    if (owKv) body.ai_openwebui_api_key = owKv;
     if (!body.ai_model) {
         toast('Model tag is required', 'err');
         return;

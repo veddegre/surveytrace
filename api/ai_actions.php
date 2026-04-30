@@ -41,12 +41,13 @@ register_shutdown_function(static function (): void {
 /**
  * SurveyTrace — POST /api/ai_actions.php
  *
- * On-demand AI for operators (Ollama). Body:
+ * On-demand AI for operators (Ollama or cloud: OpenAI, Anthropic, Google Gemini, Open WebUI). Body:
  *   { "action": "findings_guidance" | "explain_host" | "refresh_scan_summary",
  *     "asset_id"?: int, "job_id"?: int, "force"?: bool }
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_ai_cloud.php';
 
 // ---------------------------------------------------------------------------
 // Ollama + operator-AI helpers (inlined so deploy only needs this one file)
@@ -118,30 +119,41 @@ function st_ai_ollama_api_tags(float $timeout_s = 1.5): ?array {
 function st_ai_operator_runtime(): array {
     $enabled = st_config('ai_enrichment_enabled', '0') === '1';
     $provider = strtolower(trim((string)st_config('ai_provider', 'ollama')));
-    $model = trim((string)st_config('ai_model', 'phi3:mini'));
+    $model = trim((string)st_config('ai_model', ''));
     if ($model === '') {
-        $model = 'phi3:mini';
+        $model = match ($provider) {
+            'openai' => 'gpt-4o-mini',
+            'anthropic' => 'claude-3-5-haiku-20241022',
+            'google' => 'gemini-2.0-flash',
+            'openwebui' => 'llama3.2',
+            default => 'phi3:mini',
+        };
     }
     $timeout_ms = max(100, min(5000, (int)st_config('ai_timeout_ms', '700')));
 
     $reason = '';
     if (!$enabled) {
         $reason = 'ai_disabled';
-    } elseif ($provider !== 'ollama') {
+    } elseif (!in_array($provider, ['ollama', 'openai', 'anthropic', 'google', 'openwebui'], true)) {
         $reason = 'unsupported_provider';
-    } elseif ($model === '') {
-        $reason = 'no_model';
     }
 
     $tags = null;
+    $available = false;
     if ($reason === '') {
-        $tags = st_ai_ollama_api_tags(1.5);
-        if ($tags === null) {
-            $reason = 'runtime_unreachable';
+        if ($provider === 'ollama') {
+            $tags = st_ai_ollama_api_tags(1.5);
+            if ($tags === null) {
+                $reason = 'runtime_unreachable';
+            } else {
+                $available = true;
+            }
+        } elseif (st_ai_cloud_provider_ready($provider)) {
+            $available = true;
+        } else {
+            $reason = 'missing_api_key';
         }
     }
-
-    $available = $enabled && $provider === 'ollama' && $model !== '' && $tags !== null;
 
     return [
         'enabled' => $enabled,
@@ -149,8 +161,20 @@ function st_ai_operator_runtime(): array {
         'model' => $model,
         'timeout_ms' => $timeout_ms,
         'available' => $available,
-        'availability_reason' => $available ? '' : ($reason !== '' ? $reason : 'runtime_unreachable'),
+        'availability_reason' => $available ? '' : ($reason !== '' ? $reason : 'unavailable'),
     ];
+}
+
+/**
+ * @param array{provider: string, model: string, ...} $rt from st_ai_operator_runtime()
+ * @return array{ok: bool, text: string, err: string}
+ */
+function st_ai_operator_completion(array $rt, string $prompt, float $timeout_s): array {
+    $p = strtolower(trim((string)($rt['provider'] ?? 'ollama')));
+    if ($p === 'ollama') {
+        return st_ai_ollama_generate((string)($rt['model'] ?? 'phi3:mini'), $prompt, $timeout_s);
+    }
+    return st_ai_cloud_completion($p, (string)($rt['model'] ?? ''), $prompt, $timeout_s);
 }
 
 /**
@@ -720,7 +744,7 @@ try {
             $fstmt = null;
             st_db_release_connection();
             $db = null;
-            $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+            $gen = st_ai_operator_completion($rt, $prompt, $timeoutS);
             $db = st_db();
             if (!$gen['ok']) {
                 $envelope = [
@@ -847,7 +871,7 @@ try {
         $fstmt = null;
         st_db_release_connection();
         $db = null;
-        $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+        $gen = st_ai_operator_completion($rt, $prompt, $timeoutS);
         $db = st_db();
         if (!$gen['ok']) {
             $envelope = [
@@ -957,7 +981,7 @@ try {
         $jstmt = null;
         st_db_release_connection();
         $db = null;
-        $gen = st_ai_ollama_generate($rt['model'], $prompt, $timeoutS);
+        $gen = st_ai_operator_completion($rt, $prompt, $timeoutS);
         $db = st_db();
         if (!$gen['ok']) {
             $summary['ai_scan_summary_status'] = 'failed';

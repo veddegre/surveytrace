@@ -12,7 +12,10 @@
  *   - db_backup_retention_days: int (1..365)
  *   - db_backup_keep_count: int (1..500)
  *   - ai_enrichment_enabled: bool
- *   - ai_provider: string ("ollama" only for now)
+ *   - ai_provider: string (ollama | openai | anthropic | google | openwebui)
+ *   - ai_openai_api_key / ai_anthropic_api_key / ai_gemini_api_key — optional; env OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY or GOOGLE_API_KEY overrides DB
+ *   - ai_openwebui_base_url — http(s) origin of Open WebUI (no trailing slash required); env OPENWEBUI_BASE_URL overrides DB
+ *   - ai_openwebui_api_key — Bearer token for Open WebUI API; env OPENWEBUI_API_KEY overrides DB
  *   - ai_model: string (Ollama tag, e.g. phi3:mini)
  *   - ai_timeout_ms: int (100..5000)
  *   - ai_operator_ollama_timeout_s: int (120..3600) — UI host summary / scan AI refresh Ollama wall clock
@@ -34,6 +37,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_ai_cloud.php';
 
 st_auth();
 st_require_role(['admin']);
@@ -305,6 +309,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'ai_runtime' => $ai,
         'scan_trash_retention_days' => max(1, min(365, (int)st_config('scan_trash_retention_days', '30'))),
         'nvd_api_key_configured' => $nvdKey !== '',
+        'ai_openai_key_configured' => trim((string)(getenv('OPENAI_API_KEY') ?: '')) !== ''
+            || trim((string)st_config('ai_openai_api_key', '')) !== '',
+        'ai_anthropic_key_configured' => trim((string)(getenv('ANTHROPIC_API_KEY') ?: '')) !== ''
+            || trim((string)st_config('ai_anthropic_api_key', '')) !== '',
+        'ai_gemini_key_configured' => trim((string)(getenv('GEMINI_API_KEY') ?: getenv('GOOGLE_API_KEY') ?: '')) !== ''
+            || trim((string)st_config('ai_gemini_api_key', '')) !== '',
+        'ai_openwebui_base_url' => st_ai_resolve_openwebui_base(),
+        'ai_openwebui_key_configured' => trim((string)(getenv('OPENWEBUI_API_KEY') ?: '')) !== ''
+            || trim((string)st_config('ai_openwebui_api_key', '')) !== '',
     ]);
 }
 
@@ -568,15 +581,15 @@ if (array_key_exists('ai_enrichment_enabled', $body)) {
 }
 if (array_key_exists('ai_provider', $body)) {
     $v = strtolower(trim((string)$body['ai_provider']));
-    if ($v !== 'ollama') {
-        st_json(['error' => 'ai_provider must be ollama'], 400);
+    if (!in_array($v, ['ollama', 'openai', 'anthropic', 'google', 'openwebui'], true)) {
+        st_json(['error' => 'ai_provider must be ollama, openai, anthropic, google, or openwebui'], 400);
     }
     st_config_set('ai_provider', $v);
     $changed['ai_provider'] = $v;
 }
 if (array_key_exists('ai_model', $body)) {
     $v = trim((string)$body['ai_model']);
-    if ($v === '' || !preg_match('/^[A-Za-z0-9._:-]{2,120}$/', $v)) {
+    if ($v === '' || !preg_match('#^[A-Za-z0-9._:/+-]{2,128}$#', $v)) {
         st_json(['error' => 'Invalid ai_model value'], 400);
     }
     st_config_set('ai_model', $v);
@@ -670,6 +683,84 @@ if (array_key_exists('ai_conf_threshold_net_srv', $body)) {
     $v = max(0.50, min(0.99, $v));
     st_config_set('ai_conf_threshold_net_srv', (string)$v);
     $changed['ai_conf_threshold_net_srv'] = $v;
+}
+
+if (!empty($body['ai_openai_api_key_remove'])) {
+    st_config_set('ai_openai_api_key', '');
+    $changed['ai_openai_key_configured'] = false;
+} elseif (array_key_exists('ai_openai_api_key', $body)) {
+    $nk = trim((string)$body['ai_openai_api_key']);
+    if ($nk === '') {
+        st_json(['error' => 'ai_openai_api_key is empty — use ai_openai_api_key_remove to clear'], 400);
+    }
+    if (!preg_match('/^sk-[A-Za-z0-9_-]{20,220}$/', $nk)) {
+        st_json(['error' => 'OpenAI API key format looks wrong (expect sk-… from platform.openai.com)'], 400);
+    }
+    st_config_set('ai_openai_api_key', $nk);
+    $changed['ai_openai_key_configured'] = true;
+}
+if (!empty($body['ai_anthropic_api_key_remove'])) {
+    st_config_set('ai_anthropic_api_key', '');
+    $changed['ai_anthropic_key_configured'] = false;
+} elseif (array_key_exists('ai_anthropic_api_key', $body)) {
+    $nk = trim((string)$body['ai_anthropic_api_key']);
+    if ($nk === '') {
+        st_json(['error' => 'ai_anthropic_api_key is empty — use ai_anthropic_api_key_remove to clear'], 400);
+    }
+    if (!preg_match('/^sk-ant-[A-Za-z0-9_-]{20,500}$/', $nk)) {
+        st_json(['error' => 'Anthropic API key format looks wrong (expect sk-ant-… from console.anthropic.com)'], 400);
+    }
+    st_config_set('ai_anthropic_api_key', $nk);
+    $changed['ai_anthropic_key_configured'] = true;
+}
+if (!empty($body['ai_gemini_api_key_remove'])) {
+    st_config_set('ai_gemini_api_key', '');
+    $changed['ai_gemini_key_configured'] = false;
+} elseif (array_key_exists('ai_gemini_api_key', $body)) {
+    $nk = trim((string)$body['ai_gemini_api_key']);
+    if ($nk === '') {
+        st_json(['error' => 'ai_gemini_api_key is empty — use ai_gemini_api_key_remove to clear'], 400);
+    }
+    if (!preg_match('/^[A-Za-z0-9_-]{20,256}$/', $nk)) {
+        st_json(['error' => 'Gemini / Google AI API key format looks wrong'], 400);
+    }
+    st_config_set('ai_gemini_api_key', $nk);
+    $changed['ai_gemini_key_configured'] = true;
+}
+
+if (array_key_exists('ai_openwebui_base_url', $body)) {
+    $bu = trim((string)$body['ai_openwebui_base_url']);
+    if ($bu === '') {
+        st_config_set('ai_openwebui_base_url', '');
+        $changed['ai_openwebui_base_url'] = '';
+    } else {
+        $bu = rtrim($bu, '/');
+        if (!st_ai_openwebui_base_url_valid($bu)) {
+            st_json(['error' => 'ai_openwebui_base_url must be a valid http(s) URL (e.g. http://127.0.0.1:3000)'], 400);
+        }
+        if (strlen($bu) > 500) {
+            st_json(['error' => 'ai_openwebui_base_url is too long'], 400);
+        }
+        st_config_set('ai_openwebui_base_url', $bu);
+        $changed['ai_openwebui_base_url'] = $bu;
+    }
+}
+if (!empty($body['ai_openwebui_api_key_remove'])) {
+    st_config_set('ai_openwebui_api_key', '');
+    $changed['ai_openwebui_key_configured'] = false;
+} elseif (array_key_exists('ai_openwebui_api_key', $body)) {
+    $nk = trim((string)$body['ai_openwebui_api_key']);
+    if ($nk === '') {
+        st_json(['error' => 'ai_openwebui_api_key is empty — use ai_openwebui_api_key_remove to clear'], 400);
+    }
+    if (strlen($nk) < 8 || strlen($nk) > 500) {
+        st_json(['error' => 'Open WebUI API key length looks wrong (8..500 chars)'], 400);
+    }
+    if (!preg_match('/^[A-Za-z0-9._~+/-=]+$/', $nk)) {
+        st_json(['error' => 'Open WebUI API key contains unsupported characters'], 400);
+    }
+    st_config_set('ai_openwebui_api_key', $nk);
+    $changed['ai_openwebui_key_configured'] = true;
 }
 
 $dbBackupTouched = array_intersect_key($changed, array_flip([

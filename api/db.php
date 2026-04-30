@@ -115,6 +115,12 @@ function st_db(): PDO {
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_operator_ollama_num_ctx', '0')"
     );
     $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_openwebui_base_url', '')"
+    );
+    $pdo->exec(
+        "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_openwebui_api_key', '')"
+    );
+    $pdo->exec(
         "INSERT OR IGNORE INTO config (key, value) VALUES ('ai_ambiguous_only', '1')"
     );
     $pdo->exec(
