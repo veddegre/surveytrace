@@ -322,6 +322,18 @@ NGINX
         warn "nginx config test failed — check $NGINX_CONF"
 
 elif [[ "$WEB_SERVER" == "apache2" ]]; then
+    # A stray apache2 binary without the full Debian/Ubuntu config tree breaks cat > sites-available/…
+    if [[ ! -d /etc/apache2/sites-available ]]; then
+        info "Apache config directory missing — installing full apache2 + mod_php…"
+        if apt-cache show "libapache2-mod-php${PHP_VER}" &>/dev/null; then
+            apt-get install -y --no-install-recommends apache2 "libapache2-mod-php${PHP_VER}" \
+                || die "Failed to install apache2 / libapache2-mod-php${PHP_VER}"
+        else
+            apt-get install -y --no-install-recommends apache2 libapache2-mod-php \
+                || die "Failed to install apache2 / libapache2-mod-php"
+        fi
+    fi
+    mkdir -p /etc/apache2/sites-available
     a2enmod rewrite php${PHP_VER} 2>/dev/null || true
     APACHE_CONF="/etc/apache2/sites-available/surveytrace.conf"
     cat > "$APACHE_CONF" <<APACHE
