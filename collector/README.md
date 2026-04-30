@@ -11,6 +11,31 @@ Collectors run local discovery/scanning in remote networks and submit chunked re
 - SurveyTrace master reachable at a URL like `https://surveytrace.example.com`.
 - Admin access in SurveyTrace UI to generate the collector install token.
 
+## Collector system requirements
+
+- OS: Debian 12+ or Ubuntu 22.04+ (systemd-based)
+- CPU: 2 vCPU minimum (4 vCPU recommended for heavier scan overlap)
+- RAM: 2 GB minimum (4 GB recommended for larger subnets / multiple concurrent jobs)
+- Disk: 8 GB minimum free space (20 GB recommended for logs, updates, and scan artifacts)
+- Network: stable outbound HTTPS (`443/tcp`) to the master URL; no inbound ports required
+- Privileges: run setup as root/sudo; runtime uses capture capabilities (`CAP_NET_RAW`, `CAP_NET_ADMIN`) for passive/local parity discovery
+
+Notes:
+
+- Collectors do **not** need direct internet access for CVE/AI enrichment; that work runs on master ingest.
+- Actual scan runtime depends on profile, host count, latency, and job concurrency (`max_jobs`).
+
+### Quick sizing guide (per collector)
+
+| Approx active hosts in site scope | Recommended collector size | Suggested `max_jobs` |
+|---|---|---|
+| Up to 250 | 2 vCPU / 2 GB RAM | 1 |
+| 250-1000 | 4 vCPU / 4 GB RAM | 1-2 |
+| 1000-3000 | 8 vCPU / 8 GB RAM | 2-3 |
+| 3000+ | 8+ vCPU / 16+ GB RAM (or split by subnet/site) | 2-4 |
+
+Use conservative concurrency first, then raise `max_jobs` only after validating scan duration and network impact on that site.
+
 ## 1) Generate install token on master
 
 On the master UI:

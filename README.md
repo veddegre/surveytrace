@@ -230,6 +230,26 @@ Collectors are packaged under `collector/` and are intended for remote network s
 - `collector/deploy.sh` — updates runtime files on an existing collector node
 - `collector/hardening.sh` — applies baseline host hardening
 
+Collector node requirements (remote site host):
+
+- Debian 12+ or Ubuntu 22.04+
+- 2 vCPU minimum (4 vCPU recommended)
+- 2 GB RAM minimum (4 GB recommended)
+- 8 GB free disk minimum (20 GB recommended)
+- Outbound HTTPS (`443/tcp`) to master; no inbound collector ports required
+- Root/sudo for setup and passive discovery capabilities (`CAP_NET_RAW`, `CAP_NET_ADMIN`)
+
+Quick sizing guide (per collector):
+
+| Approx active hosts in site scope | Recommended collector size | Suggested `max_jobs` |
+|---|---|---|
+| Up to 250 | 2 vCPU / 2 GB RAM | 1 |
+| 250-1000 | 4 vCPU / 4 GB RAM | 1-2 |
+| 1000-3000 | 8 vCPU / 8 GB RAM | 2-3 |
+| 3000+ | 8+ vCPU / 16+ GB RAM (or split by subnet/site) | 2-4 |
+
+Start conservative and increase `max_jobs` gradually after confirming acceptable scan duration and network load.
+
 Collector-to-master flow:
 
 1. Collector registers using install token (`collector_install_token`) and receives bearer token.
@@ -240,7 +260,7 @@ Collector-to-master flow:
 Scheduling and guardrails:
 
 - Collectors use the same `scan_schedules` pipeline as master runs (`collector_id` selects execution site).
-- You can assign collector targets from Scan/Schedules UI and from collector overview schedule assignment.
+- Schedule targeting is managed in Scan/Schedules UI (collector overview is operational status/control only).
 - Optional per-collector CIDR allowlists prevent out-of-scope runs; enforcement is applied on queue/save and at runtime dispatch.
 
 This keeps collectors useful on isolated networks without requiring internet egress from collector nodes.
