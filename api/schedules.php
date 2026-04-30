@@ -211,16 +211,17 @@ if (isset($_GET['resume'])) {
     if (!$id) {
         st_json(['error' => 'id required'], 400);
     }
-    $nr = gmdate('Y-m-d H:i:s', time() + 60);
+    // Let scheduler_daemon compute the next real cron fire from next_run=NULL
+    // (avoid bogus "now+60s" which ignored the user's cron expression).
     $db->prepare("
         UPDATE scan_schedules SET paused = 0,
             next_run = CASE
                 WHEN next_run IS NULL OR datetime(next_run) <= datetime('now')
-                THEN ?
+                THEN NULL
                 ELSE next_run
             END
         WHERE id = ?
-    ")->execute([$nr, $id]);
+    ")->execute([$id]);
     st_audit_log('scan.schedule_resumed', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
     ]);
@@ -351,36 +352,55 @@ if (!in_array($cron_expr, $presets)) {
     }
 }
 
-// Compute approximate next_run using current time
-// The scheduler daemon will refine this on its next poll
-// For common presets we can compute it simply
-$presets = [
-    '@hourly'   => 'PT1H',
-    '@daily'    => 'P1D',
-    '@midnight' => 'P1D',
-    '@weekly'   => 'P7D',
-    '@monthly'  => 'P1M',
-];
-// Set next_run to 1 minute from now (UTC) so scheduler picks it up quickly
-// date_default_timezone_set('UTC') is set at top of file so date() is UTC
-$next_run = gmdate('Y-m-d H:i:s', time() + 60);
+// next_run: leave NULL so scheduler_daemon computes the first fire from
+// cron_expr + timezone (polls within ~30s). Never use "now+60s" — that ignores cron.
+$reset_next_run = false;
+if ($id > 0) {
+    $prevStmt = $db->prepare('SELECT cron_expr, timezone FROM scan_schedules WHERE id = ?');
+    $prevStmt->execute([$id]);
+    $prevRow = $prevStmt->fetch(PDO::FETCH_ASSOC);
+    if ($prevRow) {
+        $prevCron = (string)($prevRow['cron_expr'] ?? '');
+        $prevTz = (string)($prevRow['timezone'] ?? 'UTC');
+        if ($prevCron !== $cron_expr || $prevTz !== $timezone) {
+            $reset_next_run = true;
+        }
+    }
+}
 
 if ($id > 0) {
-    $db->prepare("
-        UPDATE scan_schedules SET
-            name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
-            profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
-            enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
-            missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
-            next_run=COALESCE(next_run, ?)
-        WHERE id=?
-    ")->execute([
-        $name, $cron_expr, $target_cidr, $exclusions, $phases,
-        $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
-        $enabled, $paused, $notes, $timezone,
-        $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
-        $next_run, $id
-    ]);
+    if ($reset_next_run) {
+        $db->prepare("
+            UPDATE scan_schedules SET
+                name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
+                profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
+                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
+                missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
+                next_run = NULL
+            WHERE id=?
+        ")->execute([
+            $name, $cron_expr, $target_cidr, $exclusions, $phases,
+            $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
+            $enabled, $paused, $notes, $timezone,
+            $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $id,
+        ]);
+    } else {
+        $db->prepare("
+            UPDATE scan_schedules SET
+                name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
+                profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
+                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?,
+                missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?
+            WHERE id=?
+        ")->execute([
+            $name, $cron_expr, $target_cidr, $exclusions, $phases,
+            $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
+            $enabled, $paused, $notes, $timezone,
+            $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $id,
+        ]);
+    }
     st_audit_log('scan.schedule_updated', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
         'name' => $name,
@@ -395,11 +415,11 @@ if ($id > 0) {
             (name, cron_expr, target_cidr, exclusions, phases, profile,
              scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone,
              missed_run_policy, missed_run_max, next_run, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
         $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone,
-        $missed_run_policy, $missed_run_max, $next_run, $enrichmentIdsJson
+        $missed_run_policy, $missed_run_max, $enrichmentIdsJson
     ]);
     $id = (int)$db->lastInsertId();
     st_audit_log('scan.schedule_created', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
