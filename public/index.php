@@ -3,6 +3,35 @@
  * SurveyTrace — main UI entry point
  * All data is loaded from the API endpoints via fetch().
  */
+$stShellPreHidden = false;
+$dbProbe = dirname(__DIR__) . '/data/surveytrace.db';
+if (is_readable($dbProbe)) {
+    try {
+        require_once __DIR__ . '/../api/db.php';
+        st_session_start();
+        st_session_touch_idle();
+        $db = st_db();
+        $mode = strtolower(trim(st_config('auth_mode', 'session')));
+        if ($mode === 'saml') {
+            $mode = 'oidc';
+        }
+        if (!in_array($mode, ['basic', 'session', 'oidc'], true)) {
+            $mode = 'session';
+        }
+        $legacyHash = st_config('auth_hash');
+        $hasLocalUsers = (int) $db->query(
+            "SELECT COUNT(*) FROM users WHERE auth_source='local' AND disabled=0"
+        )->fetchColumn() > 0;
+        $requiresAuth = $hasLocalUsers || !empty($legacyHash);
+        $authed = !empty($_SESSION['st_authed']) || !$requiresAuth;
+        $stShellPreHidden = $requiresAuth && !$authed && in_array($mode, ['session', 'oidc'], true);
+    } catch (Throwable $e) {
+        $stShellPreHidden = false;
+    }
+    if (function_exists('st_release_session_lock')) {
+        st_release_session_lock();
+    }
+}
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,7 +42,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.7.0') ?>">
 </head>
-<body>
+<body<?= !empty($stShellPreHidden) ? ' class="st-auth-locked"' : '' ?>>
 <div class="shell">
 
 <!-- Top bar -->
@@ -1240,9 +1269,18 @@
       <div class="hint-micro mt6">Emergency local sign-in is for IdP outages only; day-to-day users should sign in through SSO.</div>
     </div>
     <div class="row-end">
-      <button class="tbtn" onclick="closeLoginModal()">Close</button>
+      <button class="tbtn" type="button" onclick="closeLoginModal()">Cancel</button>
       <button class="btnp" id="btn-login" onclick="submitLogin()">Sign in</button>
     </div>
+  </div>
+</div>
+
+<!-- Shown if user dismisses login without signing in (session/OIDC); keeps app chrome hidden -->
+<div id="st-auth-gate" class="st-auth-gate hide" role="dialog" aria-labelledby="st-auth-gate-title">
+  <div class="st-auth-gate-inner">
+    <div class="st-auth-gate-title" id="st-auth-gate-title">SurveyTrace</div>
+    <p class="text-muted mb14" style="line-height:1.5">Sign in is required. The application is not available until you authenticate.</p>
+    <button type="button" class="btnp" onclick="openLoginModal()">Sign in</button>
   </div>
 </div>
 
@@ -1581,6 +1619,10 @@ var logSinceId   = 0;
 var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
+function startDashTimerIfNeeded() {
+    if (dashTimer) return;
+    dashTimer = setInterval(() => { if (currentTab === 'dash') loadDashboard(); }, 30000);
+}
 var feedSyncLastOutput = 'Loading last feed sync output…';
 var authMode = 'basic';
 var loginRequired = false;
@@ -2206,6 +2248,11 @@ function handleAuthRequired() {
 }
 
 function openLoginModal(msg) {
+    const gate = document.getElementById('st-auth-gate');
+    if (gate) gate.classList.add('hide');
+    if (authMode === 'session' || authMode === 'oidc') {
+        document.body.classList.add('st-auth-locked');
+    }
     const bg = document.getElementById('login-bg');
     if (!bg) return;
     const m = document.getElementById('login-msg');
@@ -2265,6 +2312,16 @@ function toggleBreakglassLogin(show) {
 function closeLoginModal() {
     const bg = document.getElementById('login-bg');
     if (bg) bg.style.display = 'none';
+    const gate = document.getElementById('st-auth-gate');
+    if (!loginRequired) {
+        document.body.classList.remove('st-auth-locked');
+        if (gate) gate.classList.add('hide');
+        return;
+    }
+    if ((authMode === 'session' || authMode === 'oidc') && gate) {
+        document.body.classList.add('st-auth-locked');
+        gate.classList.remove('hide');
+    }
 }
 
 async function submitLogin() {
@@ -2303,8 +2360,10 @@ async function submitLogin() {
         if (currentTab === 'logs') loadLog();
         if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
         if (currentTab === 'sched') loadSchedules();
-        if (currentTab === 'enrich' || currentTab === 'settings') loadEnrichment();
         if (currentTab === 'health') loadHealth();
+        loadEnrichment();
+        loadScanStatus();
+        startDashTimerIfNeeded();
     } else {
         if (r && r.mfa_required) {
             loginNeedsMfaCode = true;
@@ -7829,6 +7888,9 @@ async function initAuthMode() {
         openLoginModal(authMode === 'session' ? 'Session sign-in required.' : 'Single sign-on required.');
         return;
     }
+    loginRequired = false;
+    document.body.classList.remove('st-auth-locked');
+    document.getElementById('st-auth-gate')?.classList.add('hide');
     if (r.authed || !r.requires_auth) {
         lastSessionExpiredToastAt = 0;
     }
@@ -7898,6 +7960,10 @@ async function initApp() {
     updateThemeToggleLabel();
     setupSystemThemeWatcher();
 
+    if (loginRequired && (authMode === 'session' || authMode === 'oidc')) {
+        return;
+    }
+
     const execMode = (() => {
         try { return localStorage.getItem('st_exec_mode') === '1'; }
         catch (e) { return false; }
@@ -7940,21 +8006,22 @@ function toggleDashMode() {
 
 initApp();
 
-// Restore last active tab from session storage
-const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
-if (lastTab && document.getElementById('t-' + lastTab)) {
-    goTab(lastTab);
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
-    if (navMap[lastTab]) hiNav(navMap[lastTab]);
-} else {
-    goTab('dash');
-    hiNav('ndash');
-}
-loadEnrichment();  // Pre-load so enrichment tab is ready immediately
-// Refresh dashboard every 30s
-dashTimer = setInterval(() => { if (currentTab === 'dash') loadDashboard(); }, 30000);
-// Check for already-running scan on load
-loadScanStatus();
+// Restore last active tab from session storage (skip when session sign-in is still required)
+(function bootAfterAuth() {
+    if (loginRequired && (authMode === 'session' || authMode === 'oidc')) return;
+    const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
+    if (lastTab && document.getElementById('t-' + lastTab)) {
+        goTab(lastTab);
+        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
+        if (navMap[lastTab]) hiNav(navMap[lastTab]);
+    } else {
+        goTab('dash');
+        hiNav('ndash');
+    }
+    loadEnrichment();  // Pre-load so enrichment tab is ready immediately
+    loadScanStatus();
+    startDashTimerIfNeeded();
+})();
 </script>
 </body>
 </html>

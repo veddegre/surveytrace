@@ -554,6 +554,18 @@ button[data-st-ai-action]:disabled{opacity:.88;cursor:wait}
 .scan-hist-row:hover{background:var(--bg3)}
 .fsync-pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:12px;font-family:var(--mf);color:var(--tx2)}
 .z100{z-index:100}.z101{z-index:101}.z210{z-index:210}.z215{z-index:215}.z220{z-index:220}.z260{z-index:260}
+
+/* Session/OIDC: hide full UI until signed in; gate screen if login modal is dismissed */
+body.st-auth-locked .shell{display:none!important}
+.st-auth-gate{
+  display:none;position:fixed;inset:0;z-index:250;align-items:center;justify-content:center;
+  background:var(--bg);flex-direction:column;padding:24px;text-align:center
+}
+.st-auth-gate:not(.hide){display:flex}
+.st-auth-gate-inner{max-width:360px}
+.st-auth-gate-title{
+  font-family:var(--sf);font-size:18px;font-weight:700;color:var(--tx);letter-spacing:.02em;margin-bottom:10px
+}
 .gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}
 .pad8y{padding:8px 0}
 .font11{font-size:12px}.font10{font-size:11px}
