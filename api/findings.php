@@ -38,6 +38,38 @@ require_once __DIR__ . '/db.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
+/**
+ * Dismiss open Phase-9 change alerts tied to specific findings (UI noise vs. risk acceptance).
+ */
+function st_dismiss_open_change_alerts_for_finding_ids(PDO $db, array $findingIds, ?int $actorUserId): void {
+    $findingIds = array_values(array_unique(array_filter(array_map('intval', $findingIds), static function ($x) {
+        return $x > 0;
+    })));
+    if ($findingIds === []) {
+        return;
+    }
+    $ph = implode(',', array_fill(0, count($findingIds), '?'));
+    $sql = "UPDATE change_alerts SET dismissed_at = datetime('now'), dismissed_by_user_id = ? WHERE dismissed_at IS NULL AND finding_id IN ($ph)";
+    $params = array_merge([$actorUserId], $findingIds);
+    try {
+        $db->prepare($sql)->execute($params);
+    } catch (Throwable $e) {
+        // change_alerts missing on straggler installs until migration runs
+    }
+}
+
+function st_refresh_asset_top_cve(PDO $db, int $assetId): void {
+    if ($assetId <= 0) {
+        return;
+    }
+    $db->prepare(
+        "UPDATE assets SET
+            top_cve = (SELECT cve_id FROM findings WHERE asset_id = assets.id AND resolved = 0 ORDER BY cvss DESC LIMIT 1),
+            top_cvss = (SELECT cvss FROM findings WHERE asset_id = assets.id AND resolved = 0 ORDER BY cvss DESC LIMIT 1)
+         WHERE id = ?"
+    )->execute([$assetId]);
+}
+
 $db = st_db();
 
 // ---------------------------------------------------------------------------
@@ -55,10 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fid   = (int)($body['finding_id'] ?? 0);
             $notes = substr(trim((string)($body['notes'] ?? '')), 0, 500);
             if (!$fid) st_json(['error' => 'finding_id required'], 400);
+            $actor = st_current_user();
+            $uidDismiss = (int)($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null;
             $db->prepare(
                 "UPDATE findings SET resolved=1, notes=?, lifecycle_state='mitigated', mitigated_at=datetime('now'),
                  accepted_at=NULL, accepted_by_user_id=NULL WHERE id=?"
             )->execute([$notes, $fid]);
+            st_dismiss_open_change_alerts_for_finding_ids($db, [$fid], $uidDismiss);
+            $aRow = $db->prepare("SELECT asset_id FROM findings WHERE id = ?");
+            $aRow->execute([$fid]);
+            $aidTop = (int)($aRow->fetchColumn());
+            st_refresh_asset_top_cve($db, $aidTop);
             st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => true, 'lifecycle_state' => 'mitigated']);
 
         case 'unresolve':
@@ -68,17 +107,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "UPDATE findings SET resolved=0, lifecycle_state='active', mitigated_at=NULL,
                  accepted_at=NULL, accepted_by_user_id=NULL WHERE id=?"
             )->execute([$fid]);
+            $aRow = $db->prepare("SELECT asset_id FROM findings WHERE id = ?");
+            $aRow->execute([$fid]);
+            $aidTop = (int)($aRow->fetchColumn());
+            st_refresh_asset_top_cve($db, $aidTop);
             st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => false, 'lifecycle_state' => 'active']);
 
         case 'resolve_all':
             $aid   = (int)($body['asset_id'] ?? 0);
             $notes = substr(trim((string)($body['notes'] ?? 'bulk resolved')), 0, 500);
             if (!$aid) st_json(['error' => 'asset_id required'], 400);
+            $actor = st_current_user();
+            $uidDismiss = (int)($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null;
+            $idsStmt = $db->prepare("SELECT id FROM findings WHERE asset_id = ? AND resolved = 0");
+            $idsStmt->execute([$aid]);
+            $fids = $idsStmt->fetchAll(PDO::FETCH_COLUMN);
+            $fids = is_array($fids) ? array_map('intval', $fids) : [];
+            st_dismiss_open_change_alerts_for_finding_ids($db, $fids, $uidDismiss);
             $db->prepare(
                 "UPDATE findings SET resolved=1, notes=?, lifecycle_state='mitigated', mitigated_at=datetime('now'),
                  accepted_at=NULL, accepted_by_user_id=NULL WHERE asset_id=? AND resolved=0"
             )->execute([$notes, $aid]);
             $count = $db->query("SELECT changes()")->fetchColumn();
+            st_refresh_asset_top_cve($db, $aid);
             st_json(['ok' => true, 'asset_id' => $aid, 'resolved_count' => (int)$count]);
 
         case 'accept_risk':
@@ -91,6 +142,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "UPDATE findings SET lifecycle_state='accepted', accepted_at=datetime('now'), accepted_by_user_id=?,
                  resolved=1, mitigated_at=NULL WHERE id=?"
             )->execute([$uidBind, $fid]);
+            st_dismiss_open_change_alerts_for_finding_ids($db, [$fid], $uidBind);
+            $aRow = $db->prepare("SELECT asset_id FROM findings WHERE id = ?");
+            $aRow->execute([$fid]);
+            $aidTop = (int)($aRow->fetchColumn());
+            st_refresh_asset_top_cve($db, $aidTop);
             st_json(['ok' => true, 'finding_id' => $fid, 'lifecycle_state' => 'accepted']);
 
         default:

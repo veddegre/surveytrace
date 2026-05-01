@@ -46,6 +46,14 @@ def insert_change_alert(
 ) -> None:
     if alert_type not in ALERT_TYPES:
         log.warning("unknown change_alerts.alert_type=%s", alert_type)
+    # Risk-accepted findings stay in the DB for audit but should not generate more CVE alerts.
+    if finding_id is not None:
+        row = conn.execute(
+            "SELECT COALESCE(lifecycle_state, 'active') AS st FROM findings WHERE id = ?",
+            (int(finding_id),),
+        ).fetchone()
+        if row and str(row["st"] or "").strip().lower() == "accepted":
+            return
     dj = json.dumps(detail, separators=(",", ":"), ensure_ascii=False) if detail else None
     conn.execute(
         """INSERT INTO change_alerts (alert_type, job_id, asset_id, finding_id, detail_json)
@@ -233,6 +241,46 @@ def _mark_missing_findings_mitigated(
     return mitigated_count
 
 
+def _refresh_top_cve_for_asset_ids(
+    conn: sqlite3.Connection,
+    asset_ids: set[int],
+    *,
+    commit_interval: int,
+) -> None:
+    """
+    Recompute assets.top_cve / top_cvss only for IPs touched by this scan.
+
+    The previous global UPDATE (all assets that appear in findings) could lock SQLite
+    for a long time on large databases at end-of-scan.
+    """
+    if not asset_ids:
+        return
+    aid_list = sorted(int(x) for x in asset_ids)
+    chunk_size = 200
+    chunks = 0
+    for cstart in range(0, len(aid_list), chunk_size):
+        chunk = aid_list[cstart : cstart + chunk_size]
+        ph = ",".join("?" * len(chunk))
+        conn.execute(
+            f"""UPDATE assets SET
+                top_cve = (
+                    SELECT cve_id FROM findings
+                    WHERE asset_id = assets.id AND resolved = 0
+                    ORDER BY cvss DESC LIMIT 1
+                ),
+                top_cvss = (
+                    SELECT cvss FROM findings
+                    WHERE asset_id = assets.id AND resolved = 0
+                    ORDER BY cvss DESC LIMIT 1
+                )
+                WHERE id IN ({ph})""",
+            tuple(chunk),
+        )
+        chunks += 1
+        if commit_interval > 0 and chunks % max(1, commit_interval // 50) == 0:
+            conn.commit()
+
+
 def apply_scan_findings_lifecycle(
     conn: sqlite3.Connection,
     job_id: int,
@@ -266,10 +314,5 @@ def apply_scan_findings_lifecycle(
     asset_ids = {int(x) for x in upserted_asset_ids}
     _mark_missing_findings_mitigated(conn, job_id, present, asset_ids, commit_interval=commit_interval)
 
-    conn.execute(
-        """UPDATE assets SET
-            top_cve  = (SELECT cve_id FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1),
-            top_cvss = (SELECT cvss   FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1)
-           WHERE id IN (SELECT DISTINCT asset_id FROM findings)"""
-    )
+    _refresh_top_cve_for_asset_ids(conn, asset_ids, commit_interval=commit_interval)
     conn.commit()

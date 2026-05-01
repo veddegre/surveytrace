@@ -1835,6 +1835,8 @@ function applyRoleAwareUi() {
     disableByOnclick('resumeSchedule(', !canScanManage);
     disableByOnclick('saveReclassify(', !canScanManage);
     disableByOnclick('resolveFinding(', !canScanManage);
+    disableByOnclick('acceptFindingRisk(', !canScanManage);
+    disableByOnclick('unacceptFindingRisk(', !canScanManage);
     disableByOnclick('queueHostRescan(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
     disableByOnclick('savePasswordPolicy(', !isAdmin);
@@ -3333,7 +3335,7 @@ async function loadFindings(page) {
       <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
       <td class="mono mono-sm">${localDate(f.published)}</td>
       <td>${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
-          : `<button class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button>`}</td>
+          : `<span class="row-wrap" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`}</td>
     </tr>`).join('') || '<tr><td colspan="8" class="loading">No findings</td></tr>';
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
@@ -3346,6 +3348,33 @@ async function resolveFinding(id, btn) {
     const r = await apiPost('/api/findings.php?action=resolve', {action:'resolve', finding_id: id});
     if (r && r.ok) { toast('Finding marked resolved', 'ok'); loadFindings(vulnPage); }
     else { toast('Failed to resolve finding', 'err'); btn.disabled = false; }
+}
+
+async function acceptFindingRisk(id, btn) {
+    if (btn) btn.disabled = true;
+    const r = await apiPost('/api/findings.php?action=accept_risk', {action: 'accept_risk', finding_id: id});
+    if (r && r.ok) {
+        toast('Risk accepted — open CVE alerts for this finding are cleared; future scans will not re-open alerts for it while it stays accepted.', 'ok');
+        loadFindings(vulnPage);
+    } else {
+        toast('Failed to accept risk', 'err');
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function unacceptFindingRisk(findingId, assetId, ip) {
+    if (!(await showConfirmModal(
+        'Remove accepted-risk status for this CVE? It returns to the open list and change alerts may recur on future scans if the issue is still present.',
+        {title: 'Unaccept risk', okText: 'Unaccept risk'}
+    ))) return;
+    const r = await apiPost('/api/findings.php?action=unresolve', {action: 'unresolve', finding_id: findingId});
+    if (r && r.ok) {
+        toast('Risk unaccepted — finding is open again', 'ok');
+        loadFindings(vulnPage);
+        openHostPanel(assetId, ip);
+    } else {
+        toast((r && r.error) || 'Failed to unaccept risk', 'err');
+    }
 }
 
 // ==========================================================================
@@ -8156,9 +8185,10 @@ async function openHostPanel(id, ip) {
     document.getElementById('hp-body').innerHTML = '<div class="loading">Loading…</div>';
     syncHostPanelExplainBusyUi();
 
-    const [assetData, findingsData] = await Promise.all([
+    const [assetData, openFindingsData, acceptedFindingsData] = await Promise.all([
         api('/api/assets.php?id=' + id),
-        api('/api/findings.php?asset_id=' + id + '&per_page=50&sort=cvss&order=desc')
+        api('/api/findings.php?asset_id=' + id + '&resolved=0&per_page=50&sort=cvss&order=desc'),
+        api('/api/findings.php?asset_id=' + id + '&resolved=1&lifecycle=accepted&per_page=50&sort=cvss&order=desc', { quiet: true }),
     ]);
 
     if (!assetData || !assetData.asset) {
@@ -8169,7 +8199,8 @@ async function openHostPanel(id, ip) {
     }
 
     const a = assetData.asset;
-    const findings = findingsData ? findingsData.findings : [];
+    const openFindings = openFindingsData && openFindingsData.findings ? openFindingsData.findings : [];
+    const acceptedFindings = acceptedFindingsData && acceptedFindingsData.findings ? acceptedFindingsData.findings : [];
     const ports = a.open_ports || [];
     const banners = a.banners || {};
     const httpProbe = String(banners._http || '');
@@ -8209,7 +8240,7 @@ async function openHostPanel(id, ip) {
           }</div>`
         : `<div class="hp-empty" style="padding:4px 0 12px">No specific app fingerprints detected yet</div>`;
 
-    const findingRows = findings.length ? findings.map(f => `
+    const findingRows = openFindings.length ? openFindings.map(f => `
         <div class="hp-block">
           <div class="hp-row">
             <span class="sev ${sevClass(f.cvss)} hp-sev-chip">${f.cvss != null ? esc(f.cvss) : '?'} ${esc((f.severity||'').toUpperCase())}</span>
@@ -8217,8 +8248,20 @@ async function openHostPanel(id, ip) {
             <span class="hp-date">${localDate(f.published)}</span>
           </div>
           <div class="hp-desc">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
-          ${!f.resolved ? `<button class="tbtn btn-xs mt4" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
-        </div>`).join('') : '<div class="hp-empty">No vulnerabilities found</div>';
+          ${!f.resolved ? `<div class="row-wrap mt4" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Accept risk</button></div>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
+        </div>`).join('') : '<div class="hp-empty">No open vulnerabilities</div>';
+
+    const acceptedFindingRows = acceptedFindings.length ? acceptedFindings.map(f => `
+        <div class="hp-block" style="border-left:3px solid var(--border);padding-left:10px;opacity:0.95">
+          <div class="hp-row">
+            <span class="sev ${sevClass(f.cvss)} hp-sev-chip">${f.cvss != null ? esc(f.cvss) : '?'} ${esc((f.severity||'').toUpperCase())}</span>
+            <span class="hp-cve">${esc(f.cve_id)}</span>
+            <span class="hp-chip" title="Acknowledged risk — scanner will not raise new alerts for this CVE while accepted">Accepted risk</span>
+            ${f.accepted_at ? `<span class="hp-date">${localDate(f.accepted_at)}</span>` : ''}
+          </div>
+          <div class="hp-desc text-dim">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
+          ${stRoleCanManageScans() ? `<div class="mt4"><button type="button" class="tbtn btn-xs" onclick="unacceptFindingRisk(${f.id}, ${id}, '${esc(ip)}')" title="Return this CVE to the open vulnerabilities list">Unaccept risk</button></div>` : ''}
+        </div>`).join('') : '<div class="hp-empty text-dim">No accepted-risk CVEs on this host</div>';
 
     const scanHistoryRows = (assetData.asset.scan_history || []).length
         ? (assetData.asset.scan_history || []).map(h => {
@@ -8292,14 +8335,23 @@ async function openHostPanel(id, ip) {
       <div class="hp-actions hp-actions-host-primary mb14">
         <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
-        ${findings.length ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
+        ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
 
       <div class="hp-head">
-        Vulnerabilities (${findings.length})
+        Open vulnerabilities (${openFindings.length})
         <div class="hp-head-line"></div>
       </div>
       <div class="mb14">${findingRows}</div>
+
+      <details class="mb14"${acceptedFindings.length ? ' open' : ''}>
+        <summary class="hp-head" style="cursor:pointer;list-style:none">
+          Accepted risk (${acceptedFindings.length})
+          <span class="text-dim mono-sm" style="font-weight:normal;margin-left:6px">acknowledged CVEs</span>
+          <div class="hp-head-line"></div>
+        </summary>
+        <div class="mt8">${acceptedFindingRows}</div>
+      </details>
 
       <div class="hp-head">
         Port history
