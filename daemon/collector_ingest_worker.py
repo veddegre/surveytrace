@@ -53,6 +53,41 @@ def _severity(cvss: float) -> str:
     return "none"
 
 
+def _coerce_json_list(val: object) -> list:
+    """Collector payloads often carry SQLite TEXT JSON as str; master expects native list before json.dumps."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        s = val.strip()
+        if not s or s == "null":
+            return []
+        try:
+            out = json.loads(s)
+            return out if isinstance(out, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def _coerce_json_dict(val: object) -> dict:
+    if val is None:
+        return {}
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        s = val.strip()
+        if not s or s == "null":
+            return {}
+        try:
+            out = json.loads(s)
+            return out if isinstance(out, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
 def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> int:
     ip = str(row.get("ip", "")).strip()
     if ip == "":
@@ -68,10 +103,10 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> int:
         "os_guess": row.get("os_guess", ""),
         "cpe": row.get("cpe", ""),
         "connected_via": row.get("connected_via", ""),
-        "open_ports": json.dumps(row.get("open_ports", []), separators=(",", ":"), ensure_ascii=False),
-        "banners": json.dumps(row.get("banners", {}), separators=(",", ":"), ensure_ascii=False),
-        "nmap_cpes": json.dumps(row.get("nmap_cpes", []), separators=(",", ":"), ensure_ascii=False),
-        "discovery_sources": json.dumps(row.get("discovery_sources", []), separators=(",", ":"), ensure_ascii=False),
+        "open_ports": json.dumps(_coerce_json_list(row.get("open_ports")), separators=(",", ":"), ensure_ascii=False),
+        "banners": json.dumps(_coerce_json_dict(row.get("banners")), separators=(",", ":"), ensure_ascii=False),
+        "nmap_cpes": json.dumps(_coerce_json_list(row.get("nmap_cpes")), separators=(",", ":"), ensure_ascii=False),
+        "discovery_sources": json.dumps(_coerce_json_list(row.get("discovery_sources")), separators=(",", ":"), ensure_ascii=False),
         "top_cve": row.get("top_cve", ""),
         "top_cvss": float(row.get("top_cvss", 0.0) or 0.0),
     }
@@ -244,7 +279,7 @@ def process_one(conn: sqlite3.Connection, qrow: sqlite3.Row) -> None:
                     (
                         job_id, aid, ip, str(a.get("hostname", "")), str(a.get("category", "")),
                         str(a.get("vendor", "")), str(a.get("top_cve", "")), float(a.get("top_cvss", 0.0) or 0.0),
-                        json.dumps(a.get("open_ports", []), separators=(",", ":"), ensure_ascii=False),
+                        json.dumps(_coerce_json_list(a.get("open_ports")), separators=(",", ":"), ensure_ascii=False),
                     ),
                 )
 
@@ -309,7 +344,7 @@ def process_one(conn: sqlite3.Connection, qrow: sqlite3.Row) -> None:
             continue
         conn.execute(
             "INSERT INTO port_history (asset_id, scan_id, ports, seen_at) VALUES (?, ?, ?, datetime('now'))",
-            (aid, job_id, json.dumps(p.get("ports", []), separators=(",", ":"), ensure_ascii=False)),
+            (aid, job_id, json.dumps(_coerce_json_list(p.get("ports")), separators=(",", ":"), ensure_ascii=False)),
         )
 
     sj = payload.get("scan_job", {}) if isinstance(payload.get("scan_job"), dict) else {}

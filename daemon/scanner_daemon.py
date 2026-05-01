@@ -1154,6 +1154,65 @@ def phase_banner(
     else:
         chunk_size = 32
     total_batches = max(1, (len(hosts) + chunk_size - 1) // chunk_size)
+
+    def _merge_nmap_scan(nm_scan: "nmap.PortScanner") -> None:
+        """Append hosts from one nmap run into ``results`` (each nm.scan replaces prior state)."""
+        for host in nm_scan.all_hosts():
+            open_ports = []
+            banners: dict[str, str] = {}
+            nmap_cpes: set[str] = set()
+
+            for proto in nm_scan[host].all_protocols():
+                for port, data in nm_scan[host][proto].items():
+                    if data.get("state") == "open":
+                        open_ports.append(port)
+
+                        svc = " ".join(filter(None, [
+                            data.get("name", ""),
+                            data.get("product", ""),
+                            data.get("version", ""),
+                            data.get("extrainfo", ""),
+                        ])).strip()
+                        if svc:
+                            banners[str(port)] = svc
+
+                        cpe_val = data.get("cpe", "")
+                        if cpe_val:
+                            for c in cpe_val.split():
+                                if c.startswith("cpe:"):
+                                    nmap_cpes.add(c)
+
+            hn_nmap = ""
+            nmap_hostnames = nm_scan[host].get("hostnames", [])
+            for h in nmap_hostnames:
+                if h.get("name"):
+                    hn_nmap = h["name"].split(".")[0]
+                    break
+            proxmox_hn = ""
+            for b in banners.values():
+                m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
+                if m:
+                    proxmox_hn = m.group(1)
+                    break
+            if proxmox_hn:
+                hostname = proxmox_hn
+            elif hn_nmap:
+                hostname = hn_nmap
+            else:
+                hostname = resolve_hostname(host)
+
+            results[host] = {
+                "ports":     sorted(open_ports),
+                "banners":   banners,
+                "nmap_cpes": list(nmap_cpes),
+                "hostname":  hostname,
+            }
+
+            with db_conn() as conn:
+                log_event(conn, job_id, "PROBE",
+                          f"ports={sorted(open_ports)} banners={list(banners.keys())} cpes={list(nmap_cpes)} hostname={hostname!r}",
+                          host)
+
     for i in range(0, len(hosts), chunk_size):
         chunk = hosts[i:i + chunk_size]
         targets = " ".join(chunk)
@@ -1251,12 +1310,14 @@ def phase_banner(
                 arguments=nmap_args,
                 timeout=scan_timeout,
             )
+            _merge_nmap_scan(nm)
         except Exception as e:
             with db_conn() as conn:
                 log_event(conn, job_id, "WARN",
                           f"Phase 3 batch timeout/error on {len(chunk)} hosts: {str(e)[:180]}")
             # Fallback: scan each host in this batch individually so one bad target
-            # does not stall the entire job.
+            # does not stall the entire job. Each nm.scan replaces internal state — merge
+            # after every successful host or only the last host would be recorded.
             for one_host in chunk:
                 try:
                     one_host_timeout = min(3600, max(90, timeout_secs + 90))
@@ -1265,6 +1326,7 @@ def phase_banner(
                         arguments=nmap_args,
                         timeout=one_host_timeout,
                     )
+                    _merge_nmap_scan(nm)
                 except Exception as e2:
                     with db_conn() as conn:
                         log_event(conn, job_id, "WARN",
@@ -1278,70 +1340,6 @@ def phase_banner(
             with db_conn() as conn:
                 log_event(conn, job_id, "INFO",
                           f"Phase 3 progress: {processed}/{len(hosts)} hosts processed")
-
-        for host in nm.all_hosts():
-            open_ports = []
-            banners    = {}
-            nmap_cpes  = set()
-
-            for proto in nm[host].all_protocols():
-                for port, data in nm[host][proto].items():
-                    if data.get("state") == "open":
-                        open_ports.append(port)
-
-                        # Build banner string from service fields
-                        svc = " ".join(filter(None, [
-                            data.get("name", ""),
-                            data.get("product", ""),
-                            data.get("version", ""),
-                            data.get("extrainfo", ""),
-                        ])).strip()
-                        if svc:
-                            banners[str(port)] = svc
-
-                        # Capture CPE directly from nmap if available
-                        # nmap returns cpe as a string like 'cpe:/o:linux:linux_kernel'
-                        cpe_val = data.get("cpe", "")
-                        if cpe_val:
-                            # nmap sometimes returns space-separated multiple CPEs
-                            for c in cpe_val.split():
-                                if c.startswith("cpe:"):
-                                    nmap_cpes.add(c)
-
-            # Hostname: Proxmox UI node from banners when present (authoritative for PVE),
-            # then nmap-reported PTR/script names, then PTR/mDNS/NetBIOS. Nmap often
-            # repeats the same short reverse-DNS label (e.g. ``pi``) before service
-            # banners are parsed — prefer the Proxmox title when it matches.
-            hn_nmap = ""
-            nmap_hostnames = nm[host].get("hostnames", [])
-            for h in nmap_hostnames:
-                if h.get("name"):
-                    hn_nmap = h["name"].split(".")[0]
-                    break
-            proxmox_hn = ""
-            for b in banners.values():
-                m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
-                if m:
-                    proxmox_hn = m.group(1)
-                    break
-            if proxmox_hn:
-                hostname = proxmox_hn
-            elif hn_nmap:
-                hostname = hn_nmap
-            else:
-                hostname = resolve_hostname(host)
-
-            results[host] = {
-                "ports":     sorted(open_ports),
-                "banners":   banners,
-                "nmap_cpes": list(nmap_cpes),
-                "hostname":  hostname,
-            }
-
-            with db_conn() as conn:
-                log_event(conn, job_id, "PROBE",
-                          f"ports={sorted(open_ports)} banners={list(banners.keys())} cpes={list(nmap_cpes)} hostname={hostname!r}",
-                          host)
 
         time.sleep(delay_s)
 
