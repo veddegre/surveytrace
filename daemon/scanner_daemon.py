@@ -82,11 +82,15 @@ def resolve_hostname(ip: str) -> str:
     1. Reverse DNS (PTR record)
     2. mDNS via avahi-resolve (common on Linux/Mac home networks)
     3. NetBIOS name (Windows hosts)
-    Returns empty string if all fail.
+
+    Very short PTR labels (e.g. ``pi`` from ``pi.homenet``) are often stale or
+    ambiguous vs LAN discovery; when PTR is <= 3 characters we still query mDNS
+    and NetBIOS and prefer a longer name if found.
     """
     import socket
     import subprocess
 
+    ptr = ""
     # 1. Reverse DNS (bounded timeout to avoid long resolver stalls)
     try:
         import concurrent.futures as _cf
@@ -97,10 +101,11 @@ def resolve_hostname(ip: str) -> str:
             except _cf.TimeoutError:
                 name = ""
         if name and name != ip:
-            return name.split(".")[0]   # strip domain, keep short name
+            ptr = name.split(".")[0]   # strip domain, keep short name
     except (socket.herror, socket.gaierror, OSError, Exception):
         pass
 
+    mdns = ""
     # 2. mDNS via avahi-resolve (if avahi-utils installed)
     try:
         result = subprocess.run(
@@ -112,10 +117,11 @@ def resolve_hostname(ip: str) -> str:
             parts = result.stdout.strip().split()
             if len(parts) >= 2:
                 name = parts[-1].rstrip(".")
-                return name.replace(".local", "")
+                mdns = name.replace(".local", "")
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
+    nb = ""
     # 3. NetBIOS name via nmblookup (if samba-common installed)
     try:
         result = subprocess.run(
@@ -128,10 +134,22 @@ def resolve_hostname(ip: str) -> str:
                 if line and not line.startswith("Looking") and "<00>" in line:
                     name = line.split()[0].strip()
                     if name and name != ip:
-                        return name
+                        nb = name
+                        break
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
+    # Prefer LAN discovery over ambiguously short PTR (wrong DHCP/PTR is common).
+    if ptr and len(ptr) <= 3:
+        for cand in (mdns, nb):
+            if cand and len(cand) > len(ptr):
+                return cand
+    if ptr:
+        return ptr
+    if mdns:
+        return mdns
+    if nb:
+        return nb
     return ""
 
 # ---------------------------------------------------------------------------
@@ -1149,11 +1167,22 @@ def phase_banner(
         # which allowed a single host to stall for the full python-nmap
         # guard window (900s). Use bounded envelopes instead.
         if profile_obj.name == "fast_full_tcp":
-            # Dynamic timeout tiers:
-            # - tiny scopes: keep high reliability
-            # - medium scopes: balanced
-            # - larger sweeps (/24-ish): shorter per-host cap for forward progress
-            if routed_mode:
+            if scan_all_tcp:
+                # LAN -p- + -sV: must use the same per-host envelope as full_tcp. A 180s
+                # cap routinely hits --host-timeout before nmap finishes on busy hosts
+                # (many published Docker ports), so open_ports look empty while MAC/OUI
+                # fingerprinting still shows e.g. Proxmox. Routed fast_full_tcp does not
+                # use -p- (finite port list) and keeps shorter timeouts below.
+                nh = len(hosts)
+                if nh <= 1:
+                    timeout_secs = 900
+                elif nh <= 8:
+                    timeout_secs = 600
+                elif nh <= 32:
+                    timeout_secs = 300
+                else:
+                    timeout_secs = 180
+            elif routed_mode:
                 # Routed/VPN paths: fail filtered hosts faster to avoid 3+ minute
                 # stalls per host when nothing is reachable from this vantage point.
                 if len(hosts) <= 8:
@@ -1165,16 +1194,13 @@ def phase_banner(
                 else:
                     timeout_secs = 20
             else:
+                # Finite port list, non-routed
                 if len(hosts) <= 8:
                     timeout_secs = 180
                 elif len(hosts) <= 64:
                     timeout_secs = 90
                 else:
                     timeout_secs = 30
-            # Full -p- scans need at least as much per-host time as full_tcp (120s).
-            # Previous caps (e.g. 30s on wide jobs) left nmap incomplete vs standard_inventory.
-            if scan_all_tcp:
-                timeout_secs = max(timeout_secs, 120)
         elif profile_obj.name == "full_tcp" and scan_all_tcp:
             # full_tcp uses -p- + -sV; a flat 120s host-timeout routinely aborts before nmap
             # finishes on single-host /32 jobs, producing empty port lists while fingerprinting
@@ -1282,22 +1308,28 @@ def phase_banner(
                                 if c.startswith("cpe:"):
                                     nmap_cpes.add(c)
 
-            # Try to get hostname from nmap first, then fall back to resolver
-            hostname = ""
+            # Hostname: Proxmox UI node from banners when present (authoritative for PVE),
+            # then nmap-reported PTR/script names, then PTR/mDNS/NetBIOS. Nmap often
+            # repeats the same short reverse-DNS label (e.g. ``pi``) before service
+            # banners are parsed — prefer the Proxmox title when it matches.
+            hn_nmap = ""
             nmap_hostnames = nm[host].get("hostnames", [])
             for h in nmap_hostnames:
                 if h.get("name"):
-                    hostname = h["name"].split(".")[0]
+                    hn_nmap = h["name"].split(".")[0]
                     break
-            if not hostname:
+            proxmox_hn = ""
+            for b in banners.values():
+                m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
+                if m:
+                    proxmox_hn = m.group(1)
+                    break
+            if proxmox_hn:
+                hostname = proxmox_hn
+            elif hn_nmap:
+                hostname = hn_nmap
+            else:
                 hostname = resolve_hostname(host)
-            if not hostname:
-                # Proxmox web banner often includes "[node - Proxmox Virtual Environment]"
-                for b in banners.values():
-                    m = re.search(r"\[?\s*([A-Za-z0-9._-]+)\s*-\s*Proxmox Virtual Environment\]?", b, re.I)
-                    if m:
-                        hostname = m.group(1)
-                        break
 
             results[host] = {
                 "ports":     sorted(open_ports),
