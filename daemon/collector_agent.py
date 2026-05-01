@@ -30,6 +30,14 @@ logging.basicConfig(
 log = logging.getLogger("surveytrace-collector")
 
 
+def _cfg_int(cfg: dict, key: str, default: int, lo: int, hi: int) -> int:
+    try:
+        v = int(cfg.get(key, default))
+    except (TypeError, ValueError):
+        v = default
+    return max(lo, min(hi, v))
+
+
 def _http_error_body(exc: urllib.error.HTTPError) -> str:
     try:
         raw = exc.read().decode("utf-8", errors="replace")
@@ -107,6 +115,7 @@ def main() -> None:
                     "capabilities": {"nmap": True},
                 },
                 headers={"X-Collector-Install-Token": install_token},
+                timeout=_cfg_int(cfg, "http_timeout_checkin_sec", 60, 10, 300),
             )
         except urllib.error.HTTPError as he:
             if he.code in (401, 403):
@@ -122,6 +131,11 @@ def main() -> None:
     if token == "":
         raise SystemExit("Missing collector_token")
 
+    # Master PHP may block on DB locks or cold start; short defaults caused noisy TimeoutErrors.
+    t_checkin = _cfg_int(cfg, "http_timeout_checkin_sec", 60, 10, 300)
+    t_poll = _cfg_int(cfg, "http_timeout_poll_sec", 60, 10, 300)
+    t_submit = _cfg_int(cfg, "http_timeout_submit_sec", 300, 60, 900)
+
     pending_err = ""
 
     while True:
@@ -136,7 +150,7 @@ def main() -> None:
                     "last_error": pending_err[:2000],
                 },
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=15,
+                timeout=t_checkin,
             )
             pending_err = ""
 
@@ -144,7 +158,7 @@ def main() -> None:
                 f"{server}/api/collector_jobs.php",
                 {"max_jobs": int(cfg.get("max_jobs", 2))},
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=20,
+                timeout=t_poll,
             )
             jobs = poll.get("jobs", []) if isinstance(poll, dict) else []
             if not isinstance(jobs, list):
@@ -169,7 +183,7 @@ def main() -> None:
                         "payload": payload,
                     },
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=120,
+                    timeout=t_submit,
                 )
                 log.info(
                     "Submitted results master_job_id=%s submission_id=%s ok=%s",
@@ -183,6 +197,9 @@ def main() -> None:
                 raise SystemExit("Collector token rejected; rotate/re-register required")
             log.error("HTTP %s from %s: %s", he.code, getattr(he, "url", "?"), detail or he.reason)
             pending_err = f"HTTP {he.code}: {detail or he.reason}"[:2000]
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as e:
+            log.warning("Collector control-plane timeout or network error (will retry): %s", e)
+            pending_err = str(e)[:2000]
         except Exception as e:
             log.exception("Collector loop error: %s", e)
             pending_err = str(e)[:2000]
