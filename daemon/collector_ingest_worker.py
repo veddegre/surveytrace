@@ -33,11 +33,12 @@ scanner_daemon.NVD_DB_PATH = DB_PATH.parent / "nvd.db"
 
 
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=30000")
+    # Ingest shares surveytrace.db with PHP + scanner daemon; longer wait reduces spurious failures.
+    conn.execute("PRAGMA busy_timeout=60000")
     return conn
 
 
@@ -213,6 +214,8 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
         reason = str(asset.get("_ai_enrichment_reason") or "").strip()
         if reason:
             ai_reason_counts[reason] = ai_reason_counts.get(reason, 0) + 1
+        # Release writer between assets so Ollama / slow AI does not hold SQLite locked for the whole job.
+        conn.commit()
 
     cve_rows = scanner_daemon.phase_cve(job_id, upserted_assets)
     for f in cve_rows:
@@ -245,16 +248,18 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
                 str(f.get("severity", "info")),
             ),
         )
+    conn.commit()
     conn.execute(
         """UPDATE assets SET
              top_cve  = (SELECT cve_id FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1),
              top_cvss = (SELECT cvss   FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1)
            WHERE id IN (SELECT DISTINCT asset_id FROM findings)"""
     )
+    conn.commit()
     return ai_attempts, ai_applied, len(cve_rows), ai_reason_counts
 
 
-def process_one(conn: sqlite3.Connection, qrow: sqlite3.Row) -> None:
+def process_one(qrow: dict) -> None:
     qid = int(qrow["id"])
     job_id = int(qrow["job_id"])
     rel = str(qrow["local_relpath"] or "")
@@ -265,166 +270,170 @@ def process_one(conn: sqlite3.Connection, qrow: sqlite3.Row) -> None:
     if not isinstance(payload, dict):
         raise RuntimeError("artifact payload must be object")
 
-    asset_map: dict[str, int] = {}
-    for a in payload.get("assets", []) or []:
-        if isinstance(a, dict):
-            aid = _asset_upsert(conn, job_id, a)
-            ip = str(a.get("ip", "")).strip()
-            if aid > 0 and ip:
-                asset_map[ip] = aid
-            if aid > 0:
-                conn.execute(
-                    """INSERT INTO scan_asset_snapshots (job_id, asset_id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        job_id, aid, ip, str(a.get("hostname", "")), str(a.get("category", "")),
-                        str(a.get("vendor", "")), str(a.get("top_cve", "")), float(a.get("top_cvss", 0.0) or 0.0),
-                        json.dumps(_coerce_json_list(a.get("open_ports")), separators=(",", ":"), ensure_ascii=False),
-                    ),
-                )
-
-    for f in payload.get("findings", []) or []:
-        if not isinstance(f, dict):
-            continue
-        ip = str(f.get("ip", "")).strip()
-        cve = str(f.get("cve_id", "")).strip()
-        if ip == "" or cve == "":
-            continue
-        aid = asset_map.get(ip)
-        if not aid:
-            row = conn.execute("SELECT id FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
-            aid = int(row["id"]) if row else 0
-        if aid <= 0:
-            continue
-        cvss = float(f.get("cvss", 0.0) or 0.0)
-        sev = str(f.get("severity", "")) or _severity(cvss)
-        conn.execute(
-            """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published, confirmed_at, resolved)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
-               ON CONFLICT(asset_id, cve_id) DO UPDATE SET
-                 cvss=excluded.cvss,
-                 severity=excluded.severity,
-                 description=excluded.description,
-                 published=excluded.published,
-                 resolved=excluded.resolved""",
-            (
-                aid, ip, cve, cvss, sev, str(f.get("description", ""))[:2000],
-                str(f.get("published", ""))[:64], 1 if int(f.get("resolved", 0) or 0) else 0,
-            ),
-        )
-        conn.execute(
-            "INSERT INTO scan_finding_snapshots (job_id, asset_id, cve_id, cvss, severity, resolved) VALUES (?, ?, ?, ?, ?, ?)",
-            (job_id, aid, cve, cvss, sev, 1 if int(f.get("resolved", 0) or 0) else 0),
-        )
-
-    for l in payload.get("scan_log", []) or []:
-        if not isinstance(l, dict):
-            continue
-        conn.execute(
-            "INSERT INTO scan_log (job_id, ts, level, ip, message) VALUES (?, datetime('now'), ?, ?, ?)",
-            (
-                job_id,
-                str(l.get("level", "INFO"))[:8],
-                str(l.get("ip", ""))[:128],
-                str(l.get("message", ""))[:4000],
-            ),
-        )
-
-    for p in payload.get("port_history", []) or []:
-        if not isinstance(p, dict):
-            continue
-        ip = str(p.get("ip", "")).strip()
-        if ip == "":
-            continue
-        aid = asset_map.get(ip)
-        if not aid:
-            row = conn.execute("SELECT id FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
-            aid = int(row["id"]) if row else 0
-        if aid <= 0:
-            continue
-        conn.execute(
-            "INSERT INTO port_history (asset_id, scan_id, ports, seen_at) VALUES (?, ?, ?, datetime('now'))",
-            (aid, job_id, json.dumps(_coerce_json_list(p.get("ports")), separators=(",", ":"), ensure_ascii=False)),
-        )
-
     sj = payload.get("scan_job", {}) if isinstance(payload.get("scan_job"), dict) else {}
     job_status = str(sj.get("status", "done"))
     if job_status not in {"done", "failed", "aborted"}:
         job_status = "done"
-    conn.execute(
-        """UPDATE scan_jobs
-           SET hosts_found=COALESCE(?, hosts_found),
-               hosts_scanned=COALESCE(?, hosts_scanned),
-               summary_json=COALESCE(?, summary_json),
-               error_msg=COALESCE(?, error_msg)
-           WHERE id=?""",
-        (
-            int(sj["hosts_found"]) if "hosts_found" in sj else None,
-            int(sj["hosts_scanned"]) if "hosts_scanned" in sj else None,
-            str(sj["summary_json"]) if "summary_json" in sj else None,
-            str(sj["error_msg"]) if "error_msg" in sj else None,
-            job_id,
-        ),
-    )
 
-    ai_attempts, ai_applied, cve_count, ai_reason_counts = _apply_master_enrichment(conn, job_id)
+    # Phase A: apply collector artifact — one transaction, then commit so PHP/daemon can write.
+    asset_map: dict[str, int] = {}
+    with db_conn() as conn:
+        for a in payload.get("assets", []) or []:
+            if isinstance(a, dict):
+                aid = _asset_upsert(conn, job_id, a)
+                ip = str(a.get("ip", "")).strip()
+                if aid > 0 and ip:
+                    asset_map[ip] = aid
+                if aid > 0:
+                    conn.execute(
+                        """INSERT INTO scan_asset_snapshots (job_id, asset_id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            job_id, aid, ip, str(a.get("hostname", "")), str(a.get("category", "")),
+                            str(a.get("vendor", "")), str(a.get("top_cve", "")), float(a.get("top_cvss", 0.0) or 0.0),
+                            json.dumps(_coerce_json_list(a.get("open_ports")), separators=(",", ":"), ensure_ascii=False),
+                        ),
+                    )
 
-    conn.execute(
-        "UPDATE collector_ingest_queue SET status='applied', processed_at=datetime('now'), error_msg=NULL WHERE id=?",
-        (qid,),
-    )
-    conn.execute(
-        """UPDATE collector_submissions
-           SET processed_chunks = (
-             SELECT COUNT(*) FROM collector_ingest_queue q
-             WHERE q.collector_id=collector_submissions.collector_id
-               AND q.job_id=collector_submissions.job_id
-               AND q.submission_id=collector_submissions.submission_id
-               AND q.status='applied'
-           ),
-               updated_at=datetime('now')
-           WHERE collector_id=? AND job_id=? AND submission_id=?""",
-        (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
-    )
-    row = conn.execute(
-        "SELECT chunk_count, processed_chunks FROM collector_submissions WHERE collector_id=? AND job_id=? AND submission_id=?",
-        (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
-    ).fetchone()
-    if row and int(row["processed_chunks"]) >= int(row["chunk_count"]):
-        summary_doc: dict = {}
-        try:
-            summary_doc = json.loads(str(sj.get("summary_json") or "{}"))
-            if not isinstance(summary_doc, dict):
-                summary_doc = {}
-        except Exception:
-            summary_doc = {}
-        summary_doc["collector_central_enrichment"] = True
-        summary_doc["ai_enrichment_attempts"] = int(ai_attempts)
-        summary_doc["ai_enrichment_applied"] = int(ai_applied)
-        summary_doc["ai_reason_counts"] = ai_reason_counts
-        summary_doc["collector_cve_matches"] = int(cve_count)
+        for f in payload.get("findings", []) or []:
+            if not isinstance(f, dict):
+                continue
+            ip = str(f.get("ip", "")).strip()
+            cve = str(f.get("cve_id", "")).strip()
+            if ip == "" or cve == "":
+                continue
+            aid = asset_map.get(ip)
+            if not aid:
+                row = conn.execute("SELECT id FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
+                aid = int(row["id"]) if row else 0
+            if aid <= 0:
+                continue
+            cvss = float(f.get("cvss", 0.0) or 0.0)
+            sev = str(f.get("severity", "")) or _severity(cvss)
+            conn.execute(
+                """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published, confirmed_at, resolved)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+                   ON CONFLICT(asset_id, cve_id) DO UPDATE SET
+                     cvss=excluded.cvss,
+                     severity=excluded.severity,
+                     description=excluded.description,
+                     published=excluded.published,
+                     resolved=excluded.resolved""",
+                (
+                    aid, ip, cve, cvss, sev, str(f.get("description", ""))[:2000],
+                    str(f.get("published", ""))[:64], 1 if int(f.get("resolved", 0) or 0) else 0,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO scan_finding_snapshots (job_id, asset_id, cve_id, cvss, severity, resolved) VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, aid, cve, cvss, sev, 1 if int(f.get("resolved", 0) or 0) else 0),
+            )
+
+        for l in payload.get("scan_log", []) or []:
+            if not isinstance(l, dict):
+                continue
+            conn.execute(
+                "INSERT INTO scan_log (job_id, ts, level, ip, message) VALUES (?, datetime('now'), ?, ?, ?)",
+                (
+                    job_id,
+                    str(l.get("level", "INFO"))[:8],
+                    str(l.get("ip", ""))[:128],
+                    str(l.get("message", ""))[:4000],
+                ),
+            )
+
+        for p in payload.get("port_history", []) or []:
+            if not isinstance(p, dict):
+                continue
+            ip = str(p.get("ip", "")).strip()
+            if ip == "":
+                continue
+            aid = asset_map.get(ip)
+            if not aid:
+                row = conn.execute("SELECT id FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
+                aid = int(row["id"]) if row else 0
+            if aid <= 0:
+                continue
+            conn.execute(
+                "INSERT INTO port_history (asset_id, scan_id, ports, seen_at) VALUES (?, ?, ?, datetime('now'))",
+                (aid, job_id, json.dumps(_coerce_json_list(p.get("ports")), separators=(",", ":"), ensure_ascii=False)),
+            )
+
         conn.execute(
-            "UPDATE scan_jobs SET summary_json=? WHERE id=?",
-            (json.dumps(summary_doc, separators=(",", ":"), ensure_ascii=False), job_id),
+            """UPDATE scan_jobs
+               SET hosts_found=COALESCE(?, hosts_found),
+                   hosts_scanned=COALESCE(?, hosts_scanned),
+                   summary_json=COALESCE(?, summary_json),
+                   error_msg=COALESCE(?, error_msg)
+               WHERE id=?""",
+            (
+                int(sj["hosts_found"]) if "hosts_found" in sj else None,
+                int(sj["hosts_scanned"]) if "hosts_scanned" in sj else None,
+                str(sj["summary_json"]) if "summary_json" in sj else None,
+                str(sj["error_msg"]) if "error_msg" in sj else None,
+                job_id,
+            ),
+        )
+
+    # Phase B: CVE/AI (commits after each asset inside _apply_master_enrichment) + queue finalize.
+    with db_conn() as conn:
+        ai_attempts, ai_applied, cve_count, ai_reason_counts = _apply_master_enrichment(conn, job_id)
+
+        conn.execute(
+            "UPDATE collector_ingest_queue SET status='applied', processed_at=datetime('now'), error_msg=NULL WHERE id=?",
+            (qid,),
         )
         conn.execute(
-            "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
+            """UPDATE collector_submissions
+               SET processed_chunks = (
+                 SELECT COUNT(*) FROM collector_ingest_queue q
+                 WHERE q.collector_id=collector_submissions.collector_id
+                   AND q.job_id=collector_submissions.job_id
+                   AND q.submission_id=collector_submissions.submission_id
+                   AND q.status='applied'
+               ),
+                   updated_at=datetime('now')
+               WHERE collector_id=? AND job_id=? AND submission_id=?""",
             (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
         )
-        conn.execute(
-            "UPDATE scan_jobs SET status=?, finished_at=COALESCE(finished_at, datetime('now')) WHERE id=? AND status='running'",
-            (job_status, job_id),
-        )
-        conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (job_id,))
+        row = conn.execute(
+            "SELECT chunk_count, processed_chunks FROM collector_submissions WHERE collector_id=? AND job_id=? AND submission_id=?",
+            (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+        ).fetchone()
+        if row and int(row["processed_chunks"]) >= int(row["chunk_count"]):
+            summary_doc: dict = {}
+            try:
+                summary_doc = json.loads(str(sj.get("summary_json") or "{}"))
+                if not isinstance(summary_doc, dict):
+                    summary_doc = {}
+            except Exception:
+                summary_doc = {}
+            summary_doc["collector_central_enrichment"] = True
+            summary_doc["ai_enrichment_attempts"] = int(ai_attempts)
+            summary_doc["ai_enrichment_applied"] = int(ai_applied)
+            summary_doc["ai_reason_counts"] = ai_reason_counts
+            summary_doc["collector_cve_matches"] = int(cve_count)
+            conn.execute(
+                "UPDATE scan_jobs SET summary_json=? WHERE id=?",
+                (json.dumps(summary_doc, separators=(",", ":"), ensure_ascii=False), job_id),
+            )
+            conn.execute(
+                "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
+                (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+            )
+            conn.execute(
+                "UPDATE scan_jobs SET status=?, finished_at=COALESCE(finished_at, datetime('now')) WHERE id=? AND status='running'",
+                (job_status, job_id),
+            )
+            conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (job_id,))
 
 
 def main() -> None:
     log.info("collector ingest worker started")
     while True:
         try:
-            # One DB transaction per queue item. A single long transaction over many
-            # items (each running CVE/AI enrichment) was holding the SQLite writer
-            # lock and blocking the web UI and scanner daemon.
+            # One queue item per outer attempt: payload vs enrichment are separate transactions;
+            # enrichment commits after each asset so AI/Ollama does not hold the writer.
             for _ in range(10):
                 row_dict: dict | None = None
                 with db_conn() as conn:
@@ -440,11 +449,11 @@ def main() -> None:
                         row_dict = dict(row)
                 if row_dict is None:
                     break
-                with db_conn() as conn:
-                    try:
-                        process_one(conn, row_dict)
-                    except Exception as exc:
-                        delay = min(300, 5 * (2 ** min(6, int(row_dict.get("attempts") or 0))))
+                try:
+                    process_one(row_dict)
+                except Exception as exc:
+                    delay = min(300, 5 * (2 ** min(6, int(row_dict.get("attempts") or 0))))
+                    with db_conn() as conn:
                         conn.execute(
                             """UPDATE collector_ingest_queue
                                SET status='failed',
@@ -454,7 +463,7 @@ def main() -> None:
                                WHERE id=?""",
                             (f"+{delay} seconds", str(exc)[:600], int(row_dict["id"])),
                         )
-                        log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
+                    log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
         except Exception as outer:
             log.exception("worker loop error: %s", outer)
         time.sleep(POLL_SECS)
