@@ -1361,14 +1361,16 @@ def phase_banner(
                 # fingerprinting still shows e.g. Proxmox. Routed fast_full_tcp does not
                 # use -p- (finite port list) and keeps shorter timeouts below.
                 nh = len(hosts)
+                # -p- + -sV: single-host jobs need more than the old 900s on noisy boxes; keep a
+                # ~20m nmap ceiling so Phase 3 does not block the queue for half an hour+.
                 if nh <= 1:
-                    timeout_secs = 900
+                    timeout_secs = 1200
                 elif nh <= 8:
-                    timeout_secs = 600
+                    timeout_secs = 900
                 elif nh <= 32:
-                    timeout_secs = 300
+                    timeout_secs = 540
                 else:
-                    timeout_secs = 180
+                    timeout_secs = 360
             elif routed_mode:
                 # Routed/VPN paths: fail filtered hosts faster to avoid 3+ minute
                 # stalls per host when nothing is reachable from this vantage point.
@@ -1394,13 +1396,13 @@ def phase_banner(
             # still infers OS from hostname/DNS. Scale by scope; keep caps for large sweeps.
             nh = len(hosts)
             if nh <= 1:
-                timeout_secs = 900
+                timeout_secs = 1200
             elif nh <= 8:
-                timeout_secs = 600
+                timeout_secs = 900
             elif nh <= 32:
-                timeout_secs = 300
+                timeout_secs = 540
             else:
-                timeout_secs = 180
+                timeout_secs = 360
         else:
             timeout_secs = 120 if scan_all_tcp else max(60, port_count * 2 + 15)
 
@@ -1414,9 +1416,15 @@ def phase_banner(
             f"{host_timeout_arg} "
             f"--open"
         )
-        # python-nmap subprocess timeout: must exceed nmap --host-timeout so the
-        # subprocess is not killed mid-scan (especially full_tcp -p- on one host).
-        scan_timeout = min(3600, max(timeout_secs + 120, 240))
+        # python-nmap subprocess timeout: must exceed nmap --host-timeout. For -p- sweeps,
+        # cap total wait (~21m max) so one batch cannot monopolize Phase 3 for hours.
+        if scan_all_tcp:
+            scan_timeout = min(
+                1260,
+                max(timeout_secs + 60, int(timeout_secs * 1.1) + 60),
+            )
+        else:
+            scan_timeout = min(3600, max(timeout_secs + 120, 240))
         with db_conn() as conn:
             hang_note = (
                 f"nmap quiet up to ~{scan_timeout}s (--host-timeout {timeout_secs}s); "
@@ -1448,7 +1456,10 @@ def phase_banner(
             # after every successful host or only the last host would be recorded.
             for one_host in chunk:
                 try:
-                    one_host_timeout = min(3600, max(90, timeout_secs + 90))
+                    if scan_all_tcp:
+                        one_host_timeout = scan_timeout
+                    else:
+                        one_host_timeout = min(3600, max(90, timeout_secs + 90))
                     nm.scan(
                         hosts=one_host,
                         arguments=nmap_args,
