@@ -1319,12 +1319,22 @@ try {
             ], 503);
         }
 
+        $phasesRaw = $summary['phases'] ?? null;
+        $phasesArr = null;
+        if (is_array($phasesRaw)) {
+            $phasesArr = $phasesRaw;
+        } elseif (is_string($phasesRaw) && $phasesRaw !== '') {
+            $pd = json_decode($phasesRaw, true);
+            $phasesArr = is_array($pd) ? $pd : null;
+        }
         $compact = [
             'profile' => $summary['profile'] ?? null,
             'scan_mode' => $summary['scan_mode'] ?? null,
             'target_cidr' => $summary['target_cidr'] ?? null,
+            'phases' => $phasesArr,
             'assets_catalogued' => (int)($summary['assets_catalogued'] ?? 0),
             'hosts_found' => (int)($summary['hosts_found'] ?? 0),
+            'open_ports_total' => (int)($summary['open_ports_total'] ?? 0),
             'open_findings' => (int)($summary['open_findings'] ?? 0),
             'severity_breakdown' => is_array($summary['severity_breakdown'] ?? null)
                 ? $summary['severity_breakdown'] : [],
@@ -1332,6 +1342,7 @@ try {
             'top_ports' => is_array($summary['top_ports'] ?? null) ? $summary['top_ports'] : [],
             'ai_enrichment_attempts' => (int)($summary['ai_enrichment_attempts'] ?? 0),
             'ai_enrichment_applied' => (int)($summary['ai_enrichment_applied'] ?? 0),
+            'ai_reason_counts' => is_array($summary['ai_reason_counts'] ?? null) ? $summary['ai_reason_counts'] : [],
             'routed_net_overrides' => (int)($summary['routed_net_overrides'] ?? 0),
         ];
 
@@ -1344,10 +1355,22 @@ try {
             st_json(['error' => 'Could not encode scan compact summary'], 500);
         }
 
-        $prompt = "You are writing an operator summary for a network scan.\n"
-            . "Return ONLY JSON with keys: overview (string), concerns (array of <=5 strings), "
-            . "next_steps (array of <=5 strings).\n"
-            . "Be concise, practical, and avoid alarmist language.\n\n"
+        $prompt = "You write a short executive brief for a completed network inventory scan (SurveyTrace). "
+            . "The reader is an operator who already has the dashboard — interpret the JSON facts; do not repeat them as a table.\n\n"
+            . "Return ONLY JSON with keys: overview (string, max 3 sentences), concerns (array, max 5 strings), "
+            . "next_steps (array, max 5 strings).\n"
+            . "Tone: practical and neutral; only use urgent language if severity_breakdown shows critical/high issues.\n\n"
+            . "Content rules:\n"
+            . "- Ground every point in the scan JSON (hosts_found vs assets_catalogued, categories, top_ports, open_findings, phases, "
+            . "routed_net_overrides, ai_reason_counts).\n"
+            . "- concerns: skip vague filler. If open_findings is 0, you may still flag exposure from top_ports, host/catalogue gaps, "
+            . "or category skew (e.g. many srv/unk).\n"
+            . "- next_steps: each string must be a concrete operational follow-up for THIS network (verify a segment, rescan with a "
+            . "specific phase, reconcile host count, validate a port/service class, document an exception). "
+            . "Do NOT tell the operator to review or tune AI features, models, or SurveyTrace AI settings.\n"
+            . "- If ai_enrichment_attempts is 0 and ai_reason_counts is non-empty, briefly acknowledge why per-host relabel was skipped "
+            . "(e.g. not_ambiguous) and name one inventory action that still adds value.\n"
+            . "- Do not mention 'network overrides' or similar unless routed_net_overrides is greater than 0.\n\n"
             . "Scan data JSON:\n{$compactJson}\n";
 
         @set_time_limit(st_ai_operator_ollama_timeout_cap() + 120);
