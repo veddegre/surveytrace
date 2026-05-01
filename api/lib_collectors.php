@@ -38,6 +38,10 @@ function st_collector_bootstrap_schema(): void {
         )"
     );
     $collectorCols = array_column($db->query("PRAGMA table_info(collectors)")->fetchAll(), 'name');
+    if (!in_array('last_error', $collectorCols, true)) {
+        // Older installs predating last_error on collectors — without this, heartbeat UPDATE 500s.
+        $db->exec("ALTER TABLE collectors ADD COLUMN last_error TEXT");
+    }
     if (!in_array('allowed_cidrs_json', $collectorCols, true)) {
         $db->exec("ALTER TABLE collectors ADD COLUMN allowed_cidrs_json TEXT DEFAULT '[]'");
     }
