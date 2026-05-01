@@ -21,8 +21,13 @@ if [[ -f /etc/surveytrace/collector.json ]]; then
   sudo chown root:surveytrace /etc/surveytrace/collector.json 2>/dev/null || true
   sudo chmod 660 /etc/surveytrace/collector.json 2>/dev/null || true
 fi
-# Stop/start (clearer teardown than restart for lingering Python/nmap children)
+# Stop/start — tear down Python and nmap in the service cgroup (see KillMode in setup unit).
 sudo systemctl stop surveytrace-collector || true
 sleep 2
+if systemctl is-active --quiet surveytrace-collector 2>/dev/null; then
+  echo "surveytrace-collector: still active after stop; sending SIGKILL to unit cgroup..."
+  sudo systemctl kill -s SIGKILL surveytrace-collector || true
+  sleep 1
+fi
 sudo systemctl start surveytrace-collector
 sudo systemctl is-active --quiet surveytrace-collector && echo "collector: running" || echo "collector: FAILED"

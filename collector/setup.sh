@@ -72,6 +72,9 @@ User=surveytrace
 Group=surveytrace
 WorkingDirectory=/opt/surveytrace/daemon
 ExecStart=/opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/collector_agent.py --config /etc/surveytrace/collector.json
+# Ensure nmap/python-nmap children die on stop/redeploy (default can miss edge cases).
+KillMode=control-group
+TimeoutStopSec=120
 Restart=always
 RestartSec=5
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
