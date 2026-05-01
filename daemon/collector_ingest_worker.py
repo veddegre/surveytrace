@@ -72,6 +72,62 @@ def _coerce_json_list(val: object) -> list:
     return []
 
 
+def _master_refresh_scan_executive_summary(summary_doc: dict, job_id: int) -> dict:
+    """
+    Run-wide AI summary on the master using master's config.
+
+    Collector chunks embed scan_job.summary_json from the collector host's daemon, which
+    reads that machine's SQLite (often missing ai_enrichment_enabled=1) and records
+    ai_scan_summary_status=skipped_disabled even when AI is enabled on the master.
+    """
+    if not isinstance(summary_doc, dict):
+        return summary_doc
+    try:
+        ai_cfg = scanner_daemon._load_ai_enrichment_settings()
+    except Exception:
+        return summary_doc
+    if not bool(ai_cfg.get("enabled")):
+        return summary_doc
+    try:
+        ac = int(summary_doc.get("assets_catalogued") or 0)
+    except (TypeError, ValueError):
+        ac = 0
+    if ac <= 0:
+        return summary_doc
+    if not bool(ai_cfg.get("available")):
+        summary_doc["ai_scan_summary_status"] = "skipped_runtime"
+        summary_doc["ai_scan_summary_detail"] = str(ai_cfg.get("availability_reason") or "runtime_unreachable")
+        return summary_doc
+
+    st = str(summary_doc.get("ai_scan_summary_status") or "")
+    ai_sum = summary_doc.get("ai_summary")
+    has_text = isinstance(ai_sum, dict) and (
+        str(ai_sum.get("overview") or "").strip()
+        or (
+            isinstance(ai_sum.get("concerns"), list)
+            and any(str(x).strip() for x in ai_sum["concerns"])
+        )
+        or (
+            isinstance(ai_sum.get("next_steps"), list)
+            and any(str(x).strip() for x in ai_sum["next_steps"])
+        )
+    )
+    if st == "ok" and has_text:
+        return summary_doc
+
+    doc, err = scanner_daemon._run_ai_scan_summary_ollama(ai_cfg, summary_doc)
+    if doc:
+        summary_doc["ai_summary"] = doc
+        summary_doc["ai_scan_summary_status"] = "ok"
+        summary_doc["ai_scan_summary_detail"] = ""
+        log.info("[job %d] executive AI summary refreshed on master (was status=%r)", job_id, st or None)
+    else:
+        summary_doc["ai_scan_summary_status"] = "failed"
+        summary_doc["ai_scan_summary_detail"] = (err or "unknown")[:200]
+        log.info("[job %d] executive AI summary on master failed: %s", job_id, (err or "")[:120])
+    return summary_doc
+
+
 def _coerce_json_dict(val: object) -> dict:
     if val is None:
         return {}
@@ -413,6 +469,7 @@ def process_one(qrow: dict) -> None:
             summary_doc["ai_enrichment_applied"] = int(ai_applied)
             summary_doc["ai_reason_counts"] = ai_reason_counts
             summary_doc["collector_cve_matches"] = int(cve_count)
+            summary_doc = _master_refresh_scan_executive_summary(summary_doc, job_id)
             conn.execute(
                 "UPDATE scan_jobs SET summary_json=? WHERE id=?",
                 (json.dumps(summary_doc, separators=(",", ":"), ensure_ascii=False), job_id),
