@@ -122,6 +122,7 @@ function st_collector_bootstrap_schema(): void {
     foreach ([
         'collector_install_token' => '',
         'collector_token_ttl_hours' => '720',
+        // Baseline lease; full_tcp / fast_full_tcp / etc. use a higher floor (see st_collector_effective_lease_seconds_for_profile).
         'collector_lease_seconds' => '600',
         'collector_rate_default_rps' => '5',
         'collector_submit_max_mb' => '8',
@@ -137,6 +138,33 @@ function st_collector_bootstrap_schema(): void {
     ] as $k => $v) {
         $db->prepare("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)")->execute([$k, $v]);
     }
+}
+
+/**
+ * Scan profiles that routinely exceed a 10-minute collector window (nmap -p-, deep probes).
+ * The agent does not poll the master while a scan runs, so the initial lease must cover it.
+ *
+ * @return list<string>
+ */
+function st_collector_long_running_profiles(): array {
+    return ['full_tcp', 'fast_full_tcp', 'deep_scan', 'ot_careful'];
+}
+
+/** Baseline collector lease from settings, clamped 60..14400 seconds. */
+function st_collector_config_lease_seconds(): int {
+    return max(60, min(14400, (int)st_config('collector_lease_seconds', '600')));
+}
+
+/**
+ * Lease duration when a collector claims a job (or extends after a partial submit).
+ * Long-running profiles get at least 2h so submit succeeds after slow nmap batches.
+ */
+function st_collector_effective_lease_seconds_for_profile(string $profile): int {
+    $base = st_collector_config_lease_seconds();
+    $p = strtolower(trim($profile));
+    $floor = in_array($p, st_collector_long_running_profiles(), true) ? 7200 : 0;
+
+    return min(14400, max($base, $floor));
 }
 
 function st_collector_token_hash(string $token): string {

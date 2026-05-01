@@ -322,7 +322,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             || trim((string)st_config('ai_openwebui_api_key', '')) !== '',
         'collector_install_token_configured' => trim((string)st_config('collector_install_token', '')) !== '',
         'collector_token_ttl_hours' => max(1, min(24 * 365, (int)st_config('collector_token_ttl_hours', '720'))),
-        'collector_lease_seconds' => max(60, min(3600, (int)st_config('collector_lease_seconds', '600'))),
+        'collector_lease_seconds' => max(60, min(14400, (int)st_config('collector_lease_seconds', '600'))),
         'collector_rate_default_rps' => max(1, min(50, (int)st_config('collector_rate_default_rps', '5'))),
         'collector_submit_max_mb' => max(1, min(256, (int)st_config('collector_submit_max_mb', '8'))),
         'collector_artifact_store' => (string)st_config('collector_artifact_store', 's3'),
@@ -511,7 +511,7 @@ if (array_key_exists('collector_token_ttl_hours', $body)) {
     $changed['collector_token_ttl_hours'] = $v;
 }
 if (array_key_exists('collector_lease_seconds', $body)) {
-    $v = max(60, min(3600, (int)$body['collector_lease_seconds']));
+    $v = max(60, min(14400, (int)$body['collector_lease_seconds']));
     st_config_set('collector_lease_seconds', (string)$v);
     $changed['collector_lease_seconds'] = $v;
 }

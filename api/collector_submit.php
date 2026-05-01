@@ -39,6 +39,12 @@ if (!$lease->fetch()) {
     st_json(['ok' => false, 'error' => 'Invalid or expired lease'], 409);
 }
 
+$jobProfileStmt = $db->prepare("SELECT profile FROM scan_jobs WHERE id=? LIMIT 1");
+$jobProfileStmt->execute([$jobId]);
+$jobProfRow = $jobProfileStmt->fetch(PDO::FETCH_ASSOC);
+$jobProfile = is_array($jobProfRow) ? (string)($jobProfRow['profile'] ?? '') : '';
+$leaseExtensionSecs = st_collector_effective_lease_seconds_for_profile($jobProfile);
+
 $jsonPayload = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 if (!is_string($jsonPayload)) {
     st_json(['ok' => false, 'error' => 'payload serialization failed'], 400);
@@ -117,7 +123,7 @@ try {
              SET last_heartbeat_at=datetime('now'),
                  lease_expires_at=datetime('now', ?)
              WHERE collector_id=? AND job_id=? AND lease_token=?"
-        )->execute(['+' . max(60, min(3600, (int)st_config('collector_lease_seconds', '600'))) . ' seconds', $collectorId, $jobId, $leaseToken]);
+        )->execute(['+' . $leaseExtensionSecs . ' seconds', $collectorId, $jobId, $leaseToken]);
     }
 
     $db->prepare("UPDATE collectors SET last_seen_at=datetime('now'), status='online', updated_at=datetime('now') WHERE id=?")->execute([$collectorId]);

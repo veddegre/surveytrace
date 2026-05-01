@@ -11,7 +11,6 @@ $collectorId = (int)$auth['collector_id'];
 $db = st_db();
 $body = st_input();
 $maxJobs = max(1, min(10, (int)($body['max_jobs'] ?? 3)));
-$leaseSecs = max(60, min(3600, (int)st_config('collector_lease_seconds', '600')));
 
 $stmt = $db->prepare("SELECT max_rps, status, allowed_cidrs_json, name FROM collectors WHERE id=? LIMIT 1");
 $stmt->execute([$collectorId]);
@@ -80,6 +79,7 @@ try {
                 continue;
             }
             $leaseToken = 'lease_' . bin2hex(random_bytes(16));
+            $leaseSecs = st_collector_effective_lease_seconds_for_profile((string)($nr['profile'] ?? ''));
             $db->prepare("UPDATE scan_jobs SET status='running', started_at=COALESCE(started_at, datetime('now')) WHERE id=?")->execute([(int)$nr['id']]);
             $db->prepare(
                 "INSERT OR REPLACE INTO collector_job_leases (job_id, collector_id, lease_token, leased_at, lease_expires_at, last_heartbeat_at)
@@ -110,7 +110,10 @@ try {
 }
 
 $out = [];
+$reportLeaseSecs = st_collector_config_lease_seconds();
 foreach ($jobs as $j) {
+    $effLease = st_collector_effective_lease_seconds_for_profile((string)($j['profile'] ?? ''));
+    $reportLeaseSecs = max($reportLeaseSecs, $effLease);
     $out[] = [
         'job_id' => (int)$j['id'],
         'label' => (string)($j['label'] ?? ''),
@@ -125,6 +128,7 @@ foreach ($jobs as $j) {
         'enrichment_source_ids' => json_decode((string)($j['enrichment_source_ids'] ?? 'null'), true),
         'lease_token' => (string)($j['lease_token'] ?? ''),
         'lease_expires_at' => (string)($j['lease_expires_at'] ?? ''),
+        'lease_seconds' => $effLease,
     ];
 }
 
@@ -132,6 +136,6 @@ st_json([
     'ok' => true,
     'collector_id' => $collectorId,
     'jobs' => $out,
-    'lease_seconds' => $leaseSecs,
+    'lease_seconds' => $reportLeaseSecs,
     'server_time' => gmdate('c'),
 ]);
