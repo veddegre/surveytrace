@@ -168,6 +168,7 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
             ai_cfg=ai_cfg,
             ai_attempts=ai_attempts,
             ipv6_addrs=v6,
+            reuse_conn=conn,
         )
         upserted_assets.append(asset)
         if asset.get("_ai_enrichment_attempted"):
@@ -386,20 +387,29 @@ def main() -> None:
     log.info("collector ingest worker started")
     while True:
         try:
-            with db_conn() as conn:
-                rows = conn.execute(
-                    """SELECT *
-                       FROM collector_ingest_queue
-                       WHERE status IN ('pending','failed')
-                         AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
-                       ORDER BY created_at ASC
-                       LIMIT 10"""
-                ).fetchall()
-                for r in rows:
+            # One DB transaction per queue item. A single long transaction over many
+            # items (each running CVE/AI enrichment) was holding the SQLite writer
+            # lock and blocking the web UI and scanner daemon.
+            for _ in range(10):
+                row_dict: dict | None = None
+                with db_conn() as conn:
+                    row = conn.execute(
+                        """SELECT *
+                           FROM collector_ingest_queue
+                           WHERE status IN ('pending','failed')
+                             AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
+                           ORDER BY created_at ASC
+                           LIMIT 1"""
+                    ).fetchone()
+                    if row is not None:
+                        row_dict = dict(row)
+                if row_dict is None:
+                    break
+                with db_conn() as conn:
                     try:
-                        process_one(conn, r)
+                        process_one(conn, row_dict)
                     except Exception as exc:
-                        delay = min(300, 5 * (2 ** min(6, int(r["attempts"] or 0))))
+                        delay = min(300, 5 * (2 ** min(6, int(row_dict.get("attempts") or 0))))
                         conn.execute(
                             """UPDATE collector_ingest_queue
                                SET status='failed',
@@ -407,9 +417,9 @@ def main() -> None:
                                    next_attempt_at=datetime('now', ?),
                                    error_msg=?
                                WHERE id=?""",
-                            (f"+{delay} seconds", str(exc)[:600], int(r["id"])),
+                            (f"+{delay} seconds", str(exc)[:600], int(row_dict["id"])),
                         )
-                        log.warning("queue item %s failed: %s", int(r["id"]), exc)
+                        log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
         except Exception as outer:
             log.exception("worker loop error: %s", outer)
         time.sleep(POLL_SECS)

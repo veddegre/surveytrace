@@ -2411,11 +2411,18 @@ def upsert_asset(job_id: int, ip: str, mac: str,
                   scan_mode: str = "auto",
                   ai_cfg: dict[str, object] | None = None,
                   ai_attempts: int = 0,
-                  ipv6_addrs: list[str] | None = None) -> dict:
+                  ipv6_addrs: list[str] | None = None,
+                  *,
+                  reuse_conn: sqlite3.Connection | None = None) -> dict:
     """Upsert an asset row and return the full row dict.
 
     Ollama / network I/O for AI enrichment runs only between short DB transactions
     so slow local inference does not hold SQLite locks (which would stall the web UI).
+
+    When ``reuse_conn`` is set, all SQLite access uses that connection (no nested
+    ``db_conn()``). Callers inside a larger transaction must pass this to avoid
+    self-deadlock: a second connection cannot write while ``reuse_conn`` holds an
+    uncommitted writer transaction.
     """
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
     # zero opens and wiping a good standard_inventory row. Union with prior opens
@@ -2424,11 +2431,17 @@ def upsert_asset(job_id: int, ip: str, mac: str,
     existing_banners: dict[str, str] = {}
     existing_ncpes: list[str] = []
     existing_ipv6: list[str] = []
-    with db_conn() as conn:
-        cur = conn.execute(
+    if reuse_conn is not None:
+        cur = reuse_conn.execute(
             "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
             (ip,),
         ).fetchone()
+    else:
+        with db_conn() as conn:
+            cur = conn.execute(
+                "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
+                (ip,),
+            ).fetchone()
     if cur:
         try:
             ep = json.loads(cur["open_ports"] or "[]")
@@ -2676,10 +2689,10 @@ def upsert_asset(job_id: int, ip: str, mac: str,
             bool(routed_override.get("has_net_cpe")),
         )
 
-    with db_conn() as conn:
-        device_id = ensure_device_id_for_upsert(conn, ip, mac)
+    def _write_asset_row(wconn: sqlite3.Connection) -> dict:
+        device_id = ensure_device_id_for_upsert(wconn, ip, mac)
 
-        conn.execute("""
+        wconn.execute("""
             INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
                                 ai_last_confidence, ai_last_rationale, ai_last_applied, ai_last_suggested_category,
                                 ai_last_reason, ai_last_attempted, ai_last_decision_ts,
@@ -2761,15 +2774,21 @@ def upsert_asset(job_id: int, ip: str, mac: str,
 
         nm = _norm_mac(mac)
         if nm:
-            conn.execute(
+            wconn.execute(
                 """UPDATE devices SET updated_at=CURRENT_TIMESTAMP,
                    primary_mac_norm=COALESCE(primary_mac_norm, ?)
                    WHERE id=?""",
                 (nm, device_id),
             )
 
-        row = conn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
-        result = dict(row)
+        row = wconn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
+        return dict(row)
+
+    if reuse_conn is not None:
+        result = _write_asset_row(reuse_conn)
+    else:
+        with db_conn() as wconn:
+            result = _write_asset_row(wconn)
     result["nmap_cpes"] = json.loads(result.get("nmap_cpes") or "[]")
     result["_routed_net_override_applied"] = isinstance(routed_override, dict)
     result["_ai_enrichment_attempted"] = ai_enrichment_attempted
