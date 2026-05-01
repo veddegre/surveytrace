@@ -375,6 +375,76 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
 }
 
 /**
+ * Remove common model preambles so the first "{" is more likely to be answer JSON.
+ */
+function st_ai_strip_model_noise(string $text): string {
+    $text = trim($text);
+    // Reasoning wrappers (built without embedding raw tags in this source file).
+    $pairs = [
+        ["\x3C" . 'think' . "\x3E", "\x3C\x2F" . 'think' . "\x3E"],
+        ["\x3C" . 'redacted' . '_' . 'think' . "\x3E", "\x3C\x2F" . 'redacted' . '_' . 'think' . "\x3E"],
+    ];
+    foreach ($pairs as [$o, $c]) {
+        $text = preg_replace('#' . preg_quote($o, '#') . '[\s\S]*?' . preg_quote($c, '#') . '#i', '', $text) ?? $text;
+    }
+    $text = preg_replace('/<redacted_reasoning>[\s\S]*?<\/redacted_reasoning>/i', '', $text) ?? $text;
+    return trim($text);
+}
+
+/**
+ * True when this decoded object is the scan "compact" blob we embed in the prompt,
+ * not the operator summary JSON (overview / concerns / next_steps).
+ */
+function st_ai_json_looks_like_scan_compact_echo(array $d): bool {
+    if (!isset($d['profile'], $d['assets_catalogued'], $d['hosts_found'])) {
+        return false;
+    }
+    if (array_key_exists('overview', $d) || isset($d['concerns']) || isset($d['next_steps'])) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @param 'scan_summary'|'explain_host'|'findings'|'' $role '' = first non-scan-echo object
+ */
+function st_ai_json_object_matches_role(array $d, string $role): bool {
+    if ($role === 'scan_summary') {
+        if (st_ai_json_looks_like_scan_compact_echo($d)) {
+            return false;
+        }
+        return array_key_exists('overview', $d)
+            || (isset($d['concerns']) && is_array($d['concerns']))
+            || (isset($d['next_steps']) && is_array($d['next_steps']));
+    }
+    if ($role === 'explain_host') {
+        return array_key_exists('overview', $d)
+            || (isset($d['likely_roles']) && is_array($d['likely_roles']))
+            || (isset($d['hardening_tips']) && is_array($d['hardening_tips']))
+            || (isset($d['owner_questions']) && is_array($d['owner_questions']));
+    }
+    if ($role === 'findings') {
+        $rs = trim((string)($d['risk_summary'] ?? ''));
+        $pr = trim((string)($d['prioritize'] ?? ''));
+        $note = trim((string)($d['note'] ?? ''));
+        $rb = $d['remediation_bullets'] ?? [];
+        if ($rs !== '' || $pr !== '' || $note !== '') {
+            return true;
+        }
+        if (!is_array($rb)) {
+            return false;
+        }
+        foreach ($rb as $x) {
+            if (trim((string)$x) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+    return !st_ai_json_looks_like_scan_compact_echo($d);
+}
+
+/**
  * Slice one JSON object starting at $start (byte index of "{") using string/escape rules.
  * Returns null if braces are unbalanced (truncated output, etc.).
  */
@@ -418,41 +488,70 @@ function st_ai_json_slice_balanced(string $s, int $start): ?string {
 }
 
 /**
- * Parse the first JSON object from model text (prose, markdown fences, multiple blobs).
- * Avoids greedy /\{.*\}/ which breaks on nested objects, strings containing "}", or truncation.
+ * Parse a JSON object from model text (prose, markdown fences, echoed prompt JSON).
+ * When $role is set, returns the first balanced object that matches that action's schema
+ * (skips the scan "compact" echo the model often pastes before its real answer).
  *
+ * @param 'scan_summary'|'explain_host'|'findings'|'' $role
  * @return array<string,mixed>|null
  */
-function st_ai_extract_json_object(string $text): ?array {
-    $text = trim($text);
+function st_ai_extract_json_object(string $text, string $role = ''): ?array {
+    $text = st_ai_strip_model_noise(trim($text));
     if ($text === '') {
         return null;
     }
     if (str_starts_with($text, "\xEF\xBB\xBF")) {
         $text = trim(substr($text, 3));
     }
-    if (str_starts_with($text, '```')) {
+    // Models often wrap JSON in multiple ``` fences or add prose between blocks.
+    for ($guard = 0; $guard < 6 && str_starts_with($text, '```'); $guard++) {
         $text = preg_replace('/^```[a-zA-Z0-9]*\s*\R?/', '', $text) ?? $text;
         $text = preg_replace('/\R```\s*$/', '', $text) ?? $text;
         $text = trim($text);
     }
     $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
+    $depth = 2048;
+    $tryDoc = static function (?string $slice) use ($flags, $depth): ?array {
+        if ($slice === null || $slice === '') {
+            return null;
+        }
+        $doc = json_decode($slice, true, $depth, $flags);
+        return is_array($doc) ? $doc : null;
+    };
     if ($text !== '' && $text[0] === '{') {
-        $doc = json_decode($text, true, 512, $flags);
-        if (is_array($doc)) {
+        $doc = $tryDoc($text);
+        if (is_array($doc) && ($role === '' || st_ai_json_object_matches_role($doc, $role))) {
             return $doc;
         }
     }
     $pos = 0;
+    $fallback = null;
     while (($j = strpos($text, '{', $pos)) !== false) {
         $slice = st_ai_json_slice_balanced($text, $j);
-        if ($slice !== null) {
-            $doc = json_decode($slice, true, 512, $flags);
-            if (is_array($doc)) {
+        $doc = $tryDoc($slice);
+        if (!is_array($doc)) {
+            $pos = $j + 1;
+            continue;
+        }
+        if ($role !== '') {
+            if (st_ai_json_object_matches_role($doc, $role)) {
                 return $doc;
+            }
+            if ($fallback === null && !st_ai_json_looks_like_scan_compact_echo($doc)) {
+                $fallback = $doc;
+            }
+        } else {
+            if (!st_ai_json_looks_like_scan_compact_echo($doc)) {
+                return $doc;
+            }
+            if ($fallback === null) {
+                $fallback = $doc;
             }
         }
         $pos = $j + 1;
+    }
+    if ($role !== '' && $fallback !== null && st_ai_json_object_matches_role($fallback, $role)) {
+        return $fallback;
     }
     return null;
 }
@@ -853,7 +952,7 @@ try {
                 st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err'], 'envelope' => $envelope], 502);
             }
 
-            $parsed = st_ai_extract_json_object($gen['text']);
+            $parsed = st_ai_extract_json_object($gen['text'], 'findings');
             $doc = st_ai_normalize_findings_doc($parsed);
             if (!$doc) {
                 $envelope = [
@@ -999,7 +1098,7 @@ try {
             st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err'], 'envelope' => $envelope], 502);
         }
 
-        $parsed = st_ai_extract_json_object($gen['text']);
+        $parsed = st_ai_extract_json_object($gen['text'], 'explain_host');
         $doc = st_ai_normalize_explain_doc($parsed);
         if (!$doc) {
             $envelope = [
@@ -1107,7 +1206,7 @@ try {
             st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err']], 502);
         }
 
-        $parsed = st_ai_extract_json_object($gen['text']);
+        $parsed = st_ai_extract_json_object($gen['text'], 'scan_summary');
         if (!is_array($parsed)) {
             $summary['ai_scan_summary_status'] = 'failed';
             $summary['ai_scan_summary_detail'] = 'no_json';

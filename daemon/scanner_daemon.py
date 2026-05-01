@@ -573,38 +573,94 @@ def _json_slice_balanced(s: str, start: int) -> str | None:
     return None
 
 
-def _extract_json_object_from_model_text(out: str) -> dict | None:
+def _json_looks_like_scan_compact_echo(d: dict) -> bool:
+    """True if this dict is the scan compact blob embedded in the summary prompt, not the answer."""
+    if not all(k in d for k in ("profile", "assets_catalogued", "hosts_found")):
+        return False
+    if "overview" in d or "concerns" in d or "next_steps" in d:
+        return False
+    return True
+
+
+def _json_matches_scan_summary(d: dict) -> bool:
+    if _json_looks_like_scan_compact_echo(d):
+        return False
+    return bool(
+        "overview" in d
+        or isinstance(d.get("concerns"), list)
+        or isinstance(d.get("next_steps"), list)
+    )
+
+
+def _strip_model_noise_prefix(text: str) -> str:
+    text = text.strip()
+    for rx in (
+        r"<\s*think\s*>[\s\S]*?</\s*think\s*>",
+        r"<\s*redacted_thinking\s*>[\s\S]*?</\s*redacted_thinking\s*>",
+        r"<\s*redacted_reasoning\s*>[\s\S]*?</\s*redacted_reasoning\s*>",
+    ):
+        text = re.sub(rx, "", text, flags=re.I).strip()
+    return text
+
+
+def _extract_json_object_from_model_text(out: str, role: str | None = None) -> dict | None:
     """
-    First JSON object from LLM output (prose, markdown fences, wrong greedy spans).
+    First JSON object from LLM output (prose, markdown fences, echoed prompt JSON).
+    role='scan_summary' skips the embedded scan compact and requires overview/concerns/next_steps.
     Mirrors api/ai_actions.php st_ai_extract_json_object.
     """
-    text = out.strip()
+    text = _strip_model_noise_prefix(out)
     if text.startswith("\ufeff"):
         text = text.lstrip("\ufeff").strip()
-    if text.startswith("```"):
+    for _ in range(6):
+        if not text.startswith("```"):
+            break
         text = re.sub(r"^```[a-zA-Z0-9]*\s*\n?", "", text)
         text = re.sub(r"\n```\s*$", "", text).strip()
-    if text.startswith("{"):
+
+    def decode_obj(sl: str) -> dict | None:
         try:
-            doc = json.loads(text)
-            if isinstance(doc, dict):
-                return doc
+            d = json.loads(sl)
         except Exception:
-            pass
+            return None
+        return d if isinstance(d, dict) else None
+
+    def accept(d: dict | None) -> dict | None:
+        if d is None:
+            return None
+        if role == "scan_summary":
+            return d if _json_matches_scan_summary(d) else None
+        if role is None:
+            return d if not _json_looks_like_scan_compact_echo(d) else None
+        return d
+
+    if text.startswith("{"):
+        d0 = decode_obj(text)
+        hit = accept(d0)
+        if hit is not None:
+            return hit
+
     pos = 0
+    fallback: dict | None = None
     while True:
         j = text.find("{", pos)
         if j < 0:
             break
         sl = _json_slice_balanced(text, j)
         if sl:
-            try:
-                doc = json.loads(sl)
-                if isinstance(doc, dict):
-                    return doc
-            except Exception:
-                pass
+            d = decode_obj(sl)
+            if d is not None:
+                hit = accept(d)
+                if hit is not None:
+                    return hit
+                if fallback is None and not _json_looks_like_scan_compact_echo(d):
+                    fallback = d
         pos = j + 1
+
+    if role == "scan_summary":
+        return accept(fallback)
+    if role is None and fallback is not None:
+        return fallback
     return None
 
 
@@ -762,7 +818,7 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         )
     if err:
         return {}, err
-    doc = _extract_json_object_from_model_text(out)
+    doc = _extract_json_object_from_model_text(out, "scan_summary")
     if doc is None:
         return {}, "no_json"
     overview = str(doc.get("overview") or "").strip()
