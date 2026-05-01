@@ -865,13 +865,14 @@ if (is_readable($dbProbe)) {
   <p class="help-line mb16" style="max-width:min(100%, 52rem)">
     Feed of <strong>new hosts</strong>, <strong>open-port changes</strong>, and <strong>CVE lifecycle</strong> events (new detections, mitigated when a scan no longer sees a match, reopened after regression).
     Dismissing hides an item from this list; it does not change scan data or findings.
+    For <strong>new CVE</strong> and <strong>CVE reopened</strong> rows, <strong>Accept risk</strong> marks the finding as acknowledged (same as on the Vulnerabilities tab), dismisses open alerts for it, and stops repeat alerts until you unaccept from the host detail panel.
   </p>
   <div class="card">
     <div class="ct">Open alerts</div>
     <div id="alerts-summary" class="help-line mb8 text-dim">Loading…</div>
     <div class="tbl-wrap">
       <table class="tbl" id="alerts-table">
-        <thead><tr><th>When</th><th>Type</th><th>Target</th><th>Detail</th><th></th></tr></thead>
+        <thead><tr><th>When</th><th>Type</th><th>Target</th><th>Detail</th><th>Actions</th></tr></thead>
         <tbody id="alerts-table-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -1836,6 +1837,7 @@ function applyRoleAwareUi() {
     disableByOnclick('saveReclassify(', !canScanManage);
     disableByOnclick('resolveFinding(', !canScanManage);
     disableByOnclick('acceptFindingRisk(', !canScanManage);
+    disableByOnclick('acceptRiskFromChangeAlert(', !canScanManage);
     disableByOnclick('unacceptFindingRisk(', !canScanManage);
     disableByOnclick('queueHostRescan(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
@@ -3035,6 +3037,14 @@ function _alertDetailSummary(row) {
     return s.length > 120 ? s.slice(0, 117) + '…' : (s || '—');
 }
 
+/** CVE alerts tied to a finding row — Accept risk is meaningful (vs port/host-only rows). */
+function _changeAlertSupportsAcceptRisk(row) {
+    const fid = row.finding_id != null ? parseInt(String(row.finding_id), 10) : 0;
+    if (!fid) return false;
+    const t = String(row.alert_type || '');
+    return t === 'new_cve' || t === 'finding_reopened';
+}
+
 async function loadChangeAlerts() {
     const tbody = document.getElementById('alerts-table-body');
     const sum = document.getElementById('alerts-summary');
@@ -3061,14 +3071,34 @@ async function loadChangeAlerts() {
         const dismiss = canDismiss
             ? `<button type="button" class="tbtn btn-xs" onclick="dismissChangeAlert(${r.id})">Dismiss</button>`
             : '';
+        const accept = canDismiss && _changeAlertSupportsAcceptRisk(r)
+            ? `<button type="button" class="tbtn btn-xs" onclick="acceptRiskFromChangeAlert(${r.finding_id}, this)" title="Acknowledge risk for this CVE (dismisses open alerts for this finding)">Accept risk</button>`
+            : '';
+        const actions = (accept || dismiss)
+            ? `<span class="row-wrap" style="gap:4px;justify-content:flex-end">${[accept, dismiss].filter(Boolean).join('')}</span>`
+            : '';
         return `<tr>
           <td class="mono mono-sm">${esc(r.created_at || '')}</td>
           <td>${esc(_alertTypeLabel(r.alert_type))}</td>
           <td class="mono">${ip || '—'} <span class="text-dim mono-sm">job ${esc(jid)}</span></td>
           <td class="text-secondary" style="max-width:28rem">${esc(_alertDetailSummary(r))}</td>
-          <td>${dismiss}</td>
+          <td style="white-space:nowrap">${actions}</td>
         </tr>`;
     }).join('');
+}
+
+async function acceptRiskFromChangeAlert(findingId, btn) {
+    if (!findingId) return;
+    if (btn) btn.disabled = true;
+    const r = await apiPost('/api/findings.php?action=accept_risk', {action: 'accept_risk', finding_id: findingId});
+    if (r && r.ok) {
+        toast('Risk accepted — open change alerts for this finding are cleared; it stays acknowledged until you unaccept from host details.', 'ok');
+        loadFindings(vulnPage);
+        await loadChangeAlerts();
+    } else {
+        toast('Failed to accept risk', 'err');
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function dismissChangeAlert(id) {
