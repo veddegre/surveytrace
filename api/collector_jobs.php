@@ -13,9 +13,10 @@ $body = st_input();
 $maxJobs = max(1, min(10, (int)($body['max_jobs'] ?? 3)));
 $leaseSecs = max(60, min(3600, (int)st_config('collector_lease_seconds', '600')));
 
-$stmt = $db->prepare("SELECT max_rps, status, allowed_cidrs_json FROM collectors WHERE id=? LIMIT 1");
+$stmt = $db->prepare("SELECT max_rps, status, allowed_cidrs_json, name FROM collectors WHERE id=? LIMIT 1");
 $stmt->execute([$collectorId]);
-$row = $stmt->fetch() ?: ['max_rps' => 5, 'status' => 'offline', 'allowed_cidrs_json' => '[]'];
+$row = $stmt->fetch() ?: ['max_rps' => 5, 'status' => 'offline', 'allowed_cidrs_json' => '[]', 'name' => ''];
+$collectorDisplayName = trim((string)($row['name'] ?? ''));
 if (($row['status'] ?? '') === 'revoked') {
     st_json(['ok' => false, 'error' => 'Collector revoked'], 403);
 }
@@ -81,6 +82,16 @@ try {
             )->execute([(int)$nr['id'], $collectorId, $leaseToken, '+' . $leaseSecs . ' seconds']);
             $nr['lease_token'] = $leaseToken;
             $nr['lease_expires_at'] = gmdate('Y-m-d H:i:s', time() + $leaseSecs);
+            $jid = (int)$nr['id'];
+            $cLabel = $collectorDisplayName !== '' ? $collectorDisplayName : ('#' . $collectorId);
+            $db->prepare("INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)")->execute([
+                $jid,
+                sprintf(
+                    'Collector %s (id %d) claimed this job — scan is running on the remote collector until results are submitted to the master.',
+                    $cLabel,
+                    $collectorId,
+                ),
+            ]);
             $jobs[] = $nr;
         }
     }

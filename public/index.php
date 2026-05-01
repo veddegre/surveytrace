@@ -3687,6 +3687,11 @@ async function pollJob(jobId) {
             const hf  = job.hosts_found || 0;
             const hs  = job.hosts_scanned || 0;
             msgEl.textContent = (hf > 0 ? hs+'/'+hf+' hosts · '+pct+'% · ' : '') + lastInfo.message.slice(0,60);
+        } else if (job.status === 'running' && Number(job.collector_id || 0) > 0 && job.collector_lease) {
+            const pct = job.progress_pct || 0;
+            const cn = job.collector_name ? String(job.collector_name) : ('#' + job.collector_id);
+            const hb = job.collector_lease.last_heartbeat_at ? String(job.collector_lease.last_heartbeat_at) : '—';
+            msgEl.textContent = 'Remote on collector ' + esc(cn) + ' · ' + pct + '% · last collector contact ' + esc(hb);
         }
     }
 

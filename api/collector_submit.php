@@ -110,6 +110,20 @@ try {
     st_json(['ok' => false, 'error' => 'collector submit failed'], 500);
 }
 
+try {
+    $db->prepare("INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)")->execute([
+        $jobId,
+        sprintf(
+            'Collector uploaded scan results (submission %s, chunk %d/%d); queued for master ingest.',
+            $submissionId,
+            $chunkIndex + 1,
+            $chunkCount,
+        ),
+    ]);
+} catch (Throwable $e) {
+    // Non-fatal
+}
+
 st_json([
     'ok' => true,
     'queued' => true,

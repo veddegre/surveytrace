@@ -57,6 +57,7 @@ foreach ($scanJobMigrations as $col => $defn) {
     }
 }
 $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
+$hasCollectorLeases = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_job_leases' LIMIT 1")->fetchColumn();
 
 // ---------------------------------------------------------------------------
 // Fetch job row
@@ -127,6 +128,30 @@ $job['progress_pct'] = match($job['status']) {
     'running' => $phase_progress,
     default   => 0,  // queued
 };
+
+$job['collector_lease'] = null;
+if ($hasCollectorLeases && $hasCollectors && (int)$job['collector_id'] > 0 && ($job['status'] ?? '') === 'running') {
+    $lr = $db->prepare(
+        "SELECT lease_expires_at, last_heartbeat_at, leased_at
+         FROM collector_job_leases WHERE job_id = ? LIMIT 1"
+    );
+    $lr->execute([(int)$job['id']]);
+    $leaseRow = $lr->fetch(PDO::FETCH_ASSOC);
+    if (is_array($leaseRow)) {
+        $job['collector_lease'] = [
+            'lease_expires_at' => (string)($leaseRow['lease_expires_at'] ?? ''),
+            'last_heartbeat_at' => (string)($leaseRow['last_heartbeat_at'] ?? ''),
+            'leased_at' => (string)($leaseRow['leased_at'] ?? ''),
+        ];
+        // Remote execution: hosts_* stay at 0 until ingest applies — show non-zero progress from elapsed time.
+        $elapsed = 0;
+        if (!empty($job['started_at'])) {
+            $elapsed = max(0, (int)(time() - strtotime((string)$job['started_at'])));
+        }
+        $remotePct = min(40, 12 + (int)($elapsed / 30));
+        $job['progress_pct'] = max((int)$job['progress_pct'], $remotePct);
+    }
+}
 
 // Elapsed time
 if ($job['started_at']) {

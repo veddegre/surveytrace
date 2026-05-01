@@ -11,14 +11,32 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import socket
+import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 from collector_parity_runner import run_collector_parity
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stderr,
+)
+log = logging.getLogger("surveytrace-collector")
+
+
+def _http_error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+    return raw.strip()[:2000]
+
 
 def _http_json(url: str, body: dict, headers: dict[str, str], timeout: int = 20) -> dict:
     req = urllib.request.Request(
@@ -104,20 +122,23 @@ def main() -> None:
     if token == "":
         raise SystemExit("Missing collector_token")
 
+    pending_err = ""
+
     while True:
         try:
-            # Heartbeat
+            # Heartbeat (surface last loop failure to master for ops visibility)
             _http_json(
                 f"{server}/api/collector_checkin.php",
                 {
                     "action": "heartbeat",
                     "version": cfg.get("version", "collector-agent-mvp"),
                     "capabilities": {"nmap": True},
-                    "last_error": "",
+                    "last_error": pending_err[:2000],
                 },
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=15,
             )
+            pending_err = ""
 
             poll = _http_json(
                 f"{server}/api/collector_jobs.php",
@@ -129,12 +150,18 @@ def main() -> None:
             if not isinstance(jobs, list):
                 jobs = []
             for job in jobs:
+                master_job_id = int(job.get("job_id", 0) or 0)
+                if master_job_id <= 0:
+                    log.error("Poll returned job without job_id: %s", job)
+                    pending_err = "Invalid job payload from master (missing job_id)"
+                    continue
+                log.info("Running collector job master_id=%s target=%s", master_job_id, job.get("target_cidr"))
                 payload = run_scan_job(job)
-                sub_id = f"job-{job.get('job_id')}-{int(time.time())}"
-                _http_json(
+                sub_id = f"job-{master_job_id}-{int(time.time())}"
+                sub = _http_json(
                     f"{server}/api/collector_submit.php",
                     {
-                        "job_id": int(job.get("job_id", 0)),
+                        "job_id": master_job_id,
                         "lease_token": str(job.get("lease_token", "")),
                         "submission_id": sub_id,
                         "chunk_index": 0,
@@ -142,13 +169,23 @@ def main() -> None:
                         "payload": payload,
                     },
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=60,
+                    timeout=120,
+                )
+                log.info(
+                    "Submitted results master_job_id=%s submission_id=%s ok=%s",
+                    master_job_id,
+                    sub_id,
+                    sub.get("ok") if isinstance(sub, dict) else sub,
                 )
         except urllib.error.HTTPError as he:
+            detail = _http_error_body(he)
             if he.code == 401:
                 raise SystemExit("Collector token rejected; rotate/re-register required")
-        except Exception:
-            pass
+            log.error("HTTP %s from %s: %s", he.code, getattr(he, "url", "?"), detail or he.reason)
+            pending_err = f"HTTP {he.code}: {detail or he.reason}"[:2000]
+        except Exception as e:
+            log.exception("Collector loop error: %s", e)
+            pending_err = str(e)[:2000]
         time.sleep(max(5, int(cfg.get("poll_interval_sec", 20))))
 
 
