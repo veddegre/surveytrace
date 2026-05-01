@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from sqlite_pragmas import apply_surveytrace_pragmas
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_SQL = REPO_ROOT / "sql" / "schema.sql"
@@ -22,6 +23,7 @@ SCANNER_DIR = REPO_ROOT / "daemon"
 def _apply_schema(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path), timeout=30)
     try:
+        apply_surveytrace_pragmas(conn)
         conn.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
         conn.commit()
     finally:
@@ -31,6 +33,7 @@ def _apply_schema(db_path: Path) -> None:
 def _seed_runtime_config(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path), timeout=30)
     try:
+        apply_surveytrace_pragmas(conn)
         # Keep parity behavior, but avoid cloud callbacks from edge collectors by default.
         conn.execute(
             "INSERT OR REPLACE INTO config (key, value) VALUES ('ai_enrichment_enabled', '0')"
@@ -58,6 +61,7 @@ def _insert_job(db_path: Path, job: dict[str, Any]) -> int:
     conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     try:
+        apply_surveytrace_pragmas(conn)
         cur = conn.execute(
             """
             INSERT INTO scan_jobs
@@ -90,6 +94,7 @@ def _extract_payload(db_path: Path, job_id: int) -> dict[str, Any]:
     conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     try:
+        apply_surveytrace_pragmas(conn)
         job_row = conn.execute(
             "SELECT status, hosts_found, hosts_scanned, summary_json, error_msg FROM scan_jobs WHERE id=?",
             (job_id,),

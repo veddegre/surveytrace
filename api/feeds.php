@@ -3,7 +3,7 @@
  * SurveyTrace — /api/feeds.php
  *
  * GET  /api/feeds.php?status=1   -> { ok, feed_sync, last_feed_sync? }
- * POST /api/feeds.php?sync=1     Body: {"target":"nvd"|"oui"|"webfp"|"all"}
+ * POST /api/feeds.php?sync=1     Body: {"target":"nvd"|"oui"|"webfp"|"cve_intel"|"all"}
  * POST /api/feeds.php?cancel=1 -> ask running sync to stop (NVD or "all" only)
  * POST /api/feeds.php?clear_sync_state=1 -> remove stuck feed_sync_state.json (after killing sync on server)
  *
@@ -44,14 +44,6 @@ if (isset($_GET['cancel'])) {
         if (!$state['running']) {
             st_json(['ok' => false, 'error' => 'No feed sync is running.'], 409);
         }
-        $tgt = strtolower((string)($state['target'] ?? ''));
-        if (!in_array($tgt, ['nvd', 'all'], true)) {
-            st_json([
-                'ok' => false,
-                'error' => 'Cancel only applies while NVD or “Sync all feeds” is running. '
-                    . 'OUI/WebFP-only jobs finish quickly.',
-            ], 400);
-        }
         if (!st_feed_sync_cancel_request()) {
             st_json([
                 'ok' => false,
@@ -83,8 +75,8 @@ if (!isset($_GET['sync'])) {
 
 try {
     $target = strtolower(trim((string)($body['target'] ?? 'all')));
-    if (!in_array($target, ['nvd', 'oui', 'webfp', 'all'], true)) {
-        st_json(['error' => 'target must be nvd, oui, webfp, or all'], 400);
+    if (!in_array($target, ['nvd', 'oui', 'webfp', 'cve_intel', 'all'], true)) {
+        st_json(['error' => 'target must be nvd, oui, webfp, cve_intel, or all'], 400);
     }
 
     $resolved = st_feed_sync_resolve($target);

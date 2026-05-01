@@ -13,7 +13,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 if ($argc < 3) {
-    fwrite(STDERR, "usage: php feed_sync_worker.php <nvd|oui|webfp|all> <install_root>\n");
+    fwrite(STDERR, "usage: php feed_sync_worker.php <nvd|oui|webfp|cve_intel|all> <install_root>\n");
     exit(1);
 }
 
@@ -24,7 +24,7 @@ if (!$root || !is_dir($root)) {
     exit(1);
 }
 
-if (!in_array($target, ['nvd', 'oui', 'webfp', 'all'], true)) {
+if (!in_array($target, ['nvd', 'oui', 'webfp', 'cve_intel', 'all'], true)) {
     fwrite(STDERR, "feed_sync_worker.php: invalid target\n");
     exit(1);
 }

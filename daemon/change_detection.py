@@ -6,6 +6,9 @@ Alert types: new_asset, port_change, new_cve, finding_reopened, finding_mitigate
 Finding lifecycle: new → active (still present on a later scan); mitigated when absent
 from correlated results; accepted (manual risk acceptance); reopened when a mitigated
 finding matches again. Accepted findings are not auto-mitigated when absent.
+
+Phase 10: optional triage keys on each finding dict (provenance_source, detection_method,
+confidence, risk_score, evidence_json) are persisted on INSERT/UPDATE when present.
 """
 
 from __future__ import annotations
@@ -113,6 +116,37 @@ def maybe_alert_port_change(
     )
 
 
+def _triage_vals(f: dict[str, Any]) -> tuple[str, str, str, Any, str]:
+    ps = str(f.get("provenance_source") or "unknown")
+    dm = str(f.get("detection_method") or "unknown")
+    cf = str(f.get("confidence") or "low")
+    rs: Any = f.get("risk_score")
+    if rs is not None and rs != "":
+        try:
+            rs = float(rs)
+        except (TypeError, ValueError):
+            rs = None
+    else:
+        rs = None
+    ej = f.get("evidence_json")
+    if ej is None or ej == "":
+        ej = "{}"
+    elif not isinstance(ej, str):
+        ej = json.dumps(ej, separators=(",", ":"), ensure_ascii=False)
+    return (ps, dm, cf, rs, ej)
+
+
+def _triage_update_fragment(f: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    """Extra SET clause + trailing bind values when Phase-10 triage is supplied on the finding dict."""
+    if "provenance_source" not in f:
+        return "", ()
+    ps, dm, cf, rs, ej = _triage_vals(f)
+    return (
+        ", provenance_source=?, detection_method=?, confidence=?, risk_score=?, evidence_json=?",
+        (ps, dm, cf, rs, ej),
+    )
+
+
 def _apply_one_finding_row(
     conn: sqlite3.Connection,
     job_id: int,
@@ -132,11 +166,13 @@ def _apply_one_finding_row(
     ).fetchone()
 
     if row is None:
+        ps, dm, cf, rs, ej = _triage_vals(f)
         conn.execute(
             """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published,
-                lifecycle_state, first_seen_job_id, last_seen_job_id, resolved, confirmed_at)
-                VALUES (?,?,?,?,?,?,?, 'new', ?, ?, 0, CURRENT_TIMESTAMP)""",
-            (aid, ip, cve, cvss, sev, desc, pub, job_id, job_id),
+                lifecycle_state, first_seen_job_id, last_seen_job_id, resolved, confirmed_at,
+                provenance_source, detection_method, confidence, risk_score, evidence_json)
+                VALUES (?,?,?,?,?,?,?, 'new', ?, ?, 0, CURRENT_TIMESTAMP, ?,?,?,?,?)""",
+            (aid, ip, cve, cvss, sev, desc, pub, job_id, job_id, ps, dm, cf, rs, ej),
         )
         fid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         insert_change_alert(
@@ -155,11 +191,12 @@ def _apply_one_finding_row(
         st = "active"
 
     if st == "mitigated":
+        tri_frag, tri_vals = _triage_update_fragment(f)
         conn.execute(
-            """UPDATE findings SET cvss=?, severity=?, description=?, published=?,
-                lifecycle_state='reopened', resolved=0, mitigated_at=NULL, last_seen_job_id=?
+            f"""UPDATE findings SET cvss=?, severity=?, description=?, published=?,
+                lifecycle_state='reopened', resolved=0, mitigated_at=NULL, last_seen_job_id=?{tri_frag}
                 WHERE id=?""",
-            (cvss, sev, desc, pub, job_id, fid),
+            (cvss, sev, desc, pub, job_id, *tri_vals, fid),
         )
         insert_change_alert(
             conn,
@@ -172,25 +209,28 @@ def _apply_one_finding_row(
         return
 
     if st == "accepted":
+        tri_frag, tri_vals = _triage_update_fragment(f)
         conn.execute(
-            """UPDATE findings SET cvss=?, severity=?, description=?, published=?,
-                last_seen_job_id=? WHERE id=?""",
-            (cvss, sev, desc, pub, job_id, fid),
+            f"""UPDATE findings SET cvss=?, severity=?, description=?, published=?,
+                last_seen_job_id=?{tri_frag} WHERE id=?""",
+            (cvss, sev, desc, pub, job_id, *tri_vals, fid),
         )
         return
 
     if st == "new":
+        tri_frag, tri_vals = _triage_update_fragment(f)
         conn.execute(
-            """UPDATE findings SET cvss=?, severity=?, description=?, published=?,
-                lifecycle_state='active', last_seen_job_id=?, resolved=0 WHERE id=?""",
-            (cvss, sev, desc, pub, job_id, fid),
+            f"""UPDATE findings SET cvss=?, severity=?, description=?, published=?,
+                lifecycle_state='active', last_seen_job_id=?, resolved=0{tri_frag} WHERE id=?""",
+            (cvss, sev, desc, pub, job_id, *tri_vals, fid),
         )
         return
 
+    tri_frag, tri_vals = _triage_update_fragment(f)
     conn.execute(
-        """UPDATE findings SET cvss=?, severity=?, description=?, published=?,
-            last_seen_job_id=?, resolved=0 WHERE id=?""",
-        (cvss, sev, desc, pub, job_id, fid),
+        f"""UPDATE findings SET cvss=?, severity=?, description=?, published=?,
+            last_seen_job_id=?, resolved=0{tri_frag} WHERE id=?""",
+        (cvss, sev, desc, pub, job_id, *tri_vals, fid),
     )
 
 

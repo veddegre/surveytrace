@@ -25,7 +25,9 @@ DAEMON_DIR = Path(__file__).resolve().parent
 if str(DAEMON_DIR) not in sys.path:
     sys.path.insert(0, str(DAEMON_DIR))
 import change_detection  # type: ignore
+import finding_triage  # type: ignore
 import scanner_daemon  # type: ignore
+from sqlite_pragmas import apply_surveytrace_pragmas
 
 _INGEST_ROW_COMMIT_INTERVAL = 100
 
@@ -38,10 +40,7 @@ scanner_daemon.NVD_DB_PATH = DB_PATH.parent / "nvd.db"
 def db_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), timeout=60)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    # Ingest shares surveytrace.db with PHP + scanner daemon; longer wait reduces spurious failures.
-    conn.execute("PRAGMA busy_timeout=60000")
+    apply_surveytrace_pragmas(conn)
     return conn
 
 
@@ -358,6 +357,7 @@ def process_one(qrow: dict) -> None:
                 if _a_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
                     conn.commit()
 
+        coll_hint = str(qrow.get("collector_id") or "").strip() or None
         _f_idx = 0
         for f in payload.get("findings", []) or []:
             if not isinstance(f, dict):
@@ -374,18 +374,30 @@ def process_one(qrow: dict) -> None:
                 continue
             cvss = float(f.get("cvss", 0.0) or 0.0)
             sev = str(f.get("severity", "")) or _severity(cvss)
+            tri = finding_triage.build_collector_triage(cvss, collector_id=coll_hint)
             conn.execute(
-                """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published, confirmed_at, resolved)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+                """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published, confirmed_at, resolved,
+                     provenance_source, detection_method, confidence, risk_score, evidence_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?,?,?,?,?)
                    ON CONFLICT(asset_id, cve_id) DO UPDATE SET
                      cvss=excluded.cvss,
                      severity=excluded.severity,
                      description=excluded.description,
                      published=excluded.published,
-                     resolved=excluded.resolved""",
+                     resolved=excluded.resolved,
+                     provenance_source=excluded.provenance_source,
+                     detection_method=excluded.detection_method,
+                     confidence=excluded.confidence,
+                     risk_score=excluded.risk_score,
+                     evidence_json=excluded.evidence_json""",
                 (
                     aid, ip, cve, cvss, sev, str(f.get("description", ""))[:2000],
                     str(f.get("published", ""))[:64], 1 if int(f.get("resolved", 0) or 0) else 0,
+                    tri["provenance_source"],
+                    tri["detection_method"],
+                    tri["confidence"],
+                    tri["risk_score"],
+                    tri["evidence_json"],
                 ),
             )
             conn.execute(

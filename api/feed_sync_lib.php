@@ -247,6 +247,9 @@ function st_feed_sync_resolve(string $target): ?array {
     if ($target === 'all' || $target === 'webfp') {
         $want[] = 'sync_webfp.py';
     }
+    if ($target === 'all' || $target === 'cve_intel') {
+        $want[] = 'sync_cve_intel.py';
+    }
 
     $scripts = [];
     $resolved_root = '';

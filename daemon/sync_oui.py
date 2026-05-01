@@ -24,6 +24,8 @@ import sqlite3
 from datetime import datetime, timezone
 
 from feed_sync_cancel import cancel_requested
+from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_version import surveytrace_version
 
 log = logging.getLogger("oui_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [oui_sync] %(message)s")
@@ -69,7 +71,10 @@ def normalize_prefix(raw_assignment: str) -> str | None:
 
 
 def fetch_csv_rows(url: str) -> list[dict[str, str]]:
-    req = urllib.request.Request(url, headers={"User-Agent": "SurveyTrace/1.0 (+sync_oui)"})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"SurveyTrace/{surveytrace_version()} (+sync_oui)"},
+    )
     with urllib.request.urlopen(req, timeout=60) as resp:
         text = resp.read().decode("utf-8", errors="replace")
     return list(csv.DictReader(text.splitlines()))
@@ -103,7 +108,8 @@ def main() -> None:
     log.info("Wrote %d OUI prefixes to %s", len(oui_map), OUT_PATH)
     try:
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        with sqlite3.connect(str(MAIN_DB_PATH)) as conn:
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=30) as conn:
+            apply_surveytrace_pragmas(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO config (key, value) VALUES ('oui_last_sync', ?)",
                 (now_str,),

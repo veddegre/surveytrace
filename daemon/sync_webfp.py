@@ -20,6 +20,8 @@ import sqlite3
 from datetime import datetime, timezone
 
 from feed_sync_cancel import cancel_requested
+from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_version import surveytrace_version
 
 log = logging.getLogger("webfp_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [webfp_sync] %(message)s")
@@ -32,7 +34,10 @@ FILES = ["_.json"] + [f"{chr(c)}.json" for c in range(ord("a"), ord("z") + 1)]
 
 
 def fetch_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "SurveyTrace/1.0 (+sync_webfp)"})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"SurveyTrace/{surveytrace_version()} (+sync_webfp)"},
+    )
     with urllib.request.urlopen(req, timeout=90) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
@@ -68,6 +73,28 @@ def map_category(cats: list[int]) -> str:
     return "srv"
 
 
+def map_category_for_tech(tech_name: str, cats: list[int]) -> str:
+    """
+    Refine Wappalyzer-derived category using the technology name.
+    Proxmox / VMware stack products should classify as hypervisor (hv), not generic srv.
+    """
+    base = map_category(cats)
+    tl = tech_name.strip().lower()
+    if not tl:
+        return base
+    if "photon" in tl:  # VMware Photon OS — container host OS, not ESXi
+        return base
+    if "proxmox" in tl:
+        return "hv"
+    if "vmware" in tl and any(
+        s in tl for s in ("esxi", "vcenter", "vsphere", "esx ", "esx-", "cloud foundation")
+    ):
+        return "hv"
+    if tl.startswith("esxi") or tl.startswith("vcenter"):
+        return "hv"
+    return base
+
+
 def build_rules() -> list[dict[str, str]]:
     rules: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -82,7 +109,7 @@ def build_rules() -> list[dict[str, str]]:
         for tech_name, info in doc.items():
             if not isinstance(info, dict):
                 continue
-            cat = map_category(info.get("cats", []))
+            cat = map_category_for_tech(tech_name, info.get("cats", []))
 
             # Pull only fields observable in SurveyTrace HTTP probe blob:
             #  - headers (serialized as SERVER=/XPB= lines)
@@ -137,7 +164,8 @@ def main() -> None:
     log.info("Wrote %d web fingerprint rules to %s", len(rules), OUT_PATH)
     try:
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        with sqlite3.connect(str(MAIN_DB_PATH)) as conn:
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=30) as conn:
+            apply_surveytrace_pragmas(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO config (key, value) VALUES ('webfp_last_sync', ?)",
                 (now_str,),

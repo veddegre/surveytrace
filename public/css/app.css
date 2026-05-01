@@ -481,6 +481,12 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .hp-cve{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .hp-date{font-size:11px;color:var(--tx3);margin-left:auto}
 .hp-desc{font-size:12px;color:var(--tx2);line-height:1.5}
+/* Phase 10 CVE triage — vulnerabilities table + host panel */
+.conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
+.conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
+.conf-med{border-color:rgba(200,170,100,.4);color:var(--amber)}
+.conf-low{border-color:var(--bd2);color:var(--tx3)}
+.hp-triage{line-height:1.45;word-break:break-word}
 .hp-head{font-family:var(--mf);font-size:11px;color:var(--tx3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .hp-head-line{flex:1;height:1px;background:var(--bd)}
 .hp-meta{margin-bottom:16px}

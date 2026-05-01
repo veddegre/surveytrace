@@ -12,7 +12,9 @@
  *   severity  — critical|high|medium|low
  *   cve_id    — search by CVE ID substring
  *   resolved  — 0 (default) or 1
- *   sort      — cvss|severity|published|confirmed_at|ip|cve_id (default: cvss)
+ *   lifecycle — optional lifecycle_state filter
+ *   confidence — high|medium|low (Phase 10 triage)
+ *   sort      — cvss|severity|published|confirmed_at|ip|cve_id|risk_score (default: cvss)
  *   order     — asc|desc (default: desc)
  *   page, per_page
  *
@@ -24,6 +26,7 @@
  *     "id", "asset_id", "ip", "cve_id", "cvss", "severity",
  *     "description", "published", "confirmed_at", "resolved", "notes",
  *     "hostname", "vendor", "category"   ← joined from assets
+ *     "provenance_source", "detection_method", "confidence", "risk_score", "evidence" (object)
  *   }]
  * }
  *
@@ -166,14 +169,25 @@ $severity = st_str('severity', '', ['','critical','high','medium','low']);
 $cve_srch = st_str('cve_id');
 $resolved = st_int('resolved', 0, 0, 1);
 $lifecycle = st_str('lifecycle', '', ['', 'new', 'active', 'mitigated', 'accepted', 'reopened']);
+$confidence = st_str('confidence', '', ['', 'high', 'medium', 'low']);
 $min_year = isset($_GET['min_year']) ? (int)$_GET['min_year'] : 0;
 $page     = st_int('page',     1,  1);
 $per_page = st_int('per_page', 50, 1, 200);
 $offset   = ($page - 1) * $per_page;
 
-$valid_sorts = ['cvss','severity','published','confirmed_at','ip','cve_id'];
+$valid_sorts = ['cvss','severity','published','confirmed_at','ip','cve_id','risk_score'];
 $sort_col    = st_str('sort', 'cvss', $valid_sorts);
 $sort_order  = st_str('order', 'desc', ['asc','desc']) === 'asc' ? 'ASC' : 'DESC';
+$sort_sql_map = [
+    'cvss' => 'f.cvss',
+    'severity' => 'f.severity',
+    'published' => 'f.published',
+    'confirmed_at' => 'f.confirmed_at',
+    'ip' => 'f.ip',
+    'cve_id' => 'f.cve_id',
+    'risk_score' => 'COALESCE(f.risk_score, -1)',
+];
+$sort_sql = $sort_sql_map[$sort_col] ?? 'f.cvss';
 
 $sev_cvss = [
     'critical' => [9.0, 10.1],
@@ -232,6 +246,11 @@ if ($lifecycle !== '') {
     $params[':lcs'] = $lifecycle;
 }
 
+if ($confidence !== '') {
+    $where[] = "COALESCE(NULLIF(TRIM(f.confidence), ''), 'low') = :conf";
+    $params[':conf'] = $confidence;
+}
+
 $where_sql = implode(' AND ', $where);
 
 // ---------------------------------------------------------------------------
@@ -258,7 +277,8 @@ $sev_counts = array_map('intval', $sev_counts ?: []);
 // ---------------------------------------------------------------------------
 // Count + rows
 // ---------------------------------------------------------------------------
-$count_sql = "SELECT COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id WHERE $where_sql";
+$count_sql = "SELECT COUNT(*) FROM findings f JOIN assets a ON a.id = f.asset_id
+    LEFT JOIN cve_intel ci ON ci.cve_id = f.cve_id WHERE $where_sql";
 $cstmt     = $db->prepare($count_sql);
 $cstmt->execute($params);
 $total = (int)$cstmt->fetchColumn();
@@ -270,11 +290,26 @@ $sql = "
         COALESCE(f.lifecycle_state, 'active') AS lifecycle_state,
         f.mitigated_at, f.accepted_at, f.accepted_by_user_id,
         f.first_seen_job_id, f.last_seen_job_id,
+        COALESCE(NULLIF(TRIM(f.provenance_source), ''), 'unknown') AS provenance_source,
+        f.detection_method,
+        COALESCE(NULLIF(TRIM(f.confidence), ''), 'low') AS confidence,
+        f.risk_score,
+        f.evidence_json,
+        COALESCE(ci.kev, 0) AS _intel_kev,
+        ci.kev_date_added AS _intel_kev_date_added,
+        ci.kev_due_date AS _intel_kev_due_date,
+        ci.kev_vendor AS _intel_kev_vendor,
+        ci.kev_product AS _intel_kev_product,
+        ci.epss AS _intel_epss,
+        ci.epss_percentile AS _intel_epss_percentile,
+        ci.epss_scored_at AS _intel_epss_scored_at,
+        ci.osv_ecosystems AS _intel_osv_ecosystems,
         a.hostname, a.vendor, a.model, a.category, a.cpe
     FROM findings f
     JOIN assets a ON a.id = f.asset_id
+    LEFT JOIN cve_intel ci ON ci.cve_id = f.cve_id
     WHERE $where_sql
-    ORDER BY f.$sort_col $sort_order
+    ORDER BY $sort_sql $sort_order
     LIMIT :lim OFFSET :off
 ";
 
@@ -285,12 +320,50 @@ $stmt->bindValue(':off', $offset,   PDO::PARAM_INT);
 $stmt->execute();
 $rows = $stmt->fetchAll();
 
-// Ensure numeric types
+// Ensure numeric types + Phase 10 evidence object
 foreach ($rows as &$r) {
     $r['cvss']     = $r['cvss'] ? (float)$r['cvss'] : null;
     $r['resolved'] = (bool)$r['resolved'];
     if (empty($r['severity']) && $r['cvss']) {
         $r['severity'] = st_severity($r['cvss']);
+    }
+    $ev = [];
+    if (!empty($r['evidence_json'])) {
+        $dec = json_decode((string)$r['evidence_json'], true);
+        $ev = is_array($dec) ? $dec : [];
+    }
+    unset($r['evidence_json']);
+    $r['evidence'] = $ev;
+    if (isset($r['risk_score']) && $r['risk_score'] !== null && $r['risk_score'] !== '') {
+        $r['risk_score'] = (float)$r['risk_score'];
+    } else {
+        $r['risk_score'] = null;
+    }
+    $osv_list = [];
+    if (!empty($r['_intel_osv_ecosystems'])) {
+        $oj = json_decode((string)$r['_intel_osv_ecosystems'], true);
+        $osv_list = is_array($oj) ? $oj : [];
+    }
+    $intel_keys = [
+        '_intel_kev', '_intel_kev_date_added', '_intel_kev_due_date', '_intel_kev_vendor',
+        '_intel_kev_product', '_intel_epss', '_intel_epss_percentile', '_intel_epss_scored_at',
+        '_intel_osv_ecosystems',
+    ];
+    $r['intel'] = [
+        'kev' => !empty($r['_intel_kev']) && (int)$r['_intel_kev'] === 1,
+        'kev_date_added' => $r['_intel_kev_date_added'] ?? null,
+        'kev_due_date' => $r['_intel_kev_due_date'] ?? null,
+        'kev_vendor' => $r['_intel_kev_vendor'] ?? null,
+        'kev_product' => $r['_intel_kev_product'] ?? null,
+        'epss' => isset($r['_intel_epss']) && $r['_intel_epss'] !== null && $r['_intel_epss'] !== ''
+            ? (float)$r['_intel_epss'] : null,
+        'epss_percentile' => isset($r['_intel_epss_percentile']) && $r['_intel_epss_percentile'] !== null && $r['_intel_epss_percentile'] !== ''
+            ? (float)$r['_intel_epss_percentile'] : null,
+        'epss_scored_at' => $r['_intel_epss_scored_at'] ?? null,
+        'osv_ecosystems' => $osv_list,
+    ];
+    foreach ($intel_keys as $ik) {
+        unset($r[$ik]);
     }
 }
 unset($r);

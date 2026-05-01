@@ -3,6 +3,15 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.11.0 (2026-05-01)
+
+- **Phase 10 — Explainable CVE triage** — Migration `migration_phase10_finding_triage_v1`: new **`findings`** fields (**`confidence`**, **`risk_score`**, **`detection_method`**, **`provenance_source`**, **`evidence_json`**, related lifecycle timestamps as applicable). **`daemon/finding_triage.py`** and scanner/collector paths populate triage; **`GET /api/findings.php`** supports confidence/sort filters; **Vulnerabilities** tab and host detail show triage; **`findings_export.php`** adds columns.
+- **Phase 11 — CVE intelligence** — Migration `migration_phase11_cve_intel_v1`: **`cve_intel`** table (KEV flags + metadata, EPSS scores/percentile, OSV ecosystem JSON, sync timestamps). **`daemon/sync_cve_intel.py`** ingests CISA KEV, FIRST EPSS (bulk file and/or per-CVE API fallback), and OSV **`/v1/vulns/{CVE}`**; **`api/feed_sync_lib.php`** / **`feeds.php`** accept sync target **`cve_intel`** and include it in **`all`** after NVD/OUI/WebFP. Dashboard and Settings show last sync and row count; findings API joins **`intel`** for UI/export.
+- **Hypervisor fingerprinting** — Improved **Proxmox VE** and **VMware ESXi / vSphere / vCenter** detection (hostnames, HTTP titles incl. port **5480**, banners, port **5480** profile, Wappalyzer rule category overrides in **`sync_webfp.py`** for hypervisor-named technologies).
+- **SQLite concurrency** — Shared runtime PRAGMAs (**`daemon/sqlite_pragmas.py`**, **`api/db.php`** `st_sqlite_runtime_pragmas`): default **60s** `busy_timeout`, optional **`mmap_size`** (disable with **`SURVEYTRACE_SQLITE_MMAP_BYTES=0`** on NFS); scanner/scheduler connections use **60s** `sqlite3` timeout. See **`README.md` → SQLite locking and concurrency**.
+- **Release version** — Single semver line in install-root **`VERSION`**; **`api/st_version.php`** defines **`ST_VERSION`** for PHP; **`daemon/surveytrace_version.py`** reads the same file for sync script and scanner **User-Agent** strings. **`deploy.sh`** / **`collector/deploy.sh`** copy **`VERSION`** alongside **`api/`** / **`daemon/`**.
+- **Deploy** — Ensure **`daemon/sync_cve_intel.py`**, **`daemon/sqlite_pragmas.py`**, and **`daemon/surveytrace_version.py`** are on the server (**`deploy.sh`** copies them); run **`sync_webfp.py`** once after upgrade so regenerated **`data/webfp_rules.json`** picks up **`hv`** category overrides. Restart **Apache/php-fpm** (or touch **`api/db.php`** load path) so SQLite migrations **10** and **11** apply.
+
 ## 0.9.0 (2026-05-01)
 
 - **Phase 9 — Change detection** — New **`change_alerts`** table and **`findings`** lifecycle columns (`lifecycle_state`, `mitigated_at`, `accepted_at`, `accepted_by_user_id`, job id stamps). The scanner and collector ingest worker record **new asset**, **port change**, **new CVE**, **finding mitigated** (CVE absent from correlated results for assets in the run), and **finding reopened** (CVE returns after `mitigated`).

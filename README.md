@@ -9,6 +9,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Features](#features)
 - [Requirements](#requirements)
 - [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
+- [SQLite locking and concurrency](#sqlite-locking-and-concurrency)
 - [Quick Start](#quick-start)
 - [Manual Installation](#manual-installation)
 - [Updating / Deploying Changes](#updating--deploying-changes)
@@ -58,7 +59,9 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Collector architecture (MVP + parity runner)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
 - **Change detection (Phase 9)** — in-app **Change alerts** for new hosts, material port deltas, and CVE lifecycle (new / active / mitigated / accepted / reopened); **`GET/POST /api/change_alerts.php`** and lifecycle-aware **`findings.php`** actions.
-- **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
+- **Explainable CVE triage (Phase 10)** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** (scanner + collector); surfaced on **Vulnerabilities** and host detail; export columns on **`findings_export.php`**.
+- **CVE intelligence (Phase 11)** — **`cve_intel`** table (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystem hints); **`daemon/sync_cve_intel.py`** and Settings **Sync CVE intel** / full **Sync all feeds**; joined on **`findings.php`** as structured **`intel`** (useful across Linux, Windows, **macOS**, **Hyper-V**, containers, and mobile platforms where OSV/NVD overlap).
+- **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner and HTTP-title analysis; **Proxmox VE** node-name extraction; **VMware ESXi / vSphere / vCenter** and **Microsoft Hyper-V** signals; mDNS hints for **Apple** mobile/desktop classes where visible
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
 - **Multi-subnet** — auto, routed, and force (-Pn) discovery modes
@@ -159,6 +162,38 @@ ollama rm <old-model-tag>
 ```bash
 ollama prune -f
 ```
+
+## SQLite locking and concurrency
+
+SurveyTrace uses **SQLite** for `data/surveytrace.db` (inventory, findings, auth, config) with a **separate** `data/nvd.db` for the NVD corpus so CVE sync heavy writes do not contend with the main app database.
+
+**Reality:** SQLite allows **one writer at a time** even in WAL mode. Readers usually proceed; writers queue. “Database is locked” means a writer held the transaction longer than your peer’s **busy_timeout** wait.
+
+**What the product already does**
+
+- **WAL** (`PRAGMA journal_mode=WAL`) and **`synchronous=NORMAL`** on PHP and Python connections.
+- **Long busy waits** (default **60s**) so API workers wait for the scanner/ingest instead of failing immediately — see **`api/db.php`** (`st_sqlite_runtime_pragmas`) and **`daemon/sqlite_pragmas.py`** (shared across scanner, scheduler, collector ingest, sync scripts).
+- **Shorter write transactions** in the scanner and ingest worker: batched commits (e.g. every 100 rows) for snapshots, findings, and change-detection so the writer lock is not held for an entire scan.
+- **Bootstrap serialization**: `.surveytrace_bootstrap.lock` during first-time migrations so many PHP workers do not replay `ALTER TABLE` in parallel after a deploy.
+- **Session / PDO release** on long PHP paths (`session_write_close`, `st_db_release_connection()` around operator AI) so one browser tab does not pin the session **file** lock; DB connection can be dropped during external I/O so SQLite is not held open across slow network calls.
+
+**Optional tuning (environment)**
+
+| Variable | Effect |
+|----------|--------|
+| `SURVEYTRACE_SQLITE_BUSY_TIMEOUT_MS` | PHP and Python: milliseconds SQLite waits for the writer (default **60000**, clamped **1000–600000** in PHP; Python uses same idea via `sqlite_pragmas.py`). |
+| `SURVEYTRACE_SQLITE_MMAP_BYTES` | **PHP** (`api/db.php`) and **Python** (`sqlite_pragmas.py`): `PRAGMA mmap_size` in bytes (default **67108864**). Set to **`0`** to disable mmap (e.g. some **NFS** or unusual kernels). |
+
+**Operations that reduce pain**
+
+- Keep **`surveytrace.db` on local disk** (not a network filesystem) if possible.
+- After deploys that touch **`api/db.php`** migrations, **restart Apache or php-fpm** once so each worker runs bootstrap once (see [Updating / Deploying Changes](#updating--deploying-changes)).
+- Size **PHP-FPM** `pm.max_children` (or Apache worker count) conservatively: each child holds a DB handle; very large pools increase overlap and lock retries.
+- Optional maintenance when idle: `sqlite3 /opt/surveytrace/data/surveytrace.db 'PRAGMA wal_checkpoint(TRUNCATE);'`
+
+**When to consider migrating off SQLite**
+
+- You need **sustained concurrent writes** from many services, **multi-master**, or **row-level locking** semantics — then **PostgreSQL** (or another client/server RDBMS) is the usual upgrade path. That is a **large** architectural change (schema migration, connection pooling, backup/restore story). For typical single-master SurveyTrace installs, the combination above is the intended first line of defense.
 
 ## Quick Start
 
@@ -276,7 +311,7 @@ If **AI operator** buttons fail, redeploy **`api/ai_actions.php`** (single file;
 
 When libcurl returns an empty body, the API falls back to **`proc_open()` + `curl`** (system `curl`, not PHP’s extension). Confirm it is allowed for the FPM user (often `www-data`): `sudo -u www-data php -r 'var_export(function_exists("proc_open")); echo PHP_EOL;'` should print `true`. If `php.ini` / pool config lists **`proc_open`** in **`disable_functions`**, remove it (or the fallback cannot run). Align **`request_terminate_timeout`** / **`max_execution_time`** / **`TimeOut`** (Apache proxy) with long Ollama calls: operator AI uses **`ai_operator_ollama_timeout_s`** in config (default **900** seconds, clamped 120–3600; **Settings → AI enrichment → Operator AI wait**). The API raises `set_time_limit` for those requests, but the web server must not kill the worker first. If errors still show **180** seconds, the server is likely running an old **`api/ai_actions.php`** / **`api/db.php`** build without `st_ai_operator_ollama_timeout_cap()`.
 
-**`database is locked` / `lsof` shows many `apache2` lines:** That list is normal — each Apache worker that has served the app holds the SQLite file open. Restarting **`surveytrace-daemon`** alone does **not** recycle PHP; run **`sudo systemctl restart apache2`** (or your vhost’s PHP-FPM pool) to drop those handles. With writers stopped, optional maintenance: `sqlite3 /opt/surveytrace/data/surveytrace.db 'PRAGMA wal_checkpoint(TRUNCATE);'`.
+**`database is locked` / `lsof` shows many `apache2` lines:** See **[SQLite locking and concurrency](#sqlite-locking-and-concurrency)**. In short: many workers holding the file open is normal; restart **Apache/php-fpm** after deploys and tune busy timeout / pool size as above.
 
 **After upgrading `api/db.php` with new SQLite migrations:** restart **Apache or php-fpm** once so every PHP worker re-runs the one-time bootstrap (migrations are skipped on later reconnects inside the same worker for speed).
 
@@ -286,12 +321,23 @@ SQLite schema changes apply automatically on next API or daemon startup (`ALTER 
 
 ## Changelog
 
+**Canonical app version** is the single line in **`VERSION`** at the install root (same directory as **`api/`** and **`daemon/`**). **`api/st_version.php`** reads **`VERSION`** into the PHP constant **`ST_VERSION`** (also loaded at the top of **`public/index.php`** so the UI works before the DB exists). Python daemons and sync scripts read the same file via **`daemon/surveytrace_version.py`**. When you cut a release: edit **`VERSION`**, then keep **`RELEASE_NOTES.md`** and the changelog entries below in sync for humans and auditors.
+
 `0.2.0` is the first GitHub release baseline. Earlier work was internal pre-release iteration.
 Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Unreleased
 
 - (no entries yet)
+
+### 0.11.0
+
+- **Phase 10 — Explainable CVE triage** — SQLite migration `migration_phase10_finding_triage_v1`: **`findings`** columns for lifecycle-adjacent triage (**`confidence`**, **`risk_score`**, **`detection_method`**, **`provenance_source`**, **`evidence_json`**); **`daemon/finding_triage.py`** + scanner/collector wiring; **`GET /api/findings.php`** sort/filter on triage fields; **Vulnerabilities** + host panel + CSV/JSON export.
+- **Phase 11 — CVE intelligence** — migration `migration_phase11_cve_intel_v1`: **`cve_intel`** (KEV metadata, EPSS, OSV ecosystems JSON); **`daemon/sync_cve_intel.py`** (CISA KEV JSON, EPSS file/API, OSV per-CVE); **`api/feed_sync_lib.php`** / **`feeds.php`** target **`cve_intel`**; dashboard + Settings status; **`findings`** / export expose **`intel`**.
+- **Fingerprint / WebFP** — stronger **VMware** and **Proxmox** classification (titles, banners, vCenter VAMI **5480**, Wappalyzer-derived rules mapped to **`hv`** where the tech name implies a hypervisor); see **`daemon/fingerprint.py`**, **`daemon/scanner_daemon.py`**, **`daemon/sync_webfp.py`**.
+- **SQLite locking** — shared **`daemon/sqlite_pragmas.py`** + **`api/db.php`** `st_sqlite_runtime_pragmas()` (**60s** busy wait, optional **mmap**, **`temp_store=MEMORY`**); README section **SQLite locking and concurrency** documents ops and **`SURVEYTRACE_SQLITE_*`** env vars.
+- **Version tracking** — root **`VERSION`** file + **`api/st_version.php`** / **`daemon/surveytrace_version.py`**; **`deploy.sh`** copies **`VERSION`** to **`/opt/surveytrace/`**.
+- **Deploy** — **`deploy.sh`** ships **`sync_cve_intel.py`**, **`sqlite_pragmas.py`**, and **`surveytrace_version.py`**; restart **web PHP** after **`api/db.php`** so migrations **10** and **11** run.
 
 ### 0.9.0
 
@@ -436,7 +482,7 @@ Manual sync behavior:
 - Shows in-progress/completed/failed status inline in Settings
 - Captures script stdout/stderr in the “Last feed sync log” modal (one `feed_sync_result.json` per completed run)
 - **NVD** from the UI runs `sync_nvd.py --recent` (same incremental idea as the weekly cron); full rebuild is still `sync_nvd.py` without `--recent` on the CLI
-- **Cancel** (NVD or “Sync all” only) touches `data/feed_sync_cancel`; Python exits after the current fetch step — expect **several minutes** for a typical incremental run (longer without an API key or when NIST has a large update batch)
+- **Cancel** touches `data/feed_sync_cancel` for long-running sync scripts (NVD, CVE intel, full **Sync all**); Python exits after the current fetch step — expect **several minutes** for a typical incremental NVD run (longer without an API key or when NIST has a large update batch)
 
 ### Feed sync install paths (optional)
 
@@ -573,6 +619,8 @@ surveytrace/
 
 ## Roadmap
 
+Roadmap **phase numbers 9–11** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1`, `migration_phase10_finding_triage_v1`, `migration_phase11_cve_intel_v1`). Later phases are planning-only until shipped.
+
 ### Completed (summary)
 - **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
 - **Phase 2 — Job queue improvements** — multi-job queueing (with priority order), cancel/abort actions, retry support, failure visibility, and queue/history separation in the UI.
@@ -583,20 +631,21 @@ surveytrace/
 - **Phase 7 — Scan delete hardening** — soft delete/trash lifecycle for scan runs, restore flow, admin-only permanent purge, retention-based purge, and audit coverage.
 - **Phase 8 — Collector architecture (MVP + parity runner)** — remote collector registration + bearer auth, collector control APIs/UI, unified schedule targeting (`collector_id`), scan source visibility, per-collector rate limits, centralized ingest + enrichment worker, and CIDR allowlist guardrails for safe remote execution.
 - **Phase 9 — Change detection** — `change_alerts` feed (new asset, port change, new CVE, finding mitigated/reopened); **`findings`** lifecycle columns (`new` → `active`, scanner-driven `mitigated` when absent from correlated results, `accepted` via API, `reopened` after regression); **`GET/POST /api/change_alerts.php`** and **Change alerts** UI; scanner + collector ingest share **`daemon/change_detection.py`**.
+- **Phase 10 — Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** JSON; scanner + **`daemon/finding_triage.py`** + collector parity; **Vulnerabilities** / host UI, **`findings.php`** filters/sorts, **`findings_export.php`**.
+- **Phase 11 — CVE intelligence** — **`cve_intel`** sidecar (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystems); **`daemon/sync_cve_intel.py`** + feed sync wiring; **`intel`** on finding payloads and exports (complements NVD for mixed fleets: Linux, Windows, **macOS**, **Hyper-V**, containers, and **iOS / iPadOS / Android**-relevant shared components where data exists).
 
 ### Upcoming
-- **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring, and provenance metadata (`source`, `method`, `confidence`) for explainable triage.
-- **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.
-- **Phase 12**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.
-- **Phase 13**: Integrations program —
-  - **13.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
-  - **13.2 Monitoring/ops:** Zabbix + alert/status mapping
-  - **13.3 Infrastructure:** Proxmox, TrueNAS
-  - **13.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)
-  - **13.5 Data fusion + enrichment:** normalize multi-source vulnerability/advisory data (deduplication, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
-- **Phase 14**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **navigation cleanup** — remove duplicate top-bar shortcuts for pages already present in sidebar navigation (e.g., **Access control** and **Settings**) to reduce clutter; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
-- **Phase 15**: Credentialed collection + checks engine — authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, and remediation guidance metadata.
-- **Phase 16**: Risk operations + governance — composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, and stronger audit/report controls.
+- **Phase 12**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.
+- **Phase 13**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.
+- **Phase 14**: Integrations program —
+  - **14.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
+  - **14.2 Monitoring/ops:** Zabbix + alert/status mapping
+  - **14.3 Infrastructure APIs:** Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting
+  - **14.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)
+  - **14.5 Data fusion + enrichment:** normalize multi-source vulnerability/advisory data (deduplication, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
+- **Phase 15**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **navigation cleanup** — remove duplicate top-bar shortcuts for pages already present in sidebar navigation (e.g., **Access control** and **Settings**) to reduce clutter; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
+- **Phase 16**: Credentialed collection + checks engine — authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, and remediation guidance metadata.
+- **Phase 17**: Risk operations + governance — composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, and stronger audit/report controls.
 
 ## License
 

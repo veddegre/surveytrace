@@ -12,6 +12,7 @@
  *   category  — srv | ws | net | iot | ot | voi | prn | hv
  *   resolved  — 0 (open) | 1 (resolved) | '' (all)
  *   min_year  — minimum CVE publication year (e.g. 2015)
+ *   confidence — high|medium|low (Phase 10)
  */
 
 require_once __DIR__ . '/db.php';
@@ -29,6 +30,7 @@ $severity = st_str('severity', '', ['','critical','high','medium','low']);
 $category = st_str('category');
 $resolved = st_str('resolved', '');   // '' = all, '0' = open, '1' = resolved
 $min_year = (int)(st_str('min_year') ?: 0);
+$confidence = st_str('confidence', '', ['', 'high', 'medium', 'low']);
 
 // --- Build WHERE ----------------------------------------------------------
 $where  = ['1=1'];
@@ -78,15 +80,30 @@ if ($min_year > 0) {
     $params[':miny']  = $min_year;
 }
 
+if ($confidence !== '') {
+    $where[] = "COALESCE(NULLIF(TRIM(f.confidence), ''), 'low') = :conf";
+    $params[':conf'] = $confidence;
+}
+
 $where_sql = implode(' AND ', $where);
 
 $stmt = $db->prepare("
     SELECT
         f.id, f.cve_id, f.ip, a.hostname, a.category, a.vendor,
         f.cvss, f.severity, f.description, f.published, f.resolved,
-        a.cpe
+        a.cpe,
+        COALESCE(NULLIF(TRIM(f.provenance_source), ''), 'unknown') AS provenance_source,
+        f.detection_method,
+        COALESCE(NULLIF(TRIM(f.confidence), ''), 'low') AS confidence,
+        f.risk_score,
+        f.evidence_json,
+        COALESCE(ci.kev, 0) AS intel_kev,
+        ci.epss AS intel_epss,
+        ci.epss_percentile AS intel_epss_percentile,
+        ci.osv_ecosystems AS intel_osv_ecosystems
     FROM findings f
     LEFT JOIN assets a ON a.id = f.asset_id
+    LEFT JOIN cve_intel ci ON ci.cve_id = f.cve_id
     WHERE $where_sql
     ORDER BY f.cvss DESC, f.cve_id ASC
 ");
@@ -110,8 +127,19 @@ if ($format === 'json') {
             'category' => $category  ?: null,
             'resolved' => $resolved !== '' ? (bool)(int)$resolved : null,
             'min_year' => $min_year  ?: null,
+            'confidence' => $confidence ?: null,
         ],
         'findings' => array_map(function($r) {
+            $ev = [];
+            if (!empty($r['evidence_json'])) {
+                $dec = json_decode((string)$r['evidence_json'], true);
+                $ev = is_array($dec) ? $dec : [];
+            }
+            $osv = [];
+            if (!empty($r['intel_osv_ecosystems'])) {
+                $ox = json_decode((string)$r['intel_osv_ecosystems'], true);
+                $osv = is_array($ox) ? $ox : [];
+            }
             return [
                 'cve_id'      => $r['cve_id'],
                 'ip'          => $r['ip'],
@@ -124,6 +152,18 @@ if ($format === 'json') {
                 'description' => $r['description'] ?? '',
                 'published'   => $r['published'] ?? '',
                 'resolved'    => (bool)$r['resolved'],
+                'provenance_source' => $r['provenance_source'] ?? 'unknown',
+                'detection_method' => $r['detection_method'] ?? '',
+                'confidence'  => $r['confidence'] ?? 'low',
+                'risk_score'  => isset($r['risk_score']) && $r['risk_score'] !== null && $r['risk_score'] !== ''
+                    ? (float)$r['risk_score'] : null,
+                'evidence'    => $ev,
+                'kev'         => !empty($r['intel_kev']) && (int)$r['intel_kev'] === 1,
+                'epss'        => isset($r['intel_epss']) && $r['intel_epss'] !== null && $r['intel_epss'] !== ''
+                    ? (float)$r['intel_epss'] : null,
+                'epss_percentile' => isset($r['intel_epss_percentile']) && $r['intel_epss_percentile'] !== null && $r['intel_epss_percentile'] !== ''
+                    ? (float)$r['intel_epss_percentile'] : null,
+                'osv_ecosystems' => $osv,
             ];
         }, $rows),
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -140,7 +180,10 @@ fwrite($out, "\xEF\xBB\xBF");  // UTF-8 BOM for Excel
 
 fputcsv($out, [
     'CVE ID', 'IP Address', 'Hostname', 'Type', 'Vendor', 'CPE',
-    'CVSS', 'Severity', 'Published', 'Resolved', 'Description',
+    'CVSS', 'Severity', 'Published', 'Resolved',
+    'Provenance', 'Detection method', 'Confidence', 'Risk score', 'Evidence JSON',
+    'CISA KEV', 'EPSS', 'EPSS percentile', 'OSV ecosystems JSON',
+    'Description',
 ]);
 
 foreach ($rows as $r) {
@@ -155,6 +198,15 @@ foreach ($rows as $r) {
         $r['severity']    ?? '',
         $r['published']   ?? '',
         $r['resolved']    ? 'Yes' : 'No',
+        $r['provenance_source'] ?? '',
+        $r['detection_method'] ?? '',
+        $r['confidence'] ?? '',
+        $r['risk_score'] ?? '',
+        $r['evidence_json'] ?? '',
+        !empty($r['intel_kev']) && (int)$r['intel_kev'] === 1 ? 'Yes' : '',
+        $r['intel_epss'] ?? '',
+        $r['intel_epss_percentile'] ?? '',
+        $r['intel_osv_ecosystems'] ?? '',
         $r['description'] ?? '',
     ]);
 }

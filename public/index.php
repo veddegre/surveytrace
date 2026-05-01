@@ -3,6 +3,7 @@
  * SurveyTrace — main UI entry point
  * All data is loaded from the API endpoints via fetch().
  */
+require_once __DIR__ . '/../api/st_version.php';
 $stShellPreHidden = false;
 $dbProbe = dirname(__DIR__) . '/data/surveytrace.db';
 if (is_readable($dbProbe)) {
@@ -40,7 +41,7 @@ if (is_readable($dbProbe)) {
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.9.0') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(ST_VERSION) ?>">
 </head>
 <body<?= !empty($stShellPreHidden) ? ' class="st-auth-locked"' : '' ?>>
 <div class="shell">
@@ -48,7 +49,7 @@ if (is_readable($dbProbe)) {
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.9.0' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= ST_VERSION ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -341,13 +342,23 @@ if (is_readable($dbProbe)) {
       <option value="2018">2018+</option>
       <option value="2015">2015+</option>
     </select>
+    <select class="finp narrow" id="vf-confidence" onchange="loadFindings(1)" title="Detection confidence (Phase 10)">
+      <option value="">All confidence</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <select class="finp narrow" id="vf-sort" onchange="loadFindings(1)" title="Sort order">
+      <option value="cvss">Sort: CVSS</option>
+      <option value="risk_score">Sort: Risk score</option>
+    </select>
     <button class="tbtn" onclick="exportFindings('csv')" title="Export filtered CVEs as CSV">&#8595; CSV</button>
     <button class="tbtn" onclick="exportFindings('json')" title="Export filtered CVEs as JSON">&#8595; JSON</button>
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>CVE ID</th><th>Asset IP</th><th>Hostname</th><th>Type</th><th>Description</th><th>CVSS</th><th>Published</th><th>Action</th></tr></thead>
-      <tbody id="vuln-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+      <thead><tr><th>CVE ID</th><th>Asset IP</th><th>Hostname</th><th>Type</th><th>Description</th><th>CVSS</th><th>Triage</th><th>Match</th><th>Published</th><th>Action</th></tr></thead>
+      <tbody id="vuln-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="pgn">
@@ -1023,9 +1034,9 @@ if (is_readable($dbProbe)) {
         </div>
       </div>
       <div class="card">
-        <div class="ct">NVD &amp; offline fingerprint feeds</div>
+        <div class="ct">NVD, CVE intelligence &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
-          One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, and WebFP in a single job at the bottom of this card.
+          One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, WebFP, and CVE intel in a single job at the bottom of this card.
         </p>
 
         <div class="flbl mt2">NVD (CVE / CPE correlation)</div>
@@ -1077,23 +1088,39 @@ if (is_readable($dbProbe)) {
         </div>
         <div id="sync-status-fp" class="sync-status mt6"></div>
 
-        <div class="flbl mt12">NVD + OUI + WebFP in one job</div>
+        <div class="flbl mt12">CVE intelligence (KEV, EPSS, OSV)</div>
+        <div class="help-mono mb6">
+          Last sync: <span id="cve-intel-sync-ts" class="text-strong">—</span> ·
+          rows: <span id="cve-intel-rows" class="text-strong">0</span>
+        </div>
+        <div class="help-line mb10 text-dim" style="font-size:12px">
+          <strong>CISA KEV</strong> (actively exploited catalog),
+          <strong>FIRST EPSS</strong> (exploitation probability),
+          and <strong>OSV</strong> (ecosystem/package context: Linux distros, <strong>macOS</strong> / Apple platforms, <strong>Android</strong> where indexed, language ecosystems in containers, and more).
+          This complements NVD across <strong>Linux</strong>, <strong>Windows Server</strong> and desktops, <strong>macOS</strong>, <strong>Hyper-V</strong> and other hypervisor stacks, <strong>iOS / iPadOS</strong> and <strong>Android</strong> where CVEs map to shared components, and <strong>Docker</strong>-heavy fleets. Run after NVD so EPSS/OSV can target CVEs you already track.
+        </div>
+        <div class="row-wrap">
+          <button class="tbtn" id="btn-sync-cve-intel" onclick="runFeedSync('cve_intel')">Sync CVE intel now</button>
+        </div>
+        <div id="sync-status-cveintel" class="sync-status mt6"></div>
+
+        <div class="flbl mt12">NVD + OUI + WebFP + CVE intel in one job</div>
         <div class="row-wrap">
           <button class="btnp" id="btn-sync-all" onclick="runFeedSync('all')">Sync all feeds</button>
         </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">Runs the CVE feed, then OUI, then WebFP in order (this is the full stack, not fingerprints only). Expect a long run—NVD alone is often many minutes. The sections <em>above</em> let you refresh each feed on its own.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">Runs NVD, then OUI, then WebFP, then CVE intel in order. Expect a long run—NVD alone is often many minutes; CVE intel may take additional time on first run. The sections <em>above</em> let you refresh each feed on its own.</p>
 
         <div class="row-wrap mt10">
           <button class="tbtn" type="button" onclick="openFeedSyncOutput()">View last feed sync log</button>
       </div>
-        <p class="help-line text-dim mt6" style="font-size:12px">Shows the most recent run (whichever set of buttons you used). <strong>Sync all</strong> appends NVD, OUI, and WebFP sections in one file. The same log loads after a page reload.</p>
+        <p class="help-line text-dim mt6" style="font-size:12px">Shows the most recent run (whichever set of buttons you used). <strong>Sync all</strong> appends NVD, OUI, WebFP, and CVE intel sections in one file. The same log loads after a page reload.</p>
       </div>
     </div>
     <div>
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.9.0', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(ST_VERSION, ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span><br>
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
@@ -1102,14 +1129,14 @@ if (is_readable($dbProbe)) {
       <div class="card">
         <div class="ct">Asset categories</div>
         <table class="table-mini">
-          <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server)</td></tr>
-          <tr><td><span class="cat ws">ws</span></td><td>Workstation / desktop</td></tr>
+          <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server, macOS in server roles)</td></tr>
+          <tr><td><span class="cat ws">ws</span></td><td>Workstation / laptop (Windows, macOS, ChromeOS) and mobile-style endpoints (iOS, iPadOS, Android) when fingerprinting indicates a client device</td></tr>
           <tr><td><span class="cat net">net</span></td><td>Network gear (switch, router, firewall)</td></tr>
           <tr><td><span class="cat iot">iot</span></td><td>IoT device</td></tr>
           <tr><td><span class="cat ot">ot</span></td><td>OT / ICS (PLC, SCADA, HMI)</td></tr>
           <tr><td><span class="cat voi">voi</span></td><td>VoIP phone / PBX</td></tr>
           <tr><td><span class="cat prn">prn</span></td><td>Printer / MFP</td></tr>
-          <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (ESXi, Proxmox, Hyper-V)</td></tr>
+          <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (VMware ESXi / vSphere / vCenter, Proxmox VE, Hyper-V)</td></tr>
         </table>
       </div>
       <div class="card">
@@ -1753,19 +1780,21 @@ var themeMediaQuery = null;
 var themeMediaListener = null;
 var execPreviousTab = null;
 /** Which feed syncs are in flight (NVD / OUI / WebFP may run in parallel; "all" is exclusive). */
-var feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
+var feedSyncRunning = { nvd: false, oui: false, webfp: false, cve_intel: false, all: false };
 /** If any OUI/WebFP/all job in the current fingerprint wave failed, set before the wave ends. */
 var fpSyncHadError = false;
+var cveIntelSyncHadError = false;
 
-const FEED_SYNC_BTN_IDS = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-all'];
+const FEED_SYNC_BTN_IDS = ['btn-sync-nvd', 'btn-sync-oui', 'btn-sync-webfp', 'btn-sync-cve-intel', 'btn-sync-all'];
 const FEED_SYNC_BTN_LABELS = {
     'btn-sync-nvd': 'Sync NVD now',
     'btn-sync-oui': 'Sync OUI now',
     'btn-sync-webfp': 'Sync WebFP now',
+    'btn-sync-cve-intel': 'Sync CVE intel now',
     'btn-sync-all': 'Sync all feeds',
 };
 
-var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+var feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, cve_intel: 0, all: 0 };
 var feedSyncUiTimer = null;
 var feedSyncStatePollTimer = null;
 var execChartSelection = {};
@@ -1925,7 +1954,7 @@ function fmtFeedElapsed(ms) {
 }
 
 function buildFeedSyncRunningFooter() {
-    if (!feedSyncRunning.nvd && !feedSyncRunning.oui && !feedSyncRunning.webfp && !feedSyncRunning.all) return '';
+    if (!feedSyncRunning.nvd && !feedSyncRunning.oui && !feedSyncRunning.webfp && !feedSyncRunning.cve_intel && !feedSyncRunning.all) return '';
     const lines = [];
     lines.push('────────────────────────────────────────');
     lines.push('SERVER SYNC IN PROGRESS');
@@ -1933,7 +1962,7 @@ function buildFeedSyncRunningFooter() {
     lines.push('The browser usually got an immediate HTTP response; work continues on the server.');
     lines.push('');
     if (feedSyncRunning.all && feedSyncStartedAt.all) {
-        lines.push('Full feed sync (NVD + OUI + WebFP): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.all));
+        lines.push('Full feed sync (NVD + OUI + WebFP + CVE intel): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.all));
     } else {
         if (feedSyncRunning.nvd && feedSyncStartedAt.nvd) {
             lines.push('NVD (CVE / CPE correlation): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.nvd));
@@ -1943,6 +1972,9 @@ function buildFeedSyncRunningFooter() {
         }
         if (feedSyncRunning.webfp && feedSyncStartedAt.webfp) {
             lines.push('WebFP (fingerprints): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.webfp));
+        }
+        if (feedSyncRunning.cve_intel && feedSyncStartedAt.cve_intel) {
+            lines.push('CVE intel (KEV / EPSS / OSV): ' + fmtFeedElapsed(Date.now() - feedSyncStartedAt.cve_intel));
         }
     }
     lines.push('');
@@ -1984,13 +2016,22 @@ function tickFeedSyncStatusLines() {
             fpEl.textContent = bits.join('  ·  ');
         }
     }
+    const ciEl = document.getElementById('sync-status-cveintel');
+    if (ciEl && (feedSyncRunning.cve_intel || feedSyncRunning.all)) {
+        ciEl.className = 'sync-status run';
+        const t0 = feedSyncRunning.all ? feedSyncStartedAt.all : feedSyncStartedAt.cve_intel;
+        if (t0) {
+            const head = feedSyncRunning.all ? 'CVE intel (end of full sync)' : 'CVE intel (KEV / EPSS / OSV)';
+            ciEl.textContent = head + ' — ' + fmtFeedElapsed(Date.now() - t0);
+        }
+    }
 }
 
 function ensureFeedSyncUiTimer() {
     if (feedSyncUiTimer !== null) return;
     feedSyncUiTimer = setInterval(() => {
         tickFeedSyncStatusLines();
-        const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+        const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
         if (any) {
             // Keep <pre> fresh every second while a job runs (even if modal is closed), so
             // elapsed + footer text stay fresh when the user opens the feed sync log modal.
@@ -1998,12 +2039,12 @@ function ensureFeedSyncUiTimer() {
         }
     }, 1000);
     tickFeedSyncStatusLines();
-    const any0 = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    const any0 = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
     if (any0) renderFeedSyncOutputPanel();
 }
 
 function stopFeedSyncUiTimerIfIdle() {
-    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
     if (any) return;
     if (feedSyncUiTimer !== null) {
         clearInterval(feedSyncUiTimer);
@@ -2049,7 +2090,7 @@ async function fetchFeedSyncServerState() {
 async function hydrateFeedSyncFromServer() {
     const fs = await fetchFeedSyncServerState();
     if (!fs) return;
-    const anyClient = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    const anyClient = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
     // Server has no lock — drop stale “Syncing…” / elapsed timer (e.g. finished while
     // another tab was open, or loadDashboard refreshed Last sync before poll ran).
     if (!fs.running) {
@@ -2059,11 +2100,11 @@ async function hydrateFeedSyncFromServer() {
         return;
     }
     const tgt = String(fs.target || '').toLowerCase();
-    if (!['nvd', 'oui', 'webfp', 'all'].includes(tgt)) return;
+    if (!['nvd', 'oui', 'webfp', 'cve_intel', 'all'].includes(tgt)) return;
     const startedSec = parseInt(fs.started_at, 10) || 0;
     const startedMs = startedSec > 0 ? startedSec * 1000 : Date.now();
-    feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
-    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+    feedSyncRunning = { nvd: false, oui: false, webfp: false, cve_intel: false, all: false };
+    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, cve_intel: 0, all: 0 };
     if (tgt === 'all') {
         feedSyncRunning.all = true;
         feedSyncStartedAt.all = startedMs;
@@ -2131,7 +2172,7 @@ async function hydrateFeedSyncLastOutputFromServer() {
 
 /** When client thinks a sync is in progress but feeds.php says otherwise, clear UI. */
 async function reconcileFeedSyncClientIfServerIdle() {
-    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    const any = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
     if (!any) return;
     const fs = await fetchFeedSyncServerState();
     if (!fs || fs.running) return;
@@ -2149,7 +2190,7 @@ function startFeedSyncStatePolling() {
         const fs = await fetchFeedSyncServerState();
         if (fs && fs.running) return;
         stopFeedSyncStatePolling();
-        const was = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+        const was = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
         if (!was) return;
 
         let doneTarget = 'all';
@@ -2157,12 +2198,13 @@ function startFeedSyncStatePolling() {
         else if (feedSyncRunning.nvd) doneTarget = 'nvd';
         else if (feedSyncRunning.oui) doneTarget = 'oui';
         else if (feedSyncRunning.webfp) doneTarget = 'webfp';
+        else if (feedSyncRunning.cve_intel) doneTarget = 'cve_intel';
         if (fs.last_feed_sync && fs.last_feed_sync.target) {
             doneTarget = String(fs.last_feed_sync.target);
         }
 
-        feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
-        feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+        feedSyncRunning = { nvd: false, oui: false, webfp: false, cve_intel: false, all: false };
+        feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, cve_intel: 0, all: 0 };
         stopFeedSyncUiTimerIfIdle();
         refreshFeedSyncButtons();
 
@@ -2172,20 +2214,31 @@ function startFeedSyncStatePolling() {
             if (!last.ok && !last.cancelled && feedSyncTouchesFp(doneTarget)) {
                 fpSyncHadError = true;
             }
+            if (!last.ok && !last.cancelled && feedSyncTouchesCveIntel(doneTarget)) {
+                for (const x of last.results || []) {
+                    if (String(x.script || '').includes('sync_cve_intel') && !x.ok) {
+                        cveIntelSyncHadError = true;
+                        break;
+                    }
+                }
+            }
             if (last.cancelled) {
                 toast('Feed sync cancelled.', 'ok');
                 refreshNvdStatusLineAfterEnd(doneTarget, null, 'Cancelled (partial run).');
                 refreshFpStatusLineAfterEnd(doneTarget, null, 'Cancelled (partial run).');
+                refreshCveIntelStatusLineAfterEnd(doneTarget, null, 'Cancelled (partial run).');
                 openFeedSyncOutput();
             } else if (!last.ok) {
                 const msg = (last.results && last.results.find(x => !x.ok)?.output) || last.error || 'Sync failed';
                 toast(String(msg).slice(0, 120), 'err');
                 refreshNvdStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
                 refreshFpStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
+                refreshCveIntelStatusLineAfterEnd(doneTarget, 'Sync failed. See output for details.', null);
                 openFeedSyncOutput();
             } else {
                 refreshNvdStatusLineAfterEnd(doneTarget, null, 'Sync complete.');
                 refreshFpStatusLineAfterEnd(doneTarget, null, 'Sync complete.');
+                refreshCveIntelStatusLineAfterEnd(doneTarget, null, 'Sync complete.');
                 const names = (last.results || []).map(x => String(x.script || '').replace('.py', '')).filter(Boolean).join(', ');
                 toast(names ? ('Feed sync complete: ' + names) : 'Feed sync complete.', 'ok');
                 openFeedSyncOutput();
@@ -2193,8 +2246,10 @@ function startFeedSyncStatePolling() {
         } else {
             const nvdEl = document.getElementById('sync-status-nvd');
             const fpEl = document.getElementById('sync-status-fp');
+            const ciEl = document.getElementById('sync-status-cveintel');
             if (nvdEl) { nvdEl.className = 'sync-status'; nvdEl.textContent = ''; }
             if (fpEl) { fpEl.className = 'sync-status'; fpEl.textContent = ''; }
+            if (ciEl) { ciEl.className = 'sync-status'; ciEl.textContent = ''; }
             toast('Feed sync finished on the server.', 'ok');
         }
 
@@ -2556,6 +2611,10 @@ async function loadDashboard() {
     document.getElementById('webfp-sync-ts').textContent = d.webfp_last_sync || 'never';
     document.getElementById('oui-sync-count').textContent = d.oui_prefix_count || 0;
     document.getElementById('webfp-sync-count').textContent = d.webfp_rule_count || 0;
+    const ciTs = document.getElementById('cve-intel-sync-ts');
+    const ciRows = document.getElementById('cve-intel-rows');
+    if (ciTs) ciTs.textContent = d.cve_intel_last_sync || 'never';
+    if (ciRows) ciRows.textContent = String(d.cve_intel_row_count != null ? d.cve_intel_row_count : 0);
 
     // Top vulnerable
     const tv = d.top_vulnerable || [];
@@ -3329,6 +3388,47 @@ async function loadAssets(page) {
     document.getElementById('anext').disabled = page >= d.pages;
 }
 
+// --------------------------------------------------------------------------
+// CVE triage display (Phase 10 — used by Vulnerabilities tab + host panel)
+// --------------------------------------------------------------------------
+function findingTriageMethodLabel(m) {
+    const k = String(m || '');
+    const map = {
+        nmap_port_cpe: 'nmap CPE',
+        asset_fingerprint_cpe: 'host CPE',
+        collector_ingest: 'collector',
+        unknown: '—',
+    };
+    return map[k] || (k ? k.slice(0, 18) : '—');
+}
+
+function findingEvidenceTitle(f) {
+    const ev = (f && f.evidence && typeof f.evidence === 'object') ? f.evidence : {};
+    const bits = [];
+    if (ev.matched_cpe) bits.push('Matched CPE: ' + String(ev.matched_cpe));
+    if (ev.cpe_origin) bits.push('Origin: ' + String(ev.cpe_origin));
+    if (ev.rationale) bits.push(String(ev.rationale));
+    return bits.join('\n');
+}
+
+function findingConfidenceChipClass(conf) {
+    const c = String(conf || 'low').toLowerCase();
+    if (c === 'high') return 'conf-chip conf-high';
+    if (c === 'medium') return 'conf-chip conf-med';
+    return 'conf-chip conf-low';
+}
+
+function formatHpFindingTriage(f) {
+    const rs = f.risk_score != null ? esc(String(f.risk_score)) : '—';
+    const conf = esc((f.confidence || 'low').toUpperCase());
+    const src = esc(f.provenance_source || 'unknown');
+    const meth = esc(findingTriageMethodLabel(f.detection_method));
+    const ev = (f.evidence && typeof f.evidence === 'object') ? f.evidence : {};
+    const cpe = ev.matched_cpe ? `<span class="mono-sm"> · ${esc(String(ev.matched_cpe))}</span>` : '';
+    const tip = esc(findingEvidenceTitle(f).replace(/\n/g, ' '));
+    return `<div class="hp-triage mono-sm text-dim mt4" title="${tip}">Score ${rs} · ${conf} · ${meth} · ${src}${cpe}</div>`;
+}
+
 // ==========================================================================
 // Findings / Vulnerabilities
 // ==========================================================================
@@ -3338,7 +3438,7 @@ async function loadFindings(page) {
     refreshBadges();
     // Show loading state immediately
     document.getElementById('vuln-tbody').innerHTML =
-        '<tr><td colspan="8" class="loading">Loading vulnerabilities…</td></tr>';
+        '<tr><td colspan="10" class="loading">Loading vulnerabilities…</td></tr>';
 
     vulnPage = page;
     const cve  = document.getElementById('vf-cve').value;
@@ -3348,7 +3448,9 @@ async function loadFindings(page) {
 
     const ip   = document.getElementById('vf-ip')?.value || '';
     const miny = document.getElementById('vf-minyear')?.value || '';
-    const url = `/api/findings.php?page=${page}&per_page=50&cve_id=${enc(cve)}&ip=${enc(ip)}&severity=${enc(sev)}&category=${enc(cat)}&resolved=${res}&min_year=${enc(miny)}&sort=cvss&order=desc`;
+    const conf = document.getElementById('vf-confidence')?.value || '';
+    const sort = document.getElementById('vf-sort')?.value || 'cvss';
+    const url = `/api/findings.php?page=${page}&per_page=50&cve_id=${enc(cve)}&ip=${enc(ip)}&severity=${enc(sev)}&category=${enc(cat)}&resolved=${res}&min_year=${enc(miny)}&confidence=${enc(conf)}&sort=${enc(sort)}&order=desc`;
     const d   = await api(url);
     if (!d) return;
 
@@ -3361,12 +3463,18 @@ async function loadFindings(page) {
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.hostname||'—')}</td>
       <td><span class="cat ${esc(f.category||'unk')}">${esc(f.category||'unk')}</span></td>
-      <td class="text-secondary" style="font-size:12px;max-width:260px">${esc(f.description||'—')}</td>
+      <td class="text-secondary" style="font-size:12px;max-width:220px">${esc(f.description||'—')}</td>
       <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
+      <td class="mono-sm" style="white-space:nowrap;text-align:right" title="Triage score (0–100, CVSS weighted by detection confidence)">
+        <span>${f.risk_score != null ? esc(String(f.risk_score)) : '—'}</span>
+        <span class="${findingConfidenceChipClass(f.confidence)}">${esc((f.confidence || 'low').toUpperCase())}</span>
+      </td>
+      <td class="text-dim mono-sm" style="max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${esc(findingEvidenceTitle(f).replace(/\n/g, ' '))}">${esc(findingTriageMethodLabel(f.detection_method))}</td>
       <td class="mono mono-sm">${localDate(f.published)}</td>
       <td>${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
           : `<span class="row-wrap" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`}</td>
-    </tr>`).join('') || '<tr><td colspan="8" class="loading">No findings</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="10" class="loading">No findings</td></tr>';
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
     document.getElementById('vprev').disabled = page <= 1;
@@ -6650,19 +6758,21 @@ function feedSyncConflictReason(target) {
     if (target === 'nvd' && r.nvd && !r.all) return 'NVD sync is already running.';
     if (target === 'oui' && r.oui && !r.all) return 'OUI sync is already running.';
     if (target === 'webfp' && r.webfp && !r.all) return 'WebFP sync is already running.';
+    if (target === 'cve_intel' && r.cve_intel && !r.all) return 'CVE intel sync is already running.';
     if (target === 'all' && r.all) return 'A full feed sync is already running.';
-    const any = r.nvd || r.oui || r.webfp || r.all;
+    const any = r.nvd || r.oui || r.webfp || r.cve_intel || r.all;
     if (any) return 'A feed sync is already running. Wait for it to finish.';
     return null;
 }
 
 function refreshFeedSyncButtons() {
     const ra = feedSyncRunning;
-    const any = ra.nvd || ra.oui || ra.webfp || ra.all;
+    const any = ra.nvd || ra.oui || ra.webfp || ra.cve_intel || ra.all;
     const cfg = {
         'btn-sync-nvd': { disabled: !!any, busy: ra.nvd && !ra.all },
         'btn-sync-oui': { disabled: !!any, busy: ra.oui && !ra.all },
         'btn-sync-webfp': { disabled: !!any, busy: ra.webfp && !ra.all },
+        'btn-sync-cve-intel': { disabled: !!any, busy: ra.cve_intel && !ra.all },
         'btn-sync-all': { disabled: !!any, busy: !!ra.all },
     };
     FEED_SYNC_BTN_IDS.forEach(id => {
@@ -6675,11 +6785,14 @@ function refreshFeedSyncButtons() {
     });
     const cancelFeed = document.getElementById('btn-cancel-feed-sync');
     if (cancelFeed) {
-        cancelFeed.disabled = !(any && (ra.nvd || ra.all));
+        cancelFeed.disabled = !any;
     }
 }
 
 function markFeedSyncStart(target) {
+    if (target === 'cve_intel' || target === 'all') {
+        cveIntelSyncHadError = false;
+    }
     const hadFp = feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
     if ((target === 'oui' || target === 'webfp' || target === 'all') && !hadFp) {
         fpSyncHadError = false;
@@ -6705,12 +6818,13 @@ function markFeedSyncEnd(target) {
     }
     refreshFeedSyncButtons();
     stopFeedSyncUiTimerIfIdle();
-    const anyLeft = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.all;
+    const anyLeft = feedSyncRunning.nvd || feedSyncRunning.oui || feedSyncRunning.webfp || feedSyncRunning.cve_intel || feedSyncRunning.all;
     if (!anyLeft) stopFeedSyncStatePolling();
 }
 
 function feedSyncTouchesNvd(t) { return t === 'nvd' || t === 'all'; }
 function feedSyncTouchesFp(t) { return t === 'oui' || t === 'webfp' || t === 'all'; }
+function feedSyncTouchesCveIntel(t) { return t === 'cve_intel' || t === 'all'; }
 
 function refreshNvdStatusLineAfterEnd(target, errText, okText) {
     const el = document.getElementById('sync-status-nvd');
@@ -6740,18 +6854,34 @@ function refreshFpStatusLineAfterEnd(target, errText, okText) {
     fpSyncHadError = false;
 }
 
+function refreshCveIntelStatusLineAfterEnd(target, errText, okText) {
+    const el = document.getElementById('sync-status-cveintel');
+    if (!el || !feedSyncTouchesCveIntel(target)) return;
+    const still = feedSyncRunning.cve_intel || feedSyncRunning.all;
+    if (still) {
+        tickFeedSyncStatusLines();
+        return;
+    }
+    const useErr = errText || cveIntelSyncHadError;
+    el.className = useErr ? 'sync-status err' : 'sync-status ok';
+    el.textContent = useErr
+        ? (errText || 'CVE intel sync had errors. See output.')
+        : (okText || 'Sync complete.');
+    cveIntelSyncHadError = false;
+}
+
 async function requestFeedSyncCancel() {
     const r = await apiPost('/api/feeds.php?cancel=1', {});
     if (r && r.ok) {
-        toast('Stop requested — NVD sync should stop within a few seconds.', 'ok');
+        toast('Stop requested — long-running sync scripts should stop within a few seconds.', 'ok');
     } else {
         toast((r && r.error) ? String(r.error).slice(0, 140) : 'Cancel failed', 'err');
     }
 }
 
 function resetFeedSyncClientAfterServerClear() {
-    feedSyncRunning = { nvd: false, oui: false, webfp: false, all: false };
-    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, all: 0 };
+    feedSyncRunning = { nvd: false, oui: false, webfp: false, cve_intel: false, all: false };
+    feedSyncStartedAt = { nvd: 0, oui: 0, webfp: 0, cve_intel: 0, all: 0 };
     stopFeedSyncStatePolling();
     stopFeedSyncUiTimerIfIdle();
     refreshFeedSyncButtons();
@@ -6790,19 +6920,23 @@ async function runFeedSync(target) {
     if (!r) {
         markFeedSyncEnd(target);
         if (feedSyncTouchesFp(target)) fpSyncHadError = true;
+        if (feedSyncTouchesCveIntel(target)) cveIntelSyncHadError = true;
         feedSyncLastOutput = '[client] Feed sync request failed (no response)';
         toast('Feed sync request failed', 'err');
         refreshNvdStatusLineAfterEnd(target, 'Sync failed (no response).', null);
         refreshFpStatusLineAfterEnd(target, 'Sync failed (no response).', null);
+        refreshCveIntelStatusLineAfterEnd(target, 'Sync failed (no response).', null);
         return;
     }
     if (!r.ok) {
         markFeedSyncEnd(target);
         if (feedSyncTouchesFp(target)) fpSyncHadError = true;
+        if (feedSyncTouchesCveIntel(target)) cveIntelSyncHadError = true;
         const msg = (r.results && r.results.find(x => !x.ok)?.output) || r.error || 'Sync failed';
         toast(String(msg).slice(0, 120), 'err');
         refreshNvdStatusLineAfterEnd(target, 'Sync failed. See output for details.', null);
         refreshFpStatusLineAfterEnd(target, 'Sync failed. See output for details.', null);
+        refreshCveIntelStatusLineAfterEnd(target, 'Sync failed. See output for details.', null);
         openFeedSyncOutput();
         return;
     }
@@ -6819,6 +6953,7 @@ async function runFeedSync(target) {
 
     refreshNvdStatusLineAfterEnd(target, null, 'Sync complete.');
     refreshFpStatusLineAfterEnd(target, null, 'Sync complete.');
+    refreshCveIntelStatusLineAfterEnd(target, null, 'Sync complete.');
 
     const names = (r.results || []).map(x => x.script.replace('.py', '')).join(', ');
     toast('Feed sync complete: ' + names, 'ok');
@@ -7561,6 +7696,7 @@ function exportFindings(format) {
     const cat   = document.getElementById('vf-cat')?.value   || '';
     const res   = document.getElementById('vf-resolved')?.value || '0';
     const miny  = document.getElementById('vf-minyear')?.value || '';
+    const conf  = document.getElementById('vf-confidence')?.value || '';
 
     const params = new URLSearchParams({
         format,
@@ -7570,6 +7706,7 @@ function exportFindings(format) {
         category:  cat,
         resolved:  res,
         min_year:  miny,
+        confidence: conf,
         per_page:  9999,
     });
 
@@ -8188,7 +8325,10 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
     const EXTRA_SIGS = [
         ['Zabbix', /zabbix/i], ['ntfy', /\bntfy\b/i],
         ['Kasm Workspaces', /\bkasm(web|vnc)?\b|kasmtechnologies/i],
-        ['Proxmox VE', /proxmox|pve\./i], ['Docker Engine', /\bdocker engine\b|docker\/v|\bdockerd\b/i],
+        ['Proxmox VE', /proxmox|pve\.|pve-/i],
+        ['VMware', /\bvmware\s+esxi\b|\besxi\b|\bvcenter\b|vsphere\s*(web\s*)?client|\bvmware\s+vsphere\b|\bvmware\s+vcenter\b/i],
+        ['Hyper-V', /\bhyper[- ]?v\b|\bhyperv\b|\bmicrosoft\s+hyper[- ]?v\b/i],
+        ['Docker Engine', /\bdocker engine\b|docker\/v|\bdockerd\b/i],
         ['Jellyfin', /jellyfin/i], ['Gitea', /\bgitea\b/i], ['Nextcloud', /nextcloud/i],
         ['Mastodon', /mastodon/i], ['OpenObserve', /openobserve/i],
         ['Uptime Kuma', /uptime.?kuma/i], ['InfluxDB', /\binfluxdb?\b/i],
@@ -8278,6 +8418,7 @@ async function openHostPanel(id, ip) {
             <span class="hp-date">${localDate(f.published)}</span>
           </div>
           <div class="hp-desc">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
+          ${formatHpFindingTriage(f)}
           ${!f.resolved ? `<div class="row-wrap mt4" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Accept risk</button></div>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
         </div>`).join('') : '<div class="hp-empty">No open vulnerabilities</div>';
 
@@ -8290,6 +8431,7 @@ async function openHostPanel(id, ip) {
             ${f.accepted_at ? `<span class="hp-date">${localDate(f.accepted_at)}</span>` : ''}
           </div>
           <div class="hp-desc text-dim">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
+          ${formatHpFindingTriage(f)}
           ${stRoleCanManageScans() ? `<div class="mt4"><button type="button" class="tbtn btn-xs" onclick="unacceptFindingRisk(${f.id}, ${id}, '${esc(ip)}')" title="Return this CVE to the open vulnerabilities list">Unaccept risk</button></div>` : ''}
         </div>`).join('') : '<div class="hp-empty text-dim">No accepted-risk CVEs on this host</div>';
 

@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS assets (
     mac          TEXT,
     mac_vendor   TEXT,
     category     TEXT DEFAULT 'unk',
-        -- srv | ws | net | iot | ot | voi | prn | hv | unk
+        -- srv | ws | net | iot | ot | voi | prn | hv (VMware ESXi/vSphere/vCenter, Proxmox VE, Hyper-V, …) | unk
     vendor       TEXT,
     model        TEXT,
     os_guess     TEXT,
@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS findings (
     accepted_by_user_id  INTEGER,
     first_seen_job_id    INTEGER,
     last_seen_job_id     INTEGER,
+    -- Phase 10 — explainable triage (scanner / collector)
+    provenance_source    TEXT DEFAULT 'unknown',
+        -- scanner | collector | unknown
+    detection_method     TEXT,
+        -- nmap_port_cpe | asset_fingerprint_cpe | collector_ingest | unknown
+    confidence           TEXT DEFAULT 'low',
+        -- high | medium | low
+    risk_score           REAL,
+        -- 0–100 weighted triage score (CVSS-derived; not a replacement for CVSS)
+    evidence_json        TEXT,
+        -- JSON: matched_cpe, cpe_origin, rationale, optional collector hints
     UNIQUE(asset_id, cve_id)
 );
 
@@ -91,6 +102,28 @@ CREATE INDEX IF NOT EXISTS idx_findings_asset ON findings(asset_id);
 CREATE INDEX IF NOT EXISTS idx_findings_cve ON findings(cve_id);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
 CREATE INDEX IF NOT EXISTS idx_findings_lifecycle ON findings(lifecycle_state, resolved);
+CREATE INDEX IF NOT EXISTS idx_findings_risk_score ON findings(risk_score DESC);
+
+-- -------------------------------------------------------
+-- CVE intelligence (CISA KEV + FIRST EPSS + OSV); sync_cve_intel.py → surveytrace.db
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS cve_intel (
+    cve_id            TEXT PRIMARY KEY,
+    kev               INTEGER DEFAULT 0,
+    kev_date_added    TEXT,
+    kev_due_date      TEXT,
+    kev_vendor        TEXT,
+    kev_product       TEXT,
+    kev_action        TEXT,
+    epss              REAL,
+    epss_percentile   REAL,
+    epss_scored_at    TEXT,
+    osv_ecosystems    TEXT,
+    osv_updated_at    TEXT,
+    updated_at        TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cve_intel_kev ON cve_intel(kev);
+CREATE INDEX IF NOT EXISTS idx_cve_intel_epss ON cve_intel(epss DESC);
 
 -- -------------------------------------------------------
 -- Scan jobs: queued/running/done jobs dispatched by PHP / scheduler

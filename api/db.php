@@ -7,10 +7,34 @@
 // Always use UTC for all date/time operations regardless of server timezone
 date_default_timezone_set('UTC');
 
-define('ST_VERSION',  '0.9.0');
+require_once __DIR__ . '/st_version.php';
 define('ST_DB_PATH',  dirname(__DIR__) . '/data/surveytrace.db');
 define('ST_SCHEMA',   dirname(__DIR__) . '/sql/schema.sql');
 define('ST_DATA_DIR', dirname(__DIR__) . '/data');
+
+/**
+ * Runtime PRAGMAs for surveytrace.db — keep in sync with daemon/sqlite_pragmas.py.
+ * Env: SURVEYTRACE_SQLITE_BUSY_TIMEOUT_MS (1000–600000, default 60000),
+ *      SURVEYTRACE_SQLITE_MMAP_BYTES (set 0 to disable mmap; default 67108864).
+ */
+function st_sqlite_runtime_pragmas(PDO $pdo): void {
+    $pdo->exec('PRAGMA journal_mode = WAL');
+    $pdo->exec('PRAGMA foreign_keys = ON');
+    $busy = (int)(getenv('SURVEYTRACE_SQLITE_BUSY_TIMEOUT_MS') ?: 60000);
+    if ($busy < 1000) {
+        $busy = 1000;
+    }
+    if ($busy > 600000) {
+        $busy = 600000;
+    }
+    $pdo->exec('PRAGMA busy_timeout = ' . $busy);
+    $pdo->exec('PRAGMA synchronous = NORMAL');
+    $pdo->exec('PRAGMA temp_store = MEMORY');
+    $mmap = trim((string)(getenv('SURVEYTRACE_SQLITE_MMAP_BYTES') ?: '67108864'));
+    if ($mmap !== '' && $mmap !== '0' && ctype_digit($mmap)) {
+        $pdo->exec('PRAGMA mmap_size = ' . (int)$mmap);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Database connection (singleton PDO)
@@ -35,11 +59,7 @@ function st_db(): PDO {
         st_json(['error' => 'Database unavailable'], 503);
     }
 
-    $pdo->exec('PRAGMA journal_mode = WAL');
-    $pdo->exec('PRAGMA foreign_keys = ON');
-    // Milliseconds to wait when another connection holds the write lock (scanner + many Apache workers).
-    $pdo->exec('PRAGMA busy_timeout = 30000');
-    $pdo->exec('PRAGMA synchronous = NORMAL');
+    st_sqlite_runtime_pragmas($pdo);
 
     // Heavy ALTER/CREATE bootstrap runs once per PHP worker (Apache child / FPM worker), not on every
     // new PDO. Otherwise reconnecting during long AI calls replays hundreds of exec()s and locks SQLite.
@@ -368,6 +388,8 @@ function st_db(): PDO {
 
     st_migrate_device_identity_v1($pdo);
     st_migrate_phase9_change_detection_v1($pdo);
+    st_migrate_phase10_finding_triage_v1($pdo);
+    st_migrate_phase11_cve_intel_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -504,6 +526,69 @@ function st_migrate_phase9_change_detection_v1(PDO $pdo): void {
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase9_change_detection_v1', '1')"
+    );
+}
+
+/**
+ * Phase 10 — per-finding provenance, detection method, confidence, risk score, evidence JSON.
+ */
+function st_migrate_phase10_finding_triage_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase10_finding_triage_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!is_array($tables) || !in_array('findings', $tables, true)) {
+        return;
+    }
+    foreach ([
+        "ALTER TABLE findings ADD COLUMN provenance_source TEXT DEFAULT 'unknown'",
+        'ALTER TABLE findings ADD COLUMN detection_method TEXT',
+        "ALTER TABLE findings ADD COLUMN confidence TEXT DEFAULT 'low'",
+        'ALTER TABLE findings ADD COLUMN risk_score REAL',
+        'ALTER TABLE findings ADD COLUMN evidence_json TEXT',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_findings_risk_score ON findings(risk_score DESC)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase10_finding_triage_v1', '1')"
+    );
+}
+
+/**
+ * Phase 11 — CVE intelligence joins (CISA KEV, FIRST EPSS, OSV ecosystems); populated by sync_cve_intel.py.
+ */
+function st_migrate_phase11_cve_intel_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase11_cve_intel_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS cve_intel (
+            cve_id            TEXT PRIMARY KEY,
+            kev               INTEGER DEFAULT 0,
+            kev_date_added    TEXT,
+            kev_due_date      TEXT,
+            kev_vendor        TEXT,
+            kev_product       TEXT,
+            kev_action        TEXT,
+            epss              REAL,
+            epss_percentile   REAL,
+            epss_scored_at    TEXT,
+            osv_ecosystems    TEXT,
+            osv_updated_at    TEXT,
+            updated_at        TEXT DEFAULT CURRENT_TIMESTAMP
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cve_intel_kev ON cve_intel(kev)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cve_intel_epss ON cve_intel(epss DESC)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase11_cve_intel_v1', '1')"
     );
 }
 

@@ -402,8 +402,15 @@ if ($prev_scan) {
 $nvd_sync = st_config('nvd_last_sync', 'never');
 $oui_sync = st_config('oui_last_sync', 'never');
 $webfp_sync = st_config('webfp_last_sync', 'never');
+$cve_intel_sync = st_config('cve_intel_last_sync', 'never');
 $oui_count = (int)st_config('oui_prefix_count', '0');
 $webfp_count = (int)st_config('webfp_rule_count', '0');
+$cve_intel_rows = 0;
+try {
+    $cve_intel_rows = (int)$db->query('SELECT COUNT(*) FROM cve_intel')->fetchColumn();
+} catch (Throwable $e) {
+    $cve_intel_rows = 0;
+}
 
 st_json([
     'assets' => [
@@ -424,6 +431,8 @@ st_json([
     'nvd_last_sync'  => $nvd_sync,
     'oui_last_sync'  => $oui_sync,
     'webfp_last_sync'=> $webfp_sync,
+    'cve_intel_last_sync' => $cve_intel_sync,
+    'cve_intel_row_count' => $cve_intel_rows,
     'oui_prefix_count' => $oui_count,
     'webfp_rule_count' => $webfp_count,
     'server_time'    => date('c'),

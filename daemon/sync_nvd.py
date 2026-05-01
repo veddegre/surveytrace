@@ -41,6 +41,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from feed_sync_cancel import cancel_flag_path, cancel_requested
+from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_version import surveytrace_version
 
 log = logging.getLogger("nvd_sync")
 logging.basicConfig(
@@ -72,6 +74,7 @@ def _load_nvd_api_key_from_db() -> str:
         return ""
     try:
         with sqlite3.connect(str(MAIN_DB_PATH), timeout=10) as conn:
+            apply_surveytrace_pragmas(conn)
             row = conn.execute(
                 "SELECT value FROM config WHERE key = 'nvd_api_key'"
             ).fetchone()
@@ -230,7 +233,11 @@ def _fetch_page_http(start_index: int, mod_start: str | None, results_per_page: 
         params["lastModEndDate"]   = _nvd_api_datetime_utc(datetime.now(timezone.utc))
 
     url     = NVD_API_BASE + "?" + urllib.parse.urlencode(params)
-    headers = {"User-Agent": "SurveyTrace/0.9.0 (self-hosted; +https://github.com/veddegre/surveytrace)"}
+    headers = {
+        "User-Agent": (
+            f"SurveyTrace/{surveytrace_version()} (self-hosted; +https://github.com/veddegre/surveytrace)"
+        )
+    }
     if NVD_API_KEY:
         headers["apiKey"] = NVD_API_KEY
 
@@ -294,7 +301,8 @@ def write_batch(conn: sqlite3.Connection, cve_items: list[dict]) -> int:
 
 def update_main_config(now_str: str) -> None:
     try:
-        with sqlite3.connect(str(MAIN_DB_PATH)) as conn:
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=30) as conn:
+            apply_surveytrace_pragmas(conn)
             conn.execute(
                 "INSERT OR REPLACE INTO config (key, value) VALUES ('nvd_last_sync', ?)",
                 (now_str,)

@@ -14,6 +14,7 @@ echo "Deploying SurveyTrace from $SRC to $DEST..."
 # API
 # ---------------------------------------------------------------------------
 API_FILES=(
+  st_version.php
   db.php
   lib_ai_cloud.php
   ai_actions.php
@@ -49,6 +50,7 @@ API_FILES=(
 for f in "${API_FILES[@]}"; do
   sudo cp "$SRC/api/$f" "$DEST/api/"
 done
+[ -f "$SRC/VERSION" ] && sudo cp "$SRC/VERSION" "$DEST/"
 echo "  API files deployed"
 
 # ---------------------------------------------------------------------------
@@ -63,8 +65,11 @@ echo "  Web UI deployed"
 # Daemon
 # ---------------------------------------------------------------------------
 DAEMON_CORE=(
+  sqlite_pragmas.py
+  surveytrace_version.py
   scanner_daemon.py
   change_detection.py
+  finding_triage.py
   scheduler_daemon.py
   ai_cloud_client.py
   fingerprint.py
@@ -95,6 +100,7 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_oui.py" ] && sudo cp "$SRC/daemon/sync_oui.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/sync_cve_intel.py" ] && sudo cp "$SRC/daemon/sync_cve_intel.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/collector_ingest_worker.py" ] && sudo cp "$SRC/daemon/collector_ingest_worker.py" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
@@ -212,6 +218,8 @@ check_as_user() {
   fi
 }
 
+check_file "$DEST/VERSION" "VERSION (release semver)"
+check_file "$DEST/api/st_version.php" "st_version.php (ST_VERSION loader)"
 check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
@@ -232,6 +240,7 @@ check_file "$DEST/daemon/feed_sync_cancel.py" "feed_sync_cancel"
 check_file "$DEST/daemon/sync_nvd.py" "sync_nvd.py"
 check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
+check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
@@ -245,6 +254,8 @@ check_as_user "www-data" "test -r \"$DEST/daemon/sync_oui.py\"" \
   "www-data read: sync_oui.py"
 check_as_user "www-data" "test -r \"$DEST/daemon/sync_webfp.py\"" \
   "www-data read: sync_webfp.py"
+check_as_user "www-data" "test -r \"$DEST/daemon/sync_cve_intel.py\"" \
+  "www-data read: sync_cve_intel.py"
 check_as_user "www-data" "test -w \"$DEST/data\"" \
   "www-data write: data/"
 check_as_user "surveytrace" "test -w \"$DEST/data\"" \

@@ -34,6 +34,8 @@ except ImportError:
     from backports.zoneinfo import ZoneInfo  # Python < 3.9
 from pathlib import Path
 
+from sqlite_pragmas import apply_surveytrace_pragmas
+
 log = logging.getLogger("scheduler")
 logging.basicConfig(
     level=logging.INFO,
@@ -50,11 +52,9 @@ POLL_SECS = 30   # check every 30 seconds
 # Database helpers
 # ---------------------------------------------------------------------------
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=60)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=30000")
+    apply_surveytrace_pragmas(conn)
     return conn
 
 

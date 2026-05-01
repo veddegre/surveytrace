@@ -175,7 +175,7 @@ function st_ollama_latest_release_version(): string {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['User-Agent: SurveyTrace']);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['User-Agent: SurveyTrace/' . ST_VERSION]);
         $res = curl_exec($ch);
         if (is_string($res)) {
             $json = $res;
@@ -187,7 +187,7 @@ function st_ollama_latest_release_version(): string {
             'http' => [
                 'method' => 'GET',
                 'timeout' => 3,
-                'header' => "User-Agent: SurveyTrace\r\n",
+                'header' => 'User-Agent: SurveyTrace/' . ST_VERSION . "\r\n",
             ],
         ]);
         $res = @file_get_contents($url, false, $ctx);

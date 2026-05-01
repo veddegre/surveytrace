@@ -802,6 +802,9 @@ function st_ai_findings_fingerprint(array $openFindings): string {
             (string)($f['cvss'] ?? ''),
             (string)($f['severity'] ?? ''),
             (string)(int)($f['resolved'] ?? 0),
+            (string)($f['risk_score'] ?? ''),
+            (string)($f['confidence'] ?? ''),
+            (string)($f['detection_method'] ?? ''),
         ]);
     }
     return sha1(implode("\n", $parts));
@@ -971,7 +974,8 @@ try {
         }
 
         $fstmt = $db->prepare('
-            SELECT cve_id, cvss, severity, description, resolved
+            SELECT cve_id, cvss, severity, description, resolved,
+                   risk_score, confidence, detection_method, evidence_json
             FROM findings
             WHERE asset_id = ?
             ORDER BY (CASE WHEN cvss IS NULL THEN 1 ELSE 0 END) ASC, cvss DESC, cve_id ASC
@@ -1042,11 +1046,22 @@ try {
             $lines = [];
             foreach (array_slice($openFindings, 0, 18) as $f) {
                 $desc = substr((string)preg_replace('/\s+/', ' ', trim((string)($f['description'] ?? ''))), 0, 220);
+                $ev = '';
+                if (!empty($f['evidence_json'])) {
+                    $ej = json_decode((string)$f['evidence_json'], true);
+                    if (is_array($ej) && !empty($ej['matched_cpe'])) {
+                        $ev = ' cpe=' . substr((string)$ej['matched_cpe'], 0, 120);
+                    }
+                }
                 $lines[] = sprintf(
-                    '%s cvss=%s sev=%s — %s',
+                    '%s cvss=%s sev=%s risk_score=%s confidence=%s method=%s%s — %s',
                     (string)($f['cve_id'] ?? ''),
                     (string)($f['cvss'] ?? ''),
                     (string)($f['severity'] ?? ''),
+                    (string)($f['risk_score'] ?? ''),
+                    (string)($f['confidence'] ?? ''),
+                    (string)($f['detection_method'] ?? ''),
+                    $ev,
                     $desc
                 );
             }

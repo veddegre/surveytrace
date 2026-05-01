@@ -694,11 +694,13 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"Garmin",                        "iot",   "Garmin"),
     (r"[-_]watch$",                    "iot",   ""),
 
-    # Phones / tablets
+    # Phones / tablets / ChromeOS
     (r"iPhone",                       "ws",    "Apple"),
-    (r"iPad",                         "ws",    "Apple"),
+    (r"iPad|iPadOS",                  "ws",    "Apple"),
     (r"MacBook",                      "ws",    "Apple"),
+    (r"Mac[-_]?(Studio|mini|Pro)\b",   "ws",    "Apple"),
     (r"iMac",                         "ws",    "Apple"),
+    (r"Chromebook|Chrome[-_]OS|\bCrOS\b", "ws", ""),
     (r"Android_",                     "ws",    ""),
     (r"Pixel[-_]\d",                  "ws",    "Google"),
     (r"Galaxy",                       "ws",    "Samsung"),
@@ -751,14 +753,14 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"portainer",                    "srv",   ""),
     # Photon OS hostnames — category only; hardware vendor stays from OUI (e.g. HP mini)
     (r"\bphoton\b",                   "srv",   ""),
-    (r"proxmox|pve\.|\.pve\b",        "hv",    "Proxmox"),
+    (r"proxmox|pve\.|\.pve\b|pve-",    "hv",    "Proxmox"),
     (r"zabbix",                       "srv",   "Zabbix"),
     (r"kasm",                         "voi",   "Kasm Workspaces"),
     (r"ntfy",                         "srv",   "ntfy"),
     (r"mastodon",                     "srv",   "Mastodon"),
     (r"hyperv|hyper-v",               "hv",    "Microsoft Hyper-V"),
     (r"^hvhost",                       "hv",    ""),
-    (r"esxi|vcenter",                 "hv",    "VMware"),
+    (r"esxi|vcenter|vsphere|vmhost|esx[-_]?\d", "hv",    "VMware"),
     (r"truenas|freenas",              "srv",   "TrueNAS"),
     (r"opnsense|pfsense",             "net",   ""),
     (r"vpn",                          "net",   ""),
@@ -778,6 +780,8 @@ PORT_PROFILES: list[tuple[set[int], str, str, str]] = [
 
     # Hypervisors
     ({902, 903},         "hv",  "vmware:esxi",           "VMware ESXi"),
+    # vCenter Server Appliance / VAMI (distinctive vs generic 443 sites)
+    ({5480},             "hv",  "vmware:vcenter",        "VMware vCenter Appliance (VAMI)"),
     # PVE web UI is 8006; 8007 is optional — match on either alone
     ({8006, 8007},       "hv",  "proxmox:ve",            "Proxmox VE"),
 
@@ -834,6 +838,8 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
 
     # Hypervisors
     (r"VMware ESXi",                 "hv",   "vmware:esxi"),
+    (r"vSphere\s+(Web\s+)?Client|VMware\s+vSphere|vCenter\s+Server|VMware\s+vCenter",
+                                      "hv",   "vmware:vsphere"),
     (r"Proxmox",                     "hv",   "proxmox:ve"),
     (r"XenServer|XCP-ng",            "hv",   "xen:xenserver"),
     (r"Microsoft-HTTPAPI.*Hyper.?V", "hv",   "microsoft:hyper_v"),
@@ -1088,7 +1094,7 @@ _CPE_APP_PREFIXES = {
     "gitlab:gitlab", "grafana:grafana", "adguard:adguardhome",
     "jellyfin:jellyfin", "nextcloud:nextcloud", "plex:plex_media_server",
     "digium:asterisk", "freeswitch:freeswitch", "xen:xenserver",
-    "proxmox:ve", "vmware:esxi", "zabbix:zabbix", "zabbix:zabbix_server",
+    "proxmox:ve", "vmware:esxi", "vmware:vsphere", "vmware:vcenter", "zabbix:zabbix", "zabbix:zabbix_server",
     "docker:engine", "ntfy:server", "kasm:workspace", "mastodon:mastodon",
     "pi-hole", "nginx_proxy_manager", "portainer", "uptime_kuma", "karakeep",
     "open_webui", "homarr",
@@ -1211,8 +1217,8 @@ def fingerprint(
                 skip_generic_banner = True
             if port_set & {8006, 8007} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
                 skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
-            elif port_set & {902, 903} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
-                skip_generic_banner = True  # keep hv from ESXi port profile
+            elif port_set & {902, 903, 5480} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
+                skip_generic_banner = True  # keep hv from ESXi / vCenter port profile
 
             if not skip_generic_banner:
                 result["category"] = banner_cat

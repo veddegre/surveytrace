@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from ai_cloud_client import _openwebui_base_ok, cloud_chat_completion
+from finding_triage import build_scan_triage
 
 # Third-party — install with pip
 try:
@@ -58,6 +59,8 @@ from fingerprint import (
 )
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
 import change_detection
+from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_version import surveytrace_version
 
 # Enrichment sources — import all to trigger registration
 try:
@@ -253,11 +256,9 @@ _BULK_WRITE_COMMIT_INTERVAL = 100
 
 @contextmanager
 def db_conn() -> Generator[sqlite3.Connection, None, None]:
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=60)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=30000")
+    apply_surveytrace_pragmas(conn)
     try:
         yield conn
         conn.commit()
@@ -1651,7 +1652,7 @@ def phase_enrich(
 # Phase 3c — HTTP title grabbing
 # ---------------------------------------------------------------------------
 HTTP_TITLE_PORTS = [80, 443, 8080, 8081, 8082, 8083, 8086, 8088, 8089,
-                    8006, 8007, 8096, 8123, 8181, 8384, 8443, 8888, 3000, 3001, 3030,
+                    8006, 8007, 5480, 8096, 8123, 8181, 8384, 8443, 8888, 3000, 3001, 3030,
                     5080, 5341, 9000, 9001, 9090, 9091, 9443, 9925, 32400]
 
 HTTP_TITLE_TIMEOUT = 3   # seconds per request
@@ -1714,6 +1715,10 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"truenas",            "srv",  "TrueNAS"),
     (r"freenas",            "srv",  "TrueNAS"),
     (r"proxmox|pve\.|pve\s", "hv",  "Proxmox VE"),
+    (r"\bvmware\s+esxi\b|\besxi\b|\bvcenter\b|vsphere\s*(web\s*)?client|vmware\s+vsphere|vmware\s+vcenter|"
+     r"vmware\s+cloud\s+foundation",
+     "hv",  "VMware"),
+    (r"\bhyper[- ]?v\b|\bhyperv\b|\bmicrosoft\s+hyper[- ]?v\b", "hv",  "Microsoft Hyper-V"),
     # Dev / code
     (r"gitea",              "srv",  "Gitea"),
     (r"gogs",               "srv",  "Gogs"),
@@ -1840,7 +1845,10 @@ def _fetch_http_snapshot(ip: str, port: int, tls: bool) -> dict[str, str | None]
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        req = urllib.request.Request(url, headers={"User-Agent": "SurveyTrace/1.0"})
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": f"SurveyTrace/{surveytrace_version()}"},
+        )
         with urllib.request.urlopen(req, timeout=HTTP_TITLE_TIMEOUT,
                                     context=ctx if tls else None) as resp:
             out["server"] = resp.headers.get("Server")
@@ -2405,6 +2413,8 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
             log.debug("No specific CPEs to check for %s (cpe=%s)", asset.get("ip"), asset.get("cpe"))
             continue
 
+        nmap_cpe_set = frozenset(str(x) for x in (asset.get("nmap_cpes") or []))
+
         # Query CVEs for each specific CPE
         all_matches: dict[str, dict] = {}
         for check_cpe in cpes_to_check:
@@ -2477,7 +2487,10 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
                     )
                     continue
 
-                all_matches[m["cve_id"]] = m
+                m_row = dict(m)
+                m_row["_matched_cpe"] = check_cpe
+                m_row["_cpe_origin"] = "nmap_port" if str(check_cpe) in nmap_cpe_set else "fingerprint"
+                all_matches[m["cve_id"]] = m_row
 
         matches = sorted(all_matches.values(), key=lambda x: x.get("cvss", 0) or 0, reverse=True)[:20]
 
@@ -2485,7 +2498,14 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
             continue
 
         for entry in matches:
-            new_findings.append({
+            cpe_origin = str(entry.get("_cpe_origin") or "unknown")
+            matched_cpe = str(entry.get("_matched_cpe") or "")
+            tri = build_scan_triage(
+                float(entry.get("cvss") or 0.0),
+                matched_cpe=matched_cpe,
+                cpe_origin=cpe_origin,
+            )
+            row_out: dict[str, Any] = {
                 "asset_id":    asset["id"],
                 "ip":          asset["ip"],
                 "cve_id":      entry["cve_id"],
@@ -2493,7 +2513,9 @@ def phase_cve(job_id: int, assets_to_check: list[dict]) -> list[dict]:
                 "severity":    entry.get("severity", "info"),
                 "description": entry.get("description", ""),
                 "published":   entry.get("published", ""),
-            })
+            }
+            row_out.update(tri)
+            new_findings.append(row_out)
 
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
