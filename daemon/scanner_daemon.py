@@ -27,7 +27,7 @@ import urllib.request
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 from ai_cloud_client import _openwebui_base_ok, cloud_chat_completion
 
@@ -57,6 +57,7 @@ from fingerprint import (
     _printer_banner_conflicts_with_homelab_ports,
 )
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
+import change_detection
 
 # Enrichment sources — import all to trigger registration
 try:
@@ -246,6 +247,7 @@ def load_external_webfp_rules(path: Path) -> int:
 # ---------------------------------------------------------------------------
 # Commit every N rows inside one `with db_conn()` so SQLite releases the writer
 # between batches (WAL still allows only one writer, but duration drops sharply).
+# Keep aligned with change_detection.BULK_COMMIT_INTERVAL (CVE lifecycle + alerts).
 _BULK_WRITE_COMMIT_INTERVAL = 100
 
 
@@ -3249,6 +3251,25 @@ def run_scan(job: dict) -> None:
         http_titles, http_probes = phase_http_titles(job_id, banner_results)
 
     resolved_dns_hosts: set[str] = set()
+
+    prev_by_ip: dict[str, dict] = {}
+    with db_conn() as _pconn:
+        if all_ips:
+            ips_sorted = sorted(all_ips)
+            _chunk = 400
+            for _ci in range(0, len(ips_sorted), _chunk):
+                _part = ips_sorted[_ci : _ci + _chunk]
+                _ph = ",".join("?" * len(_part))
+                for _row in _pconn.execute(
+                    f"SELECT ip, id, open_ports FROM assets WHERE ip IN ({_ph})", _part
+                ).fetchall():
+                    prev_by_ip[str(_row["ip"])] = {
+                        "id": int(_row["id"]),
+                        "open_ports": _row["open_ports"],
+                    }
+
+    asset_alert_buf: list[tuple[str, int, dict[str, Any]]] = []
+
     for idx, ip in enumerate(sorted(all_ips), start=1):
         if ip not in hostname_cache:
             hn = resolve_hostname(ip)
@@ -3400,6 +3421,33 @@ def run_scan(job: dict) -> None:
         ai_reason = str(asset.get("_ai_enrichment_reason") or "").strip()
         if ai_reason:
             ai_reason_counts[ai_reason] = ai_reason_counts.get(ai_reason, 0) + 1
+        aid = int(asset["id"])
+        prev = prev_by_ip.get(ip)
+        if prev is None:
+            asset_alert_buf.append(("new_asset", aid, {"ip": ip}))
+        else:
+            old_s = change_detection.open_ports_json_to_set(prev.get("open_ports"))
+            new_s: set[int] = set()
+            for _p in ports:
+                try:
+                    _pi = int(_p)
+                    if 1 <= _pi <= 65535:
+                        new_s.add(_pi)
+                except (TypeError, ValueError):
+                    continue
+            nfs = frozenset(new_s)
+            if old_s != nfs:
+                asset_alert_buf.append(
+                    (
+                        "port_change",
+                        aid,
+                        {
+                            "ip": ip,
+                            "added_ports": sorted(nfs - old_s),
+                            "removed_ports": sorted(old_s - nfs),
+                        },
+                    )
+                )
         scanned += 1
         with db_conn() as conn:
             conn.execute("UPDATE scan_jobs SET hosts_scanned=? WHERE id=?", (scanned, job_id))
@@ -3409,6 +3457,13 @@ def run_scan(job: dict) -> None:
             log.info("[job %d] Aborted by user during asset cataloguing", job_id)
             return
 
+    if asset_alert_buf:
+        with db_conn() as _aconn:
+            for _i, (_at, _aid, _det) in enumerate(asset_alert_buf):
+                change_detection.insert_change_alert(_aconn, _at, job_id, asset_id=_aid, detail=_det)
+                if (_i + 1) % _BULK_WRITE_COMMIT_INTERVAL == 0:
+                    _aconn.commit()
+
     # ---- Phase 4: CVE correlation ----------------------------------------
     if "cve" in phases:
         with db_conn() as conn:
@@ -3417,29 +3472,12 @@ def run_scan(job: dict) -> None:
         findings = phase_cve(job_id, upserted_assets)
 
         with db_conn() as conn:
-            for i, f in enumerate(findings):
-                conn.execute("""
-                    INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published)
-                    VALUES (:aid,:ip,:cve,:cvss,:sev,:desc,:pub)
-                    ON CONFLICT(asset_id, cve_id) DO UPDATE SET
-                        cvss=excluded.cvss, severity=excluded.severity,
-                        description=excluded.description
-                """, {
-                    "aid":  f["asset_id"], "ip": f["ip"],
-                    "cve":  f["cve_id"],   "cvss": f["cvss"],
-                    "sev":  f["severity"], "desc": f["description"],
-                    "pub":  f["published"],
-                })
-                if (i + 1) % _BULK_WRITE_COMMIT_INTERVAL == 0:
-                    conn.commit()
-
-            # Update top_cve / top_cvss on each asset
-            conn.execute("""
-                UPDATE assets SET
-                    top_cve  = (SELECT cve_id FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1),
-                    top_cvss = (SELECT cvss   FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1)
-                WHERE id IN (SELECT DISTINCT asset_id FROM findings)
-            """)
+            change_detection.apply_scan_findings_lifecycle(
+                conn,
+                job_id,
+                findings,
+                {int(a["id"]) for a in upserted_assets},
+            )
 
     # ---- Done ------------------------------------------------------------
     summary = {

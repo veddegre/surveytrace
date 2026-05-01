@@ -40,7 +40,7 @@ if (is_readable($dbProbe)) {
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.8.2') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.9.0') ?>">
 </head>
 <body<?= !empty($stShellPreHidden) ? ' class="st-auth-locked"' : '' ?>>
 <div class="shell">
@@ -48,7 +48,7 @@ if (is_readable($dbProbe)) {
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.8.2' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.9.0' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -100,6 +100,10 @@ if (is_readable($dbProbe)) {
   <div class="ni" id="nlogs" onclick="goTab('logs');hiNav('nlogs')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h10M2 7h6M2 11h4"/></svg>
     Audit log
+  </div>
+  <div class="ni" id="nalerts" onclick="goTab('alerts');hiNav('nalerts')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1.5c2.5 0 4.5 2 4.5 4.5v2.5l1 1.5H1.5L2.5 8.5V6C2.5 3.5 4.5 1.5 7 1.5z"/><path d="M5 11a2 2 0 0 0 4 0"/></svg>
+    Change alerts <span class="mono-sm text-dim" id="nav-alerts-open" title="Open (undismissed) alerts"></span>
   </div>
   <div class="ns">System</div>
   <div class="ni" id="nenrich" onclick="goTab('enrich');hiNav('nenrich')">
@@ -849,6 +853,31 @@ if (is_readable($dbProbe)) {
   </div>
 </div>
 
+<!-- ================================================================ CHANGE ALERTS (Phase 9) -->
+<div class="tab" id="t-alerts">
+  <div class="row-between mb12">
+    <div class="sth section-title-reset">Change alerts</div>
+    <div class="row-wrap">
+      <button type="button" class="tbtn" onclick="loadChangeAlerts()">&#8635; Refresh</button>
+      <button type="button" class="tbtn" onclick="dismissAllChangeAlerts()" id="btn-alerts-dismiss-all" style="display:none">Dismiss all (open)</button>
+    </div>
+  </div>
+  <p class="help-line mb16" style="max-width:min(100%, 52rem)">
+    Feed of <strong>new hosts</strong>, <strong>open-port changes</strong>, and <strong>CVE lifecycle</strong> events (new detections, mitigated when a scan no longer sees a match, reopened after regression).
+    Dismissing hides an item from this list; it does not change scan data or findings.
+  </p>
+  <div class="card">
+    <div class="ct">Open alerts</div>
+    <div id="alerts-summary" class="help-line mb8 text-dim">Loading…</div>
+    <div class="tbl-wrap">
+      <table class="tbl" id="alerts-table">
+        <thead><tr><th>When</th><th>Type</th><th>Target</th><th>Detail</th><th></th></tr></thead>
+        <tbody id="alerts-table-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- ================================================================ ACCESS CONTROL -->
 <div class="tab" id="t-access">
   <div class="card">
@@ -1063,7 +1092,7 @@ if (is_readable($dbProbe)) {
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.8.2', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.9.0', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span><br>
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
@@ -2204,6 +2233,7 @@ function goTab(name) {
         loadCollectorsOverview();
     }
     if (name === 'health')   loadHealth();
+    if (name === 'alerts')   loadChangeAlerts();
     if (name === 'access') {
         loadUiSettings();
         loadAuthUsers();
@@ -2498,6 +2528,7 @@ async function loadDashboard() {
 
     // Update sidebar badges
     updateSidebarBadges(d.assets.total, d.findings.open, d.findings.by_severity?.critical || 0);
+    void refreshChangeAlertsNavBadge();
 
     // Last scan
     if (d.last_scan) {
@@ -2969,6 +3000,92 @@ async function loadHealth() {
         return;
     }
     el.innerHTML = renderHealthHtml(h);
+}
+
+async function refreshChangeAlertsNavBadge() {
+    const el = document.getElementById('nav-alerts-open');
+    if (!el) return;
+    const d = await api('/api/change_alerts.php?dismissed=0&limit=1', { quiet: true });
+    if (!d || !d.ok) return;
+    el.textContent = d.open_count ? String(d.open_count) : '';
+}
+
+function _alertTypeLabel(t) {
+    const m = {
+        new_asset: 'New asset',
+        port_change: 'Port change',
+        new_cve: 'New CVE',
+        finding_reopened: 'CVE reopened',
+        finding_mitigated: 'CVE mitigated',
+    };
+    return m[t] || t || '—';
+}
+
+function _alertDetailSummary(row) {
+    const det = row.detail && typeof row.detail === 'object' ? row.detail : {};
+    const parts = [];
+    if (det.cve_id) parts.push(String(det.cve_id));
+    if (det.ip) parts.push(String(det.ip));
+    if (Array.isArray(det.added_ports) && det.added_ports.length) parts.push('+' + det.added_ports.join(','));
+    if (Array.isArray(det.removed_ports) && det.removed_ports.length) parts.push('−' + det.removed_ports.join(','));
+    if (det.reason) parts.push(String(det.reason));
+    const s = parts.join(' · ');
+    return s.length > 120 ? s.slice(0, 117) + '…' : (s || '—');
+}
+
+async function loadChangeAlerts() {
+    const tbody = document.getElementById('alerts-table-body');
+    const sum = document.getElementById('alerts-summary');
+    const btnAll = document.getElementById('btn-alerts-dismiss-all');
+    if (!tbody) return;
+    const d = await api('/api/change_alerts.php?dismissed=0&limit=200');
+    if (!d || !d.ok) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load alerts.</td></tr>';
+        if (sum) sum.textContent = '';
+        return;
+    }
+    void refreshChangeAlertsNavBadge();
+    if (sum) sum.textContent = (d.open_count || 0) + ' open (showing up to ' + (d.alerts?.length || 0) + ' rows)';
+    if (btnAll) btnAll.style.display = (d.open_count > 0 && stRoleCanManageScans()) ? 'inline-block' : 'none';
+    const rows = d.alerts || [];
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">No open alerts. Run scans to populate change detection.</td></tr>';
+        return;
+    }
+    const canDismiss = stRoleCanManageScans();
+    tbody.innerHTML = rows.map(r => {
+        const ip = esc(r.asset_ip || (r.detail && r.detail.ip) || '');
+        const jid = r.job_id ? String(r.job_id) : '—';
+        const dismiss = canDismiss
+            ? `<button type="button" class="tbtn btn-xs" onclick="dismissChangeAlert(${r.id})">Dismiss</button>`
+            : '';
+        return `<tr>
+          <td class="mono mono-sm">${esc(r.created_at || '')}</td>
+          <td>${esc(_alertTypeLabel(r.alert_type))}</td>
+          <td class="mono">${ip || '—'} <span class="text-dim mono-sm">job ${esc(jid)}</span></td>
+          <td class="text-secondary" style="max-width:28rem">${esc(_alertDetailSummary(r))}</td>
+          <td>${dismiss}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function dismissChangeAlert(id) {
+    if (!id) return;
+    const out = await apiPost('/api/change_alerts.php', { action: 'dismiss', alert_id: id });
+    if (out && out.ok) {
+        toast('Alert dismissed', 'ok');
+        await loadChangeAlerts();
+    }
+}
+
+async function dismissAllChangeAlerts() {
+    if (!stRoleCanManageScans()) return;
+    if (!confirm('Dismiss all open change alerts?')) return;
+    const out = await apiPost('/api/change_alerts.php', { action: 'dismiss_all' });
+    if (out && out.ok) {
+        toast('Alerts dismissed', 'ok');
+        await loadChangeAlerts();
+    }
 }
 
 function feedRow(e) {

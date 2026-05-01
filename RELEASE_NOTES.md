@@ -3,6 +3,13 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.9.0 (2026-05-01)
+
+- **Phase 9 — Change detection** — New **`change_alerts`** table and **`findings`** lifecycle columns (`lifecycle_state`, `mitigated_at`, `accepted_at`, `accepted_by_user_id`, job id stamps). The scanner and collector ingest worker record **new asset**, **port change**, **new CVE**, **finding mitigated** (CVE absent from correlated results for assets in the run), and **finding reopened** (CVE returns after `mitigated`).
+- **API** — **`GET/POST /api/change_alerts.php`** (list/dismiss open alerts). **`findings.php`** exposes lifecycle fields on **GET**, adds **`accept_risk`**, and maps **resolve** / **unresolve** to lifecycle-aware updates.
+- **UI** — **Change alerts** sidebar page with refresh and per-row / dismiss-all (scan editor or admin).
+- **Deploy** — Ship **`daemon/change_detection.py`**, **`api/change_alerts.php`**, updated **`scanner_daemon.py`** / **`collector_ingest_worker.py`** / **`findings.php`** / **`db.php`**; collectors need **`change_detection.py`** beside **`scanner_daemon.py`**. Restart **web PHP** once after **`db.php`** so SQLite migrations apply.
+
 ## 0.8.2 (2026-05-01)
 
 - **Scan profiles** — `validate_phases()` now treats **Full TCP** and **Fast Full TCP** like other banner-capable profiles even though their fixed port list is empty (all-TCP mode uses `-p-` in the daemon). Phases line up with profile intent instead of silently dropping banner work.

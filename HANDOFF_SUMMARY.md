@@ -2,7 +2,7 @@
 
 Use this as a context starter in a new conversation.
 
-**Release:** **0.8.2** (`ST_VERSION` in `api/db.php`) — patch on **0.8.1**: scan profile phase validation for Full/Fast Full TCP, Fast Full TCP routed vs LAN scanner behavior (finite port union vs `-p-`, intensity alignment with Standard Inventory), merge safeguards for full-port profiles; collectors should redeploy matching `profiles.py` / `scanner_daemon.py`. **0.8.1** added install-token UX/API hardening, collector overview accuracy + CIDR modal, Linux+RDP fingerprint fix. Prior headline releases remain **0.7.0** (operator AI) and **0.6.x** (rescan parity, full-TCP safeguards, DB backup/restore, Phase 7 trash).
+**Release:** **0.9.0** (`ST_VERSION` in `api/db.php`) — **Phase 9 change detection**: `change_alerts` + finding lifecycle (`new`/`active`/`mitigated`/`accepted`/`reopened`), `daemon/change_detection.py`, `api/change_alerts.php`, UI **Change alerts** tab, lifecycle-aware `findings.php` (incl. `accept_risk`). Prior: **0.8.x** profiles/scanner/collector parity; **0.7.0** operator AI; **0.6.x** rescan parity, full-TCP safeguards, DB backup/restore, Phase 7 trash.
 
 ## Where things stand
 

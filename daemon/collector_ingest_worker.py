@@ -24,7 +24,10 @@ log = logging.getLogger("collector_ingest")
 DAEMON_DIR = Path(__file__).resolve().parent
 if str(DAEMON_DIR) not in sys.path:
     sys.path.insert(0, str(DAEMON_DIR))
+import change_detection  # type: ignore
 import scanner_daemon  # type: ignore
+
+_INGEST_ROW_COMMIT_INTERVAL = 100
 
 # Ensure shared scanner helpers point to this master's DB/NVD paths.
 scanner_daemon.DB_PATH = DB_PATH
@@ -145,11 +148,12 @@ def _coerce_json_dict(val: object) -> dict:
     return {}
 
 
-def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> int:
+def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int, dict]:
+    """Returns (asset_id, meta) where meta has is_new (bool) and prev_open_ports (str|None)."""
     ip = str(row.get("ip", "")).strip()
     if ip == "":
-        return 0
-    existing = conn.execute("SELECT id FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
+        return 0, {"is_new": False, "prev_open_ports": None}
+    existing = conn.execute("SELECT id, open_ports FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
     fields = {
         "hostname": row.get("hostname", ""),
         "mac": row.get("mac", ""),
@@ -169,6 +173,7 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> int:
     }
     if existing:
         aid = int(existing["id"])
+        prev_ports = str(existing["open_ports"] or "")
         conn.execute(
             """UPDATE assets SET
                hostname=:hostname, mac=:mac, mac_vendor=:mac_vendor, category=:category,
@@ -178,18 +183,18 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> int:
                WHERE id=:id""",
             {**fields, "id": aid, "job_id": job_id},
         )
-    else:
-        conn.execute(
-            """INSERT INTO assets
-               (ip, hostname, mac, mac_vendor, category, vendor, model, os_guess, cpe, connected_via,
-                open_ports, banners, nmap_cpes, discovery_sources, top_cve, top_cvss, first_seen, last_seen, last_scan_id)
-               VALUES
-               (:ip, :hostname, :mac, :mac_vendor, :category, :vendor, :model, :os_guess, :cpe, :connected_via,
-                :open_ports, :banners, :nmap_cpes, :discovery_sources, :top_cve, :top_cvss, datetime('now'), datetime('now'), :job_id)""",
-            {**fields, "ip": ip, "job_id": job_id},
-        )
-        aid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
-    return aid
+        return aid, {"is_new": False, "prev_open_ports": prev_ports}
+    conn.execute(
+        """INSERT INTO assets
+           (ip, hostname, mac, mac_vendor, category, vendor, model, os_guess, cpe, connected_via,
+            open_ports, banners, nmap_cpes, discovery_sources, top_cve, top_cvss, first_seen, last_seen, last_scan_id)
+           VALUES
+           (:ip, :hostname, :mac, :mac_vendor, :category, :vendor, :model, :os_guess, :cpe, :connected_via,
+            :open_ports, :banners, :nmap_cpes, :discovery_sources, :top_cve, :top_cvss, datetime('now'), datetime('now'), :job_id)""",
+        {**fields, "ip": ip, "job_id": job_id},
+    )
+    aid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    return aid, {"is_new": True, "prev_open_ports": None}
 
 
 def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int, int, int, dict[str, int]]:
@@ -274,43 +279,31 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
         conn.commit()
 
     cve_rows = scanner_daemon.phase_cve(job_id, upserted_assets)
-    for f in cve_rows:
+    change_detection.apply_scan_findings_lifecycle(
+        conn,
+        job_id,
+        cve_rows,
+        {int(a["id"]) for a in upserted_assets},
+    )
+    for _si, f in enumerate(cve_rows):
+        r0 = conn.execute(
+            "SELECT resolved FROM findings WHERE asset_id=? AND cve_id=? LIMIT 1",
+            (int(f["asset_id"]), str(f["cve_id"])),
+        ).fetchone()
+        res = int(r0["resolved"] or 0) if r0 else 0
         conn.execute(
-            """INSERT INTO findings (asset_id, ip, cve_id, cvss, severity, description, published, confirmed_at, resolved)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
-               ON CONFLICT(asset_id, cve_id) DO UPDATE SET
-                 cvss=excluded.cvss,
-                 severity=excluded.severity,
-                 description=excluded.description,
-                 published=excluded.published,
-                 resolved=0""",
-            (
-                int(f["asset_id"]),
-                str(f["ip"]),
-                str(f["cve_id"]),
-                float(f.get("cvss", 0.0) or 0.0),
-                str(f.get("severity", "info")),
-                str(f.get("description", ""))[:2000],
-                str(f.get("published", ""))[:64],
-            ),
-        )
-        conn.execute(
-            "INSERT INTO scan_finding_snapshots (job_id, asset_id, cve_id, cvss, severity, resolved) VALUES (?, ?, ?, ?, ?, 0)",
+            "INSERT INTO scan_finding_snapshots (job_id, asset_id, cve_id, cvss, severity, resolved) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 job_id,
                 int(f["asset_id"]),
                 str(f["cve_id"]),
                 float(f.get("cvss", 0.0) or 0.0),
                 str(f.get("severity", "info")),
+                res,
             ),
         )
-    conn.commit()
-    conn.execute(
-        """UPDATE assets SET
-             top_cve  = (SELECT cve_id FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1),
-             top_cvss = (SELECT cvss   FROM findings WHERE asset_id=assets.id AND resolved=0 ORDER BY cvss DESC LIMIT 1)
-           WHERE id IN (SELECT DISTINCT asset_id FROM findings)"""
-    )
+        if (_si + 1) % _INGEST_ROW_COMMIT_INTERVAL == 0:
+            conn.commit()
     conn.commit()
     return ai_attempts, ai_applied, len(cve_rows), ai_reason_counts
 
@@ -331,15 +324,26 @@ def process_one(qrow: dict) -> None:
     if job_status not in {"done", "failed", "aborted"}:
         job_status = "done"
 
-    # Phase A: apply collector artifact — one transaction, then commit so PHP/daemon can write.
+    # Phase A: apply collector artifact — periodic commits so SQLite does not hold one
+    # writer transaction across very large payloads (same spirit as scanner bulk commits).
     asset_map: dict[str, int] = {}
     with db_conn() as conn:
+        _a_idx = 0
         for a in payload.get("assets", []) or []:
             if isinstance(a, dict):
-                aid = _asset_upsert(conn, job_id, a)
+                aid, meta = _asset_upsert(conn, job_id, a)
                 ip = str(a.get("ip", "")).strip()
                 if aid > 0 and ip:
                     asset_map[ip] = aid
+                    if meta.get("is_new"):
+                        change_detection.insert_change_alert(
+                            conn, "new_asset", job_id, asset_id=aid, detail={"ip": ip}
+                        )
+                    elif meta.get("prev_open_ports") is not None:
+                        pl = _coerce_json_list(a.get("open_ports"))
+                        change_detection.maybe_alert_port_change(
+                            conn, job_id, ip, aid, meta.get("prev_open_ports"), pl
+                        )
                 if aid > 0:
                     conn.execute(
                         """INSERT INTO scan_asset_snapshots (job_id, asset_id, ip, hostname, category, vendor, top_cve, top_cvss, open_ports)
@@ -350,7 +354,11 @@ def process_one(qrow: dict) -> None:
                             json.dumps(_coerce_json_list(a.get("open_ports")), separators=(",", ":"), ensure_ascii=False),
                         ),
                     )
+                _a_idx += 1
+                if _a_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
+                    conn.commit()
 
+        _f_idx = 0
         for f in payload.get("findings", []) or []:
             if not isinstance(f, dict):
                 continue
@@ -384,7 +392,11 @@ def process_one(qrow: dict) -> None:
                 "INSERT INTO scan_finding_snapshots (job_id, asset_id, cve_id, cvss, severity, resolved) VALUES (?, ?, ?, ?, ?, ?)",
                 (job_id, aid, cve, cvss, sev, 1 if int(f.get("resolved", 0) or 0) else 0),
             )
+            _f_idx += 1
+            if _f_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
+                conn.commit()
 
+        _l_idx = 0
         for l in payload.get("scan_log", []) or []:
             if not isinstance(l, dict):
                 continue
@@ -397,7 +409,11 @@ def process_one(qrow: dict) -> None:
                     str(l.get("message", ""))[:4000],
                 ),
             )
+            _l_idx += 1
+            if _l_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
+                conn.commit()
 
+        _p_idx = 0
         for p in payload.get("port_history", []) or []:
             if not isinstance(p, dict):
                 continue
@@ -414,6 +430,9 @@ def process_one(qrow: dict) -> None:
                 "INSERT INTO port_history (asset_id, scan_id, ports, seen_at) VALUES (?, ?, ?, datetime('now'))",
                 (aid, job_id, json.dumps(_coerce_json_list(p.get("ports")), separators=(",", ":"), ensure_ascii=False)),
             )
+            _p_idx += 1
+            if _p_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
+                conn.commit()
 
         conn.execute(
             """UPDATE scan_jobs

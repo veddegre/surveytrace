@@ -8,7 +8,7 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 echo "Deploying SurveyTrace collector files..."
 sudo mkdir -p "$DEST/daemon" "$DEST/sql" "$DEST/daemon/sources"
 
-for f in scanner_daemon.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do
+for f in scanner_daemon.py change_detection.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 sudo cp "$SRC/sql/schema.sql" "$DEST/sql/"

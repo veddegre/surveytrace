@@ -18,6 +18,7 @@ API_FILES=(
   lib_ai_cloud.php
   ai_actions.php
   assets.php
+  change_alerts.php
   findings.php
   findings_export.php
   scan_start.php
@@ -63,6 +64,7 @@ echo "  Web UI deployed"
 # ---------------------------------------------------------------------------
 DAEMON_CORE=(
   scanner_daemon.py
+  change_detection.py
   scheduler_daemon.py
   ai_cloud_client.py
   fingerprint.py
@@ -219,6 +221,7 @@ check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
 check_file "$DEST/api/collector_submit.php" "collector_submit API"
 check_file "$DEST/api/collectors.php" "collectors API"
 check_file "$DEST/api/scan_history.php" "scan history API"
+check_file "$DEST/api/change_alerts.php" "change_alerts API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"
 check_file "$DEST/api/lib_ai_cloud.php" "lib_ai_cloud (cloud AI)"

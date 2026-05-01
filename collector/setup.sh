@@ -33,6 +33,7 @@ usermod -aG netdev "$APP_USER" 2>/dev/null || true
 
 mkdir -p "$INSTALL_DIR/daemon" "$INSTALL_DIR/sql" "$INSTALL_DIR/data"
 cp "$SRC_DIR/daemon/scanner_daemon.py" "$INSTALL_DIR/daemon/"
+cp "$SRC_DIR/daemon/change_detection.py" "$INSTALL_DIR/daemon/"
 cp "$SRC_DIR/daemon/fingerprint.py" "$INSTALL_DIR/daemon/"
 cp "$SRC_DIR/daemon/profiles.py" "$INSTALL_DIR/daemon/"
 cp "$SRC_DIR/daemon/ai_cloud_client.py" "$INSTALL_DIR/daemon/"

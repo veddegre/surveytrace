@@ -7,7 +7,7 @@
 // Always use UTC for all date/time operations regardless of server timezone
 date_default_timezone_set('UTC');
 
-define('ST_VERSION',  '0.8.2');
+define('ST_VERSION',  '0.9.0');
 define('ST_DB_PATH',  dirname(__DIR__) . '/data/surveytrace.db');
 define('ST_SCHEMA',   dirname(__DIR__) . '/sql/schema.sql');
 define('ST_DATA_DIR', dirname(__DIR__) . '/data');
@@ -367,6 +367,7 @@ function st_db(): PDO {
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('login_lockout_minutes', '15')");
 
     st_migrate_device_identity_v1($pdo);
+    st_migrate_phase9_change_detection_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -447,6 +448,62 @@ function st_migrate_device_identity_v1(PDO $pdo): void {
 
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_device_identity_v1', '1')"
+    );
+}
+
+/**
+ * Phase 9 — finding lifecycle columns + change_alerts table + backfill mitigated from legacy resolved=1.
+ */
+function st_migrate_phase9_change_detection_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase9_change_detection_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!is_array($tables) || !in_array('findings', $tables, true)) {
+        return;
+    }
+    $fCols = array_column($pdo->query('PRAGMA table_info(findings)')->fetchAll(), 'name');
+    foreach ([
+        "ALTER TABLE findings ADD COLUMN lifecycle_state TEXT DEFAULT 'active'",
+        'ALTER TABLE findings ADD COLUMN mitigated_at DATETIME',
+        'ALTER TABLE findings ADD COLUMN accepted_at DATETIME',
+        'ALTER TABLE findings ADD COLUMN accepted_by_user_id INTEGER',
+        'ALTER TABLE findings ADD COLUMN first_seen_job_id INTEGER',
+        'ALTER TABLE findings ADD COLUMN last_seen_job_id INTEGER',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_findings_lifecycle ON findings(lifecycle_state, resolved)');
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS change_alerts (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+            alert_type            TEXT NOT NULL,
+            job_id                INTEGER,
+            asset_id              INTEGER,
+            finding_id            INTEGER,
+            detail_json           TEXT,
+            dismissed_at          DATETIME,
+            dismissed_by_user_id  INTEGER
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_change_alerts_created ON change_alerts(created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_change_alerts_open ON change_alerts(dismissed_at, created_at DESC)');
+    try {
+        $pdo->exec(
+            "UPDATE findings SET lifecycle_state='mitigated', mitigated_at=COALESCE(mitigated_at, datetime('now'))
+             WHERE resolved=1 AND COALESCE(lifecycle_state,'active')='active'"
+        );
+    } catch (Throwable $e) {
+        // ignore if lifecycle_state missing in very old builds (should not happen after ALTER)
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase9_change_detection_v1', '1')"
     );
 }
 

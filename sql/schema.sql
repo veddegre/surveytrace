@@ -77,12 +77,20 @@ CREATE TABLE IF NOT EXISTS findings (
     confirmed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     resolved     INTEGER DEFAULT 0,
     notes        TEXT,
+    lifecycle_state      TEXT DEFAULT 'active',
+        -- new | active | mitigated | accepted | reopened
+    mitigated_at         DATETIME,
+    accepted_at          DATETIME,
+    accepted_by_user_id  INTEGER,
+    first_seen_job_id    INTEGER,
+    last_seen_job_id     INTEGER,
     UNIQUE(asset_id, cve_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_findings_asset ON findings(asset_id);
 CREATE INDEX IF NOT EXISTS idx_findings_cve ON findings(cve_id);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_lifecycle ON findings(lifecycle_state, resolved);
 
 -- -------------------------------------------------------
 -- Scan jobs: queued/running/done jobs dispatched by PHP / scheduler
@@ -279,6 +287,23 @@ CREATE TABLE IF NOT EXISTS user_audit_log (
 CREATE INDEX IF NOT EXISTS idx_user_audit_log_actor ON user_audit_log(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC);
+
+-- -------------------------------------------------------
+-- Change alerts (Phase 9 — new assets, port deltas, CVE lifecycle)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS change_alerts (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+    alert_type            TEXT NOT NULL,
+    job_id                INTEGER,
+    asset_id              INTEGER,
+    finding_id            INTEGER,
+    detail_json           TEXT,
+    dismissed_at          DATETIME,
+    dismissed_by_user_id  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_change_alerts_created ON change_alerts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_change_alerts_open ON change_alerts(dismissed_at, created_at DESC);
 
 INSERT OR IGNORE INTO config VALUES
     ('nvd_last_sync',   ''),

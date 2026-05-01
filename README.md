@@ -57,6 +57,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Collector architecture (MVP + parity runner)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
+- **Change detection (Phase 9)** — in-app **Change alerts** for new hosts, material port deltas, and CVE lifecycle (new / active / mitigated / accepted / reopened); **`GET/POST /api/change_alerts.php`** and lifecycle-aware **`findings.php`** actions.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner analysis, Proxmox node-name extraction
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -291,6 +292,10 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.9.0
+
+- **Phase 9 — Change detection** — SQLite **`change_alerts`** table and **`findings`** lifecycle fields (migration `migration_phase9_change_detection_v1`); **`daemon/change_detection.py`** drives alerts and CVE state transitions from **`scanner_daemon.py`** and **`collector_ingest_worker.py`**; **`GET/POST /api/change_alerts.php`**; findings API adds **`accept_risk`** and lifecycle-aware **resolve** / **unresolve** / **`GET ?lifecycle=`**; **Change alerts** sidebar tab with dismiss controls (scan editors+). **Deploy:** copy **`change_detection.py`** and **`change_alerts.php`**; restart **Apache/php-fpm** once so migrations run.
 
 ### 0.8.2
 
@@ -577,9 +582,9 @@ surveytrace/
 - **Phase 6 — Identity & access** — OIDC-first auth, local accounts + role management, MFA/recovery flows, profile self-service, endpoint RBAC coverage, and expanded account/audit logging.
 - **Phase 7 — Scan delete hardening** — soft delete/trash lifecycle for scan runs, restore flow, admin-only permanent purge, retention-based purge, and audit coverage.
 - **Phase 8 — Collector architecture (MVP + parity runner)** — remote collector registration + bearer auth, collector control APIs/UI, unified schedule targeting (`collector_id`), scan source visibility, per-collector rate limits, centralized ingest + enrichment worker, and CIDR allowlist guardrails for safe remote execution.
+- **Phase 9 — Change detection** — `change_alerts` feed (new asset, port change, new CVE, finding mitigated/reopened); **`findings`** lifecycle columns (`new` → `active`, scanner-driven `mitigated` when absent from correlated results, `accepted` via API, `reopened` after regression); **`GET/POST /api/change_alerts.php`** and **Change alerts** UI; scanner + collector ingest share **`daemon/change_detection.py`**.
 
 ### Upcoming
-- **Phase 9**: Change detection — alerts on new assets, port changes, new CVEs; finding lifecycle states (`new`, `active`, `mitigated`, `accepted`, `reopened`) with regression/reopen handling.
 - **Phase 10**: CVE improvements — per-finding evidence, confidence levels, risk scoring, and provenance metadata (`source`, `method`, `confidence`) for explainable triage.
 - **Phase 11**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.
 - **Phase 12**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.

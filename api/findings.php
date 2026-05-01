@@ -31,6 +31,7 @@
  * {"action": "resolve",   "finding_id": N, "notes": "patched"}
  * {"action": "unresolve", "finding_id": N}
  * {"action": "resolve_all", "asset_id": N}
+ * {"action": "accept_risk", "finding_id": N} — lifecycle accepted (excluded from open list)
  */
 
 require_once __DIR__ . '/db.php';
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     st_method('POST');
     st_require_role(['scan_editor', 'admin']);
     $body      = st_input();
-    $action    = st_str('action', '', ['resolve','unresolve','resolve_all']);
+    $action    = st_str('action', '', ['resolve','unresolve','resolve_all','accept_risk']);
     if (empty($action)) $action = trim((string)($body['action'] ?? ''));
 
     switch ($action) {
@@ -54,25 +55,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fid   = (int)($body['finding_id'] ?? 0);
             $notes = substr(trim((string)($body['notes'] ?? '')), 0, 500);
             if (!$fid) st_json(['error' => 'finding_id required'], 400);
-            $db->prepare("UPDATE findings SET resolved=1, notes=? WHERE id=?")->execute([$notes, $fid]);
-            st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => true]);
+            $db->prepare(
+                "UPDATE findings SET resolved=1, notes=?, lifecycle_state='mitigated', mitigated_at=datetime('now'),
+                 accepted_at=NULL, accepted_by_user_id=NULL WHERE id=?"
+            )->execute([$notes, $fid]);
+            st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => true, 'lifecycle_state' => 'mitigated']);
 
         case 'unresolve':
             $fid = (int)($body['finding_id'] ?? 0);
             if (!$fid) st_json(['error' => 'finding_id required'], 400);
-            $db->prepare("UPDATE findings SET resolved=0 WHERE id=?")->execute([$fid]);
-            st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => false]);
+            $db->prepare(
+                "UPDATE findings SET resolved=0, lifecycle_state='active', mitigated_at=NULL,
+                 accepted_at=NULL, accepted_by_user_id=NULL WHERE id=?"
+            )->execute([$fid]);
+            st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => false, 'lifecycle_state' => 'active']);
 
         case 'resolve_all':
             $aid   = (int)($body['asset_id'] ?? 0);
             $notes = substr(trim((string)($body['notes'] ?? 'bulk resolved')), 0, 500);
             if (!$aid) st_json(['error' => 'asset_id required'], 400);
-            $db->prepare("UPDATE findings SET resolved=1, notes=? WHERE asset_id=?")->execute([$notes, $aid]);
+            $db->prepare(
+                "UPDATE findings SET resolved=1, notes=?, lifecycle_state='mitigated', mitigated_at=datetime('now'),
+                 accepted_at=NULL, accepted_by_user_id=NULL WHERE asset_id=? AND resolved=0"
+            )->execute([$notes, $aid]);
             $count = $db->query("SELECT changes()")->fetchColumn();
             st_json(['ok' => true, 'asset_id' => $aid, 'resolved_count' => (int)$count]);
 
+        case 'accept_risk':
+            $fid = (int)($body['finding_id'] ?? 0);
+            if (!$fid) st_json(['error' => 'finding_id required'], 400);
+            $actor = st_current_user();
+            $uid = (int)($actor['id'] ?? 0);
+            $uidBind = $uid > 0 ? $uid : null;
+            $db->prepare(
+                "UPDATE findings SET lifecycle_state='accepted', accepted_at=datetime('now'), accepted_by_user_id=?,
+                 resolved=1, mitigated_at=NULL WHERE id=?"
+            )->execute([$uidBind, $fid]);
+            st_json(['ok' => true, 'finding_id' => $fid, 'lifecycle_state' => 'accepted']);
+
         default:
-            st_json(['error' => 'Unknown action. Use: resolve, unresolve, resolve_all'], 400);
+            st_json(['error' => 'Unknown action. Use: resolve, unresolve, resolve_all, accept_risk'], 400);
     }
 }
 
@@ -87,6 +109,7 @@ $category = st_str('category');
 $severity = st_str('severity', '', ['','critical','high','medium','low']);
 $cve_srch = st_str('cve_id');
 $resolved = st_int('resolved', 0, 0, 1);
+$lifecycle = st_str('lifecycle', '', ['', 'new', 'active', 'mitigated', 'accepted', 'reopened']);
 $min_year = isset($_GET['min_year']) ? (int)$_GET['min_year'] : 0;
 $page     = st_int('page',     1,  1);
 $per_page = st_int('per_page', 50, 1, 200);
@@ -148,6 +171,11 @@ if ($min_year > 0) {
     $params[':miny']  = $min_year;
 }
 
+if ($lifecycle !== '') {
+    $where[] = "COALESCE(f.lifecycle_state, 'active') = :lcs";
+    $params[':lcs'] = $lifecycle;
+}
+
 $where_sql = implode(' AND ', $where);
 
 // ---------------------------------------------------------------------------
@@ -183,6 +211,9 @@ $sql = "
     SELECT
         f.id, f.asset_id, f.ip, f.cve_id, f.cvss, f.severity,
         f.description, f.published, f.confirmed_at, f.resolved, f.notes,
+        COALESCE(f.lifecycle_state, 'active') AS lifecycle_state,
+        f.mitigated_at, f.accepted_at, f.accepted_by_user_id,
+        f.first_seen_job_id, f.last_seen_job_id,
         a.hostname, a.vendor, a.model, a.category, a.cpe
     FROM findings f
     JOIN assets a ON a.id = f.asset_id
