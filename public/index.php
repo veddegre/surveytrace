@@ -389,7 +389,7 @@ if (is_readable($dbProbe)) {
           <div>
             <div class="tl">Auto</div>
             <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
-          </div>
+    </div>
           <input class="accent-radio" type="radio" name="scan_mode" id="sm-auto" value="auto" checked>
         </div>
         <div class="tr2">
@@ -522,8 +522,8 @@ if (is_readable($dbProbe)) {
       </div>
     </div>
     <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y">No jobs queued or running</div>
+    </div>
   </div>
-</div>
 
 <!-- ================================================================ SCAN HISTORY -->
 <div class="tab" id="t-scanhist">
@@ -1016,7 +1016,7 @@ if (is_readable($dbProbe)) {
         <div id="st-nvd-api-key-row-empty" class="row-wrap mb6 gap6">
           <input class="finp" type="password" id="st-nvd-api-key" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste NVD API key">
           <button class="btnp" type="button" id="btn-nvd-key-save" onclick="saveNvdApiKey()">Save key</button>
-        </div>
+      </div>
         <div id="st-nvd-api-key-row-set" class="row-wrap mb6 gap6 hide">
           <span class="mono text-strong" id="st-nvd-api-key-masked" title="Key is stored; value is not shown">••••••••••••••••</span>
           <span class="text-dim" style="font-size:12px">NVD API key saved</span>
@@ -1055,7 +1055,7 @@ if (is_readable($dbProbe)) {
 
         <div class="row-wrap mt10">
           <button class="tbtn" type="button" onclick="openFeedSyncOutput()">View last feed sync log</button>
-        </div>
+      </div>
         <p class="help-line text-dim mt6" style="font-size:12px">Shows the most recent run (whichever set of buttons you used). <strong>Sync all</strong> appends NVD, OUI, and WebFP sections in one file. The same log loads after a page reload.</p>
       </div>
     </div>
@@ -1306,9 +1306,9 @@ if (is_readable($dbProbe)) {
       Session authentication required.
     </div>
     <div id="login-local-fields">
-      <label class="flbl">Username</label>
+    <label class="flbl">Username</label>
       <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
-      <label class="flbl">Password</label>
+    <label class="flbl">Password</label>
       <input class="finp w100 mb10" id="login-pass" type="password" autocomplete="current-password">
       <div id="login-mfa-step" class="hide">
         <label class="flbl">Verification code</label>
@@ -2305,7 +2305,7 @@ function handleAuthRequired() {
         const now = Date.now();
         if (now - lastSessionExpiredToastAt >= SESSION_EXPIRED_TOAST_COOLDOWN_MS) {
             lastSessionExpiredToastAt = now;
-            toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
+        toast('Authentication required. Refresh to re-authenticate browser credentials.', 'err');
         }
     }
 }
@@ -7383,7 +7383,7 @@ function viewAssetVulns(ip) {
     if (currentTab !== 'vulns') {
         goTab('vulns'); // goTab('vulns') already triggers loadFindings(1)
     } else {
-        loadFindings(1);
+    loadFindings(1);
     }
 }
 
@@ -7402,7 +7402,7 @@ function filterVulnsByIP(ip) {
     if (currentTab !== 'vulns') {
         goTab('vulns'); // goTab('vulns') already triggers loadFindings(1)
     } else {
-        loadFindings(1);
+    loadFindings(1);
     }
 }
 
@@ -7473,9 +7473,9 @@ function applyScanTabRateSlidersForProfile(profile) {
 function applyScanTabProfileDefaults(profile) {
     const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
     ['ph-banner', 'ph-fingerprint', 'ph-cve'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.checked = allowBanner;
+            const el = document.getElementById(id);
+            if (el) {
+                el.checked = allowBanner;
             const tr = el.closest('.tr2');
             if (tr) tr.style.opacity = allowBanner ? '1' : '0.4';
         }
@@ -7524,7 +7524,7 @@ function applyScanTabProfileDefaults(profile) {
             radio.closest('.profile-card')?.classList.add('on');
         }
     }
-    updateProfileHelp(profile);
+        updateProfileHelp(profile);
     updateScanProfileWarn(profile);
 }
 
@@ -7830,6 +7830,7 @@ function buildFriendlyOpenPortLine(port, rawBanner, httpProbe, allPorts) {
 
     if (port === 3000) {
         const t = firstHttpTitle(raw, probe);
+        if (/karakeep/i.test(raw + probe + t)) return 'Karakeep (bookmarks / hoarder)';
         if (/homarr/i.test(raw + probe + t)) return 'Homarr (dashboard)';
         if (/homepage/i.test(raw + probe + t)) return 'Homepage (dashboard)';
         if (/grafana/i.test(raw + probe + t)) return 'Grafana';
@@ -7839,6 +7840,7 @@ function buildFriendlyOpenPortLine(port, rawBanner, httpProbe, allPorts) {
     if (port === 5000 && /werkzeug/i.test(low)) return 'Python app (Werkzeug)';
     if (port === 8080) {
         const t = firstHttpTitle(raw, probe);
+        if (/open\s*webui|openwebui/i.test(raw + probe + t)) return 'Open WebUI (LLM chat UI)';
         if (/it tools/i.test(raw + probe + t)) return 'IT Tools (developer utilities)';
     }
     if (port === 8089) {
@@ -7852,6 +7854,8 @@ function buildFriendlyOpenPortLine(port, rawBanner, httpProbe, allPorts) {
 
     if (port === 9000) return 'Portainer (HTTP)';
     if (port === 9443) return 'Portainer (HTTPS)';
+
+    if (port === 53 && /\bpi[- ]hole\b|\bpihole\b/i.test(low)) return 'DNS — Pi-hole (dnsmasq)';
 
     const parts = raw.split(' ');
     const proto = parts[0] || '';
@@ -7874,14 +7878,16 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
         if (p === 445) chips.add('SMB');
         if (p === 3000) {
             const t = firstHttpTitle(raw, probe);
-            if (/homarr/i.test(raw + probe + t)) chips.add('Homarr');
+            if (/karakeep/i.test(raw + probe + t)) chips.add('Karakeep');
+            else if (/homarr/i.test(raw + probe + t)) chips.add('Homarr');
             else if (/homepage/i.test(raw + probe + t)) chips.add('Homepage');
             else if (/grafana/i.test(raw + probe + t)) chips.add('Grafana');
         }
         if (p === 5000 && /werkzeug/i.test(low)) chips.add('Werkzeug');
         if (p === 8080) {
             const t = firstHttpTitle(raw, probe);
-            if (/it tools/i.test(raw + probe + t)) chips.add('IT Tools');
+            if (/open\s*webui|openwebui/i.test(raw + probe + t)) chips.add('Open WebUI');
+            else if (/it tools/i.test(raw + probe + t)) chips.add('IT Tools');
         }
         if (p === 8089) {
             const t = firstHttpTitle(raw, probe);
@@ -7906,6 +7912,9 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
         ['Jellyfin', /jellyfin/i], ['Gitea', /\bgitea\b/i], ['Nextcloud', /nextcloud/i],
         ['Mastodon', /mastodon/i], ['OpenObserve', /openobserve/i],
         ['Uptime Kuma', /uptime.?kuma/i], ['InfluxDB', /\binfluxdb?\b/i],
+        ['Pi-hole', /\bpi[- ]hole\b|\bpihole\b|dnsmasq[^\n]{0,80}pi[- ]hole/i],
+        ['Karakeep', /\bkarakeep\b/i],
+        ['Open WebUI', /\bopen\s*webui\b|\bopenwebui\b/i],
     ];
     for (const [name, rx] of EXTRA_SIGS) {
         if (rx.test(blob)) chips.add(name);
@@ -8439,17 +8448,17 @@ initApp();
 // Restore last active tab from session storage (skip when session sign-in is still required)
 (function bootAfterAuth() {
     if (loginRequired && (authMode === 'session' || authMode === 'oidc')) return;
-    const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
-    if (lastTab && document.getElementById('t-' + lastTab)) {
-        goTab(lastTab);
+const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
+if (lastTab && document.getElementById('t-' + lastTab)) {
+    goTab(lastTab);
         const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
-        if (navMap[lastTab]) hiNav(navMap[lastTab]);
-    } else {
-        goTab('dash');
-        hiNav('ndash');
-    }
-    loadEnrichment();  // Pre-load so enrichment tab is ready immediately
-    loadScanStatus();
+    if (navMap[lastTab]) hiNav(navMap[lastTab]);
+} else {
+    goTab('dash');
+    hiNav('ndash');
+}
+loadEnrichment();  // Pre-load so enrichment tab is ready immediately
+loadScanStatus();
     startDashTimerIfNeeded();
 })();
 </script>

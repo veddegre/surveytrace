@@ -374,12 +374,87 @@ function st_ai_ollama_generate(string $model, string $prompt, float $timeout_s):
     return ['ok' => true, 'text' => $out, 'err' => ''];
 }
 
-function st_ai_extract_json_object(string $text): ?array {
-    if (!preg_match('/\{.*\}/s', $text, $m)) {
+/**
+ * Slice one JSON object starting at $start (byte index of "{") using string/escape rules.
+ * Returns null if braces are unbalanced (truncated output, etc.).
+ */
+function st_ai_json_slice_balanced(string $s, int $start): ?string {
+    $len = strlen($s);
+    if ($start < 0 || $start >= $len || $s[$start] !== '{') {
         return null;
     }
-    $doc = json_decode($m[0], true);
-    return is_array($doc) ? $doc : null;
+    $depth = 0;
+    $inString = false;
+    $escape = false;
+    for ($i = $start; $i < $len; $i++) {
+        $c = $s[$i];
+        if (!$inString) {
+            if ($c === '{') {
+                $depth++;
+            } elseif ($c === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($s, $start, $i - $start + 1);
+                }
+            } elseif ($c === '"') {
+                $inString = true;
+                $escape = false;
+            }
+        } else {
+            if ($escape) {
+                $escape = false;
+                continue;
+            }
+            if ($c === '\\') {
+                $escape = true;
+                continue;
+            }
+            if ($c === '"') {
+                $inString = false;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Parse the first JSON object from model text (prose, markdown fences, multiple blobs).
+ * Avoids greedy /\{.*\}/ which breaks on nested objects, strings containing "}", or truncation.
+ *
+ * @return array<string,mixed>|null
+ */
+function st_ai_extract_json_object(string $text): ?array {
+    $text = trim($text);
+    if ($text === '') {
+        return null;
+    }
+    if (str_starts_with($text, "\xEF\xBB\xBF")) {
+        $text = trim(substr($text, 3));
+    }
+    if (str_starts_with($text, '```')) {
+        $text = preg_replace('/^```[a-zA-Z0-9]*\s*\R?/', '', $text) ?? $text;
+        $text = preg_replace('/\R```\s*$/', '', $text) ?? $text;
+        $text = trim($text);
+    }
+    $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
+    if ($text !== '' && $text[0] === '{') {
+        $doc = json_decode($text, true, 512, $flags);
+        if (is_array($doc)) {
+            return $doc;
+        }
+    }
+    $pos = 0;
+    while (($j = strpos($text, '{', $pos)) !== false) {
+        $slice = st_ai_json_slice_balanced($text, $j);
+        if ($slice !== null) {
+            $doc = json_decode($slice, true, 512, $flags);
+            if (is_array($doc)) {
+                return $doc;
+            }
+        }
+        $pos = $j + 1;
+    }
+    return null;
 }
 
 function st_ai_iso_utc(): string {

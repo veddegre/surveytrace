@@ -881,11 +881,27 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     # Keep this strict: plain "ring" appears in unrelated strings (e.g. "BoringSSL", "keyring")
     (r"\bRing\b|\bRing[- ]Doorbell\b", "iot",  "ring:ring"),
 
-    # Servers — specific products before generic web servers
+    # Servers — identifiable apps before generic nginx/Apache (first match wins).
     (r"Zabbix|zabbix\.js|zabbix-server", "srv", "zabbix:zabbix"),
     (r"\bntfy\b",                    "srv",  "ntfy:server"),
     (r"Kasm|kasmweb|KasmVNC",        "voi",  "kasm:workspace"),
     (r"Mastodon",                    "srv",  "mastodon:mastodon"),
+    (r"Grafana",                     "srv",  "grafana:grafana"),
+    (r"AdGuard",                     "srv",  "adguard:adguardhome"),
+    # Pi-hole often banners as dnsmasq … pi-hole (no literal "Pi-hole" substring).
+    (r"Pi[-\s]?hole|\bpihole\b|\bdnsmasq\b.{0,200}pi[-\s]?hole", "srv", "pi-hole:pi-hole"),
+    (r"Nginx[-\s]?Proxy[-\s]?Manager|nginxproxymanager|NPM\s+reverse\s+proxy", "srv", "nginx_proxy_manager:nginx_proxy_manager"),
+    (r"Portainer|\bportainer\b|\[?Vedorama\]?", "srv", "portainer:portainer"),
+    (r"Uptime[\s_-]?Kuma",           "srv",  "uptime_kuma:uptime_kuma"),
+    (r"Karakeep",                    "srv",  "karakeep:karakeep"),
+    (r"Open\s*WebUI|OpenWebUI",      "srv",  "open_webui:open_webui"),
+    (r"Homarr",                      "srv",  "homarr:homarr"),
+    (r"Plex Media",                  "srv",  "plex:plex_media_server"),
+    (r"Jellyfin",                    "srv",  "jellyfin:jellyfin"),
+    (r"Nextcloud",                   "srv",  "nextcloud:nextcloud"),
+    (r"Gitea",                       "srv",  "gitea:gitea"),
+    (r"GitLab",                      "srv",  "gitlab:gitlab"),
+    # Generic daemons (OpenResty / NPM still hits "nginx" — keep products above).
     (r"nginx",                       "srv",  "nginx:nginx"),
     (r"Apache",                      "srv",  "apache:http_server"),
     (r"OpenSSH.*Ubuntu",             "srv",  "canonical:ubuntu_linux"),
@@ -895,14 +911,6 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     (r"Microsoft-HTTPAPI|IIS",       "srv",  "microsoft:iis"),
     (r"Lighttpd",                    "srv",  "lighttpd:lighttpd"),
     (r"Caddy",                       "srv",  "caddyserver:caddy"),
-    (r"Grafana",                     "srv",  "grafana:grafana"),
-    (r"AdGuard",                     "srv",  "adguard:adguardhome"),
-    (r"Pi-hole",                     "srv",  "pi-hole:pi-hole"),
-    (r"Plex Media",                  "srv",  "plex:plex_media_server"),
-    (r"Jellyfin",                    "srv",  "jellyfin:jellyfin"),
-    (r"Nextcloud",                   "srv",  "nextcloud:nextcloud"),
-    (r"Gitea",                       "srv",  "gitea:gitea"),
-    (r"GitLab",                      "srv",  "gitlab:gitlab"),
 ]
 
 
@@ -1045,6 +1053,8 @@ _CPE_APP_PREFIXES = {
     "digium:asterisk", "freeswitch:freeswitch", "xen:xenserver",
     "proxmox:ve", "vmware:esxi", "zabbix:zabbix", "zabbix:zabbix_server",
     "docker:engine", "ntfy:server", "kasm:workspace", "mastodon:mastodon",
+    "pi-hole", "nginx_proxy_manager", "portainer", "uptime_kuma", "karakeep",
+    "open_webui", "homarr",
 }
 # OS → o
 _CPE_OS_PREFIXES = {

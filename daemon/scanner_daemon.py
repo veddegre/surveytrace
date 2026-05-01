@@ -541,6 +541,73 @@ def _run_ollama_generate(
     return out, ""
 
 
+def _json_slice_balanced(s: str, start: int) -> str | None:
+    """Return substring of one JSON object from s[start]=='{' using string/escape rules."""
+    n = len(s)
+    if start < 0 or start >= n or s[start] != "{":
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    i = start
+    while i < n:
+        c = s[i]
+        if not in_str:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start : i + 1]
+            elif c == '"':
+                in_str = True
+                escape = False
+        else:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_str = False
+        i += 1
+    return None
+
+
+def _extract_json_object_from_model_text(out: str) -> dict | None:
+    """
+    First JSON object from LLM output (prose, markdown fences, wrong greedy spans).
+    Mirrors api/ai_actions.php st_ai_extract_json_object.
+    """
+    text = out.strip()
+    if text.startswith("\ufeff"):
+        text = text.lstrip("\ufeff").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9]*\s*\n?", "", text)
+        text = re.sub(r"\n```\s*$", "", text).strip()
+    if text.startswith("{"):
+        try:
+            doc = json.loads(text)
+            if isinstance(doc, dict):
+                return doc
+        except Exception:
+            pass
+    pos = 0
+    while True:
+        j = text.find("{", pos)
+        if j < 0:
+            break
+        sl = _json_slice_balanced(text, j)
+        if sl:
+            try:
+                doc = json.loads(sl)
+                if isinstance(doc, dict):
+                    return doc
+            except Exception:
+                pass
+        pos = j + 1
+    return None
+
+
 def _ai_gate_reason(
     ai_cfg: dict[str, object],
     fp: dict,
@@ -625,14 +692,10 @@ def _run_ai_enrichment_ollama(
         )
     if err:
         return {}, err
-    m = re.search(r"\{.*\}", out, re.S)
-    if not m:
+    doc = _extract_json_object_from_model_text(out)
+    if doc is None:
         return {}, "no_json"
-    try:
-        doc = json.loads(m.group(0))
-    except Exception:
-        return {}, "bad_json"
-    return doc if isinstance(doc, dict) else {}, ""
+    return doc, ""
 
 
 def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tuple[dict, str]:
@@ -699,15 +762,9 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         )
     if err:
         return {}, err
-    m = re.search(r"\{.*\}", out, re.S)
-    if not m:
+    doc = _extract_json_object_from_model_text(out)
+    if doc is None:
         return {}, "no_json"
-    try:
-        doc = json.loads(m.group(0))
-    except Exception:
-        return {}, "bad_json"
-    if not isinstance(doc, dict):
-        return {}, "bad_shape"
     overview = str(doc.get("overview") or "").strip()
     concerns = [str(x).strip() for x in (doc.get("concerns") or []) if str(x).strip()]
     next_steps = [str(x).strip() for x in (doc.get("next_steps") or []) if str(x).strip()]
