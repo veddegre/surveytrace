@@ -40,7 +40,7 @@ if (is_readable($dbProbe)) {
 <title>SurveyTrace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.8.0') ?>">
+<link rel="stylesheet" href="css/app.css?v=<?= rawurlencode(defined('ST_VERSION') ? ST_VERSION : '0.8.1') ?>">
 </head>
 <body<?= !empty($stShellPreHidden) ? ' class="st-auth-locked"' : '' ?>>
 <div class="shell">
@@ -48,7 +48,7 @@ if (is_readable($dbProbe)) {
 <!-- Top bar -->
 <div class="bar">
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
-  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.8.0' ?></div>
+  <div class="bar-meta" id="bar-meta">v<?= defined('ST_VERSION') ? ST_VERSION : '0.8.1' ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
   <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
@@ -1063,7 +1063,7 @@ if (is_readable($dbProbe)) {
       <div class="card">
         <div class="ct">About</div>
         <div class="help-mono">
-          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.8.0', ENT_QUOTES, 'UTF-8') ?><br>
+          SurveyTrace v<?= htmlspecialchars(defined('ST_VERSION') ? ST_VERSION : '0.8.1', ENT_QUOTES, 'UTF-8') ?><br>
           PHP + SQLite + Python scanner daemon<br>
           <span class="text-dim">Data stored in data/surveytrace.db</span><br>
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
@@ -1084,20 +1084,11 @@ if (is_readable($dbProbe)) {
       </div>
       <div class="card">
         <div class="ct">Collector setup</div>
-        <div class="help-line mb8">Install token used by remote collector setup/registration. Rotating it invalidates future registrations (existing collector bearer tokens remain until rotated/revoked).</div>
+        <div id="st-collector-install-help" class="help-line mb8">Loading…</div>
         <div class="row-wrap gap6 mb6">
-          <input class="finp" type="password" id="st-collector-install-token" style="min-width:260px;flex:1" autocomplete="new-password" placeholder="Paste collector install token">
-          <button class="btnp btn-xs" type="button" onclick="saveCollectorInstallToken()">Save token</button>
-          <button class="tbtn btn-xs" type="button" onclick="generateCollectorInstallToken()">Generate token</button>
+          <button class="btnp btn-xs" type="button" onclick="generateCollectorInstallToken()">Generate install token</button>
         </div>
         <div class="hint-micro mb6" id="st-collector-install-token-status">Not configured</div>
-        <div id="st-collector-install-token-generated-wrap" class="hide">
-          <label class="flbl">Generated token (copy now)</label>
-          <div class="row-wrap gap6">
-            <input class="finp" type="text" id="st-collector-install-token-generated" readonly style="min-width:260px;flex:1">
-            <button class="tbtn btn-xs" type="button" onclick="copyGeneratedCollectorInstallToken()">Copy</button>
-          </div>
-        </div>
       </div>
       <div class="card">
         <div class="ct">Scan trash retention</div>
@@ -1376,6 +1367,34 @@ if (is_readable($dbProbe)) {
     <div class="row-end">
       <button class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
       <button class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Collector allowed CIDR ranges (replaces window.prompt for Set ranges) -->
+<div id="collector-ranges-bg" class="modal-bg z218" style="display:none" role="dialog" aria-modal="true" aria-labelledby="collector-ranges-title">
+  <div class="modal-card modal-w560" style="padding:16px" onclick="event.stopPropagation()">
+    <div id="collector-ranges-title" class="modal-title mb8">Allowed CIDR ranges</div>
+    <p class="text-muted mb10" style="line-height:1.45">Comma- or space-separated CIDRs this collector may target for scans and schedules. Leave blank for unrestricted.</p>
+    <label class="flbl" for="collector-ranges-input">CIDR list</label>
+    <textarea id="collector-ranges-input" class="finp w100 mb12" rows="5" style="min-height:100px;resize:vertical;font-family:var(--mf)" placeholder="192.168.0.0/16, 10.0.0.0/8"></textarea>
+    <div class="row-end">
+      <button type="button" class="tbtn" id="collector-ranges-cancel" onclick="closeCollectorRangesModal(false)">Cancel</button>
+      <button type="button" class="btnp" id="collector-ranges-save" onclick="closeCollectorRangesModal(true)">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- One-time display after generating collector install token (backdrop does not dismiss — use Done) -->
+<div id="collector-install-token-reveal-bg" class="modal-bg z219" style="display:none" role="dialog" aria-modal="true" aria-labelledby="collector-install-token-reveal-title">
+  <div class="modal-card modal-w560" style="padding:16px" onclick="event.stopPropagation()">
+    <div id="collector-install-token-reveal-title" class="modal-title mb8">Install token</div>
+    <p id="collector-install-token-reveal-hint" class="text-muted mb8" style="line-height:1.45"></p>
+    <label class="flbl" for="collector-install-token-reveal-value">Install token</label>
+    <textarea id="collector-install-token-reveal-value" class="finp w100 mb12" readonly rows="4" style="min-height:88px;resize:vertical;font-family:var(--mf);font-size:12px;word-break:break-all"></textarea>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="copyCollectorInstallTokenReveal()">Copy to clipboard</button>
+      <button type="button" class="btnp" onclick="closeCollectorInstallTokenRevealModal()">Done</button>
     </div>
   </div>
 </div>
@@ -1694,6 +1713,7 @@ var breakglassEnabled = true;
 var breakglassUsername = 'admin';
 var scanDetailReturnDeviceId = 0;
 var confirmResolve = null;
+var collectorRangesResolve = null;
 var themeMediaQuery = null;
 var themeMediaListener = null;
 var execPreviousTab = null;
@@ -1724,6 +1744,8 @@ var scanHistoryView = 'active';
 var scanTrashRetentionDays = 30;
 var collectorsCache = [];
 var collectorSchedulesCache = [];
+/** Mirrors settings GET collector_install_token_configured — drives first-time vs rotate copy in Generate flow */
+var collectorInstallTokenConfigured = false;
 
 function stRoleCanManageScans() {
     return currentUserRole === 'scan_editor' || currentUserRole === 'admin';
@@ -4802,8 +4824,80 @@ function closeConfirmModal(accepted) {
     }
 }
 
+/** @returns {Promise<string|null>} resolved value, or null if cancelled */
+function openCollectorRangesModal(initialValue) {
+    const bg = document.getElementById('collector-ranges-bg');
+    const ta = document.getElementById('collector-ranges-input');
+    if (!bg || !ta) return Promise.resolve(null);
+    if (collectorRangesResolve) {
+        try { collectorRangesResolve(null); } catch (e) {}
+        collectorRangesResolve = null;
+    }
+    ta.value = String(initialValue || '');
+    bg.style.display = 'flex';
+    requestAnimationFrame(() => {
+        ta.focus();
+        try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+    });
+    return new Promise(resolve => { collectorRangesResolve = resolve; });
+}
+
+function closeCollectorRangesModal(submit) {
+    const bg = document.getElementById('collector-ranges-bg');
+    const ta = document.getElementById('collector-ranges-input');
+    if (bg) bg.style.display = 'none';
+    if (!collectorRangesResolve) return;
+    const r = collectorRangesResolve;
+    collectorRangesResolve = null;
+    r(submit && ta ? String(ta.value || '') : null);
+}
+
+function openCollectorInstallTokenRevealModal(token, opts) {
+    const o = opts || {};
+    const bg = document.getElementById('collector-install-token-reveal-bg');
+    const ta = document.getElementById('collector-install-token-reveal-value');
+    const titleEl = document.getElementById('collector-install-token-reveal-title');
+    const hintEl = document.getElementById('collector-install-token-reveal-hint');
+    if (!bg || !ta) return;
+    if (titleEl) titleEl.textContent = o.title || 'Install token';
+    if (hintEl) {
+        hintEl.textContent = o.hint || (
+            'Copy this token now and keep it somewhere safe. Closing clears it from the page; SurveyTrace does not show the install token again—use Generate install token again if you need a new one.'
+        );
+    }
+    ta.value = String(token || '');
+    bg.style.display = 'flex';
+    requestAnimationFrame(() => {
+        ta.focus();
+        try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+    });
+}
+
+function closeCollectorInstallTokenRevealModal() {
+    const bg = document.getElementById('collector-install-token-reveal-bg');
+    const ta = document.getElementById('collector-install-token-reveal-value');
+    const hintEl = document.getElementById('collector-install-token-reveal-hint');
+    if (ta) ta.value = '';
+    if (hintEl) hintEl.textContent = '';
+    if (bg) bg.style.display = 'none';
+}
+
+async function copyCollectorInstallTokenReveal() {
+    const ta = document.getElementById('collector-install-token-reveal-value');
+    const token = String(ta && ta.value ? ta.value : '').trim();
+    if (!token) {
+        toast('Nothing to copy', 'err');
+        return;
+    }
+    if (await stCopyTextToClipboard(token)) toast('Copied to clipboard', 'ok');
+    else toast('Copy failed — select the text and copy manually', 'err');
+}
+
 document.getElementById('confirm-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeConfirmModal(false);
+});
+document.getElementById('collector-ranges-bg')?.addEventListener('click', function(e) {
+    if (e.target === this) closeCollectorRangesModal(false);
 });
 document.getElementById('profile-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeProfileModal();
@@ -4876,17 +4970,19 @@ async function loadUiSettings() {
     if (inp) inp.value = String(d.session_timeout_minutes);
     const extra = document.getElementById('st-extra-safe-ports');
     if (extra) extra.value = String(d.extra_safe_ports || '');
-    const cTok = document.getElementById('st-collector-install-token');
-    if (cTok) cTok.value = '';
-    const cTokGenWrap = document.getElementById('st-collector-install-token-generated-wrap');
-    if (cTokGenWrap) cTokGenWrap.classList.add('hide');
-    const cTokGen = document.getElementById('st-collector-install-token-generated');
-    if (cTokGen) cTokGen.value = '';
+    closeCollectorInstallTokenRevealModal();
+    collectorInstallTokenConfigured = !!d.collector_install_token_configured;
     const cTokSt = document.getElementById('st-collector-install-token-status');
     if (cTokSt) {
-        cTokSt.textContent = d.collector_install_token_configured
+        cTokSt.textContent = collectorInstallTokenConfigured
             ? 'Install token configured'
             : 'Install token not configured';
+    }
+    const cHelp = document.getElementById('st-collector-install-help');
+    if (cHelp) {
+        cHelp.textContent = collectorInstallTokenConfigured
+            ? 'Install token is used when remote collectors register. Replacing it only affects new registrations; existing collector bearer tokens work until you rotate or revoke them.'
+            : 'No install token is set yet—collectors cannot register until you click Generate install token and complete the dialog.';
     }
     syncNvdKeyFormVisibility(!!d.nvd_api_key_configured);
     const nvdSt = document.getElementById('st-nvd-api-key-status');
@@ -5763,53 +5859,37 @@ async function saveExtraSafePorts() {
     }
 }
 
-async function saveCollectorInstallToken() {
-    const inp = document.getElementById('st-collector-install-token');
-    const token = String(inp && inp.value ? inp.value : '').trim();
-    if (!token) {
-        toast('Enter an install token', 'err');
-        return;
-    }
-    const r = await apiPost('/api/settings.php', { collector_install_token: token });
-    if (r && r.ok) {
-        if (inp) inp.value = '';
-        const st = document.getElementById('st-collector-install-token-status');
-        if (st) st.textContent = 'Install token configured';
-        toast('Collector install token saved', 'ok');
-    } else {
-        toast((r && r.error) ? r.error : 'Save failed', 'err');
-    }
-}
-
 async function generateCollectorInstallToken() {
-    if (!(await showConfirmModal('Generate a new collector install token now?', {title:'Generate collector token', okText:'Generate'}))) return;
+    const hadToken = collectorInstallTokenConfigured;
+    let title, msg, okText;
+    if (!hadToken) {
+        title = 'Create install token?';
+        msg = 'SurveyTrace will create a random install token on the server. Collectors need this secret to register; nothing is saved until you confirm.';
+        okText = 'Create token';
+    } else {
+        title = 'Generate new install token?';
+        msg = 'This replaces the install token on the server. New registrations will need the new value; collectors already registered keep working until you rotate or revoke them.';
+        okText = 'Generate';
+    }
+    if (!(await showConfirmModal(msg, {title, okText, cancelText: 'Cancel'}))) return;
     const r = await apiPost('/api/settings.php', { collector_install_token_generate: true });
     if (r && r.ok && r.collector_install_token) {
         const token = String(r.collector_install_token);
-        const inp = document.getElementById('st-collector-install-token');
-        if (inp) inp.value = '';
+        collectorInstallTokenConfigured = true;
         const st = document.getElementById('st-collector-install-token-status');
-        if (st) st.textContent = 'Install token configured (new token generated)';
-        const genWrap = document.getElementById('st-collector-install-token-generated-wrap');
-        const genInp = document.getElementById('st-collector-install-token-generated');
-        if (genInp) genInp.value = token;
-        if (genWrap) genWrap.classList.remove('hide');
-        if (await stCopyTextToClipboard(token)) toast('New install token generated and copied', 'ok');
-        else toast('New install token generated', 'ok');
+        if (st) st.textContent = 'Install token configured';
+        const cHelp = document.getElementById('st-collector-install-help');
+        if (cHelp) {
+            cHelp.textContent = 'Install token is used when remote collectors register. Replacing it only affects new registrations; existing collector bearer tokens work until you rotate or revoke them.';
+        }
+        const revealTitle = hadToken ? 'New install token generated' : 'Install token created';
+        const revealHint = hadToken
+            ? 'Copy this token now—new collector registrations must use this value. Your previous install token no longer works for registration. Closing clears it from the page; SurveyTrace will not show it again—use Generate install token if you need another.'
+            : 'Copy this token now into your collector config (for example install_token in the JSON used by setup, or the value sent as the X-Collector-Install-Token header on first registration). Closing clears it from the page; SurveyTrace will not show it again—use Generate install token if you lose it.';
+        openCollectorInstallTokenRevealModal(token, {title: revealTitle, hint: revealHint});
     } else {
         toast((r && r.error) ? r.error : 'Generate failed', 'err');
     }
-}
-
-async function copyGeneratedCollectorInstallToken() {
-    const genInp = document.getElementById('st-collector-install-token-generated');
-    const token = String(genInp && genInp.value ? genInp.value : '').trim();
-    if (!token) {
-        toast('No generated token to copy', 'err');
-        return;
-    }
-    if (await stCopyTextToClipboard(token)) toast('Generated token copied', 'ok');
-    else toast('Could not copy generated token', 'err');
 }
 
 async function saveDbBackupSettings() {
@@ -6675,7 +6755,7 @@ async function setCollectorAllowedCidrs(id) {
         const arr = JSON.parse(String(collector.allowed_cidrs_json || '[]'));
         if (Array.isArray(arr)) current = arr.join(', ');
     } catch (e) {}
-    const raw = window.prompt('Allowed CIDRs (comma or space separated). Leave blank for unrestricted.', current);
+    const raw = await openCollectorRangesModal(current);
     if (raw === null) return;
     const r = await apiPost('/api/collectors.php', {
         action: 'set_allowed_cidrs',

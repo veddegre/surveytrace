@@ -258,7 +258,7 @@ Start conservative and increase `max_jobs` gradually after confirming acceptable
 
 Collector-to-master flow:
 
-1. Collector registers using install token (`collector_install_token`) and receives bearer token.
+1. Collector registers using the install token created in **Settings → Collector setup** (`collector_install_token` on the server) and receives a bearer token.
 2. Collector polls for assigned jobs.
 3. Collector runs local parity phases and submits chunked payloads.
 4. **`surveytrace-collector-ingest`** on the master applies queued chunks from `data/collector_ingest/` into the DB and runs centralized CVE + AI enrichment.
@@ -291,6 +291,12 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.8.1
+
+- **Collector install token** — Settings is generate-only (confirm + one-time reveal with copy); `POST /api/settings.php` no longer accepts a raw `collector_install_token` field.
+- **Collector overview** — list API exposes `online_recent_2m` so aggregate “online (<=2m)” counts match per-row freshness; “Set ranges” uses a modal instead of a browser prompt.
+- **Fingerprinting** — Linux SSH/distro evidence prevents an open RDP port alone from classifying the host as a Windows workstation (better for Linux VMs with xrdp or similar).
 
 ### 0.8.0
 

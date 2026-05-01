@@ -553,7 +553,7 @@ button[data-st-ai-action]:disabled{opacity:.88;cursor:wait}
 .scan-hist-row{cursor:pointer}
 .scan-hist-row:hover{background:var(--bg3)}
 .fsync-pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:12px;font-family:var(--mf);color:var(--tx2)}
-.z100{z-index:100}.z101{z-index:101}.z210{z-index:210}.z215{z-index:215}.z220{z-index:220}.z260{z-index:260}
+.z100{z-index:100}.z101{z-index:101}.z210{z-index:210}.z215{z-index:215}.z218{z-index:218}.z219{z-index:219}.z220{z-index:220}.z260{z-index:260}
 
 /* Session/OIDC: hide full UI until signed in; gate screen if login modal is dismissed */
 body.st-auth-locked .shell{display:none!important}

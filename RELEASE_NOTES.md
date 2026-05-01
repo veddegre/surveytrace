@@ -3,6 +3,12 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.8.1 (2026-04-30)
+
+- **Collector install token (Settings)** — generate-only admin flow: confirm modal, server-side `collector_install_token_generate`, one-time reveal modal with copy; removed manual paste/save. `POST /api/settings.php` rejects direct `collector_install_token` body field (use UI generate or ops-level config if ever required).
+- **Collector overview** — `GET /api/collectors.php` includes per-row `online_recent_2m` so the “online (<=2m)” summary matches each collector’s last seen; allowed CIDR “Set ranges” uses an in-app modal instead of `window.prompt`.
+- **Fingerprinting** — when banners show strong Linux evidence (e.g. distro OpenSSH), RDP (3389) alone no longer forces a Windows workstation port profile (improves xrdp / VDI / Kasm-style hosts).
+
 ## 0.8.0 (2026-04-30)
 
 - **Collector architecture (MVP + parity runner)** — added collector registration/auth (`collector_checkin.php`, `collector_jobs.php`, `collector_submit.php`), management API (`collectors.php`), ingest worker (`collector_ingest_worker.py`), and remote collector packaging under `collector/`.

@@ -526,9 +526,7 @@ if (array_key_exists('collector_submit_max_mb', $body)) {
     $changed['collector_submit_max_mb'] = $v;
 }
 if (array_key_exists('collector_install_token', $body)) {
-    $v = trim((string)$body['collector_install_token']);
-    st_config_set('collector_install_token', $v);
-    $changed['collector_install_token_configured'] = ($v !== '');
+    st_json(['error' => 'collector_install_token cannot be set via API; use collector_install_token_generate from the admin UI'], 400);
 }
 if (!empty($body['collector_install_token_generate'])) {
     $v = 'st_install_' . bin2hex(random_bytes(24));

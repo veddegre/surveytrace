@@ -42,7 +42,7 @@ On the master UI:
 
 1. Go to `Settings`.
 2. Open `Collector setup`.
-3. Click `Generate token` (or paste/save a token manually).
+3. Click **Generate install token** and complete the dialogs to create the token on the server, then copy it when shown.
 4. Copy the token.
 
 The install token is used only for first-time collector registration.

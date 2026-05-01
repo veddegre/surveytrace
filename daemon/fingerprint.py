@@ -1026,6 +1026,43 @@ def _printer_banner_conflicts_with_homelab_ports(port_set: set[int]) -> bool:
     return len(port_set) >= 10
 
 
+def _linux_distro_evidence_in_combined(combined: str) -> bool:
+    """
+    Strong Linux OS signal in banners (SSH distro string, etc.).
+    Used to avoid treating RDP (3389) alone as Windows when xrdp/Kasm/Linux VDI is common.
+    """
+    if re.search(
+        r"OpenSSH[^\n]{0,160}(Ubuntu|Debian|Rocky|AlmaLinux|CentOS|Fedora|Arch\s+Linux)\b",
+        combined,
+        re.IGNORECASE,
+    ):
+        return True
+    if re.search(r"\b(ubuntu|debian)\s+linux\b", combined, re.IGNORECASE):
+        return True
+    if re.search(r"\bxrdp\b|\bx11vnc\b", combined, re.IGNORECASE):
+        return True
+    return False
+
+
+def _ports_for_windows_endpoint_profile(ports: list[int], combined: str) -> list[int]:
+    """
+    Drop 3389 from port-profile classification when banners already show Linux.
+    Port profile {3389}→ws/microsoft:windows is meant for real Windows endpoints; RDP on
+    Linux VMs (xrdp, Kasm, Guacamole) should not force that classification.
+    """
+    norm: list[int] = []
+    for p in ports:
+        try:
+            pi = int(p)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= pi <= 65535:
+            norm.append(pi)
+    if 3389 not in norm or not _linux_distro_evidence_in_combined(combined):
+        return norm
+    return [p for p in norm if p != 3389]
+
+
 def classify_from_banners(banners: dict[str, str]) -> tuple[str, str]:
     """
     Scan all banner strings against BANNER_PATTERNS.
@@ -1122,18 +1159,20 @@ def fingerprint(
                 result["vendor"]   = "Samsung"
                 result["category"] = result["category"] if result["category"] != "unk" else "ws"
 
-    # 3. Port profiles — protocol-level classification
-    port_cat, port_cpe, _ = classify_from_ports(ports)
+    # 3–4. Build banner text once; port profiles then banners (see docstring rationale in code below).
+    combined = " ".join(banners.values())
+    if snmp_sysdescr:
+        combined += " " + snmp_sysdescr
+
+    # 3. Port profiles — protocol-level classification (3389 may be ignored when Linux is proven)
+    ports_for_profile = _ports_for_windows_endpoint_profile(ports, combined)
+    port_cat, port_cpe, _ = classify_from_ports(ports_for_profile)
     if port_cat:
         result["category"] = port_cat
         if port_cpe:
             result["cpe"] = f"cpe:/{_cpe_type(port_cpe)}:{port_cpe}:*"
 
     # 4. Banner — highest confidence for category/CPE, but NOT for vendor
-    combined = " ".join(banners.values())
-    if snmp_sysdescr:
-        combined += " " + snmp_sysdescr
-
     # Network gear hostname takes priority over banner category
     # (e.g. 'unifi' hostname should beat nginx banner → net not srv)
     NETWORK_HOSTNAMES = re.compile(

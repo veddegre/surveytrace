@@ -15,7 +15,13 @@ if ($method === 'GET') {
     $rows = $db->query(
         "SELECT c.*,
                 (SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.collector_id=c.id AND q.status='pending') AS pending_chunks,
-                (SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.collector_id=c.id AND q.status='failed') AS failed_chunks
+                (SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.collector_id=c.id AND q.status='failed') AS failed_chunks,
+                CASE
+                    WHEN COALESCE(c.revoked_at, '') != '' THEN 0
+                    WHEN c.last_seen_at IS NOT NULL
+                         AND c.last_seen_at >= datetime('now', '-120 seconds') THEN 1
+                    ELSE 0
+                END AS online_recent_2m
          FROM collectors c
          ORDER BY c.id DESC"
     )->fetchAll();
