@@ -1268,10 +1268,15 @@ def phase_banner(
 
     # Batch sizing:
     # - full_tcp stays host-by-host (most conservative).
-    # - fast_full_tcp can batch on larger target sets to improve throughput.
+    # - fast_full_tcp LAN -p- uses larger batches (16) so nmap can interleave probes
+    #   across hosts and idle time is minimised; 8 was too conservative for /24 ranges.
     # - Standard profiles can safely batch.
     if scan_all_tcp:
-        if profile_obj.name == "fast_full_tcp" and len(hosts) > 32:
+        if profile_obj.name == "fast_full_tcp" and not routed_mode and len(hosts) > 32:
+            # LAN -p- sweep: 16 hosts/batch lets nmap parallelise across hosts while
+            # keeping each batch short enough for responsive per-host progress logs.
+            chunk_size = 16
+        elif profile_obj.name == "fast_full_tcp" and not routed_mode and len(hosts) > 8:
             chunk_size = 8
         elif profile_obj.name == "fast_full_tcp" and routed_mode and len(hosts) > 1:
             # Routed links are often high-latency/filtered; small batching improves
@@ -1355,22 +1360,24 @@ def phase_banner(
         # guard window (900s). Use bounded envelopes instead.
         if profile_obj.name == "fast_full_tcp":
             if scan_all_tcp:
-                # LAN -p- + -sV: must use the same per-host envelope as full_tcp. A 180s
-                # cap routinely hits --host-timeout before nmap finishes on busy hosts
-                # (many published Docker ports), so open_ports look empty while MAC/OUI
-                # fingerprinting still shows e.g. Proxmox. Routed fast_full_tcp does not
-                # use -p- (finite port list) and keeps shorter timeouts below.
+                # LAN -p- + -sV: scale per-host timeout with job size.
+                # With -T4 and nmap's own parallelism, most LAN hosts complete well
+                # within 120s even with many open ports. The old 360s for large scans
+                # (>32 hosts) meant 32 batches × 420s ≈ 3.7 h for a /24 — this cuts
+                # that to roughly 16 batches × 180s ≈ 48 min worst-case.
+                # Single-host or tiny scopes keep a generous envelope so busy hosts
+                # (e.g. many Docker publishes) are not cut off early.
                 nh = len(hosts)
-                # -p- + -sV: single-host jobs need more than the old 900s on noisy boxes; keep a
-                # ~20m nmap ceiling so Phase 3 does not block the queue for half an hour+.
                 if nh <= 1:
                     timeout_secs = 1200
                 elif nh <= 8:
                     timeout_secs = 900
                 elif nh <= 32:
-                    timeout_secs = 540
+                    timeout_secs = 300
                 else:
-                    timeout_secs = 360
+                    # /24 and larger: allow 120s per host; nmap -T4 + parallelism
+                    # means effective per-batch wall-time is much lower.
+                    timeout_secs = 120
             elif routed_mode:
                 # Routed/VPN paths: fail filtered hosts faster to avoid 3+ minute
                 # stalls per host when nothing is reachable from this vantage point.
@@ -1408,10 +1415,20 @@ def phase_banner(
 
         vi = profile_obj.allow_version_intensity if profile_obj.allow_banner else 0
         host_timeout_arg = f" --host-timeout {timeout_secs}s" if timeout_secs > 0 else ""
+
+        # For fast_full_tcp on LAN (-p- mode, not routed), use -T4 so nmap applies
+        # aggressive probe timeouts and higher internal parallelism — appropriate for
+        # low-latency networks. Routed paths stay at default timing (-T3) to avoid
+        # flooding links or triggering rate-limiters on the far side.
+        timing_arg = ""
+        if profile_obj.name == "fast_full_tcp" and scan_all_tcp and not routed_mode:
+            timing_arg = "-T4 "
+
         nmap_args = (
             "-Pn "  # hosts were already selected by discovery; skip host-discovery recheck
             f"-sV --version-intensity {vi} "
             f"-p{port_str} "
+            f"{timing_arg}"
             f"--max-rate {effective_rate} "
             f"{host_timeout_arg} "
             f"--open"

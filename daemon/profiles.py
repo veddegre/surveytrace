@@ -285,11 +285,10 @@ FAST_FULL_TCP = ScanProfile(
     name        = "fast_full_tcp",
     label       = "Fast Full TCP",
     description = (
-        "Scans all 65,535 TCP ports with the same nmap version-intensity as "
-        "standard inventory, but higher default scan rates for faster host turnover "
-        "on LANs. Per-host timeouts match full_tcp for -p- scans so busy hosts "
-        "(e.g. many Docker publishes) are not cut off early. Routed jobs still use "
-        "a finite port list (not -p-) for reliability."
+        "Scans all 65,535 TCP ports on LAN targets using nmap -T4 with larger host "
+        "batches and tighter per-host timeouts for fast /24 sweeps. Version intensity "
+        "matches standard inventory (not deep scan). Routed jobs use a finite port "
+        "list (not -p-) for reliability over high-latency or filtered paths."
     ),
     icon        = "⚡",
 
