@@ -488,61 +488,139 @@ function st_ai_json_slice_balanced(string $s, int $start): ?string {
 }
 
 /**
- * Parse a JSON object from model text (prose, markdown fences, echoed prompt JSON).
- * When $role is set, returns the first balanced object that matches that action's schema
- * (skips the scan "compact" echo the model often pastes before its real answer).
+ * Short previews for API/debug (avoids megabyte model dumps in JSON or logs).
+ *
+ * @return array{len: int, head: string, tail: string}
+ */
+function st_ai_parse_debug_preview(string $s, int $headMax = 700, int $tailMax = 240): array {
+    $s = str_replace(["\r\n", "\r"], "\n", $s);
+    $len = strlen($s);
+    $head = $len <= $headMax ? $s : substr($s, 0, $headMax) . "\n…(" . ($len - $headMax) . " more bytes)";
+    $tail = '';
+    if ($len > $tailMax) {
+        $tail = substr($s, -$tailMax);
+    }
+    return ['len' => $len, 'head' => $head, 'tail' => $tail];
+}
+
+/**
+ * Parse model output into a JSON object plus diagnostics when parsing fails.
  *
  * @param 'scan_summary'|'explain_host'|'findings'|'' $role
- * @return array<string,mixed>|null
+ * @return array{doc: ?array<string,mixed>, debug: array<string,mixed>}
  */
-function st_ai_extract_json_object(string $text, string $role = ''): ?array {
+function st_ai_extract_json_object_with_debug(string $text, string $role = ''): array {
+    $debug = [
+        'role' => $role,
+        'outcome' => 'unknown',
+        'candidates' => [],
+        'model_char_count' => strlen(trim($text)),
+    ];
+    $debug['raw_preview'] = st_ai_parse_debug_preview(trim($text), 500, 180);
+
     $text = st_ai_strip_model_noise(trim($text));
     if ($text === '') {
-        return null;
+        $debug['outcome'] = 'empty_after_strip';
+        return ['doc' => null, 'debug' => $debug];
     }
     if (str_starts_with($text, "\xEF\xBB\xBF")) {
         $text = trim(substr($text, 3));
     }
-    // Models often wrap JSON in multiple ``` fences or add prose between blocks.
+    $fencePasses = 0;
     for ($guard = 0; $guard < 6 && str_starts_with($text, '```'); $guard++) {
         $text = preg_replace('/^```[a-zA-Z0-9]*\s*\R?/', '', $text) ?? $text;
         $text = preg_replace('/\R```\s*$/', '', $text) ?? $text;
         $text = trim($text);
+        $fencePasses++;
     }
+    $debug['fence_passes'] = $fencePasses;
+    $debug['normalized_preview'] = st_ai_parse_debug_preview($text, 700, 240);
+    $debug['brace_count'] = substr_count($text, '{');
+
     $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
     $depth = 2048;
-    $tryDoc = static function (?string $slice) use ($flags, $depth): ?array {
+
+    $recordCandidate = static function (int $at, ?string $slice, ?array $doc, string $role, string $jsonErr = '') use (&$debug): void {
+        $row = ['offset' => $at];
+        if ($slice === null) {
+            $row['balanced'] = false;
+            $row['note'] = 'unbalanced_or_truncated';
+            $debug['candidates'][] = $row;
+            return;
+        }
+        $row['balanced'] = true;
+        $row['slice_len'] = strlen($slice);
+        $row['slice_head'] = substr($slice, 0, 140);
+        if (!is_array($doc)) {
+            $row['decoded'] = false;
+            if ($jsonErr !== '') {
+                $row['json_error'] = $jsonErr;
+            } else {
+                $row['json_error'] = function_exists('json_last_error_msg') ? json_last_error_msg() : 'json_decode_failed';
+            }
+            $debug['candidates'][] = $row;
+            return;
+        }
+        $row['decoded'] = true;
+        $row['keys'] = array_slice(array_keys($doc), 0, 24);
+        $row['is_scan_compact_echo'] = st_ai_json_looks_like_scan_compact_echo($doc);
+        $row['role_match'] = $role === '' ? null : st_ai_json_object_matches_role($doc, $role);
+        $debug['candidates'][] = $row;
+    };
+
+    $tryDecode = static function (?string $slice) use ($flags, $depth): array {
         if ($slice === null || $slice === '') {
-            return null;
+            return ['doc' => null, 'err' => 'empty_slice'];
         }
         $doc = json_decode($slice, true, $depth, $flags);
-        return is_array($doc) ? $doc : null;
+        if (is_array($doc)) {
+            return ['doc' => $doc, 'err' => ''];
+        }
+        $msg = function_exists('json_last_error_msg') ? json_last_error_msg() : 'json_decode_failed';
+        return ['doc' => null, 'err' => $msg];
     };
+
     if ($text !== '' && $text[0] === '{') {
-        $doc = $tryDoc($text);
+        $slice = $text;
+        $td = $tryDecode($slice);
+        $doc = $td['doc'];
+        $recordCandidate(0, $slice, $doc, $role, (string)($td['err'] ?? ''));
         if (is_array($doc) && ($role === '' || st_ai_json_object_matches_role($doc, $role))) {
-            return $doc;
+            $debug['outcome'] = 'ok_whole_string';
+            return ['doc' => $doc, 'debug' => $debug];
         }
     }
+
     $pos = 0;
     $fallback = null;
+    $candidateBudget = 14;
     while (($j = strpos($text, '{', $pos)) !== false) {
         $slice = st_ai_json_slice_balanced($text, $j);
-        $doc = $tryDoc($slice);
+        $td = $tryDecode($slice);
+        $doc = $td['doc'];
+        if (count($debug['candidates']) < $candidateBudget) {
+            $recordCandidate($j, $slice, $doc, $role, (string)($td['err'] ?? ''));
+        }
+        if ($slice !== null && !is_array($doc)) {
+            $pos = $j + 1;
+            continue;
+        }
         if (!is_array($doc)) {
             $pos = $j + 1;
             continue;
         }
         if ($role !== '') {
             if (st_ai_json_object_matches_role($doc, $role)) {
-                return $doc;
+                $debug['outcome'] = 'ok_balanced_scan';
+                return ['doc' => $doc, 'debug' => $debug];
             }
             if ($fallback === null && !st_ai_json_looks_like_scan_compact_echo($doc)) {
                 $fallback = $doc;
             }
         } else {
             if (!st_ai_json_looks_like_scan_compact_echo($doc)) {
-                return $doc;
+                $debug['outcome'] = 'ok_balanced_no_role';
+                return ['doc' => $doc, 'debug' => $debug];
             }
             if ($fallback === null) {
                 $fallback = $doc;
@@ -551,9 +629,61 @@ function st_ai_extract_json_object(string $text, string $role = ''): ?array {
         $pos = $j + 1;
     }
     if ($role !== '' && $fallback !== null && st_ai_json_object_matches_role($fallback, $role)) {
-        return $fallback;
+        $debug['outcome'] = 'ok_fallback';
+        return ['doc' => $fallback, 'debug' => $debug];
     }
-    return null;
+
+    if ($debug['brace_count'] === 0) {
+        $debug['outcome'] = 'no_open_brace';
+    } elseif ($debug['candidates'] === []) {
+        $debug['outcome'] = 'no_candidates';
+    } else {
+        $last = $debug['candidates'][count($debug['candidates']) - 1];
+        if (($last['balanced'] ?? false) && ($last['decoded'] ?? false) && ($last['role_match'] ?? null) === false) {
+            $debug['outcome'] = 'decoded_but_role_mismatch';
+        } elseif (($last['decoded'] ?? false) === false && ($last['balanced'] ?? false)) {
+            $debug['outcome'] = 'json_syntax_error';
+        } else {
+            $debug['outcome'] = 'no_matching_object';
+        }
+    }
+    return ['doc' => null, 'debug' => $debug];
+}
+
+/**
+ * @param 'scan_summary'|'explain_host'|'findings'|'' $role
+ */
+function st_ai_extract_json_object(string $text, string $role = ''): ?array {
+    return st_ai_extract_json_object_with_debug($text, $role)['doc'];
+}
+
+/**
+ * One-line hint for UI / summary_json (no multi-kilobyte model dump).
+ */
+function st_ai_parse_debug_client_hint(array $debug): string {
+    $outcome = (string)($debug['outcome'] ?? 'unknown');
+    foreach ($debug['candidates'] ?? [] as $c) {
+        if (!is_array($c)) {
+            continue;
+        }
+        if (($c['decoded'] ?? false) && array_key_exists('role_match', $c) && $c['role_match'] === false) {
+            $keys = isset($c['keys']) && is_array($c['keys']) ? implode(',', $c['keys']) : '';
+            return $outcome . ' wrong_shape keys=' . substr($keys, 0, 160);
+        }
+    }
+    foreach ($debug['candidates'] ?? [] as $c) {
+        if (!is_array($c)) {
+            continue;
+        }
+        if (($c['balanced'] ?? false) && ($c['decoded'] ?? false) === false && !empty($c['json_error'])) {
+            $off = (string)($c['offset'] ?? '?');
+            return $outcome . ' @' . $off . ': ' . substr((string)$c['json_error'], 0, 140);
+        }
+    }
+    if (($debug['brace_count'] ?? 0) === 0) {
+        return $outcome . ' (no { in model text after cleanup)';
+    }
+    return $outcome . ' braces=' . (string)($debug['brace_count'] ?? 0);
 }
 
 function st_ai_iso_utc(): string {
@@ -952,18 +1082,34 @@ try {
                 st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err'], 'envelope' => $envelope], 502);
             }
 
-            $parsed = st_ai_extract_json_object($gen['text'], 'findings');
+            $parse = st_ai_extract_json_object_with_debug($gen['text'], 'findings');
+            $parsed = $parse['doc'];
+            $parseDebug = $parse['debug'];
             $doc = st_ai_normalize_findings_doc($parsed);
             if (!$doc) {
+                $hint = st_ai_parse_debug_client_hint($parseDebug);
                 $envelope = [
                     'fp' => $fp,
                     'ts' => st_ai_iso_utc(),
                     'status' => 'failed',
-                    'detail' => 'no_json',
+                    'detail' => substr('no_json: ' . $hint, 0, 400),
                     'doc' => null,
                 ];
                 st_ai_save_asset_cache($db, $assetId, $cacheCol, $envelope);
-                st_json(['ok' => false, 'error' => 'Could not parse model JSON', 'envelope' => $envelope], 502);
+                $logLine = json_encode(
+                    ['ai_parse' => 'findings_guidance', 'asset_id' => $assetId, 'debug' => $parseDebug],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+                if (is_string($logLine)) {
+                    @error_log('SurveyTrace ai_actions: ' . substr($logLine, 0, 12000));
+                }
+                st_json([
+                    'ok' => false,
+                    'error' => 'Could not parse model JSON',
+                    'detail' => $hint,
+                    'parse_debug' => $parseDebug,
+                    'envelope' => $envelope,
+                ], 502);
             }
 
             $envelope = [
@@ -1098,18 +1244,34 @@ try {
             st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err'], 'envelope' => $envelope], 502);
         }
 
-        $parsed = st_ai_extract_json_object($gen['text'], 'explain_host');
+        $parse = st_ai_extract_json_object_with_debug($gen['text'], 'explain_host');
+        $parsed = $parse['doc'];
+        $parseDebug = $parse['debug'];
         $doc = st_ai_normalize_explain_doc($parsed);
         if (!$doc) {
+            $hint = st_ai_parse_debug_client_hint($parseDebug);
             $envelope = [
                 'fp' => $fp,
                 'ts' => st_ai_iso_utc(),
                 'status' => 'failed',
-                'detail' => 'no_json',
+                'detail' => substr('no_json: ' . $hint, 0, 400),
                 'doc' => null,
             ];
             st_ai_save_asset_cache($db, $assetId, $cacheCol, $envelope);
-            st_json(['ok' => false, 'error' => 'Could not parse model JSON', 'envelope' => $envelope], 502);
+            $logLine = json_encode(
+                ['ai_parse' => 'explain_host', 'asset_id' => $assetId, 'debug' => $parseDebug],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+            if (is_string($logLine)) {
+                @error_log('SurveyTrace ai_actions: ' . substr($logLine, 0, 12000));
+            }
+            st_json([
+                'ok' => false,
+                'error' => 'Could not parse model JSON',
+                'detail' => $hint,
+                'parse_debug' => $parseDebug,
+                'envelope' => $envelope,
+            ], 502);
         }
 
         $envelope = [
@@ -1206,15 +1368,30 @@ try {
             st_json(['ok' => false, 'error' => 'Model call failed', 'detail' => $gen['err']], 502);
         }
 
-        $parsed = st_ai_extract_json_object($gen['text'], 'scan_summary');
+        $parse = st_ai_extract_json_object_with_debug($gen['text'], 'scan_summary');
+        $parsed = $parse['doc'];
+        $parseDebug = $parse['debug'];
         if (!is_array($parsed)) {
+            $hint = st_ai_parse_debug_client_hint($parseDebug);
             $summary['ai_scan_summary_status'] = 'failed';
-            $summary['ai_scan_summary_detail'] = 'no_json';
+            $summary['ai_scan_summary_detail'] = substr('no_json: ' . $hint, 0, 200);
             $upd = json_encode($summary, $flags);
             if ($upd !== false) {
                 $db->prepare('UPDATE scan_jobs SET summary_json = ? WHERE id = ?')->execute([$upd, $jobId]);
             }
-            st_json(['ok' => false, 'error' => 'Could not parse model JSON'], 502);
+            $logLine = json_encode(
+                ['ai_parse' => 'refresh_scan_summary', 'job_id' => $jobId, 'debug' => $parseDebug],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+            if (is_string($logLine)) {
+                @error_log('SurveyTrace ai_actions: ' . substr($logLine, 0, 12000));
+            }
+            st_json([
+                'ok' => false,
+                'error' => 'Could not parse model JSON',
+                'detail' => $hint,
+                'parse_debug' => $parseDebug,
+            ], 502);
         }
 
         $overview = trim((string)($parsed['overview'] ?? ''));
