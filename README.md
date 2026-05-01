@@ -292,6 +292,13 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 - (no entries yet)
 
+### 0.8.2
+
+- **Scan profiles** — phase validation allows **Full TCP** and **Fast Full TCP** to run banner/fingerprint phases despite an empty fixed `port_list` (those profiles use all-TCP `-p-` in the scanner).
+- **Fast Full TCP** — nmap **version intensity 3** (aligned with Standard Inventory); **routed** discovery uses a **large finite port set** instead of `-p-` for reliability on high-latency paths. LAN runs use tuned **batching**, **`-T4`**, and **host-timeout** behavior appropriate to the profile.
+- **Scanner** — continues to **union prior open ports** (and related banner/CPE hints) on upsert for full-port profiles so inventory does not regress on a thin result pass.
+- **Collectors** — redeploy **`daemon/profiles.py`** and **`daemon/scanner_daemon.py`** on collector hosts after upgrade (`collector/deploy.sh` copies both).
+
 ### 0.8.1
 
 - **Collector install token** — Settings is generate-only (confirm + one-time reveal with copy); `POST /api/settings.php` no longer accepts a raw `collector_install_token` field.

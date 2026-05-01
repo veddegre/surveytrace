@@ -3,6 +3,13 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.8.2 (2026-05-01)
+
+- **Scan profiles** — `validate_phases()` now treats **Full TCP** and **Fast Full TCP** like other banner-capable profiles even though their fixed port list is empty (all-TCP mode uses `-p-` in the daemon). Phases line up with profile intent instead of silently dropping banner work.
+- **Fast Full TCP** — service detection uses **version intensity 3** (same floor as Standard Inventory) so completed runs are not systematically weaker on CPEs than a normal inventory pass. **Routed / VPN** jobs use a **broad finite port union** (safe ports + standard inventory list + configured extras) instead of a full `-p-` sweep, so long or filtered paths still return useful inventory without timing out empty.
+- **Scanner daemon** — LAN **Fast Full TCP** tuning: larger host batches where appropriate, **`-T4`**, and profile-specific **host-timeout** tiers; **routed** mode keeps conservative batching. **Full / Fast Full TCP** upsert logic still **merges prior open-port evidence** so a weak pass does not wipe better inventory.
+- **Collectors** — behavior is defined by the shipped **`profiles.py`** and **`scanner_daemon.py`** on each node; run **`collector/deploy.sh`** (or equivalent) after pulling this release so remote collectors match master scan semantics.
+
 ## 0.8.1 (2026-04-30)
 
 - **Collector install token (Settings)** — generate-only admin flow: confirm modal, server-side `collector_install_token_generate`, one-time reveal modal with copy; removed manual paste/save. `POST /api/settings.php` rejects direct `collector_install_token` body field (use UI generate or ops-level config if ever required).
