@@ -95,12 +95,30 @@ try {
          WHERE collector_id=? AND job_id=? AND submission_id=?"
     )->execute([$collectorId, $jobId, $submissionId, $collectorId, $jobId, $submissionId]);
 
-    $db->prepare(
-        "UPDATE collector_job_leases
-         SET last_heartbeat_at=datetime('now'),
-             lease_expires_at=datetime('now', ?)
-         WHERE collector_id=? AND job_id=? AND lease_token=?"
-    )->execute(['+' . max(60, min(3600, (int)st_config('collector_lease_seconds', '600'))) . ' seconds', $collectorId, $jobId, $leaseToken]);
+    $subStatsStmt = $db->prepare(
+        "SELECT received_chunks, chunk_count FROM collector_submissions
+         WHERE collector_id=? AND job_id=? AND submission_id=? LIMIT 1"
+    );
+    $subStatsStmt->execute([$collectorId, $jobId, $submissionId]);
+    $subStats = $subStatsStmt->fetch(PDO::FETCH_ASSOC);
+    $submissionComplete = is_array($subStats)
+        && (int)($subStats['chunk_count'] ?? 0) > 0
+        && (int)($subStats['received_chunks'] ?? 0) >= (int)$subStats['chunk_count'];
+
+    if ($submissionComplete) {
+        // Execution is done; release lease so the collector is not offered the same job again
+        // while ingest runs (job stays status=running until ingest worker applies).
+        $db->prepare(
+            "DELETE FROM collector_job_leases WHERE collector_id=? AND job_id=? AND lease_token=?"
+        )->execute([$collectorId, $jobId, $leaseToken]);
+    } else {
+        $db->prepare(
+            "UPDATE collector_job_leases
+             SET last_heartbeat_at=datetime('now'),
+                 lease_expires_at=datetime('now', ?)
+             WHERE collector_id=? AND job_id=? AND lease_token=?"
+        )->execute(['+' . max(60, min(3600, (int)st_config('collector_lease_seconds', '600'))) . ' seconds', $collectorId, $jobId, $leaseToken]);
+    }
 
     $db->prepare("UPDATE collectors SET last_seen_at=datetime('now'), status='online', updated_at=datetime('now') WHERE id=?")->execute([$collectorId]);
     $db->exec("COMMIT");

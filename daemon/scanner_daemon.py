@@ -1201,12 +1201,23 @@ def phase_banner(
             f"{host_timeout_arg} "
             f"--open"
         )
-        with db_conn() as conn:
-            log_event(conn, job_id, "INFO",
-                      f"Phase 3 batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts")
         # python-nmap subprocess timeout: must exceed nmap --host-timeout so the
         # subprocess is not killed mid-scan (especially full_tcp -p- on one host).
         scan_timeout = min(3600, max(timeout_secs + 120, 240))
+        with db_conn() as conn:
+            hang_note = (
+                f"nmap quiet up to ~{scan_timeout}s (--host-timeout {timeout_secs}s); "
+                "no log lines until this batch finishes."
+                if scan_all_tcp
+                else ""
+            )
+            log_event(
+                conn,
+                job_id,
+                "INFO",
+                f"Phase 3 batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts"
+                + (f" — {hang_note}" if hang_note else ""),
+            )
         try:
             # python-nmap timeout guards against a hung subprocess/read.
             nm.scan(

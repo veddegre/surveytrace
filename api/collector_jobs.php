@@ -42,6 +42,11 @@ try {
          FROM scan_jobs j
          JOIN collector_job_leases l ON l.job_id = j.id
          WHERE l.collector_id=? AND j.status='running' AND l.lease_expires_at >= datetime('now')
+         AND NOT EXISTS (
+             SELECT 1 FROM collector_submissions s
+             WHERE s.job_id = j.id AND s.collector_id = l.collector_id
+               AND s.chunk_count > 0 AND s.received_chunks >= s.chunk_count
+         )
          ORDER BY j.priority ASC, j.id ASC
          LIMIT ?"
     );

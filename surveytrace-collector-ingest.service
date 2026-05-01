@@ -1,0 +1,24 @@
+[Unit]
+Description=SurveyTrace collector ingest worker (master)
+After=network.target
+ConditionPathExists=/opt/surveytrace/data/surveytrace.db
+
+[Service]
+Type=simple
+User=surveytrace
+Group=surveytrace
+SupplementaryGroups=www-data
+WorkingDirectory=/opt/surveytrace/daemon
+ExecStart=/opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/collector_ingest_worker.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/surveytrace/data
+
+[Install]
+WantedBy=multi-user.target

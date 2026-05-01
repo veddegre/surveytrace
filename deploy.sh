@@ -123,14 +123,22 @@ sudo cp "$SRC/sql/schema.sql" "$DEST/sql/"
 echo "  Schema file updated"
 
 # ---------------------------------------------------------------------------
+# Master: collector ingest worker (systemd unit)
+# ---------------------------------------------------------------------------
+if [ -f "$SRC/surveytrace-collector-ingest.service" ]; then
+  sudo cp "$SRC/surveytrace-collector-ingest.service" /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable surveytrace-collector-ingest.service
+  echo "  surveytrace-collector-ingest unit installed/enabled"
+fi
+
+# ---------------------------------------------------------------------------
 # Restart daemons
 # ---------------------------------------------------------------------------
 echo "Restarting daemons..."
 sudo systemctl restart surveytrace-daemon
 sudo systemctl restart surveytrace-scheduler
-if sudo systemctl list-unit-files "surveytrace-collector-ingest.service" --no-legend 2>/dev/null | awk 'NF{found=1} END{exit(found?0:1)}'; then
-  sudo systemctl restart surveytrace-collector-ingest || true
-fi
+sudo systemctl restart surveytrace-collector-ingest.service || true
 
 sleep 2
 if sudo systemctl is-active --quiet surveytrace-daemon; then
@@ -145,6 +153,14 @@ if sudo systemctl is-active --quiet surveytrace-scheduler; then
 else
   echo "  surveytrace-scheduler: FAILED"
   echo "      sudo journalctl -u surveytrace-scheduler -n 20"
+fi
+
+if sudo systemctl is-active --quiet surveytrace-collector-ingest.service; then
+  echo "  surveytrace-collector-ingest: running"
+else
+  echo "  surveytrace-collector-ingest: FAILED or inactive"
+  echo "      sudo systemctl status surveytrace-collector-ingest --no-pager"
+  echo "      sudo journalctl -u surveytrace-collector-ingest -n 30"
 fi
 
 # ---------------------------------------------------------------------------

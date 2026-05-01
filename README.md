@@ -218,8 +218,14 @@ bash deploy.sh
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
-It then restarts `surveytrace-daemon` and `surveytrace-scheduler`.
-If present, deploy also restarts `surveytrace-collector-ingest` (optional master-side ingest worker service for collector uploads).
+It then restarts `surveytrace-daemon`, `surveytrace-scheduler`, and **`surveytrace-collector-ingest`** (master-side worker that drains `collector_ingest_queue` and applies collector payloads into `surveytrace.db`). `deploy.sh` installs **`surveytrace-collector-ingest.service`** under `/etc/systemd/system/` and enables it; without this service, uploads still land under `data/collector_ingest/` but scans stay **running** until something processes the queue.
+
+Verify on the master:
+
+```bash
+sudo systemctl status surveytrace-collector-ingest --no-pager
+sudo journalctl -u surveytrace-collector-ingest -n 40 --no-pager
+```
 
 ## Collector Deployment (Multi-System)
 
@@ -255,7 +261,7 @@ Collector-to-master flow:
 1. Collector registers using install token (`collector_install_token`) and receives bearer token.
 2. Collector polls for assigned jobs.
 3. Collector runs local parity phases and submits chunked payloads.
-4. Master ingest queue/worker applies results and performs centralized CVE + AI enrichment.
+4. **`surveytrace-collector-ingest`** on the master applies queued chunks from `data/collector_ingest/` into the DB and runs centralized CVE + AI enrichment.
 
 Scheduling and guardrails:
 
