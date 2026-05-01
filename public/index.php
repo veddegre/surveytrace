@@ -1452,6 +1452,11 @@ if (is_readable($dbProbe)) {
       <div class="ct mb4 mt8">Exclusion list (optional)</div>
       <label class="flbl">IPs, CIDRs, ranges, # comments</label>
       <textarea class="finput w100 mb6" id="hr-excl" rows="4" style="min-height:76px" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
+      <label class="flbl" for="hr-collector">Collector target</label>
+      <select id="hr-collector" class="finput w100 mb6">
+        <option value="0">Master scanner (local)</option>
+      </select>
+      <div class="hint-micro mb8">Route this rescan to a remote collector for local-site ARP/mDNS when the host is on that network (same as the Scan tab).</div>
       <div class="ct mb4 mt8">Network enrichment (this scan)</div>
       <div class="tsubl mb6">Phase 3b uses sources from <strong>Enrichment</strong>. Uncheck to skip a source for this job only; all checked matches the Scan tab default (omit subset in API).</div>
       <div id="host-rescan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
@@ -3405,6 +3410,12 @@ function readScanTabIntoHostRescanModal() {
     const exs = document.getElementById('sc-excl');
     const hex = document.getElementById('hr-excl');
     if (exs && hex) hex.value = exs.value;
+    const scCol = document.getElementById('sc-collector');
+    const hrCol = document.getElementById('hr-collector');
+    if (scCol && hrCol) {
+        const v = String(scCol.value || '0');
+        hrCol.value = [...hrCol.options].some(o => o.value === v) ? v : '0';
+    }
 }
 
 /** After host-rescan enrichment list is built, mirror checked state from the Scan tab pickers. */
@@ -3487,6 +3498,7 @@ function openHostRescanModal(ipTrim) {
         }
         void (async () => {
             try {
+                await loadCollectorsOverview();
                 ipEl.textContent = ipTrim;
                 const cur = document.querySelector('input[name="scan_profile"]:checked');
                 sel.value = cur && HOST_RESCAN_PROFILE_IDS.has(cur.value) ? cur.value : 'standard_inventory';
@@ -3541,6 +3553,7 @@ function wireHostRescanModalOnce() {
         const rate_pps = parseInt(document.getElementById('hr-pps')?.value || '5', 10) || 5;
         const inter_delay = parseInt(document.getElementById('hr-delay')?.value || '200', 10) || 200;
         const hex = document.getElementById('hr-excl');
+        const collectorId = parseInt(document.getElementById('hr-collector')?.value || '0', 10) || 0;
         closeHostRescanModal({
             profile,
             phases,
@@ -3549,6 +3562,7 @@ function wireHostRescanModalOnce() {
             scan_mode: modeEl ? modeEl.value : 'auto',
             exclusions: hex ? hex.value : '',
             enrichment_source_ids: hostEnrichmentPayloadField(),
+            collector_id: collectorId,
         });
     });
 }
@@ -3614,6 +3628,8 @@ async function queueHostRescan(ip, triggerBtn) {
     if (choice.enrichment_source_ids !== undefined) {
         body.enrichment_source_ids = choice.enrichment_source_ids;
     }
+    const collectorId = Math.max(0, parseInt(String(choice.collector_id ?? '0'), 10) || 0);
+    if (collectorId > 0) body.collector_id = collectorId;
 
     const btn = triggerBtn instanceof HTMLElement ? triggerBtn : null;
     const prevText = btn ? btn.textContent : '';
@@ -3650,6 +3666,7 @@ async function queueHostRescan(ip, triggerBtn) {
         inter_delay,
         exclusions: choice.exclusions,
         enrichment_source_ids: choice.enrichment_source_ids,
+        collector_id: collectorId,
     }, scanModeEff);
 
     activeJobId = r.job_id;
@@ -6655,7 +6672,7 @@ function collectorDisplayName(c) {
 }
 
 function refreshCollectorSelectors() {
-    const selectors = ['sc-collector', 'sched-collector'].map(id => document.getElementById(id)).filter(Boolean);
+    const selectors = ['sc-collector', 'sched-collector', 'hr-collector'].map(id => document.getElementById(id)).filter(Boolean);
     if (!selectors.length) return;
     const options = ['<option value="0">Master scanner (local)</option>'];
     (collectorsCache || []).forEach(c => {
@@ -7671,6 +7688,13 @@ function applyRescanChoiceToScanTab(choice, scanModeEffective) {
     if ('enrichment_source_ids' in choice) {
         applyEnrichmentIdsToScanWrap(choice.enrichment_source_ids);
     }
+    if (choice.collector_id !== undefined) {
+        const scCol = document.getElementById('sc-collector');
+        if (scCol) {
+            const v = String(Math.max(0, parseInt(String(choice.collector_id || '0'), 10) || 0));
+            scCol.value = [...scCol.options].some(o => o.value === v) ? v : '0';
+        }
+    }
     updateProfileHelp(profile);
     updateScanProfileWarn(profile);
 }
@@ -8149,7 +8173,7 @@ async function openHostPanel(id, ip) {
       ${renderHpAiOperatorSection(a, id, a.ip)}
 
       <div class="hp-actions hp-actions-host-primary mb14">
-        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, phases, rates, discovery, exclusions, and enrichment in the modal; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
+        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
         ${findings.length ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
