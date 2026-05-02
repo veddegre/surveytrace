@@ -132,6 +132,7 @@ API_FILES=(
   auth_oidc.php
   auth_qr.php
   schedules.php
+  schedule_cron.php
   enrichment.php
   dashboard.php
   feeds.php

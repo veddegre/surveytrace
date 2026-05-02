@@ -3939,8 +3939,10 @@ def recover_stale_running_jobs(conn: sqlite3.Connection) -> int:
     On daemon startup, mark any leftover 'running' jobs as aborted.
     These can happen if the daemon/service restarts mid-scan.
     """
+    # Only recover local scanner jobs — collector runs stay "running" until ingest finishes
+    # and must not be aborted on surveytrace-daemon restart.
     rows = conn.execute(
-        "SELECT id FROM scan_jobs WHERE status='running'"
+        "SELECT id FROM scan_jobs WHERE status='running' AND COALESCE(collector_id, 0) = 0"
     ).fetchall()
     if not rows:
         return 0

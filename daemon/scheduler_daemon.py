@@ -655,7 +655,15 @@ def seed_missing_next_runs(conn: sqlite3.Connection, now: datetime) -> None:
                 "UPDATE scan_schedules SET next_run=? WHERE id=?",
                 (nr.strftime("%Y-%m-%d %H:%M:%S"), s["id"]),
             )
-            log.info("Schedule '%s' next run seeded: %s", s["name"], nr)
+            log.info(
+                "Seeded next_run id=%s collector_id=%s cron=%s tz=%s -> %s (%s)",
+                s.get("id"),
+                s.get("collector_id"),
+                s.get("cron_expr"),
+                s.get("timezone") or "UTC",
+                nr.strftime("%Y-%m-%d %H:%M:%S"),
+                s["name"],
+            )
         except Exception as e:
             log.warning("Could not compute next_run for schedule '%s': %s", s["name"], e)
 

@@ -486,10 +486,9 @@ def process_one(qrow: dict) -> None:
             ),
         )
 
-    # Phase B: CVE/AI (commits after each asset inside _apply_master_enrichment) + queue finalize.
+    # Phase B: mark chunk ingested. When all chunks are present, set job done BEFORE master CVE/AI work
+    # so the UI does not stay "running" for hours while Ollama/NVD run (ingest worker is often the bottleneck).
     with db_conn() as conn:
-        ai_attempts, ai_applied, cve_count, ai_reason_counts = _apply_master_enrichment(conn, job_id)
-
         conn.execute(
             "UPDATE collector_ingest_queue SET status='applied', processed_at=datetime('now'), error_msg=NULL WHERE id=?",
             (qid,),
@@ -511,42 +510,93 @@ def process_one(qrow: dict) -> None:
             "SELECT chunk_count, processed_chunks FROM collector_submissions WHERE collector_id=? AND job_id=? AND submission_id=?",
             (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
         ).fetchone()
-        if row and int(row["processed_chunks"]) >= int(row["chunk_count"]):
-            summary_doc: dict = {}
-            try:
-                summary_doc = json.loads(str(sj.get("summary_json") or "{}"))
-                if not isinstance(summary_doc, dict):
-                    summary_doc = {}
-            except Exception:
+        if not row or int(row["processed_chunks"]) < int(row["chunk_count"]):
+            pc = int(row["processed_chunks"]) if row else 0
+            cc = int(row["chunk_count"]) if row else 0
+            log.info(
+                "job %d chunk ingested (%d/%d applied) — waiting for remaining chunks before master finalize",
+                job_id,
+                pc,
+                cc,
+            )
+            return
+
+        srow = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+        summary_doc: dict = {}
+        try:
+            raw_sum = str(srow["summary_json"] or "") if srow else ""
+            summary_doc = json.loads(raw_sum) if raw_sum.strip() else {}
+            if not isinstance(summary_doc, dict):
                 summary_doc = {}
-            summary_doc["collector_central_enrichment"] = True
-            summary_doc["ai_enrichment_attempts"] = int(ai_attempts)
-            summary_doc["ai_enrichment_applied"] = int(ai_applied)
-            summary_doc["ai_reason_counts"] = ai_reason_counts
-            summary_doc["collector_cve_matches"] = int(cve_count)
-            summary_doc = _master_refresh_scan_executive_summary(summary_doc, job_id)
-            conn.execute(
-                "UPDATE scan_jobs SET summary_json=? WHERE id=?",
-                (json.dumps(summary_doc, separators=(",", ":"), ensure_ascii=False), job_id),
+        except Exception:
+            summary_doc = {}
+        summary_doc["collector_central_enrichment"] = True
+        summary_doc["master_enrichment_status"] = "running"
+        summary_doc.setdefault("ai_enrichment_attempts", 0)
+        summary_doc.setdefault("ai_enrichment_applied", 0)
+        summary_doc.setdefault("ai_reason_counts", {})
+        summary_doc.setdefault("collector_cve_matches", 0)
+
+        cur = conn.execute(
+            "UPDATE scan_jobs SET summary_json=?, status=?, finished_at=COALESCE(finished_at, datetime('now')) WHERE id=? AND status='running'",
+            (json.dumps(summary_doc, separators=(",", ":"), ensure_ascii=False), job_status, job_id),
+        )
+        if cur.rowcount:
+            log.info(
+                "job %d marked %s on master (collector payload applied); running centralized CVE/AI next",
+                job_id,
+                job_status,
             )
-            conn.execute(
-                "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
-                (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
-            )
-            conn.execute(
-                "UPDATE scan_jobs SET status=?, finished_at=COALESCE(finished_at, datetime('now')) WHERE id=? AND status='running'",
-                (job_status, job_id),
-            )
-            if job_status == "done":
-                jcid = conn.execute("SELECT target_cidr FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
-                tc = str(jcid["target_cidr"] if jcid and jcid["target_cidr"] is not None else "") or ""
-                obs_rows = conn.execute(
-                    "SELECT DISTINCT asset_id FROM scan_asset_snapshots WHERE job_id=? AND asset_id IS NOT NULL",
-                    (job_id,),
-                ).fetchall()
-                observed_ids = {int(r["asset_id"]) for r in obs_rows if r["asset_id"] is not None}
-                asset_lifecycle.evaluate_job_coverage_gaps(conn, job_id, tc, observed_ids)
-            conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (job_id,))
+        conn.execute(
+            "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
+            (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+        )
+        if job_status == "done":
+            jcid = conn.execute("SELECT target_cidr FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+            tc = str(jcid["target_cidr"] if jcid and jcid["target_cidr"] is not None else "") or ""
+            obs_rows = conn.execute(
+                "SELECT DISTINCT asset_id FROM scan_asset_snapshots WHERE job_id=? AND asset_id IS NOT NULL",
+                (job_id,),
+            ).fetchall()
+            observed_ids = {int(r["asset_id"]) for r in obs_rows if r["asset_id"] is not None}
+            asset_lifecycle.evaluate_job_coverage_gaps(conn, job_id, tc, observed_ids)
+        conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (job_id,))
+
+    ai_attempts = 0
+    ai_applied = 0
+    cve_count = 0
+    ai_reason_counts: dict[str, int] = {}
+    try:
+        with db_conn() as conn:
+            ai_attempts, ai_applied, cve_count, ai_reason_counts = _apply_master_enrichment(conn, job_id)
+    except Exception as exc:
+        log.exception("master enrichment failed for job %d: %s", job_id, exc)
+
+    with db_conn() as conn:
+        srow2 = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+        summary_doc2: dict = {}
+        try:
+            raw2 = str(srow2["summary_json"] or "") if srow2 else ""
+            summary_doc2 = json.loads(raw2) if raw2.strip() else {}
+            if not isinstance(summary_doc2, dict):
+                summary_doc2 = {}
+        except Exception:
+            summary_doc2 = {}
+        summary_doc2["collector_central_enrichment"] = True
+        summary_doc2["ai_enrichment_attempts"] = int(ai_attempts)
+        summary_doc2["ai_enrichment_applied"] = int(ai_applied)
+        summary_doc2["ai_reason_counts"] = ai_reason_counts
+        summary_doc2["collector_cve_matches"] = int(cve_count)
+        summary_doc2["master_enrichment_status"] = "ok"
+        try:
+            summary_doc2 = _master_refresh_scan_executive_summary(summary_doc2, job_id)
+        except Exception as exc:
+            log.warning("executive scan summary refresh failed job %d: %s", job_id, exc)
+            summary_doc2["master_enrichment_status"] = "partial"
+        conn.execute(
+            "UPDATE scan_jobs SET summary_json=? WHERE id=?",
+            (json.dumps(summary_doc2, separators=(",", ":"), ensure_ascii=False), job_id),
+        )
 
 
 def main() -> None:

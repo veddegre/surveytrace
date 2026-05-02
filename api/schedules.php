@@ -17,6 +17,7 @@ date_default_timezone_set('UTC');
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_collectors.php';
+require_once __DIR__ . '/schedule_cron.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -230,17 +231,39 @@ if (isset($_GET['resume'])) {
     if (!$id) {
         st_json(['error' => 'id required'], 400);
     }
-    // Let scheduler_daemon compute the next real cron fire from next_run=NULL
-    // (avoid bogus "now+60s" which ignored the user's cron expression).
-    $db->prepare("
-        UPDATE scan_schedules SET paused = 0,
-            next_run = CASE
-                WHEN next_run IS NULL OR datetime(next_run) <= datetime('now')
-                THEN NULL
-                ELSE next_run
-            END
-        WHERE id = ?
-    ")->execute([$id]);
+    $sResume = $db->prepare('SELECT id, cron_expr, timezone, COALESCE(next_run, "") AS nr FROM scan_schedules WHERE id = ? LIMIT 1');
+    $sResume->execute([$id]);
+    $rResume = $sResume->fetch(PDO::FETCH_ASSOC);
+    if (!$rResume) {
+        st_json(['error' => 'Schedule not found'], 404);
+    }
+    $nrKeep = trim((string)($rResume['nr'] ?? ''));
+    $nextResume = null;
+    if ($nrKeep !== '') {
+        $cmp = $db->prepare('SELECT CASE WHEN datetime(?) > datetime(\'now\') THEN 1 ELSE 0 END');
+        $cmp->execute([$nrKeep]);
+        if ((int) $cmp->fetchColumn() === 1) {
+            $nextResume = $nrKeep;
+        }
+    }
+    if ($nextResume === null) {
+        try {
+            $nextResume = st_schedule_next_run_utc_naive(
+                (string) ($rResume['cron_expr'] ?? ''),
+                (string) ($rResume['timezone'] ?? 'UTC')
+            );
+        } catch (Throwable $e) {
+            st_json(['error' => 'Could not compute next_run for resume', 'detail' => $e->getMessage()], 400);
+        }
+    }
+    @error_log(sprintf(
+        'SurveyTrace schedules[resume]: id=%d cron=%s tz=%s next_run=%s',
+        $id,
+        (string) ($rResume['cron_expr'] ?? ''),
+        (string) ($rResume['timezone'] ?? 'UTC'),
+        $nextResume
+    ));
+    $db->prepare('UPDATE scan_schedules SET paused = 0, next_run = ? WHERE id = ?')->execute([$nextResume, $id]);
     st_audit_log('scan.schedule_resumed', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
     ]);
@@ -250,11 +273,35 @@ if (isset($_GET['resume'])) {
 // Toggle enable/disable
 if (isset($_GET['toggle'])) {
     $id = (int)($body['id'] ?? 0);
-    if (!$id) st_json(['error' => 'id required'], 400);
-    $db->prepare("UPDATE scan_schedules SET enabled = 1-enabled WHERE id=?")->execute([$id]);
-    $row = $db->prepare("SELECT id, enabled FROM scan_schedules WHERE id=?");
+    if (!$id) {
+        st_json(['error' => 'id required'], 400);
+    }
+    $db->prepare('UPDATE scan_schedules SET enabled = 1-enabled WHERE id=?')->execute([$id]);
+    $row = $db->prepare(
+        'SELECT id, enabled, cron_expr, timezone, COALESCE(collector_id,0) AS collector_id FROM scan_schedules WHERE id=?'
+    );
     $row->execute([$id]);
-    $enabledNow = (bool)$row->fetchColumn(1);
+    $trow = $row->fetch(PDO::FETCH_ASSOC);
+    $enabledNow = (bool) ($trow['enabled'] ?? false);
+    if ($enabledNow) {
+        try {
+            $nrT = st_schedule_next_run_utc_naive(
+                (string) ($trow['cron_expr'] ?? ''),
+                (string) ($trow['timezone'] ?? 'UTC')
+            );
+        } catch (Throwable $e) {
+            st_json(['error' => 'Could not compute next_run after enable', 'detail' => $e->getMessage()], 400);
+        }
+        @error_log(sprintf(
+            'SurveyTrace schedules[toggle_enable]: id=%d collector_id=%d cron=%s tz=%s next_run=%s',
+            $id,
+            (int) ($trow['collector_id'] ?? 0),
+            (string) ($trow['cron_expr'] ?? ''),
+            (string) ($trow['timezone'] ?? 'UTC'),
+            $nrT
+        ));
+        $db->prepare('UPDATE scan_schedules SET next_run = ? WHERE id = ?')->execute([$nrT, $id]);
+    }
     st_audit_log('scan.schedule_toggled', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
         'enabled' => $enabledNow,
@@ -391,19 +438,36 @@ if (!in_array($cron_expr, $presets)) {
     }
 }
 
-// next_run: leave NULL so scheduler_daemon computes the first fire from
-// cron_expr + timezone (polls within ~30s). Never use "now+60s" — that ignores cron.
+try {
+    $nextRunComputed = st_schedule_next_run_utc_naive($cron_expr, $timezone);
+} catch (Throwable $e) {
+    st_json(['error' => 'Could not compute next_run from cron_expr and timezone', 'field' => 'cron_expr', 'detail' => $e->getMessage()], 400);
+}
+
 $reset_next_run = false;
+$prevRow = null;
 if ($id > 0) {
-    $prevStmt = $db->prepare('SELECT cron_expr, timezone FROM scan_schedules WHERE id = ?');
+    $prevStmt = $db->prepare(
+        'SELECT cron_expr, timezone, enabled, COALESCE(next_run, "") AS next_run FROM scan_schedules WHERE id = ?'
+    );
     $prevStmt->execute([$id]);
     $prevRow = $prevStmt->fetch(PDO::FETCH_ASSOC);
     if ($prevRow) {
-        $prevCron = (string)($prevRow['cron_expr'] ?? '');
-        $prevTz = (string)($prevRow['timezone'] ?? 'UTC');
+        $prevCron = (string) ($prevRow['cron_expr'] ?? '');
+        $prevTz = (string) ($prevRow['timezone'] ?? 'UTC');
         if ($prevCron !== $cron_expr || $prevTz !== $timezone) {
             $reset_next_run = true;
         }
+    }
+}
+
+$patch_next_run = false;
+if ($id > 0 && $prevRow) {
+    if (trim((string) ($prevRow['next_run'] ?? '')) === '') {
+        $patch_next_run = true;
+    }
+    if ((int) ($prevRow['enabled'] ?? 0) === 0 && $enabled === 1) {
+        $patch_next_run = true;
     }
 }
 
@@ -415,15 +479,49 @@ if ($id > 0) {
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
-                next_run = NULL
+                next_run = ?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
             $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $nextRunComputed,
             $id,
         ]);
+        @error_log(sprintf(
+            'SurveyTrace schedules[update_reset_next_run]: id=%d collector_id=%d cron=%s tz=%s next_run=%s',
+            $id,
+            $collector_id,
+            $cron_expr,
+            $timezone,
+            $nextRunComputed
+        ));
+    } elseif ($patch_next_run) {
+        $db->prepare("
+            UPDATE scan_schedules SET
+                name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
+                profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
+                enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
+                missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
+                next_run = ?
+            WHERE id=?
+        ")->execute([
+            $name, $cron_expr, $target_cidr, $exclusions, $phases,
+            $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
+            $enabled, $paused, $notes, $timezone, $collector_id,
+            $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $nextRunComputed,
+            $id,
+        ]);
+        @error_log(sprintf(
+            'SurveyTrace schedules[update_patch_next_run]: id=%d collector_id=%d cron=%s tz=%s next_run=%s',
+            $id,
+            $collector_id,
+            $cron_expr,
+            $timezone,
+            $nextRunComputed
+        ));
     } else {
         $db->prepare("
             UPDATE scan_schedules SET
@@ -454,13 +552,21 @@ if ($id > 0) {
             (name, cron_expr, target_cidr, exclusions, phases, profile,
              scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone, collector_id,
              missed_run_policy, missed_run_max, next_run, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
         $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone, $collector_id,
-        $missed_run_policy, $missed_run_max, $enrichmentIdsJson
+        $missed_run_policy, $missed_run_max, $nextRunComputed, $enrichmentIdsJson
     ]);
     $id = (int)$db->lastInsertId();
+    @error_log(sprintf(
+        'SurveyTrace schedules[create]: id=%d collector_id=%d cron=%s tz=%s next_run=%s',
+        $id,
+        $collector_id,
+        $cron_expr,
+        $timezone,
+        $nextRunComputed
+    ));
     st_audit_log('scan.schedule_created', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
         'schedule_id' => $id,
         'name' => $name,
