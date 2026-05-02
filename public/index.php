@@ -1746,6 +1746,10 @@ var vulnPage     = 1;
 var activeJobId  = null;
 var pollTimer    = null;
 var logSinceId   = 0;
+/** Avoid overlapping pollJob() calls (setInterval does not await async). */
+var pollJobInFlight = false;
+/** Suppress duplicate terminal toasts when several polls see the same finished job. */
+var lastScanTerminalToastKey = '';
 var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
@@ -2628,7 +2632,16 @@ async function loadDashboard() {
         : '<tr><td colspan="8" class="loading">No vulnerable assets found</td></tr>';
 
     // Activity feed
-    const act = d.activity || [];
+    const actRaw = d.activity || [];
+    const seenAct = new Set();
+    const act = [];
+    for (let i = 0; i < actRaw.length; i++) {
+        const e = actRaw[i];
+        const k = String(e.job_id || 0) + '|' + String(e.message || '');
+        if (seenAct.has(k)) continue;
+        seenAct.add(k);
+        act.push(e);
+    }
     document.getElementById('dash-feed').innerHTML = act.length
         ? act.map(e => feedRow(e)).join('')
         : '<div class="empty-feed">No activity yet</div>';
@@ -3936,67 +3949,85 @@ function showScanRunning(jobId) {
 function startPoll(jobId) {
     clearInterval(pollTimer);
     logSinceId = 0;
+    lastScanTerminalToastKey = '';
     pollTimer = setInterval(() => pollJob(jobId), 2500);
 }
 
 async function pollJob(jobId) {
-    const d = await api(`/api/scan_status.php?job_id=${jobId}&since_log_id=${logSinceId}&log_limit=100`, {quiet:true});
-    if (!d || !d.job) return;
+    if (pollJobInFlight) return;
+    pollJobInFlight = true;
+    try {
+        const d = await api(`/api/scan_status.php?job_id=${jobId}&since_log_id=${logSinceId}&log_limit=100`, {quiet:true});
+        if (!d || !d.job) return;
 
-    const job = d.job;
+        const job = d.job;
 
-    // Update scan stats (kept for backward compat)
-    document.getElementById('ss-found').textContent   = job.hosts_found || 0;
-    document.getElementById('ss-scanned').textContent = job.hosts_scanned || 0;
-    const el = job.elapsed_secs || 0;
-    document.getElementById('ss-elapsed').textContent = el < 60 ? el+'s' : Math.floor(el/60)+'m '+(el%60)+'s';
+        // Update scan stats (kept for backward compat)
+        document.getElementById('ss-found').textContent   = job.hosts_found || 0;
+        document.getElementById('ss-scanned').textContent = job.hosts_scanned || 0;
+        const el = job.elapsed_secs || 0;
+        document.getElementById('ss-elapsed').textContent = el < 60 ? el+'s' : Math.floor(el/60)+'m '+(el%60)+'s';
 
-    // Update queue panel inline progress
-    if (d.history) updateQueuePanel(d.history);
-
-    // Update inline message for running job row
-    const msgEl = document.getElementById('qmsg-' + jobId);
-    if (msgEl) {
-        const lastInfo = (d.log || []).slice().reverse().find(l => l.level === 'INFO');
-        if (lastInfo) {
-            const pct = job.progress_pct || 0;
-            const hf  = job.hosts_found || 0;
-            const hs  = job.hosts_scanned || 0;
-            msgEl.textContent = (hf > 0 ? hs+'/'+hf+' hosts · '+pct+'% · ' : '') + lastInfo.message.slice(0,60);
-        } else if (job.status === 'running' && Number(job.collector_id || 0) > 0 && job.collector_lease) {
-            const pct = job.progress_pct || 0;
-            const cn = job.collector_name ? String(job.collector_name) : ('#' + job.collector_id);
-            const hb = job.collector_lease.last_heartbeat_at ? String(job.collector_lease.last_heartbeat_at) : '—';
-            msgEl.textContent = 'Remote on collector ' + esc(cn) + ' · ' + pct + '% · last collector contact ' + esc(hb);
-        }
-    }
-
-    // Append new log lines to audit log view
-    if (d.log && d.log.length) {
-        logSinceId = d.log[d.log.length-1].id;
-        if (currentTab === 'logs') appendLogRows(d.log);
-    }
-
-    if (job.status === 'done' || job.status === 'failed' || job.status === 'aborted') {
-        clearInterval(pollTimer);
-        activeJobId = null;
-        setStatusPill('idle', 'Idle');
-        if (job.status === 'done') { toast('Scan complete — ' + job.hosts_scanned + ' hosts catalogued', 'ok'); refreshBadges(); }
-        if (job.status === 'failed') toast('Scan failed: ' + (job.error_msg || 'unknown error'), 'err');
-        loadScanHistory();
-        if (currentTab === 'dash') loadDashboard();
-        // Check if another job is queued and auto-start polling it
-        setTimeout(async () => {
-            const next = await api('/api/scan_status.php?log_limit=1', {quiet:true});
-            if (next && next.job && next.job.status === 'running') {
-                activeJobId = next.job.id;
-                showScanRunning(activeJobId);
-                startPoll(activeJobId);
-            }
-        }, 2000);
-    } else {
-        // Refresh queue panel on each poll so counts stay current
+        // Update queue panel inline progress
         if (d.history) updateQueuePanel(d.history);
+
+        // Update inline message for running job row
+        const msgEl = document.getElementById('qmsg-' + jobId);
+        if (msgEl) {
+            const lastInfo = (d.log || []).slice().reverse().find(l => l.level === 'INFO');
+            if (lastInfo) {
+                const pct = job.progress_pct || 0;
+                const hf  = job.hosts_found || 0;
+                const hs  = job.hosts_scanned || 0;
+                msgEl.textContent = (hf > 0 ? hs+'/'+hf+' hosts · '+pct+'% · ' : '') + lastInfo.message.slice(0,60);
+            } else if (job.status === 'running' && Number(job.collector_id || 0) > 0 && job.collector_lease) {
+                const pct = job.progress_pct || 0;
+                const cn = job.collector_name ? String(job.collector_name) : ('#' + job.collector_id);
+                const hb = job.collector_lease.last_heartbeat_at ? String(job.collector_lease.last_heartbeat_at) : '—';
+                msgEl.textContent = 'Remote on collector ' + esc(cn) + ' · ' + pct + '% · last collector contact ' + esc(hb);
+            }
+        }
+
+        // Append new log lines to audit log view
+        if (d.log && d.log.length) {
+            logSinceId = d.log[d.log.length-1].id;
+            if (currentTab === 'logs') appendLogRows(d.log);
+        }
+
+        if (job.status === 'done' || job.status === 'failed' || job.status === 'aborted') {
+            clearInterval(pollTimer);
+            activeJobId = null;
+            setStatusPill('idle', 'Idle');
+            const termKey = String(job.id) + ':' + job.status;
+            if (job.status === 'done' && lastScanTerminalToastKey !== termKey) {
+                lastScanTerminalToastKey = termKey;
+                toast('Scan complete — ' + job.hosts_scanned + ' hosts catalogued', 'ok');
+                refreshBadges();
+            }
+            if (job.status === 'failed' && lastScanTerminalToastKey !== termKey) {
+                lastScanTerminalToastKey = termKey;
+                toast('Scan failed: ' + (job.error_msg || 'unknown error'), 'err');
+            }
+            if (job.status === 'aborted' && lastScanTerminalToastKey !== termKey) {
+                lastScanTerminalToastKey = termKey;
+            }
+            loadScanHistory();
+            if (currentTab === 'dash') loadDashboard();
+            // Check if another job is queued and auto-start polling it
+            setTimeout(async () => {
+                const next = await api('/api/scan_status.php?log_limit=1', {quiet:true});
+                if (next && next.job && next.job.status === 'running') {
+                    activeJobId = next.job.id;
+                    showScanRunning(activeJobId);
+                    startPoll(activeJobId);
+                }
+            }, 2000);
+        } else {
+            // Refresh queue panel on each poll so counts stay current
+            if (d.history) updateQueuePanel(d.history);
+        }
+    } finally {
+        pollJobInFlight = false;
     }
 }
 

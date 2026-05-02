@@ -412,14 +412,20 @@ def process_one(qrow: dict) -> None:
         for l in payload.get("scan_log", []) or []:
             if not isinstance(l, dict):
                 continue
+            level = str(l.get("level", "INFO"))[:8]
+            ip_s = str(l.get("ip", ""))[:128]
+            msg = str(l.get("message", ""))[:4000]
+            # Ingest retries replay the full payload; without this, scan_log (and the activity feed)
+            # fills with duplicate lines such as "Scan complete — …".
+            dup = conn.execute(
+                "SELECT 1 FROM scan_log WHERE job_id=? AND level=? AND COALESCE(ip,'')=? AND message=? LIMIT 1",
+                (job_id, level, ip_s, msg),
+            ).fetchone()
+            if dup:
+                continue
             conn.execute(
                 "INSERT INTO scan_log (job_id, ts, level, ip, message) VALUES (?, datetime('now'), ?, ?, ?)",
-                (
-                    job_id,
-                    str(l.get("level", "INFO"))[:8],
-                    str(l.get("ip", ""))[:128],
-                    str(l.get("message", ""))[:4000],
-                ),
+                (job_id, level, ip_s, msg),
             )
             _l_idx += 1
             if _l_idx % _INGEST_ROW_COMMIT_INTERVAL == 0:
