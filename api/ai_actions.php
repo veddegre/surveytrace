@@ -449,10 +449,18 @@ function st_ai_json_object_matches_role(array $d, string $role): bool {
         return trim((string)($d['summary'] ?? '')) !== '';
     }
     if ($role === 'explain_host') {
-        return array_key_exists('overview', $d)
+        if (array_key_exists('overview', $d)
             || (isset($d['likely_roles']) && is_array($d['likely_roles']))
             || (isset($d['hardening_tips']) && is_array($d['hardening_tips']))
-            || (isset($d['owner_questions']) && is_array($d['owner_questions']));
+            || (isset($d['owner_questions']) && is_array($d['owner_questions']))) {
+            return true;
+        }
+        // Common misfire: model emits one likely_roles row as the root object instead of wrapping it.
+        $rk = trim((string)($d['role'] ?? ''));
+        if ($rk !== '' && (array_key_exists('confidence', $d) || array_key_exists('evidence', $d))) {
+            return true;
+        }
+        return false;
     }
     if ($role === 'findings') {
         $rs = trim((string)($d['risk_summary'] ?? ''));
@@ -1039,6 +1047,27 @@ function st_ai_normalize_scan_summary_doc(array $doc): array {
 function st_ai_normalize_explain_doc(?array $doc): array {
     if (!$doc) {
         return [];
+    }
+    // Coerce root-level { role, confidence, evidence } into the schema expected by the UI.
+    $lr0 = $doc['likely_roles'] ?? null;
+    $hasRoles = is_array($lr0) && count($lr0) > 0;
+    $rootRole = trim((string)($doc['role'] ?? ''));
+    if (!$hasRoles && $rootRole !== '' && (array_key_exists('confidence', $doc) || array_key_exists('evidence', $doc))) {
+        $ovIn = trim((string)($doc['overview'] ?? ''));
+        $ev0 = trim((string)($doc['evidence'] ?? ''));
+        $conf0 = $doc['confidence'] ?? '';
+        $tipsIn = $doc['hardening_tips'] ?? [];
+        $qsIn = $doc['owner_questions'] ?? [];
+        $doc = [
+            'overview' => $ovIn !== '' ? $ovIn : ($ev0 !== '' ? $ev0 : ('Role assessment: ' . $rootRole)),
+            'likely_roles' => [[
+                'role' => $rootRole,
+                'confidence' => is_scalar($conf0) ? (string)$conf0 : '',
+                'evidence' => $ev0,
+            ]],
+            'hardening_tips' => is_array($tipsIn) ? $tipsIn : [],
+            'owner_questions' => is_array($qsIn) ? $qsIn : [],
+        ];
     }
     $overview = trim((string)($doc['overview'] ?? ''));
     $roles = $doc['likely_roles'] ?? [];
