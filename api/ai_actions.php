@@ -396,6 +396,11 @@ function st_ai_strip_model_noise(string $text): string {
  * not the operator summary JSON (overview / concerns / next_steps).
  */
 function st_ai_json_looks_like_scan_compact_echo(array $d): bool {
+    // Models sometimes merge the prompt's scan stats with triage keys (role/confidence/evidence).
+    // That must NOT be treated as compact echo or scan_summary matching will always reject it.
+    if (array_key_exists('role', $d) || array_key_exists('confidence', $d) || array_key_exists('evidence', $d)) {
+        return false;
+    }
     if (!isset($d['profile'], $d['assets_catalogued'], $d['hosts_found'])) {
         return false;
     }

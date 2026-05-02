@@ -578,6 +578,8 @@ def _json_slice_balanced(s: str, start: int) -> str | None:
 
 def _json_looks_like_scan_compact_echo(d: dict) -> bool:
     """True if this dict is the scan compact blob embedded in the summary prompt, not the answer."""
+    if "role" in d or "confidence" in d or "evidence" in d:
+        return False
     if not all(k in d for k in ("profile", "assets_catalogued", "hosts_found")):
         return False
     if "overview" in d or "concerns" in d or "next_steps" in d:
