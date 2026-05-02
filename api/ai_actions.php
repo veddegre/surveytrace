@@ -1106,14 +1106,14 @@ function st_ai_normalize_explain_doc(?array $doc): array {
             $s = trim((string)$x);
         }
         if ($s !== '' && count($nr) < 4) {
-            $nr[] = substr($s, 0, 100);
+            $nr[] = substr($s, 0, 300);
         }
     }
     $nt = [];
     foreach ($tips as $x) {
         $s = trim((string)$x);
         if ($s !== '' && count($nt) < 4) {
-            $nt[] = substr($s, 0, 220);
+            $nt[] = substr($s, 0, 280);
         }
     }
     $nq = [];
@@ -1125,7 +1125,7 @@ function st_ai_normalize_explain_doc(?array $doc): array {
     }
     $out = [];
     if ($overview !== '') {
-        $out['overview'] = substr($overview, 0, 420);
+        $out['overview'] = substr($overview, 0, 720);
     }
     if ($nr) {
         $out['likely_roles'] = $nr;
@@ -1406,22 +1406,40 @@ try {
         $osGuess = trim((string)($row['os_guess'] ?? ''));
         $cpeGuess = trim((string)($row['cpe'] ?? ''));
 
+        $portN = count($portInts);
+        $depthRules = "\nDEPTH (required):\n"
+            . "- overview must SYNTHESIZE the host: combine notable open ports, inventory metadata (category/vendor/os_guess/CPE), and CVE context. "
+            . "It must NOT copy one banner line verbatim as the whole overview, and must NOT repeat the same sentence you place in likely_roles[].evidence.\n"
+            . "- If two or more distinct services are visible (different ports and/or clearly different banners), include AT LEAST two likely_roles for different surfaces "
+            . "(e.g. administrative SSH vs public HTTPS). The second may be medium/low with explicit port-based reasoning.\n"
+            . "- You MAY infer common software roles from well-known ports when banners are generic (e.g. 443 + nginx → public web / reverse proxy edge); "
+            . "use confidence medium or low and cite ports in evidence.\n"
+            . "- hardening_tips: include at least 2 practical bullets when open_port_count>=2 OR open_findings>0; otherwise at least 1. "
+            . "Tips should be actionable (auth, exposure, patching, segmentation), not a restatement of the banner.\n"
+            . "- owner_questions: include at least 2 concrete questions when open_port_count>=2 OR open_findings>0; otherwise at least 1.\n";
+        if ($portN >= 2) {
+            $depthRules .= "- This host lists {$portN} open ports — do not collapse the entire answer into only SSH unless every non-22 port is clearly dependent on the same appliance.\n";
+        }
+        if ($openCount > 0) {
+            $depthRules .= "- open_findings>0: overview must acknowledge CVE-driven risk in plain language; at least one hardening_tip or likely_roles entry should relate to patching or exposure.\n";
+        }
+
         $prompt = "You analyze ONE discovered host for a network inventory operator.\n"
             . "Output STRICT JSON only with keys:\n"
-            . "- overview: string (<=380 chars, single concise paragraph)\n"
+            . "- overview: string (<=650 chars, 2–4 sentences or one dense paragraph; integrate ports + metadata + findings)\n"
             . "- likely_roles: array (<=4 objects with keys: role, confidence, evidence)\n"
-            . "- hardening_tips: array (<=4 strings, each <=200 chars)\n"
+            . "- hardening_tips: array (<=4 strings, each <=260 chars)\n"
             . "- owner_questions: array (<=3 short questions)\n\n"
             . "For likely_roles:\n"
-            . "- role: short label\n"
+            . "- role: short label (e.g. \"SSH admin surface\", \"HTTPS application\", not just \"SSH\")\n"
             . "- confidence: one of [high, medium, low]\n"
-            . "- evidence: brief justification using ports, banners, titles, or metadata\n"
+            . "- evidence: 1–2 sentences; cite specific ports and what the banner/title/CPE implies; avoid duplicating overview wording\n"
             . "- Use HIGH only when multiple strong signals agree (ports + banners + model/vendor)\n"
-            . "- Use MEDIUM when evidence is partial\n"
+            . "- Use MEDIUM when evidence is partial or inferred from standard ports\n"
             . "- Use LOW when evidence is weak or conflicting\n\n"
-            . "Prioritize evidence from open ports AND ALL banner/title lines. Use metadata (vendor/model/category/OS/CPE) only as supporting signals.\n"
-            . "Do NOT infer services or roles without evidence. If evidence is weak or conflicting, explicitly say so in overview.\n"
-            . "Be concrete, avoid fluff, no repetition.\n\n"
+            . "Prioritize open port composition first, then per-port banners/titles, then metadata (vendor/model/category/os_guess/CPE).\n"
+            . "Be concrete; avoid filler adjectives; avoid repeating the same fact across overview and every bullet.\n"
+            . $depthRules . "\n"
             . "HOST DATA\n"
             . "ip=" . ($row['ip'] ?? '')
             . " hostname=" . ($row['hostname'] ?? '')
@@ -1431,6 +1449,7 @@ try {
             . "os_guess=" . $osGuess
             . " cpe=" . $cpeGuess
             . " nmap_cpes=" . ($cpesStr !== '' ? $cpesStr : '—') . "\n"
+            . "open_port_count=" . (string)$portN . "\n"
             . "open_ports(all,current+history)=" . $portStr . $portOverflow . "\n"
             . "open_findings=" . $openCount
             . " top_cves=" . implode(',', $topCves) . "\n\n"
