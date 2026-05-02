@@ -56,6 +56,7 @@ from fingerprint import (
     oui_lookup,
     vendor_hint_from_port_cpe,
     _printer_banner_conflicts_with_homelab_ports,
+    _ports_for_windows_endpoint_profile,
 )
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
 import asset_lifecycle
@@ -2830,9 +2831,13 @@ def upsert_asset(job_id: int, ip: str, mac: str,
         if not fp["cpe"]:
             fp["cpe"] = best_nmap_cpe
 
-    # Port profile category takes highest priority (e.g. port 8006 → hv/Proxmox)
+    # Port profile category takes highest priority (e.g. port 8006 → hv/Proxmox).
+    # Use the same Linux-aware port set as fingerprint() — raw classify_from_ports(ports)
+    # would keep 3389 → ws and overwrite Kasm/nginx/voi results from fingerprint().
     port_cat_effective = ""
-    port_cat, port_cpe, _ = classify_from_ports(ports)
+    _combined_ports = " ".join((banners or {}).values())
+    _ports_profiled = _ports_for_windows_endpoint_profile(ports, _combined_ports)
+    port_cat, port_cpe, _ = classify_from_ports(_ports_profiled)
     # IPP (631) / JetDirect (9100) hit before DB rules — CUPS on Linux/Photon is not a printer.
     # Must not run after fingerprint() or inventory rescans overwrite VMware Photon → prn.
     skip_printer_port_profile = (
