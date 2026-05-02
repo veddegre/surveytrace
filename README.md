@@ -282,18 +282,16 @@ All reporting compares **per-job snapshot tables** only (`scan_asset_snapshots`,
 
 ### Reporting tab (web UI)
 
-The **Reporting** tab (sidebar) is for operators who need snapshot diffs, baselines, scheduled report artifacts, and rule-based compliance **without** pulling full diff payloads into the browser by default.
+The **Reporting** tab reads as a **brief** first: **At a glance** (live KPIs from **`dashboard.php`**, plus a one-line **compliance** snapshot for the latest finished job), **Snapshot drift** (auto baseline-or-prior vs latest via bounded reporting APIs), **Scan history** (per-job snapshot trends), then a visually secondary **Analysis & tools** block (baseline, manual compare, full compliance, artifacts, admin debug).
 
 | Area | What it does | Typical API |
 |------|----------------|---------------|
-| **Baseline status** | Shows configured vs **effective** baseline job id (when the configured job is missing, not `done`, or has no snapshots, the UI treats baseline as unavailable for diffs). | `baseline` |
-| **Trends** | Last **N** completed jobs (**≤ 50**): snapshot **asset** and **open finding** counts over time; tables plus small inline SVG sparklines (not a charting library). Labeled as snapshot-based, not real-time. | `trends_summary` |
-| **Compare summary** | Pick two completed jobs; loads **counts and finding events** only (not full row arrays). | `compare_summary` |
-| **Saved report artifacts** | Lists rows from **`report_artifacts`** produced by **`report`** schedules (metadata only in the list path). | `artifacts` |
-| **Artifact detail** | **Details** opens a modal fed by **`artifact_summary`** (slim decoded fields: metadata, **`summary`**, **`delta`**, **`compliance_summary`**, **`diff_summary`**). Full **`payload_json`** is **not** loaded here. | `artifact_summary` |
-| **Compliance summary** | Pick a completed job; optional **vs baseline**; shows overall pass/fail, ids, per-rule results, and capped failure text. Uses the live computed ruleset (not the artifact’s stored snapshot alone). | `compliance` |
+| **At a glance** | **Live / current:** assets, open findings, high+critical via **`dashboard.php`**. **Compliance (snapshot):** latest completed job from a tiny recent-scan list + **`compliance`** `vs_baseline=1` (job id spelled out). If the dashboard call fails, snapshot sections still load. | `dashboard.php`, `trends_summary`, `compliance` |
+| **Snapshot drift** | Auto **snapshot diff** to latest: **effective baseline** when valid and ≠ latest; else first **prior** completed job ≠ latest (scans among recent list). Plain-language summary; bounded **`compare_summary`**. | `trends_summary`, `compare_summary` |
+| **Scan history (snapshots)** | Last **N** completed jobs (**≤ 50**): per-job asset and open-finding counts; tables + small SVG sparklines. Loads on tab open; **Reload history** refetches. | `trends_summary` |
+| **Analysis & tools** | Baseline status/save, **manual** reference vs current compare (full cards), **compliance detail**, **artifacts** / **`artifact_summary`**, admin **`compare_debug`** / **`baseline_debug`**. | `baseline`, `set_baseline`, `compare_summary`, `compliance`, `artifacts`, `artifact_summary`, debug actions |
 
-**Why slim endpoints:** `compare` and `action=artifact` can return large JSON. The default UI path uses **`trends_summary`**, **`compare_summary`**, **`artifacts`**, **`artifact_summary`**, **`compliance`**, and **`baseline`** so responses stay bounded. Admins may use **`compare_debug`**, **`baseline_debug`**, and **`artifact_payload_preview`** for truncated or sampled debug views.
+**Why slim endpoints:** `compare` and `action=artifact` can return large JSON. Primary Reporting loads **`dashboard.php`**, **`trends_summary`**, **`compare_summary`**, **`compliance`**, and **`baseline`** in small bounded steps. Admins may use **`compare_debug`**, **`baseline_debug`**, and **`artifact_payload_preview`** for truncated or sampled debug views.
 
 ### Baseline: config vs effective
 
@@ -418,7 +416,7 @@ Use after deploy / migration **`migration_phase13_reporting_v1`** with at least 
 5. **Trends** — **Load trends** (10–50 jobs); **`trends_summary`** payload is a bounded array of points (`job_id`, `timestamp`, counts, severity buckets); tables + optional SVG sparklines; empty state when no qualifying **done** jobs.
 6. **Scheduled report artifact** — **`schedule_action=report`**; after scheduler run, new **`report_artifacts`** row with materialized **`payload_json`** (verify via **`artifacts`** or admin **`artifact_payload_preview`**).
 7. **Admin debug endpoints** — As **admin**: **`baseline_debug`**, **`compare_debug`** (`sample_limit` ≤ 50), **`artifact_payload_preview`** (truncated ~14k chars). **Viewer / scan editor** must not receive admin-only payloads from these actions.
-8. **RBAC quick pass** — **Viewer:** Reporting tab shows baseline, trends, compare, compliance; no baseline save, no artifacts, no admin debug controls. **Scan editor:** artifacts + set baseline; no admin debug unless also admin.
+8. **RBAC quick pass** — **Viewer:** Reporting tab shows **Report summary**, **Changes**, **Trends**, and read-only **Analysis** sections (no baseline save, no artifacts list, no admin debug). **Scan editor:** artifacts + set baseline; no admin debug unless also admin.
 9. **Panel isolation** — If **`scan_history`** fails (e.g. network), baseline and (for scan_editor+) artifacts panels should still populate after refresh; job pickers show the error option until history loads again.
 
 ## SQLite locking and concurrency

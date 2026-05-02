@@ -583,10 +583,53 @@ if (is_readable($dbProbe)) {
 <!-- ================================================================ REPORTING (Phase 13) -->
 <div class="tab" id="t-report">
   <div class="hint-micro mb10">
-    <strong>Snapshot semantics:</strong> comparisons use frozen per-run tables (<span class="mono-sm">scan_asset_snapshots</span>, <span class="mono-sm">scan_finding_snapshots</span>), not live <span class="mono-sm">assets</span> / <span class="mono-sm">findings</span>. This page is read-only except <strong>Set baseline</strong> (scan editor or admin).
+    <strong>Reporting</strong> reads like a short brief: <strong>live posture</strong> (same numbers as the Dashboard), then <strong>snapshot drift</strong> and <strong>history</strong> from completed scans. It extends Executive mode; it does not replace it. Read-only except <strong>Set baseline</strong> (scan editor or admin).
   </div>
 
-  <div class="sth section-top">Baseline</div>
+  <div class="sth section-top">At a glance</div>
+  <div class="card mb10" id="report-at-glance-card">
+    <div class="hint-micro mb8">
+      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for your <em>latest completed</em> scan only; job number is called out in the sentence.
+    </div>
+    <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
+    <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
+  </div>
+
+  <div class="sth section-top">Snapshot drift</div>
+  <div class="card mb10">
+    <div class="hint-micro mb8">
+      <strong>Snapshot-based</strong> — compares frozen per-scan tables, not live hosts. Uses your <strong>effective baseline</strong> as the reference when it is valid and not the same as the latest run; otherwise the <strong>prior completed scan</strong> vs latest.
+    </div>
+    <div id="report-change-since" class="help-mono"><span class="text-dim">Loading…</span></div>
+  </div>
+
+  <div class="sth section-top">Scan history (snapshots)</div>
+  <div class="card mb10">
+    <div class="hint-micro mb8">
+      <strong>Snapshot-based</strong> — each point is one finished job (asset rows and open findings in that job’s snapshots). Not a live timeline.
+    </div>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
+        <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+      <button type="button" class="tbtn" onclick="loadReportingTrendsSummary(false)">Reload history</button>
+    </div>
+    <div id="report-trends-out" class="help-mono text-dim">History loads when you open this tab.</div>
+  </div>
+
+  <div id="report-analysis-region" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);opacity:0.94">
+  <div class="sth section-top" style="font-size:15px">Analysis &amp; tools</div>
+  <div class="hint-micro mb10 text-dim">
+    Secondary controls: baseline, manual two-scan compare, full compliance text, scheduled artifacts, and admin diagnostics.
+  </div>
+
+  <div class="sth" style="font-size:13px;margin-bottom:6px">Baseline</div>
   <div class="card mb10">
     <div id="report-baseline-status" class="help-mono">Loading…</div>
     <div id="report-baseline-validation" class="hint-micro mt8" style="display:none"></div>
@@ -605,30 +648,34 @@ if (is_readable($dbProbe)) {
     </div>
   </div>
 
-  <div class="sth section-top">Trends</div>
+  <div class="sth" style="font-size:13px;margin-bottom:6px">Manual compare (snapshots)</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based trend (not real-time):</strong> each row is one completed job, ordered by finish time. Counts come from <span class="mono-sm">scan_asset_snapshots</span> / <span class="mono-sm">scan_finding_snapshots</span> only (<span class="mono-sm">GET …/reporting.php?action=trends_summary</span>). No drill-down.
+      Pick any two completed jobs for a custom snapshot diff — same summary style as <strong>Snapshot drift</strong> above, with full metric cards and a technical counter table.
     </div>
     <div class="row-wrap gap6 mb8" style="align-items:flex-end">
       <div>
-        <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
-        <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
-          <option value="10">10</option>
-          <option value="20">20</option>
-          <option value="30" selected>30</option>
-          <option value="50">50</option>
-        </select>
+        <label class="flbl" for="report-cmp-a">Reference scan</label>
+        <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Reference completed scan"></select>
       </div>
-      <button type="button" class="tbtn" onclick="loadReportingTrendsSummary()">Load trends</button>
+      <div>
+        <label class="flbl" for="report-cmp-b">Current scan</label>
+        <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Current completed scan"></select>
+      </div>
+      <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
     </div>
-    <div id="report-trends-out" class="help-mono text-dim">Choose how many recent jobs to include, then <strong>Load trends</strong>.</div>
+    <div id="report-cmp-out" class="help-mono text-dim">Pick a reference scan and a current scan, then <strong>Compare</strong>.</div>
+    <div id="report-cmp-debug-wrap" class="mt10" style="display:none">
+      <div class="hint-micro mb6">Admin-only: sample rows (<span class="mono-sm">compare_debug</span>).</div>
+      <button type="button" class="tbtn btn-xs" onclick="runReportingCompareDebug()">Load compare_debug</button>
+      <pre id="report-cmp-debug-out" class="help-mono mt8" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap"></pre>
+    </div>
   </div>
 
-  <div class="sth section-top">Compliance summary</div>
+  <div class="sth" style="font-size:13px;margin-bottom:6px">Compliance detail</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      Snapshot-based rules for one completed job. Optional <strong>vs baseline</strong> adds the “no new high/critical vs baseline” check when an effective baseline exists (<span class="mono-sm">GET …/reporting.php?action=compliance</span>).
+      Full rule text for a chosen job (optional vs-baseline rules). The <strong>At a glance</strong> line above is a quick pass/fail for the latest completed scan only.
     </div>
     <div class="row-wrap gap6 mb8" style="align-items:flex-end">
       <div>
@@ -641,34 +688,10 @@ if (is_readable($dbProbe)) {
       </label>
       <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
     </div>
-    <div id="report-compliance-out" class="help-mono text-dim">Select a completed job and click <strong>Load compliance</strong>.</div>
+    <div id="report-compliance-out" class="help-mono text-dim">Select a job and <strong>Load compliance</strong> for rule-by-rule output.</div>
   </div>
 
-  <div class="sth section-top">Compare scans (counts only)</div>
-  <div class="card mb10">
-    <div class="hint-micro mb8">
-      <strong>Job A</strong> = reference run (older baseline side). <strong>Job B</strong> = current run. The API returns aggregate <strong>counts</strong> and finding <strong>events</strong> only (<span class="mono-sm">compare_summary</span>) — not full host/CVE row lists.
-    </div>
-    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-      <div>
-        <label class="flbl" for="report-cmp-a">Job A — reference (baseline side)</label>
-        <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Compare job A reference"></select>
-      </div>
-      <div>
-        <label class="flbl" for="report-cmp-b">Job B — current (newer run)</label>
-        <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Compare job B current"></select>
-      </div>
-      <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
-    </div>
-    <div id="report-cmp-out" class="help-mono text-dim">Select two completed jobs, then <strong>Compare</strong>. Row-level data stays on the server unless you use admin debug below.</div>
-    <div id="report-cmp-debug-wrap" class="mt10" style="display:none">
-      <div class="hint-micro mb6">Admin-only: up to 12 sample rows per bucket (<span class="mono-sm">compare_debug</span>).</div>
-      <button type="button" class="tbtn btn-xs" onclick="runReportingCompareDebug()">Load compare_debug</button>
-      <pre id="report-cmp-debug-out" class="help-mono mt8" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap"></pre>
-    </div>
-  </div>
-
-  <div class="sth section-top" id="report-artifacts-heading" style="display:none">Saved report artifacts</div>
+  <div class="sth" id="report-artifacts-heading" style="font-size:13px;margin-bottom:6px;display:none">Saved report artifacts</div>
   <div id="report-artifacts-wrap" class="card mb10" style="display:none">
     <div class="tbl-wrap">
       <table class="tbl">
@@ -676,6 +699,7 @@ if (is_readable($dbProbe)) {
         <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
       </table>
     </div>
+  </div>
   </div>
 </div>
 
@@ -7359,6 +7383,333 @@ function reportingRenderCountsTable(counts, fe) {
     return '<table class="tbl"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' + feHtml;
 }
 
+/** @returns {Record<string, number>} */
+function reportingCompareNormalizeCounts(counts, finding_events) {
+    const c = counts && typeof counts === 'object' ? counts : {};
+    const fe = finding_events && typeof finding_events === 'object' ? finding_events : {};
+    const num = (v) => {
+        if (v == null || v === '') {
+            return 0;
+        }
+        const n = parseInt(String(v), 10);
+        return Number.isFinite(n) ? n : 0;
+    };
+    const openAbsentFe = num(fe.open_in_a_absent_in_b_snapshots);
+    const openAbsentC = num(c.open_in_a_absent_in_b);
+    return {
+        assets_a: num(c.assets_a),
+        assets_b: num(c.assets_b),
+        assets_only_in_a: num(c.assets_only_in_a) || num(c.removed_hosts),
+        assets_only_in_b: num(c.assets_only_in_b) || num(c.new_hosts),
+        new_findings_rows: num(c.new_findings_rows) || num(c.findings_only_in_b),
+        marked_resolved_in_b: num(fe.marked_resolved_in_b) || num(c.marked_resolved_in_b),
+        reopened_in_b: num(fe.reopened_in_b) || num(c.reopened_in_b),
+        open_in_a_absent_in_b: openAbsentFe || openAbsentC,
+        hosts_with_port_delta: num(c.hosts_with_port_delta),
+    };
+}
+
+function reportingCompareIsSignificant(nc) {
+    if (!nc) {
+        return false;
+    }
+    if (nc.new_findings_rows > 0 || nc.reopened_in_b > 0 || nc.assets_only_in_a > 0 || nc.assets_only_in_b > 0) {
+        return true;
+    }
+    if (nc.marked_resolved_in_b > 0 || nc.open_in_a_absent_in_b > 0 || nc.hosts_with_port_delta > 0) {
+        return true;
+    }
+    return nc.assets_a !== nc.assets_b;
+}
+
+function reportingCompareExecutiveParagraph(jobA, jobB, nc) {
+    const a = jobA;
+    const b = jobB;
+    const dAssets = nc.assets_b - nc.assets_a;
+    let assetPart;
+    if (dAssets === 0) {
+        assetPart = 'the same number of assets in the two snapshots';
+    } else if (dAssets < 0) {
+        const x = Math.abs(dAssets);
+        assetPart = x + ' fewer asset' + (x === 1 ? '' : 's') + ' in the current snapshot';
+    } else {
+        assetPart = dAssets + ' more asset' + (dAssets === 1 ? '' : 's') + ' in the current snapshot';
+    }
+    const newHostPart =
+        nc.assets_only_in_b === 0
+            ? 'no new assets'
+            : nc.assets_only_in_b + ' new asset' + (nc.assets_only_in_b === 1 ? '' : 's') + ' in the current scan';
+    let resolvedPart;
+    if (nc.marked_resolved_in_b === 0) {
+        resolvedPart = 'no findings moved to resolved in this diff';
+    } else if (nc.marked_resolved_in_b === 1) {
+        resolvedPart = '1 finding appears resolved';
+    } else {
+        resolvedPart = nc.marked_resolved_in_b + ' findings appear resolved';
+    }
+    const reopenPart =
+        nc.reopened_in_b === 0
+            ? 'No reopened findings'
+            : nc.reopened_in_b + ' finding' + (nc.reopened_in_b === 1 ? '' : 's') + ' reopened (were resolved in reference, open again in current)';
+    const newFindPart =
+        nc.new_findings_rows === 0
+            ? 'no new finding rows'
+            : nc.new_findings_rows + ' new finding row' + (nc.new_findings_rows === 1 ? '' : 's') + ' in the current snapshot';
+    const portPart =
+        nc.hosts_with_port_delta === 0
+            ? 'no host port changes were detected'
+            : 'host port differences on ' + nc.hosts_with_port_delta + ' host' + (nc.hosts_with_port_delta === 1 ? '' : 's');
+    let absentExtra = '';
+    if (nc.open_in_a_absent_in_b > 0) {
+        absentExtra =
+            ' Additionally, ' +
+            nc.open_in_a_absent_in_b +
+            ' previously open finding row' +
+            (nc.open_in_a_absent_in_b === 1 ? '' : 's') +
+            ' from the reference snapshot ' +
+            (nc.open_in_a_absent_in_b === 1 ? 'was' : 'were') +
+            ' not present in the current snapshot.';
+    }
+    return (
+        '<p class="hint-micro" style="line-height:1.45;margin:0">' +
+        'Compared with <strong>reference scan ' +
+        esc(String(a)) +
+        '</strong>, <strong>current scan ' +
+        esc(String(b)) +
+        '</strong> has ' +
+        assetPart +
+        ', ' +
+        newHostPart +
+        ', and ' +
+        resolvedPart +
+        '. ' +
+        reopenPart +
+        ', ' +
+        newFindPart +
+        ', and ' +
+        portPart +
+        '.' +
+        esc(absentExtra) +
+        '</p>'
+    );
+}
+
+function reportingCompareSummaryCardsHtml(nc) {
+    const dAssets = nc.assets_b - nc.assets_a;
+    const dShow = dAssets > 0 ? '+' + dAssets : String(dAssets);
+    const card = (title, value, sub, tone) => {
+        const toneClass =
+            tone === 'good' ? 'hstate-ok' : tone === 'bad' ? 'hstate-err' : tone === 'warn' ? 'hstate-warn' : 'hstate-unk';
+        return (
+            '<div class="card" style="padding:10px 12px;min-width:120px;flex:1 1 120px;border:1px solid var(--border)">' +
+            '<div class="hint-micro text-dim" style="margin-bottom:4px">' +
+            esc(title) +
+            '</div>' +
+            '<div class="' +
+            toneClass +
+            '" style="font-size:20px;line-height:1.2">' +
+            esc(String(value)) +
+            '</div>' +
+            (sub ? '<div class="hint-micro text-dim mt4">' + esc(sub) + '</div>' : '') +
+            '</div>'
+        );
+    };
+    let assetSub = 'Snapshot host rows (current − reference)';
+    if (dAssets < 0) {
+        assetSub = 'Fewer hosts in current snapshot';
+    } else if (dAssets > 0) {
+        assetSub = 'More hosts in current snapshot';
+    } else {
+        assetSub = 'Same host count';
+    }
+    const assetTone = dAssets !== 0 || nc.assets_only_in_a > 0 ? 'warn' : 'unk';
+    const newFindTone = nc.new_findings_rows > 0 ? 'warn' : 'unk';
+    const reopenTone = nc.reopened_in_b > 0 ? 'bad' : 'unk';
+    const resolvedTone = nc.marked_resolved_in_b > 0 ? 'good' : 'unk';
+    const portTone = nc.hosts_with_port_delta > 0 ? 'warn' : 'unk';
+    let h = '<div class="row-wrap gap8 mb6" style="align-items:stretch">';
+    h += card('Asset change (Δ)', dShow, assetSub, assetTone);
+    h += card('New findings', String(nc.new_findings_rows), 'New CVE rows in current', newFindTone);
+    h += card('Resolved findings', String(nc.marked_resolved_in_b), 'Marked resolved in current', resolvedTone);
+    h += card('Reopened findings', String(nc.reopened_in_b), 'Were resolved, open again', reopenTone);
+    h += card('Port changes', String(nc.hosts_with_port_delta), 'Hosts with port deltas', portTone);
+    h += '</div>';
+    if (nc.assets_only_in_b > 0 || nc.assets_only_in_a > 0) {
+        const invParts = [];
+        if (nc.assets_only_in_b > 0) {
+            invParts.push(
+                esc(String(nc.assets_only_in_b)) +
+                    ' new asset row' +
+                    (nc.assets_only_in_b === 1 ? '' : 's') +
+                    ' only in current'
+            );
+        }
+        if (nc.assets_only_in_a > 0) {
+            invParts.push(
+                esc(String(nc.assets_only_in_a)) +
+                    ' asset row' +
+                    (nc.assets_only_in_a === 1 ? '' : 's') +
+                    ' in reference missing from current'
+            );
+        }
+        h +=
+            '<div class="hint-micro text-dim mb8">' +
+            '<span class="hstate-warn" style="font-weight:600">Inventory</span> — ' +
+            invParts.join('; ') +
+            '.' +
+            '</div>';
+    }
+    return h;
+}
+
+function reportingRenderCompareAdvancedDetails(counts, finding_events) {
+    const c = counts && typeof counts === 'object' ? counts : {};
+    const fe = finding_events && typeof finding_events === 'object' ? finding_events : {};
+    const num = (v) => {
+        if (v == null || v === '') {
+            return 0;
+        }
+        const n = parseInt(String(v), 10);
+        return Number.isFinite(n) ? n : 0;
+    };
+    const rows = [];
+    const push = (label, key, val) => {
+        rows.push('<tr><td>' + esc(label) + '</td><td class="mono-sm">' + esc(String(val)) + '</td></tr>');
+    };
+    push('Assets in reference scan', 'assets_a', num(c.assets_a));
+    push('Assets in current scan', 'assets_b', num(c.assets_b));
+    push('Assets missing from current scan', 'assets_only_in_a', num(c.assets_only_in_a) || num(c.removed_hosts));
+    push('New assets in current scan', 'assets_only_in_b', num(c.assets_only_in_b) || num(c.new_hosts));
+    push('Hosts with port changes', 'hosts_with_port_delta', num(c.hosts_with_port_delta));
+    push('New finding rows in current scan', 'new_findings_rows', num(c.new_findings_rows) || num(c.findings_only_in_b));
+    push('Finding rows only in reference snapshot', 'findings_absent_in_b', num(c.findings_absent_in_b) || num(c.findings_only_in_a));
+    push('Findings resolved in current scan', 'marked_resolved_in_b', num(fe.marked_resolved_in_b) || num(c.marked_resolved_in_b));
+    push('Findings reopened', 'reopened_in_b', num(fe.reopened_in_b) || num(c.reopened_in_b));
+    push(
+        'Previously open findings not seen in current snapshot',
+        'open_in_a_absent_in_b',
+        num(fe.open_in_a_absent_in_b_snapshots) || num(c.open_in_a_absent_in_b)
+    );
+    push('Resolution changes (total rows)', 'resolution_changes', num(c.resolution_changes));
+    const shown = new Set([
+        'assets_a',
+        'assets_b',
+        'assets_only_in_a',
+        'assets_only_in_b',
+        'removed_hosts',
+        'new_hosts',
+        'hosts_with_port_delta',
+        'new_findings_rows',
+        'findings_only_in_b',
+        'findings_absent_in_b',
+        'findings_only_in_a',
+        'marked_resolved_in_b',
+        'reopened_in_b',
+        'open_in_a_absent_in_b',
+        'resolution_changes',
+    ]);
+    const extra = [];
+    Object.keys(c)
+        .sort()
+        .forEach((k) => {
+            if (shown.has(k)) {
+                return;
+            }
+            extra.push('<tr><td class="mono-sm">' + esc(k) + '</td><td class="mono-sm">' + esc(String(c[k])) + '</td></tr>');
+        });
+    let feRows = '';
+    Object.keys(fe)
+        .sort()
+        .forEach((k) => {
+            feRows += '<tr><td class="mono-sm">' + esc(k) + ' (finding_events)</td><td class="mono-sm">' + esc(String(fe[k])) + '</td></tr>';
+        });
+    let h =
+        '<table class="tbl"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>' +
+        rows.join('') +
+        extra.join('') +
+        feRows +
+        '</tbody></table>';
+    if (!rows.length && !extra.length && !feRows) {
+        h = '<span class="text-dim">No counter data.</span>';
+    }
+    return h;
+}
+
+function reportingRenderCompareExecutiveSummary(s, opts) {
+    opts = opts || {};
+    const showCards = opts.cards !== false;
+    const jobA = s.job_a;
+    const jobB = s.job_b;
+    const nc = reportingCompareNormalizeCounts(s.counts, s.finding_events);
+    const warnList = Array.isArray(s.warnings) ? s.warnings.slice(0, 24) : [];
+    const warns =
+        warnList.length > 0
+            ? '<div class="hint-micro mt8 hstate-warn">' +
+              warnList.map((w) => esc(String(w))).join('<br>') +
+              (Array.isArray(s.warnings) && s.warnings.length > 24
+                  ? '<br><span class="text-dim">(' + (s.warnings.length - 24) + ' more warnings omitted)</span>'
+                  : '') +
+              '</div>'
+            : '';
+    const significant = reportingCompareIsSignificant(nc);
+    const bad = nc.reopened_in_b > 0 || nc.new_findings_rows > 0;
+    const warn =
+        !bad &&
+        (nc.assets_only_in_a > 0 || nc.hosts_with_port_delta > 0 || nc.open_in_a_absent_in_b > 0);
+    let hero = '';
+    if (!significant) {
+        hero =
+            '<div class="card mb10" style="padding:12px 14px;border:1px solid var(--border);background:rgba(0,0,0,0.04)">' +
+            '<div class="hstate-ok" style="font-weight:600;margin-bottom:4px">No significant changes detected</div>' +
+            '<div class="hint-micro text-dim" style="margin:0">Snapshot counters match for assets, new/missing hosts, finding deltas, and port changes between these two jobs.</div>' +
+            '</div>';
+    }
+    let riskBox = '';
+    if (bad) {
+        riskBox =
+            '<div class="hint-micro mt8 mb8" style="padding:10px;border:1px solid var(--border);border-left:3px solid var(--red)">' +
+            '<span class="hstate-err" style="font-weight:600">Needs attention</span> — ' +
+            (nc.reopened_in_b > 0
+                ? 'One or more findings <strong>reopened</strong> (resolved in reference, open again in current).'
+                : 'New finding rows appeared in the current snapshot — review in <strong>Vulnerabilities</strong> (this summary does not split high/critical).') +
+            '</div>';
+    } else if (warn) {
+        riskBox =
+            '<div class="hint-micro mt8 mb8" style="padding:10px;border:1px solid var(--border);border-left:3px solid var(--amber)">' +
+            '<span class="hstate-warn" style="font-weight:600">May need review</span> — ' +
+            (nc.assets_only_in_a > 0
+                ? 'Some reference hosts are missing from the current snapshot (scope, coverage, or trash). '
+                : '') +
+            (nc.hosts_with_port_delta > 0 ? 'Open ports changed on one or more in-scope hosts. ' : '') +
+            (nc.open_in_a_absent_in_b > 0
+                ? 'Some open findings from the reference run were not re-seen in the current snapshot.'
+                : '') +
+            '</div>';
+    } else if (significant && nc.marked_resolved_in_b > 0) {
+        riskBox =
+            '<div class="hint-micro mt8 mb8" style="padding:10px;border:1px solid var(--border);border-left:3px solid var(--green)">' +
+            '<span class="hstate-ok" style="font-weight:600">Mostly improvements</span> — ' +
+            'Findings moved to resolved with no new finding rows or reopen events in this diff.' +
+            '</div>';
+    }
+    const head =
+        '<div class="hint-micro mb8">' +
+        '<strong>Reference scan</strong> <span class="mono-sm">#' +
+        esc(String(jobA)) +
+        '</span> · <strong>Current scan</strong> <span class="mono-sm">#' +
+        esc(String(jobB)) +
+        '</span> <span class="text-dim">(frozen per-scan snapshots, not live inventory)</span></div>';
+    const cards = showCards ? reportingCompareSummaryCardsHtml(nc) : '';
+    const para = reportingCompareExecutiveParagraph(jobA, jobB, nc);
+    const adv =
+        '<details class="mt10" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+        '<summary class="hint-micro" style="cursor:pointer;font-weight:600">Advanced details</summary>' +
+        '<div class="hint-micro text-dim mt6 mb6">Technical counter fields returned by the server for this snapshot pair.</div>' +
+        reportingRenderCompareAdvancedDetails(s.counts, s.finding_events) +
+        '</details>';
+    return head + hero + riskBox + cards + '<div class="mb8">' + para + '</div>' + warns + adv;
+}
+
 function reportingHumanizeRuleKey(k) {
     return String(k || '').replace(/_/g, ' ');
 }
@@ -7385,7 +7736,7 @@ function reportingRenderComplianceArtifactCard(cs) {
         '</td></tr>';
     h += '</tbody></table>';
     h +=
-        '<div class="hint-micro mt6">Stored artifacts only keep pass/fail and ids. Use <strong>Compliance summary</strong> on this tab with the same job for full rule text.</div>';
+        '<div class="hint-micro mt6">Stored artifacts only keep pass/fail and ids. Use <strong>Compliance detail</strong> (Reporting → Analysis &amp; tools) with the same job for full rule text.</div>';
     h += '</div>';
     return h;
 }
@@ -7488,6 +7839,202 @@ async function loadReportingCompliancePanel() {
     if (out) out.innerHTML = reportingRenderComplianceFull(c);
 }
 
+var reportingTabBaseline = null;
+
+async function loadReportingAtGlance() {
+    const kpiEl = document.getElementById('report-at-glance-kpis');
+    const cmpEl = document.getElementById('report-at-glance-compliance');
+    if (kpiEl) {
+        kpiEl.innerHTML = '<span class="text-dim">Loading…</span>';
+    }
+    if (cmpEl) {
+        cmpEl.innerHTML = '<span class="text-dim">Loading compliance…</span>';
+    }
+    const dash = await api('/api/dashboard.php?trend_days=14', {quiet: true});
+    if (dash && dash.ok) {
+        const ex = dash.executive && typeof dash.executive === 'object' ? dash.executive : {};
+        const kpis = ex.kpis || {};
+        const total = dash.assets != null && dash.assets.total != null ? dash.assets.total : kpis.assets_total;
+        const openF =
+            dash.findings != null && dash.findings.open != null ? dash.findings.open : kpis.open_findings;
+        const bySev = (dash.findings && dash.findings.by_severity) || {};
+        const crit = bySev.critical != null ? bySev.critical : kpis.critical_open || 0;
+        const high = bySev.high != null ? bySev.high : kpis.high_open || 0;
+        const card = (title, val, sub, tone) => {
+            const tc = tone === 'bad' ? 'hstate-err' : tone === 'warn' ? 'hstate-warn' : '';
+            return (
+                '<div class="card" style="padding:10px 14px;flex:1 1 130px;border:1px solid var(--border)">' +
+                '<div class="hint-micro text-dim" style="margin-bottom:4px">' +
+                esc(title) +
+                '</div>' +
+                '<div class="' +
+                tc +
+                '" style="font-size:22px;font-weight:600;line-height:1.1">' +
+                esc(String(val)) +
+                '</div>' +
+                (sub ? '<div class="hint-micro text-dim mt4">' + esc(sub) + '</div>' : '') +
+                '</div>'
+            );
+        };
+        const hiCrit = (Number(crit) || 0) + (Number(high) || 0);
+        const sevTone = hiCrit > 0 ? 'warn' : '';
+        if (kpiEl) {
+            kpiEl.innerHTML =
+                '<div class="row-wrap gap8" style="align-items:stretch">' +
+                card('Assets (inventory)', total != null ? total : '—', 'Live — same as Dashboard', '') +
+                card('Open findings', openF != null ? openF : '—', 'Live — unresolved CVE rows', '') +
+                card('High + critical (open)', String(hiCrit), 'Live — severity split', sevTone) +
+                '</div>';
+        }
+    } else if (kpiEl) {
+        kpiEl.innerHTML =
+            '<div class="hint-micro text-dim">Live KPIs could not load. Snapshot sections below still work once scan data is available.</div>';
+    }
+    if (!cmpEl) {
+        return;
+    }
+    const tr = await api('/api/reporting.php?action=trends_summary&limit=1', {quiet: true});
+    const jid =
+        tr && tr.ok && Array.isArray(tr.trends_summary) && tr.trends_summary[0]
+            ? parseInt(String(tr.trends_summary[0].job_id), 10)
+            : 0;
+    if (!jid) {
+        cmpEl.innerHTML =
+            '<div class="hint-micro text-dim"><strong>Compliance (snapshot)</strong> — unavailable: no completed scan in the recent snapshot list. Run a scan or open <strong>Compliance detail</strong> below.</div>';
+        return;
+    }
+    const comp = await api(
+        '/api/reporting.php?action=compliance&job_id=' + jid + '&vs_baseline=1',
+        {quiet: true}
+    );
+    if (!comp || !comp.ok) {
+        cmpEl.innerHTML =
+            '<div class="hint-micro text-dim"><strong>Compliance (snapshot) for latest completed scan #' +
+            esc(String(jid)) +
+            '</strong> — temporarily unavailable. Use <strong>Compliance detail</strong> below to retry.</div>';
+        return;
+    }
+    const c = comp.compliance;
+    const pass = !!(c && c.overall_pass);
+    const badge = pass
+        ? '<span class="hstate-ok" style="font-weight:600">PASS</span>'
+        : '<span class="hstate-warn" style="font-weight:600">FAIL</span>';
+    cmpEl.innerHTML =
+        '<div><strong>Compliance (snapshot) for latest completed scan #' +
+        esc(String(jid)) +
+        '</strong> (vs baseline rules): ' +
+        badge +
+        ' <span class="text-dim">— rule text under <strong>Compliance detail</strong>.</span></div>';
+}
+
+async function loadReportingChangeSince() {
+    const out = document.getElementById('report-change-since');
+    if (!out) {
+        return;
+    }
+    out.innerHTML = '<span class="text-dim">Loading snapshot drift…</span>';
+    const tr = await api('/api/reporting.php?action=trends_summary&limit=15', {quiet: true});
+    if (!tr || !tr.ok) {
+        out.innerHTML =
+            '<div class="hint-micro text-dim">Snapshot drift could not load (recent scans unavailable). Other sections may still work.</div>';
+        return;
+    }
+    const ts = tr.trends_summary;
+    if (!Array.isArray(ts) || ts.length < 1) {
+        out.innerHTML =
+            '<div class="hint-micro text-dim">No completed scans yet — snapshot drift appears after at least one job finishes.</div>';
+        return;
+    }
+    const newest = parseInt(String(ts[0].job_id), 10);
+    if (!newest) {
+        out.innerHTML = '<div class="hint-micro text-dim">No valid latest scan id for drift.</div>';
+        return;
+    }
+    const bl = reportingTabBaseline;
+    const eff = bl && bl.ok && bl.baseline_job_id != null ? parseInt(String(bl.baseline_job_id), 10) : 0;
+    const cfg = bl && bl.ok && bl.baseline_config_job_id != null ? parseInt(String(bl.baseline_config_job_id), 10) : 0;
+    const unavail = !!(bl && bl.ok && bl.baseline_unavailable);
+    let jobA = 0;
+    let labelMode = 'none';
+    if (eff > 0 && eff !== newest) {
+        jobA = eff;
+        labelMode = 'baseline';
+    } else {
+        for (let i = 1; i < ts.length; i++) {
+            const cand = parseInt(String(ts[i].job_id), 10);
+            if (cand > 0 && cand !== newest) {
+                jobA = cand;
+                break;
+            }
+        }
+        if (jobA) {
+            if (eff > 0 && eff === newest) {
+                labelMode = 'prior_latest_is_baseline';
+            } else if (unavail && cfg > 0) {
+                labelMode = 'fallback_unusable_baseline';
+            } else {
+                labelMode = 'prior_only';
+            }
+        }
+    }
+    if (!jobA || jobA === newest) {
+        out.innerHTML =
+            '<div class="hint-micro text-dim">Need another completed scan before drift can be shown. If you use a baseline, it must resolve to a finished job that is not the same as your latest scan.</div>';
+        return;
+    }
+    const d = await api(
+        '/api/reporting.php?action=compare_summary&job_a=' + jobA + '&job_b=' + newest,
+        {quiet: true}
+    );
+    if (!d || !d.ok) {
+        out.innerHTML =
+            '<div class="hint-micro text-dim">' +
+            esc(reportingUserErrorMessage(d, 'Snapshot drift could not be computed for these jobs.')) +
+            '</div>';
+        return;
+    }
+    const ds = d.diff_summary;
+    if (!ds || typeof ds !== 'object') {
+        out.innerHTML = '<div class="hint-micro text-dim">No drift summary returned.</div>';
+        return;
+    }
+    let hintText = '';
+    if (labelMode === 'baseline') {
+        hintText =
+            'Reference: configured baseline (scan #' +
+            jobA +
+            ') vs current scan #' +
+            newest +
+            ' — snapshot tables only (not live inventory).';
+    } else if (labelMode === 'prior_latest_is_baseline') {
+        hintText =
+            'Your latest completed scan is the effective baseline; reference: prior completed scan #' +
+            jobA +
+            ' vs current scan #' +
+            newest +
+            ' — snapshots only.';
+    } else if (labelMode === 'fallback_unusable_baseline') {
+        hintText =
+            'Configured baseline is not usable for snapshots; reference: prior completed scan #' +
+            jobA +
+            ' vs current scan #' +
+            newest +
+            ' — snapshots only.';
+    } else {
+        hintText =
+            'No separate baseline for drift; reference: prior completed scan #' +
+            jobA +
+            ' vs current scan #' +
+            newest +
+            ' — snapshots only.';
+    }
+    const hint =
+        '<div class="hint-micro mb8 text-dim"><strong>How this comparison was chosen</strong> — ' +
+        esc(hintText) +
+        '</div>';
+    out.innerHTML = hint + reportingRenderCompareExecutiveSummary(ds, {cards: false});
+}
+
 function reportingTrendsChronological(points) {
     if (!Array.isArray(points)) {
         return [];
@@ -7570,7 +8117,8 @@ function reportingRenderTrendsSummaryHtml(chrono) {
     if (!chrono.length) {
         return '<div class="hint-micro text-dim">No completed scan jobs with a finish time were found. Run scans and return here after jobs complete.</div>';
     }
-    let h = '';
+    let h =
+        '<div class="hint-micro text-dim mb8">Each row is one <strong>completed scan</strong> (snapshot tables only; not live inventory).</div>';
     const assetVals = chrono.map((r) => (r.asset_count != null ? r.asset_count : 0));
     const findVals = chrono.map((r) => (r.open_findings_total != null ? r.open_findings_total : 0));
     h += '<div class="row-wrap gap14 mb10" style="align-items:center">';
@@ -7626,7 +8174,7 @@ function reportingRenderTrendsSummaryHtml(chrono) {
     return h;
 }
 
-async function loadReportingTrendsSummary() {
+async function loadReportingTrendsSummary(silentFail) {
     const sel = document.getElementById('report-trends-limit');
     const out = document.getElementById('report-trends-out');
     const limRaw = sel ? parseInt(String(sel.value), 10) : 30;
@@ -7636,11 +8184,19 @@ async function loadReportingTrendsSummary() {
     }
     const d = await api('/api/reporting.php?action=trends_summary&limit=' + lim, {quiet: true});
     if (!d || !d.ok) {
-        const msg = esc(reportingUserErrorMessage(d, 'Could not load trends.'));
+        const msg = esc(reportingUserErrorMessage(d, 'Could not load scan history.'));
         if (out) {
-            out.innerHTML = '<div class="text-dim">' + msg + '</div>';
+            out.innerHTML =
+                '<div class="hint-micro text-dim">' +
+                msg +
+                (silentFail
+                    ? ' Live KPIs and snapshot drift above may still be useful.'
+                    : '') +
+                '</div>';
         }
-        reportingToastApiError('Trends', d, 'Trends request failed');
+        if (!silentFail) {
+            reportingToastApiError('Trends', d, 'Trends request failed');
+        }
         return;
     }
     const pts = d.trends_summary;
@@ -7679,12 +8235,12 @@ async function loadReportingTab() {
     }
     const trendsOut = document.getElementById('report-trends-out');
     if (trendsOut) {
-        trendsOut.innerHTML =
-            'Choose how many recent jobs to include, then <strong>Load trends</strong>.';
+        trendsOut.innerHTML = '<span class="text-dim">Loading scan history (snapshots)…</span>';
         trendsOut.className = 'help-mono text-dim';
     }
     // Baseline first so a failure loading scan history (job pickers) does not block baseline or artifacts.
     const d = await api('/api/reporting.php?action=baseline', {quiet: true});
+    reportingTabBaseline = d && d.ok ? d : null;
     if (!d || !d.ok) {
         const msg = reportingUserErrorMessage(d, 'Unable to load baseline status. Check your session or try again.');
         if (baseEl) baseEl.innerHTML = '<div class="text-dim">' + esc(msg) + '</div>';
@@ -7723,17 +8279,30 @@ async function loadReportingTab() {
     if (setWrap) setWrap.style.display = stRoleCanManageScans() ? '' : 'none';
     if (dbgWrap) dbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
     if (cmpDbgWrap) cmpDbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
-    await populateReportingJobSelects();
+    try {
+        await loadReportingAtGlance();
+    } catch (_e) {}
+    try {
+        await loadReportingChangeSince();
+    } catch (_e) {}
+    try {
+        await populateReportingJobSelects();
+    } catch (_e) {}
     const artH = document.getElementById('report-artifacts-heading');
     const artW = document.getElementById('report-artifacts-wrap');
     if (stRoleCanManageScans()) {
         if (artH) artH.style.display = '';
         if (artW) artW.style.display = '';
-        await loadReportingArtifacts();
+        try {
+            await loadReportingArtifacts();
+        } catch (_e) {}
     } else {
         if (artH) artH.style.display = 'none';
         if (artW) artW.style.display = 'none';
     }
+    try {
+        await loadReportingTrendsSummary(true);
+    } catch (_e) {}
 }
 
 async function saveReportingBaseline() {
@@ -7761,11 +8330,11 @@ async function runReportingCompareSummary() {
     const b = parseInt(String(document.getElementById('report-cmp-b') && document.getElementById('report-cmp-b').value), 10);
     const out = document.getElementById('report-cmp-out');
     if (!a || !b) {
-        toast('Select job A and job B', 'err');
+        toast('Select a reference scan and a current scan', 'err');
         return;
     }
     if (a === b) {
-        toast('Job A and B must differ', 'err');
+        toast('Reference and current scans must be different jobs', 'err');
         return;
     }
     if (out) out.innerHTML = '<span class="text-dim">Loading…</span>';
@@ -7786,18 +8355,9 @@ async function runReportingCompareSummary() {
               : '') +
           '</div>'
         : '';
-    const tbl = reportingRenderCountsTable(s.counts, s.finding_events);
     if (out) {
-        out.innerHTML =
-            '<div class="hint-micro mb6">job_a=' +
-            esc(String(s.job_a)) +
-            ' job_b=' +
-            esc(String(s.job_b)) +
-            ' · ' +
-            esc(String(s.semantics || '')) +
-            '</div>' +
-            tbl +
-            warns;
+        out.className = 'help-mono';
+        out.innerHTML = reportingRenderCompareExecutiveSummary(s);
     }
 }
 
@@ -7829,11 +8389,11 @@ async function runReportingCompareDebug() {
     const a = parseInt(String(document.getElementById('report-cmp-a') && document.getElementById('report-cmp-a').value), 10);
     const b = parseInt(String(document.getElementById('report-cmp-b') && document.getElementById('report-cmp-b').value), 10);
     if (!a || !b) {
-        toast('Select job A and job B first', 'err');
+        toast('Select reference and current scans first', 'err');
         return;
     }
     if (a === b) {
-        toast('Job A and B must differ', 'err');
+        toast('Reference and current scans must differ', 'err');
         return;
     }
     pre.style.display = '';
@@ -7985,27 +8545,7 @@ function reportingRenderArtifactSummaryBody(s) {
         h += '<div class="sth mb6">Diff summary</div><div class="text-dim">' + esc(String(ds.error)) + '</div>';
     } else {
         h += '<div class="sth mb6">Diff summary</div>';
-        h +=
-            '<div class="hint-micro mb4">job_a=' +
-            esc(String(ds.job_a)) +
-            ' job_b=' +
-            esc(String(ds.job_b)) +
-            ' · ' +
-            esc(String(ds.semantics || '')) +
-            '</div>';
-        h += reportingRenderCountsTable(ds.counts, ds.finding_events);
-        if (Array.isArray(ds.warnings) && ds.warnings.length) {
-            h +=
-                '<div class="hint-micro mt6">' +
-                ds.warnings
-                    .slice(0, 16)
-                    .map((w) => esc(String(w)))
-                    .join('<br>') +
-                (ds.warnings.length > 16
-                    ? '<br><span class="text-dim">(' + (ds.warnings.length - 16) + ' more)</span>'
-                    : '') +
-                '</div>';
-        }
+        h += reportingRenderCompareExecutiveSummary(ds);
     }
     return h;
 }
