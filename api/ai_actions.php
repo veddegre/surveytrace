@@ -432,12 +432,30 @@ function st_ai_json_object_matches_role(array $d, string $role): bool {
             return true;
         }
         if (!is_array($rb)) {
-            return false;
+            $rb = [];
         }
         foreach ($rb as $x) {
             if (trim((string)$x) !== '') {
                 return true;
             }
+        }
+        // Some models return triage-shaped objects { role, confidence, evidence } instead of
+        // risk_summary / prioritize — accept when evidence carries content.
+        if (array_key_exists('evidence', $d) && (array_key_exists('role', $d) || array_key_exists('confidence', $d))) {
+            $ev = $d['evidence'] ?? null;
+            if (is_string($ev) && trim($ev) !== '') {
+                return true;
+            }
+            if (is_scalar($ev) && (string)$ev !== '') {
+                return true;
+            }
+            if (is_array($ev) && count($ev) > 0) {
+                return true;
+            }
+        }
+        $sum = trim((string)($d['summary'] ?? ''));
+        if ($sum !== '') {
+            return true;
         }
         return false;
     }
@@ -839,7 +857,19 @@ function st_ai_normalize_findings_doc(?array $doc): array {
         return [];
     }
     $risk = trim((string)($doc['risk_summary'] ?? ''));
+    if ($risk === '') {
+        $risk = trim((string)($doc['summary'] ?? ''));
+    }
     $bullets = $doc['remediation_bullets'] ?? [];
+    if (!is_array($bullets) || $bullets === []) {
+        foreach (['recommendations', 'actions', 'remediation', 'bullets', 'next_steps'] as $alt) {
+            $cand = $doc[$alt] ?? null;
+            if (is_array($cand) && $cand !== []) {
+                $bullets = $cand;
+                break;
+            }
+        }
+    }
     if (!is_array($bullets)) {
         $bullets = [];
     }
@@ -851,7 +881,37 @@ function st_ai_normalize_findings_doc(?array $doc): array {
         }
     }
     $prior = trim((string)($doc['prioritize'] ?? ''));
+    if ($prior === '') {
+        $prior = trim((string)($doc['focus'] ?? ''));
+    }
     $note = trim((string)($doc['note'] ?? ''));
+
+    // Map triage-shaped model output { role, confidence, evidence } → host-level envelope.
+    if ($risk === '' && $clean === [] && $prior === '' && $note === ''
+        && array_key_exists('evidence', $doc)
+        && (array_key_exists('role', $doc) || array_key_exists('confidence', $doc))) {
+        $ev = $doc['evidence'] ?? null;
+        $roleHint = trim((string)($doc['role'] ?? ''));
+        $conf = $doc['confidence'] ?? null;
+        if (is_string($ev) && trim($ev) !== '') {
+            $risk = trim($ev);
+        } elseif (is_scalar($ev) && (string)$ev !== '') {
+            $risk = trim((string)$ev);
+        } elseif (is_array($ev) && $ev !== []) {
+            $enc = json_encode($ev, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($enc) && $enc !== '' && $enc !== '[]') {
+                $risk = $enc;
+            }
+        }
+        if ($roleHint !== '') {
+            $prior = $roleHint;
+        }
+        if ($conf !== null && $conf !== '') {
+            $cj = is_scalar($conf) ? (string)$conf : json_encode($conf, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $note = 'confidence: ' . (is_string($cj) ? $cj : '');
+        }
+    }
+
     $out = [];
     if ($risk !== '') {
         $out['risk_summary'] = substr($risk, 0, 2000);
@@ -1066,8 +1126,11 @@ try {
                 );
             }
             $prompt = "You help network operators triage CVE findings. Output is NON-AUTHORITATIVE suggestions only.\n"
-                . "Return ONLY JSON with keys: risk_summary (string, <=800 chars), remediation_bullets (array of <=8 short strings), "
+                . "Return ONLY a single JSON object with EXACTLY these keys (no other top-level keys): "
+                . "risk_summary (string, <=800 chars), remediation_bullets (array of <=8 short strings), "
                 . "prioritize (string: what to patch or verify first), note (optional string: uncertainty/limitations).\n"
+                . "Do NOT use keys named role, confidence, or evidence — those are reserved for a different schema.\n"
+                . "Example shape: {\"risk_summary\":\"...\",\"remediation_bullets\":[\"...\"],\"prioritize\":\"...\",\"note\":\"\"}\n"
                 . "Use practical language; do not claim exploitability without evidence.\n\n"
                 . 'Host: ' . ($row['ip'] ?? '') . ' category=' . ($row['category'] ?? '') . ' hostname=' . ($row['hostname'] ?? '') . "\n"
                 . "Open findings (CVE rows):\n" . implode("\n", $lines) . "\n";
