@@ -597,10 +597,14 @@ def _json_matches_scan_summary(d: dict) -> bool:
     if str(d.get("summary") or "").strip():
         return True
     # Models sometimes return triage-shaped { role, confidence, evidence } instead of overview/concerns/next_steps.
-    if "evidence" in d and ("role" in d or "confidence" in d):
-        rh = str(d.get("role") or "").strip()
-        if rh:
-            return True
+    has_r = "role" in d
+    has_c = "confidence" in d
+    has_e = "evidence" in d
+    if has_r and has_c:
+        return True
+    if has_e and (has_r or has_c):
+        return True
+    if has_e:
         ev = d.get("evidence")
         if isinstance(ev, str) and ev.strip():
             return True
@@ -878,7 +882,11 @@ def _normalize_scan_summary_doc(doc: dict) -> dict:
     concerns = doc.get("concerns") if isinstance(doc.get("concerns"), list) else []
     next_steps = doc.get("next_steps") if isinstance(doc.get("next_steps"), list) else []
     has_content = bool(overview) or any(str(x).strip() for x in concerns) or any(str(x).strip() for x in next_steps)
-    if not has_content and "evidence" in doc and ("role" in doc or "confidence" in doc):
+    has_r = "role" in doc
+    has_c = "confidence" in doc
+    has_e = "evidence" in doc
+    triage_shape = (has_r and has_c) or (has_e and (has_r or has_c))
+    if not has_content and triage_shape:
         concerns = list(concerns)
         ev = doc.get("evidence")
         if isinstance(ev, str) and ev.strip():

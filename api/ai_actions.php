@@ -419,11 +419,17 @@ function st_ai_json_object_matches_role(array $d, string $role): bool {
             return true;
         }
         // Same triage-shaped misfire as findings_guidance: { role, confidence, evidence }.
-        if (array_key_exists('evidence', $d) && (array_key_exists('role', $d) || array_key_exists('confidence', $d))) {
-            $rh = trim((string)($d['role'] ?? ''));
-            if ($rh !== '') {
-                return true;
-            }
+        // Do not require `evidence` to be present — some models omit it or send null/"".
+        $hasR = array_key_exists('role', $d);
+        $hasC = array_key_exists('confidence', $d);
+        $hasE = array_key_exists('evidence', $d);
+        if ($hasR && $hasC) {
+            return true;
+        }
+        if ($hasE && ($hasR || $hasC)) {
+            return true;
+        }
+        if ($hasE) {
             $ev = $d['evidence'] ?? null;
             if (is_string($ev) && trim($ev) !== '') {
                 return true;
@@ -459,9 +465,17 @@ function st_ai_json_object_matches_role(array $d, string $role): bool {
                 return true;
             }
         }
-        // Some models return triage-shaped objects { role, confidence, evidence } instead of
-        // risk_summary / prioritize — accept when evidence carries content.
-        if (array_key_exists('evidence', $d) && (array_key_exists('role', $d) || array_key_exists('confidence', $d))) {
+        // Triage-shaped { role, confidence, evidence } — same relaxations as scan_summary.
+        $hasR = array_key_exists('role', $d);
+        $hasC = array_key_exists('confidence', $d);
+        $hasE = array_key_exists('evidence', $d);
+        if ($hasR && $hasC) {
+            return true;
+        }
+        if ($hasE && ($hasR || $hasC)) {
+            return true;
+        }
+        if ($hasE) {
             $ev = $d['evidence'] ?? null;
             if (is_string($ev) && trim($ev) !== '') {
                 return true;
@@ -907,9 +921,11 @@ function st_ai_normalize_findings_doc(?array $doc): array {
     $note = trim((string)($doc['note'] ?? ''));
 
     // Map triage-shaped model output { role, confidence, evidence } → host-level envelope.
-    if ($risk === '' && $clean === [] && $prior === '' && $note === ''
-        && array_key_exists('evidence', $doc)
-        && (array_key_exists('role', $doc) || array_key_exists('confidence', $doc))) {
+    $triR = array_key_exists('role', $doc);
+    $triC = array_key_exists('confidence', $doc);
+    $triE = array_key_exists('evidence', $doc);
+    $triageShape = ($triR && $triC) || ($triE && ($triR || $triC));
+    if ($risk === '' && $clean === [] && $prior === '' && $note === '' && $triageShape) {
         $ev = $doc['evidence'] ?? null;
         $roleHint = trim((string)($doc['role'] ?? ''));
         $conf = $doc['confidence'] ?? null;
@@ -976,9 +992,11 @@ function st_ai_normalize_scan_summary_doc(array $doc): array {
             return trim((string)$x) !== '';
         })) > 0;
 
-    if (!$hasContent
-        && array_key_exists('evidence', $doc)
-        && (array_key_exists('role', $doc) || array_key_exists('confidence', $doc))) {
+    $triR = array_key_exists('role', $doc);
+    $triC = array_key_exists('confidence', $doc);
+    $triE = array_key_exists('evidence', $doc);
+    $triageShape = ($triR && $triC) || ($triE && ($triR || $triC));
+    if (!$hasContent && $triageShape) {
         $ev = $doc['evidence'] ?? null;
         if (is_string($ev) && trim($ev) !== '') {
             $overview = trim($ev);
