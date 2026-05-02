@@ -603,7 +603,7 @@ if (is_readable($dbProbe)) {
           <option value="0">Unscoped only</option>
         </select>
       </div>
-      <button type="button" class="tbtn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
+      <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
     </div>
     <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
     <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
@@ -7356,7 +7356,7 @@ const REPORTING_SCOPE_LS_KEY = 'st_report_scope_id';
 var reportingScopeApiFilter = null;
 var reportingScopesList = [];
 var stScopesForFormsCache = null;
-var stScopesMeta = { default_scope_id: 0, scoping_enabled: false };
+var stScopesMeta = { default_scope_id: 0, scoping_enabled: false, scope_catalog_unavailable: false };
 
 function reportingScopeQuery() {
     if (reportingScopeApiFilter === null) {
@@ -7416,17 +7416,41 @@ async function ensureStScopeSelects(force) {
     if (!anyEl) {
         return;
     }
-    if (!force && stScopesForFormsCache !== null) {
+    if (!force && stScopesForFormsCache !== null && !stScopesMeta.scope_catalog_unavailable) {
         fillStScopeOptionSelects(stScopesForFormsCache);
         return;
     }
-    const d = await api('/api/scan_scopes.php', { quiet: true });
-    stScopesForFormsCache = d && d.ok && Array.isArray(d.scopes) ? d.scopes : [];
-    stScopesMeta.default_scope_id =
-        d && d.default_scope_id != null && parseInt(String(d.default_scope_id), 10) > 0
-            ? parseInt(String(d.default_scope_id), 10)
-            : 0;
-    stScopesMeta.scoping_enabled = !!(d && d.scoping_enabled);
+    let d = null;
+    try {
+        const r = await fetch('/api/scan_scopes.php', { credentials: 'same-origin' });
+        const txt = await r.text();
+        if (txt && txt.trim()) {
+            try {
+                d = JSON.parse(txt);
+            } catch (_e) {
+                d = null;
+            }
+        }
+        if (!r.ok || !d || typeof d !== 'object') {
+            d = { ok: false };
+        }
+    } catch (_e) {
+        d = { ok: false };
+    }
+    const catalogOk = !!(d && d.ok === true && Array.isArray(d.scopes));
+    stScopesMeta.scope_catalog_unavailable = !catalogOk;
+    if (catalogOk) {
+        stScopesForFormsCache = d.scopes;
+        stScopesMeta.default_scope_id =
+            d.default_scope_id != null && parseInt(String(d.default_scope_id), 10) > 0
+                ? parseInt(String(d.default_scope_id), 10)
+                : 0;
+        stScopesMeta.scoping_enabled = !!d.scoping_enabled;
+    } else {
+        stScopesForFormsCache = [];
+        stScopesMeta.default_scope_id = 0;
+        stScopesMeta.scoping_enabled = false;
+    }
     fillStScopeOptionSelects(stScopesForFormsCache);
 }
 
@@ -7434,9 +7458,17 @@ function updateReportingScopeDetail() {
     const detailEl = document.getElementById('report-scope-detail');
     const warnEl = document.getElementById('report-scope-unscoped-warn');
     if (warnEl) {
-        warnEl.style.display = reportingScopeApiFilter === 0 && stScopesMeta.scoping_enabled ? '' : 'none';
+        warnEl.style.display =
+            reportingScopeApiFilter === 0 && stScopesMeta.scoping_enabled && !stScopesMeta.scope_catalog_unavailable
+                ? ''
+                : 'none';
     }
     if (!detailEl) {
+        return;
+    }
+    if (stScopesMeta.scope_catalog_unavailable) {
+        detailEl.innerHTML =
+            '<span class="hstate-warn">Scope support unavailable</span> — the scope list API did not return usable data (missing deploy, HTTP error, or non-JSON). Reporting stays on <strong>All scopes</strong>. Ask your admin to redeploy <span class="mono-sm">api/scan_scopes.php</span> and <span class="mono-sm">api/lib_scan_scopes.php</span>, then run <span class="mono-sm">bash deploy.sh</span> (or open the app once so migrations run).';
         return;
     }
     if (reportingScopeApiFilter === null) {
@@ -7521,6 +7553,16 @@ async function loadReportingScopeSelector(forceRefresh) {
     }
     if (![...sel.options].some((opt) => opt.value === sel.value)) {
         sel.value = 'all';
+    }
+    if (stScopesMeta.scope_catalog_unavailable) {
+        sel.value = 'all';
+        reportingScopeApiFilter = null;
+    }
+    const refBtn = document.getElementById('report-scope-refresh-btn');
+    if (refBtn) {
+        refBtn.title = stScopesMeta.scope_catalog_unavailable
+            ? 'Retry after redeploying api/scan_scopes.php and api/lib_scan_scopes.php'
+            : '';
     }
     syncReportingScopeApiFilterFromSelect(sel);
     reportingScopePersistWrite();

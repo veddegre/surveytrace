@@ -150,6 +150,8 @@ API_FILES=(
   export.php
   devices.php
   lib_reporting.php
+  lib_scan_scopes.php
+  scan_scopes.php
   reporting.php
   reporting_cli.php
 )
@@ -361,6 +363,8 @@ check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
 check_file "$DEST/api/collector_submit.php" "collector_submit API"
 check_file "$DEST/api/collectors.php" "collectors API"
 check_file "$DEST/api/scan_history.php" "scan history API"
+check_file "$DEST/api/lib_scan_scopes.php" "lib_scan_scopes (Phase 14 reporting)"
+check_file "$DEST/api/scan_scopes.php" "scan_scopes API"
 check_file "$DEST/api/change_alerts.php" "change_alerts API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"

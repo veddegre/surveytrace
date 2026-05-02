@@ -18,14 +18,31 @@ $db = st_db();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
-    $scopes = st_scan_scopes_list($db);
-    $defaultId = st_scan_scopes_default_id($db);
-    st_json([
-        'ok'                => true,
-        'scopes'            => $scopes,
-        'default_scope_id'  => $defaultId,
-        'scoping_enabled'   => st_scan_scopes_table_scan_jobs_has_scope_id($db),
-    ]);
+    try {
+        $scopes = st_scan_scopes_list($db);
+        $defaultId = st_scan_scopes_default_id($db);
+        $enabled = st_scan_scopes_table_scan_jobs_has_scope_id($db);
+        st_json([
+            'ok'               => true,
+            'scopes'           => $scopes,
+            'default_scope_id' => $defaultId,
+            'scoping_enabled'  => $enabled,
+        ]);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace scan_scopes GET: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+        $out = [
+            'ok'               => true,
+            'scopes'           => [],
+            'default_scope_id' => null,
+            'scoping_enabled'  => false,
+            'scope_catalog_error' => 'Scope catalog could not be read (database or migration issue).',
+        ];
+        if (getenv('SURVEYTRACE_REPORTING_DEBUG') && trim((string) getenv('SURVEYTRACE_REPORTING_DEBUG')) !== '' && trim((string) getenv('SURVEYTRACE_REPORTING_DEBUG')) !== '0') {
+            $m = preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage());
+            $out['debug_error'] = strlen($m) > 400 ? substr($m, 0, 400) . '…' : $m;
+        }
+        st_json($out);
+    }
 }
 
 st_method('POST');
@@ -54,7 +71,7 @@ $has = (int) $db->query(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1"
 )->fetchColumn();
 if ($has !== 1) {
-    st_json(['ok' => false, 'error' => 'scan_scopes table missing (run migrations)'], 503);
+    st_json(['ok' => false, 'error' => 'scan_scopes table missing (run migrations or redeploy)']);
 }
 
 $db->prepare(
