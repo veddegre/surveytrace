@@ -16,7 +16,8 @@
  * GET  reporting.php?action=compare_debug&job_a=1&job_b=2&sample_limit=15  (admin)
  * GET  reporting.php?action=baseline_debug  (admin)
  * POST reporting.php?action=set_baseline  JSON: {"job_id": 10} or {"job_id": 10, "scope_id": 3} for scoped baseline
- * GET  …&scope_id=N  — optional on trends_summary, trends, compliance, summary, baseline (0 = unscoped-only jobs)
+ * GET  …&scope_id  — optional on trends_summary, trends, compliance, summary, baseline:
+ *      omit param = all completed jobs (legacy); 0 = unscoped only; N = that scope
  */
 
 declare(strict_types=1);
@@ -25,7 +26,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reporting.php';
 
-/** null = omit (legacy global); int >= 0 including 0 = unscoped-only */
+/** null = all jobs (legacy); 0 = unscoped-only (NULL/0 scope_id); N > 0 = that scope only */
 function st_reporting_scope_filter_param(): ?int
 {
     if (! array_key_exists('scope_id', $_GET)) {

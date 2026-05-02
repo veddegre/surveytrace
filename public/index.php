@@ -590,7 +590,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top" style="margin-bottom:8px">Reports &amp; Analysis</div>
   <div class="hint-micro mb12">
     This page extends the <strong>Executive View</strong> with <strong>snapshot-based</strong> reporting: baseline drift, compliance checks, per-job trends, and saved report artifacts. Numbers from completed scans reflect frozen inventory and findings at job time — not the same as live Dashboard totals. Read-only except <strong>Set baseline</strong> (scan editor or admin).
-    <span class="text-dim">Comparisons are scoped to the selected network/environment where job tags allow.</span>
+    <span class="text-dim">Use <strong>All scopes</strong> for the classic view, or narrow to one network so drift stays comparable.</span>
   </div>
 
   <div class="card mb10" id="report-scope-card">
@@ -598,22 +598,23 @@ if (is_readable($dbProbe)) {
     <div class="row-wrap gap10" style="align-items:flex-end">
       <div>
         <label class="flbl" for="report-scope-select">Scope</label>
-        <select class="finp" id="report-scope-select" style="min-width:260px" onchange="onReportingScopeChange()">
-          <option value="0">Unscoped (legacy jobs)</option>
+        <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
+          <option value="all">All scopes (default)</option>
+          <option value="0">Unscoped only</option>
         </select>
       </div>
       <button type="button" class="tbtn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
     </div>
     <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
     <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
-      <strong>Unscoped jobs</strong> — older scans may lack a scope tag. Drift and baselines mix only unscoped history; results may not be comparable across different networks.
+      <strong>Unscoped only</strong> — showing jobs with no scope tag. These scans may come from different networks; use a named scope when you need like-for-like drift.
     </div>
   </div>
 
   <div class="sth section-top">At a glance</div>
   <div class="card mb10" id="report-at-glance-card">
     <div class="hint-micro mb8">
-      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan in the selected scope</em> (or unscoped pool); job number is called out in the sentence.
+      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan</em> matching your scope filter (<strong>All scopes</strong> = globally latest; named scope = latest in that scope); job number is called out in the sentence.
     </div>
     <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
     <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
@@ -622,7 +623,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Snapshot drift</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based</strong> — compares <strong>reference scan</strong> (scoped baseline or previous completed job in this scope) to <strong>current scan</strong> (latest finished job in this scope) using frozen per-scan tables, not live hosts.
+      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: compares the latest scan to the most recent prior scan <em>in the same scope</em> (never cross-network by accident). <strong>Named / Unscoped</strong>: uses scoped or global baseline when set, otherwise the prior completed job in that filter.
     </div>
     <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
   </div>
@@ -630,7 +631,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Scan history (snapshots)</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based trend (not real-time)</strong> — each point is one finished job in the <strong>selected scope</strong> (asset rows and open findings in that job’s snapshots). Charts and tables use the same bounded history list.
+      <strong>Snapshot-based trend (not real-time)</strong> — each point is one finished job matching the scope filter (<strong>All scopes</strong> = every completed job in the list; otherwise only that scope or unscoped). Charts use the same bounded history list.
     </div>
     <div class="row-wrap gap6 mb8" style="align-items:flex-end">
       <div>
@@ -7349,13 +7350,36 @@ function reportingTruncateJsonDisplay(obj) {
 }
 
 const REPORTING_SCOPE_LS_KEY = 'st_report_scope_id';
-var reportingUiScopeId = 0;
+/** null = all scopes (omit API scope_id, legacy universe); 0 = unscoped only; positive int = named scope */
+var reportingScopeApiFilter = null;
 var reportingScopesList = [];
 var stScopesForFormsCache = null;
 var stScopesMeta = { default_scope_id: 0, scoping_enabled: false };
 
 function reportingScopeQuery() {
-    return '&scope_id=' + encodeURIComponent(String(reportingUiScopeId));
+    if (reportingScopeApiFilter === null) {
+        return '';
+    }
+    return '&scope_id=' + encodeURIComponent(String(reportingScopeApiFilter));
+}
+
+function reportingScopePersistWrite() {
+    try {
+        if (reportingScopeApiFilter === null) {
+            localStorage.setItem(REPORTING_SCOPE_LS_KEY, 'all');
+        } else {
+            localStorage.setItem(REPORTING_SCOPE_LS_KEY, String(reportingScopeApiFilter));
+        }
+    } catch (_e) {}
+}
+
+/** @returns {0|number} scope bucket for matching (0 = unscoped / unknown) */
+function reportingTrendsRowScopeKey(row) {
+    if (!row || row.scope_id == null) {
+        return 0;
+    }
+    const n = parseInt(String(row.scope_id), 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function fillStScopeOptionSelects(scopes) {
@@ -7408,19 +7432,24 @@ function updateReportingScopeDetail() {
     const detailEl = document.getElementById('report-scope-detail');
     const warnEl = document.getElementById('report-scope-unscoped-warn');
     if (warnEl) {
-        warnEl.style.display = reportingUiScopeId === 0 && stScopesMeta.scoping_enabled ? '' : 'none';
+        warnEl.style.display = reportingScopeApiFilter === 0 && stScopesMeta.scoping_enabled ? '' : 'none';
     }
     if (!detailEl) {
         return;
     }
-    if (reportingUiScopeId === 0) {
+    if (reportingScopeApiFilter === null) {
         detailEl.innerHTML =
-            '<strong>Unscoped</strong> — drift, trends, and compliance use completed jobs with no scope tag only.';
+            '<strong>All scopes</strong> — trends and job lists include every completed scan (same as before scope tags). Snapshot drift picks the latest scan and the previous finished job <em>in the same scope</em> so different networks are not compared automatically.';
         return;
     }
-    const sc = reportingScopesList.find((x) => parseInt(String(x.id), 10) === reportingUiScopeId);
+    if (reportingScopeApiFilter === 0) {
+        detailEl.innerHTML =
+            '<strong>Unscoped only</strong> — only jobs with no scope tag (NULL / 0). Use this to audit legacy scans separately from named networks.';
+        return;
+    }
+    const sc = reportingScopesList.find((x) => parseInt(String(x.id), 10) === reportingScopeApiFilter);
     if (!sc) {
-        detailEl.textContent = 'Scope #' + reportingUiScopeId;
+        detailEl.textContent = 'Scope #' + reportingScopeApiFilter;
         return;
     }
     let cidrTxt = '';
@@ -7451,8 +7480,14 @@ async function loadReportingScopeSelector(forceRefresh) {
     }
     const scopes = stScopesForFormsCache || [];
     reportingScopesList = scopes;
-    const keepVal = forceRefresh ? String(reportingUiScopeId) : null;
-    sel.innerHTML = '<option value="0">Unscoped (legacy jobs)</option>';
+    const keepVal = forceRefresh
+        ? reportingScopeApiFilter === null
+            ? 'all'
+            : String(reportingScopeApiFilter)
+        : null;
+    sel.innerHTML =
+        '<option value="all">All scopes (default)</option>' +
+        '<option value="0">Unscoped only</option>';
     scopes.forEach((sc) => {
         const o = document.createElement('option');
         o.value = String(sc.id);
@@ -7462,34 +7497,42 @@ async function loadReportingScopeSelector(forceRefresh) {
     if (keepVal !== null && [...sel.options].some((opt) => opt.value === keepVal)) {
         sel.value = keepVal;
     } else {
-        let pick = 0;
-        const savedRaw = localStorage.getItem(REPORTING_SCOPE_LS_KEY);
-        if (savedRaw !== null && savedRaw !== '') {
-            const sn = parseInt(savedRaw, 10);
-            if (Number.isFinite(sn) && (sn === 0 || scopes.some((s) => parseInt(String(s.id), 10) === sn))) {
-                pick = sn;
+        let persist = 'all';
+        try {
+            const raw = localStorage.getItem(REPORTING_SCOPE_LS_KEY);
+            if (raw !== null && raw !== '') {
+                persist = raw;
+            }
+        } catch (_e) {}
+        if (persist === 'all') {
+            sel.value = 'all';
+        } else if (persist === '0') {
+            sel.value = '0';
+        } else {
+            const idn = parseInt(persist, 10);
+            if (Number.isFinite(idn) && idn > 0 && scopes.some((s) => parseInt(String(s.id), 10) === idn)) {
+                sel.value = String(idn);
+            } else {
+                sel.value = 'all';
             }
         }
-        if (
-            pick === 0 &&
-            stScopesMeta.default_scope_id > 0 &&
-            scopes.some((s) => parseInt(String(s.id), 10) === stScopesMeta.default_scope_id)
-        ) {
-            pick = stScopesMeta.default_scope_id;
-        } else if (pick === 0 && scopes.length > 0) {
-            pick = parseInt(String(scopes[0].id), 10) || 0;
-        }
-        sel.value = String(pick);
     }
     if (![...sel.options].some((opt) => opt.value === sel.value)) {
-        sel.value = '0';
+        sel.value = 'all';
     }
-    reportingUiScopeId = parseInt(String(sel.value), 10);
-    if (!Number.isFinite(reportingUiScopeId)) {
-        reportingUiScopeId = 0;
-    }
-    localStorage.setItem(REPORTING_SCOPE_LS_KEY, String(reportingUiScopeId));
+    syncReportingScopeApiFilterFromSelect(sel);
+    reportingScopePersistWrite();
     updateReportingScopeDetail();
+}
+
+function syncReportingScopeApiFilterFromSelect(sel) {
+    const v = sel ? String(sel.value) : 'all';
+    if (v === 'all') {
+        reportingScopeApiFilter = null;
+        return;
+    }
+    const n = parseInt(v, 10);
+    reportingScopeApiFilter = Number.isFinite(n) ? n : null;
 }
 
 function onReportingScopeChange() {
@@ -7497,8 +7540,8 @@ function onReportingScopeChange() {
     if (!sel) {
         return;
     }
-    reportingUiScopeId = parseInt(String(sel.value), 10) || 0;
-    localStorage.setItem(REPORTING_SCOPE_LS_KEY, String(reportingUiScopeId));
+    syncReportingScopeApiFilterFromSelect(sel);
+    reportingScopePersistWrite();
     updateReportingScopeDetail();
     void loadReportingTab();
 }
@@ -8368,9 +8411,11 @@ async function loadReportingChangeSince() {
         return;
     }
     out.innerHTML = '<span class="text-dim">Loading snapshot drift…</span>';
-    const tr = await api('/api/reporting.php?action=trends_summary&limit=15' + reportingScopeQuery(), {
-        quiet: true,
-    });
+    const driftLimit = 30;
+    const tr = await api(
+        '/api/reporting.php?action=trends_summary&limit=' + driftLimit + reportingScopeQuery(),
+        {quiet: true}
+    );
     if (!tr || !tr.ok) {
         out.innerHTML =
             '<div class="hint-micro text-dim">Snapshot drift could not load (recent scans unavailable). Other sections may still work.</div>';
@@ -8387,30 +8432,60 @@ async function loadReportingChangeSince() {
         out.innerHTML = '<div class="hint-micro text-dim">No valid latest scan id for drift.</div>';
         return;
     }
+    const modeAll = reportingScopeApiFilter === null;
     const bl = reportingTabBaseline;
     const eff = bl && bl.ok && bl.baseline_job_id != null ? parseInt(String(bl.baseline_job_id), 10) : 0;
     const cfg = bl && bl.ok && bl.baseline_config_job_id != null ? parseInt(String(bl.baseline_config_job_id), 10) : 0;
     const unavail = !!(bl && bl.ok && bl.baseline_unavailable);
     let jobA = 0;
     let labelMode = 'none';
-    if (eff > 0 && eff !== newest) {
-        jobA = eff;
-        labelMode = 'baseline';
-    } else {
+    if (modeAll) {
+        const sk = reportingTrendsRowScopeKey(ts[0]);
         for (let i = 1; i < ts.length; i++) {
-            const cand = parseInt(String(ts[i].job_id), 10);
-            if (cand > 0 && cand !== newest) {
-                jobA = cand;
-                break;
+            if (reportingTrendsRowScopeKey(ts[i]) === sk) {
+                const cand = parseInt(String(ts[i].job_id), 10);
+                if (cand > 0 && cand !== newest) {
+                    jobA = cand;
+                    labelMode = 'same_scope_prior_all';
+                    break;
+                }
             }
         }
-        if (jobA) {
-            if (eff > 0 && eff === newest) {
-                labelMode = 'prior_latest_is_baseline';
-            } else if (unavail && cfg > 0) {
-                labelMode = 'fallback_unusable_baseline';
-            } else {
-                labelMode = 'prior_only';
+        if (!jobA) {
+            const scopeLabel =
+                sk === 0
+                    ? 'unscoped / legacy (no scope tag)'
+                    : 'scope #' + sk + ' (named network)';
+            out.innerHTML =
+                '<div class="hint-micro text-dim">Latest completed scan is <span class="mono-sm">#' +
+                esc(String(newest)) +
+                '</span> (' +
+                esc(scopeLabel) +
+                '). <strong>No comparable previous scan</strong> in that same scope was found in the last ' +
+                esc(String(driftLimit)) +
+                ' finished jobs — run another scan in this scope, filter to a named scope, or use <strong>Manual compare</strong>.</div>';
+            return;
+        }
+    } else {
+        if (eff > 0 && eff !== newest) {
+            jobA = eff;
+            labelMode = 'baseline';
+        } else {
+            for (let i = 1; i < ts.length; i++) {
+                const cand = parseInt(String(ts[i].job_id), 10);
+                if (cand > 0 && cand !== newest) {
+                    jobA = cand;
+                    break;
+                }
+            }
+            if (jobA) {
+                if (eff > 0 && eff === newest) {
+                    labelMode = 'prior_latest_is_baseline';
+                } else if (unavail && cfg > 0) {
+                    labelMode = 'fallback_unusable_baseline';
+                } else {
+                    labelMode = 'prior_only';
+                }
             }
         }
     }
@@ -8436,7 +8511,14 @@ async function loadReportingChangeSince() {
         return;
     }
     let hintText = '';
-    if (labelMode === 'baseline') {
+    if (labelMode === 'same_scope_prior_all') {
+        hintText =
+            'All scopes — reference: most recent prior completed scan in the <strong>same reporting scope</strong> (scan #' +
+            jobA +
+            ') vs latest scan #' +
+            newest +
+            ' — snapshot tables only (not live inventory).';
+    } else if (labelMode === 'baseline') {
         hintText =
             'Reference: configured baseline (scan #' +
             jobA +
@@ -8797,7 +8879,7 @@ async function loadReportingTab() {
         const un = !!d.baseline_unavailable;
         if (baseEl) {
             let scopeBaselineHtml = '';
-            if (reportingUiScopeId > 0) {
+            if (reportingScopeApiFilter !== null && reportingScopeApiFilter > 0) {
                 const scfg = d.scope_baseline_config_job_id;
                 const seff = d.scope_baseline_job_id;
                 const sun = !!d.scope_baseline_unavailable;
@@ -8822,7 +8904,8 @@ async function loadReportingTab() {
         }
         if (valEl) {
             const scopeUn =
-                reportingUiScopeId > 0 &&
+                reportingScopeApiFilter !== null &&
+                reportingScopeApiFilter > 0 &&
                 !!(d.scope_baseline_config_job_id != null && parseInt(String(d.scope_baseline_config_job_id), 10) > 0) &&
                 !!d.scope_baseline_unavailable;
             if (un || scopeUn) {
@@ -8886,8 +8969,8 @@ async function saveReportingBaseline() {
         return;
     }
     const body = { job_id: jid };
-    if (reportingUiScopeId > 0) {
-        body.scope_id = reportingUiScopeId;
+    if (reportingScopeApiFilter !== null && reportingScopeApiFilter > 0) {
+        body.scope_id = reportingScopeApiFilter;
     }
     const r = await apiPost('/api/reporting.php?action=set_baseline', body);
     if (r && r.ok) {

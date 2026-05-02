@@ -749,8 +749,11 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
             $scopeBinds[] = $scopeFilter;
         }
     }
+    $hasScopeCol = st_scan_scopes_table_scan_jobs_has_scope_id($db);
+    $scopeSelectSql = $hasScopeCol ? ', COALESCE(j.scope_id, 0) AS scope_id' : '';
     $jobs = $db->prepare(
         "SELECT j.id, j.finished_at, j.label, j.status
+                $scopeSelectSql
          FROM scan_jobs j
          WHERE j.status = 'done' AND (j.deleted_at IS NULL OR j.deleted_at = '')
            AND j.finished_at IS NOT NULL
@@ -793,10 +796,19 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
     foreach ($jobRows as $j) {
         $jid = (int) $j['id'];
         $bySev = $sevByJob[$jid] ?? [];
+        $sid = 0;
+        if ($hasScopeCol) {
+            $rawS = $j['scope_id'] ?? null;
+            $sid = ($rawS === null || $rawS === '') ? 0 : (int) $rawS;
+            if ($sid < 0) {
+                $sid = 0;
+            }
+        }
         $out[] = [
             'job_id'      => $jid,
             'finished_at' => (string) ($j['finished_at'] ?? ''),
             'label'       => (string) ($j['label'] ?? ''),
+            'scope_id'    => $sid,
             'assets'      => (int) ($assetCounts[$jid] ?? 0),
             'open_findings_total' => array_sum($bySev),
             'open_findings_by_severity' => $bySev,
@@ -810,7 +822,7 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
  * Trend points for UI: canonical keys, max 50 jobs per request.
  * Reuses {@see st_reporting_trends} (two batched GROUP BY queries on job_id IN (...), no per-job N+1).
  *
- * @return list<array{job_id:int,timestamp:string,asset_count:int,open_findings_total:int,open_findings_by_severity:array<string,int>,label:string}>
+ * @return list<array{job_id:int,scope_id:int,timestamp:string,asset_count:int,open_findings_total:int,open_findings_by_severity:array<string,int>,label:string}>
  */
 function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter = null): array
 {
@@ -820,6 +832,7 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter
     foreach ($raw as $row) {
         $out[] = [
             'job_id'                     => (int) ($row['job_id'] ?? 0),
+            'scope_id'                   => (int) ($row['scope_id'] ?? 0),
             'timestamp'                  => (string) ($row['finished_at'] ?? ''),
             'asset_count'                => (int) ($row['assets'] ?? 0),
             'open_findings_total'        => (int) ($row['open_findings_total'] ?? 0),
