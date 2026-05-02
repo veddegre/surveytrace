@@ -11,7 +11,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Requirements](#requirements)
 - [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
 - [SQLite locking and concurrency](#sqlite-locking-and-concurrency)
-- [Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)
+- [Asset lifecycle](#asset-lifecycle)
 - [Quick Start](#quick-start)
 - [Manual Installation](#manual-installation)
 - [Updating / Deploying Changes](#updating--deploying-changes)
@@ -251,7 +251,7 @@ ollama rm <old-model-tag>
 ollama prune -f
 ```
 
-## Asset lifecycle (Phase 12)
+## Asset lifecycle
 
 SurveyTrace tracks each asset’s **lifecycle** separately from “last time we saw any packet.” Lifecycle answers: *given a completed scan that was supposed to cover this IP’s subnet, did we get a row for this host in that run’s evidence?*
 
@@ -449,7 +449,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.12.0
 
-- **Phase 12 — Asset lifecycle** — Coverage-based **`active` / `stale` / `retired`** on **`assets`** (migration **`migration_phase12_asset_lifecycle_v1`**); **`daemon/asset_lifecycle.py`** + scanner/collector evaluation; **`change_alerts`** types **`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**.
+- **Asset lifecycle** — Coverage-based **`active` / `stale` / `retired`** on **`assets`** (migration **`migration_phase12_asset_lifecycle_v1`**); **`daemon/asset_lifecycle.py`** + scanner/collector evaluation; **`change_alerts`** types **`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**.
 - **Operator fields** — **`owner`**, **`business_unit`**, **`criticality`**, **`environment`** on **`assets`** (API + UI); **`identity_confidence`**, **`identity_confidence_reason`** on schema.
 - **Export + API** — **`export.php`** extended CSV/JSON columns; **`assets.php`** **`lifecycle_status`** filter.
 - **Setup / deploy** — **`setup.sh`** WAL/SHM ownership guard; **`deploy.sh`** ships **`asset_lifecycle.py`**, normalizes WAL sidecars, optional PHP **`st_db()`** bootstrap as **www-data** before daemon restart; **`collector/deploy.sh`** includes **`asset_lifecycle.py`**.
@@ -758,7 +758,7 @@ Roadmap **phase numbers 9–12** match the SQLite migration markers in **`api/db
 - **Phase 9 — Change detection** — `change_alerts` feed (new asset, port change, new CVE, finding mitigated/reopened); **`findings`** lifecycle columns (`new` → `active`, scanner-driven `mitigated` when absent from correlated results, `accepted` via API, `reopened` after regression); **`GET/POST /api/change_alerts.php`** and **Change alerts** UI; scanner + collector ingest share **`daemon/change_detection.py`**.
 - **Phase 10 — Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** JSON; scanner + **`daemon/finding_triage.py`** + collector parity; **Vulnerabilities** / host UI, **`findings.php`** filters/sorts, **`findings_export.php`**.
 - **Phase 11 — CVE intelligence** — **`cve_intel`** sidecar (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystems); **`daemon/sync_cve_intel.py`** + feed sync wiring; **`intel`** on finding payloads and exports (complements NVD for mixed fleets: Linux, Windows, **macOS**, **Hyper-V**, containers, and **iOS / iPadOS / Android**-relevant shared components where data exists).
-- **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)**.
+- **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle (Phase 12)](#asset-lifecycle)**.
 
 ### Upcoming
 - **Phase 13**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.

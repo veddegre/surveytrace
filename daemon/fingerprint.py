@@ -890,6 +890,7 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     # Servers — identifiable apps before generic nginx/Apache (first match wins).
     (r"Zabbix|zabbix\.js|zabbix-server", "srv", "zabbix:zabbix"),
     (r"\bntfy\b",                    "srv",  "ntfy:server"),
+    # Kasm before plain "nginx" so SPA bodies that mention kasmweb still classify as VDI, not generic srv.
     (r"Kasm|kasmweb|KasmVNC",        "voi",  "kasm:workspace"),
     (r"Mastodon",                    "srv",  "mastodon:mastodon"),
     (r"Grafana",                     "srv",  "grafana:grafana"),
@@ -1213,7 +1214,14 @@ def fingerprint(
                 skip_generic_banner = True
             # If protocol signals already indicate Windows workstation/server traits,
             # avoid downgrading CPE to generic web stack software.
-            elif port_cat == "ws" and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
+            # Linux SSH + RDP (xrdp/Kasm/Guacamole) still matches port profile ws from 3389 — do not
+            # block the nginx/srv banner in that case or the host stays mislabeled as a Windows ws.
+            elif (
+                port_cat == "ws"
+                and banner_cat == "srv"
+                and banner_cpe in _generic_srv_cpe
+                and not _linux_distro_evidence_in_combined(combined)
+            ):
                 skip_generic_banner = True
             if port_set & {8006, 8007} and banner_cat == "srv" and banner_cpe in _generic_srv_cpe:
                 skip_generic_banner = True  # keep hv + CPE from Proxmox port profile
@@ -1253,6 +1261,27 @@ def fingerprint(
         if not result["vendor"]:
             result["vendor"] = "Kasm Workspaces"
 
+    # Kasm (and similar) often shows only generic nginx + Ubuntu SSH + RDP — no "Kasm" substring in banners.
+    # Require the common triplet without Windows file sharing (445) to avoid bare Windows servers.
+    if (
+        {22, 443, 3389}.issubset(port_set)
+        and _linux_distro_evidence_in_combined(combined)
+        and not (port_set & {135, 445})
+        and re.search(r"\bnginx\b", combined, re.I)
+        and result["category"] in ("ws", "srv", "unk")
+    ):
+        if result["category"] in ("ws", "srv", "unk"):
+            result["category"] = "voi"
+        if not result.get("vendor") or str(result.get("vendor") or "").strip().lower() == "nginx":
+            result["vendor"] = "Kasm Workspaces"
+        low_cpe = (result.get("cpe") or "").lower()
+        if "kasm" not in low_cpe and (
+            not result.get("cpe")
+            or "nginx:nginx" in low_cpe
+            or (banner_cpe and banner_cpe in _generic_srv_cpe)
+        ):
+            result["cpe"] = "cpe:/a:kasm:workspace:*"
+
     # Photon OS hostname — keep srv + OS CPE; do not replace hardware OEM (e.g. HP) with VMware branding
     if hostname and re.search(r"\bphoton\b", hostname, re.I):
         result["category"] = "srv"
@@ -1277,7 +1306,11 @@ def fingerprint(
         result["os_guess"] = "Photon OS"
     elif m := re.search(r"(Ubuntu|Debian|CentOS|Rocky|Alma|Fedora|Arch)", combined, re.I):
         result["os_guess"] = m.group(1)
-    elif port_cat == "ws" and (3389 in port_set or 445 in port_set or 5985 in port_set or 5986 in port_set):
+    elif (
+        port_cat == "ws"
+        and (3389 in port_set or 445 in port_set or 5985 in port_set or 5986 in port_set)
+        and not _linux_distro_evidence_in_combined(combined)
+    ):
         result["os_guess"] = "Windows"
 
     # Routed scans often miss L2 identity (MAC/ARP/SNMP context), which can let
