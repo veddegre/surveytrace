@@ -645,6 +645,27 @@ body.light-mode .health-row{border-bottom-color:rgba(0,0,0,.07)}
 .hstate-warn{color:var(--amber);font-weight:600}
 .hstate-err{color:var(--red);font-weight:600}
 .hstate-unk{color:var(--tx2);font-weight:500}
+
+/* Reports & Analysis — snapshot drift / trends */
+.report-risk-badge{
+  font-family:var(--sf),system-ui,sans-serif;
+  font-size:11px;
+  font-weight:700;
+  padding:5px 11px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  letter-spacing:.03em;
+  background:var(--bg3);
+  color:var(--tx);
+}
+.report-risk-high{border-left:3px solid var(--red)}
+.report-risk-warn{border-left:3px solid var(--amber)}
+.report-risk-ok{border-left:3px solid var(--green)}
+.report-risk-stable{border-left:3px solid var(--tx2)}
+.report-trend-line-chart{display:block;max-width:100%;height:auto}
+.report-snapshot-narrative{color:var(--tx)}
+.report-snapshot-drift-out{font-family:var(--sf),system-ui,sans-serif;font-size:13px;line-height:1.5}
+.report-trends-out{font-family:var(--sf),system-ui,sans-serif;font-size:13px;line-height:1.45}
 .btn-busy{
   opacity:.85;
   position:relative;
