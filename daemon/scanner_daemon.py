@@ -588,11 +588,27 @@ def _json_looks_like_scan_compact_echo(d: dict) -> bool:
 def _json_matches_scan_summary(d: dict) -> bool:
     if _json_looks_like_scan_compact_echo(d):
         return False
-    return bool(
+    if (
         "overview" in d
         or isinstance(d.get("concerns"), list)
         or isinstance(d.get("next_steps"), list)
-    )
+    ):
+        return True
+    if str(d.get("summary") or "").strip():
+        return True
+    # Models sometimes return triage-shaped { role, confidence, evidence } instead of overview/concerns/next_steps.
+    if "evidence" in d and ("role" in d or "confidence" in d):
+        rh = str(d.get("role") or "").strip()
+        if rh:
+            return True
+        ev = d.get("evidence")
+        if isinstance(ev, str) and ev.strip():
+            return True
+        if isinstance(ev, (int, float, bool)) and str(ev).strip():
+            return True
+        if isinstance(ev, list) and len(ev) > 0:
+            return True
+    return False
 
 
 def _strip_model_noise_prefix(text: str) -> str:
@@ -785,8 +801,10 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
     prompt = (
         "You write a short executive brief for a completed network inventory scan (SurveyTrace). "
         "The reader is an operator who already has the dashboard — interpret the JSON facts; do not repeat them as a table.\n\n"
-        "Return ONLY JSON with keys: overview (string, max 3 sentences), concerns (array, max 5 strings), "
-        "next_steps (array, max 5 strings).\n"
+        "Return ONLY a single JSON object with EXACTLY these keys (no other top-level keys): "
+        "overview (string, max 3 sentences), concerns (array, max 5 strings), next_steps (array, max 5 strings).\n"
+        "Do NOT use keys named role, confidence, or evidence at the top level.\n"
+        'Example: {"overview":"...","concerns":["..."],"next_steps":["..."]}\n'
         "Tone: practical and neutral; only use urgent language if severity_breakdown shows critical/high issues.\n\n"
         "Content rules:\n"
         "- Ground every point in the scan JSON (hosts_found vs assets_catalogued, categories, top_ports, open_findings, phases, "
@@ -839,6 +857,7 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
     doc = _extract_json_object_from_model_text(out, "scan_summary")
     if doc is None:
         return {}, "no_json"
+    doc = _normalize_scan_summary_doc(doc)
     overview = str(doc.get("overview") or "").strip()
     concerns = [str(x).strip() for x in (doc.get("concerns") or []) if str(x).strip()]
     next_steps = [str(x).strip() for x in (doc.get("next_steps") or []) if str(x).strip()]
@@ -849,6 +868,44 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         "concerns": concerns[:5],
         "next_steps": next_steps[:5],
     }, ""
+
+
+def _normalize_scan_summary_doc(doc: dict) -> dict:
+    """Map overview/concerns/next_steps aliases and triage-shaped model output (api/ai_actions.php parity)."""
+    overview = str(doc.get("overview") or "").strip()
+    if not overview:
+        overview = str(doc.get("summary") or "").strip()
+    concerns = doc.get("concerns") if isinstance(doc.get("concerns"), list) else []
+    next_steps = doc.get("next_steps") if isinstance(doc.get("next_steps"), list) else []
+    has_content = bool(overview) or any(str(x).strip() for x in concerns) or any(str(x).strip() for x in next_steps)
+    if not has_content and "evidence" in doc and ("role" in doc or "confidence" in doc):
+        concerns = list(concerns)
+        ev = doc.get("evidence")
+        if isinstance(ev, str) and ev.strip():
+            overview = ev.strip()
+        elif isinstance(ev, (int, float, bool)) and str(ev).strip():
+            overview = str(ev).strip()
+        elif isinstance(ev, list) and ev:
+            try:
+                overview = json.dumps(ev, ensure_ascii=False)
+            except Exception:
+                overview = ""
+        role_hint = str(doc.get("role") or "").strip()
+        if role_hint:
+            concerns.append(role_hint)
+        conf = doc.get("confidence")
+        if conf is not None and conf != "":
+            try:
+                cj = conf if isinstance(conf, str) else json.dumps(conf, ensure_ascii=False)
+            except Exception:
+                cj = str(conf)
+            if str(cj).strip():
+                concerns.append("Confidence: " + str(cj).strip())
+        if not overview and concerns:
+            overview = (
+                "Model returned a structured note instead of overview/concerns/next_steps; see concerns below."
+            )
+    return {"overview": overview, "concerns": concerns, "next_steps": next_steps}
 
 
 def log_event(conn: sqlite3.Connection, job_id: int, level: str, message: str, ip: str = "") -> None:

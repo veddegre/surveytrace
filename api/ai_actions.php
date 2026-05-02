@@ -413,9 +413,29 @@ function st_ai_json_object_matches_role(array $d, string $role): bool {
         if (st_ai_json_looks_like_scan_compact_echo($d)) {
             return false;
         }
-        return array_key_exists('overview', $d)
+        if (array_key_exists('overview', $d)
             || (isset($d['concerns']) && is_array($d['concerns']))
-            || (isset($d['next_steps']) && is_array($d['next_steps']));
+            || (isset($d['next_steps']) && is_array($d['next_steps']))) {
+            return true;
+        }
+        // Same triage-shaped misfire as findings_guidance: { role, confidence, evidence }.
+        if (array_key_exists('evidence', $d) && (array_key_exists('role', $d) || array_key_exists('confidence', $d))) {
+            $rh = trim((string)($d['role'] ?? ''));
+            if ($rh !== '') {
+                return true;
+            }
+            $ev = $d['evidence'] ?? null;
+            if (is_string($ev) && trim($ev) !== '') {
+                return true;
+            }
+            if (is_scalar($ev) && (string)$ev !== '') {
+                return true;
+            }
+            if (is_array($ev) && count($ev) > 0) {
+                return true;
+            }
+        }
+        return trim((string)($d['summary'] ?? '')) !== '';
     }
     if ($role === 'explain_host') {
         return array_key_exists('overview', $d)
@@ -928,6 +948,71 @@ function st_ai_normalize_findings_doc(?array $doc): array {
     return $out;
 }
 
+/**
+ * Normalize scan-level AI summary JSON (refresh_scan_summary): expected overview / concerns / next_steps,
+ * with triage-shaped { role, confidence, evidence } folded in when models ignore the prompt.
+ *
+ * @return array{overview:string,concerns:list<string>,next_steps:list<string>}
+ */
+function st_ai_normalize_scan_summary_doc(array $doc): array {
+    $overview = trim((string)($doc['overview'] ?? ''));
+    if ($overview === '') {
+        $overview = trim((string)($doc['summary'] ?? ''));
+    }
+    $concerns = $doc['concerns'] ?? [];
+    $next = $doc['next_steps'] ?? [];
+    if (!is_array($concerns)) {
+        $concerns = [];
+    }
+    if (!is_array($next)) {
+        $next = [];
+    }
+
+    $hasContent = $overview !== ''
+        || count(array_filter($concerns, static function ($x) {
+            return trim((string)$x) !== '';
+        })) > 0
+        || count(array_filter($next, static function ($x) {
+            return trim((string)$x) !== '';
+        })) > 0;
+
+    if (!$hasContent
+        && array_key_exists('evidence', $doc)
+        && (array_key_exists('role', $doc) || array_key_exists('confidence', $doc))) {
+        $ev = $doc['evidence'] ?? null;
+        if (is_string($ev) && trim($ev) !== '') {
+            $overview = trim($ev);
+        } elseif (is_scalar($ev) && (string)$ev !== '') {
+            $overview = trim((string)$ev);
+        } elseif (is_array($ev) && $ev !== []) {
+            $enc = json_encode($ev, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($enc) && $enc !== '' && $enc !== '[]') {
+                $overview = $enc;
+            }
+        }
+        $roleHint = trim((string)($doc['role'] ?? ''));
+        if ($roleHint !== '') {
+            $concerns[] = $roleHint;
+        }
+        $conf = $doc['confidence'] ?? null;
+        if ($conf !== null && $conf !== '') {
+            $cj = is_scalar($conf) ? (string)$conf : json_encode($conf, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($cj) && $cj !== '') {
+                $concerns[] = 'Confidence: ' . $cj;
+            }
+        }
+        if ($overview === '' && $concerns !== []) {
+            $overview = 'Model returned a structured note instead of overview/concerns/next_steps; see concerns below.';
+        }
+    }
+
+    return [
+        'overview' => $overview,
+        'concerns' => $concerns,
+        'next_steps' => $next,
+    ];
+}
+
 function st_ai_normalize_explain_doc(?array $doc): array {
     if (!$doc) {
         return [];
@@ -1435,8 +1520,10 @@ try {
 
         $prompt = "You write a short executive brief for a completed network inventory scan (SurveyTrace). "
             . "The reader is an operator who already has the dashboard — interpret the JSON facts; do not repeat them as a table.\n\n"
-            . "Return ONLY JSON with keys: overview (string, max 3 sentences), concerns (array, max 5 strings), "
-            . "next_steps (array, max 5 strings).\n"
+            . "Return ONLY a single JSON object with EXACTLY these keys (no other top-level keys): "
+            . "overview (string, max 3 sentences), concerns (array, max 5 strings), next_steps (array, max 5 strings).\n"
+            . "Do NOT use keys named role, confidence, or evidence at the top level — those are for a different API.\n"
+            . "Example: {\"overview\":\"...\",\"concerns\":[\"...\"],\"next_steps\":[\"...\"]}\n"
             . "Tone: practical and neutral; only use urgent language if severity_breakdown shows critical/high issues.\n\n"
             . "Content rules:\n"
             . "- Ground every point in the scan JSON (hosts_found vs assets_catalogued, categories, top_ports, open_findings, phases, "
@@ -1495,6 +1582,7 @@ try {
             ], 502);
         }
 
+        $parsed = st_ai_normalize_scan_summary_doc($parsed);
         $overview = trim((string)($parsed['overview'] ?? ''));
         $concerns = $parsed['concerns'] ?? [];
         $next = $parsed['next_steps'] ?? [];
