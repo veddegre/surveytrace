@@ -83,6 +83,13 @@ foreach ($schedMigrations as $col => $def) {
     }
 }
 
+// Deprecated fast_full_tcp (removed from UI): remap stored rows so schedulers/jobs use full_tcp.
+$db->exec("UPDATE scan_schedules SET profile = 'full_tcp' WHERE profile = 'fast_full_tcp'");
+$jobColsForFf = array_column($db->query('PRAGMA table_info(scan_jobs)')->fetchAll(), 'name');
+if (in_array('profile', $jobColsForFf, true) && in_array('status', $jobColsForFf, true)) {
+    $db->exec("UPDATE scan_jobs SET profile = 'full_tcp' WHERE profile = 'fast_full_tcp' AND status IN ('queued','running','retrying')");
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
     st_json(['error' => 'method not allowed'], 405);
@@ -261,11 +268,12 @@ $name        = substr(trim($body['name'] ?? ''), 0, 100);
 $cron_expr   = trim($body['cron_expr'] ?? '');
 $target_cidr = trim($body['target_cidr'] ?? '');
 $exclusions  = trim($body['exclusions'] ?? '');
-$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
-$profile = in_array($body['profile'] ?? '', $valid_profiles, true)
-    ? $body['profile']
+$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'ot_careful'];
+$profileRaw = st_normalize_scan_profile((string)($body['profile'] ?? ''));
+$profile = in_array($profileRaw, $valid_profiles, true)
+    ? $profileRaw
     : 'standard_inventory';
-if (in_array($profile, ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'], true)
+if (in_array($profile, ['deep_scan', 'full_tcp', 'ot_careful'], true)
     && !($body['confirmed'] ?? false)) {
     st_json([
         'error' => "Profile '$profile' requires confirmation. Resend with confirmed:true.",

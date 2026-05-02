@@ -133,7 +133,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **AI providers** — **Settings → AI enrichment (optional)**: **Ollama** (local), **OpenAI**, **Anthropic Claude**, **Google Gemini**, or **Open WebUI** (OpenAI-compatible `POST …/api/chat/completions` on your instance). Keys and base URL live in SQLite **or** env: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `OPENWEBUI_BASE_URL`, `OPENWEBUI_API_KEY`. The **same** provider drives **scanner per-host enrichment** (when enabled), **per-run scan summaries**, and **operator AI** (host CVE triage, explain host, refresh scan summary via `POST /api/ai_actions.php`).
 - **Feed sync** — scheduled IEEE OUI + Wappalyzer signature imports for fresher fingerprinting
 - **Manual feed sync UX** — in-app sync progress/status indicators, output viewer, and single-sync guard
-- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, Fast Full TCP, OT Careful (see **Scan Profiles** below: **Deep Scan** uses a large fixed port list; **Full TCP** is the only profile that scans **all** TCP ports `-p-`)
+- **Scan profiles** — IoT Safe, Standard Inventory, Deep Scan, Full TCP, OT Careful (see **Scan Profiles** below: **Deep Scan** uses a large fixed port list; **Full TCP** is the selectable profile for an all-TCP **`-p-`** sweep on LAN — use smaller targets or Standard/Deep Scan over **routed** / high-latency paths, where a full sweep is slow and easy to time out)
 - **Host rescan** — from Assets host detail, scan editors get a modal with the same levers as the Scan tab: profile, phases, rates, discovery mode, exclusions, and per-run enrichment toggles; the Scan tab syncs after a successful queue
 - **Job queue** — multiple queued scans with priority, auto-retry, and per-job progress
 - **Scheduling** — cron-based scheduled scans with timezone support; schedule editor mirrors manual scan options (phases, rate limits, priority, discovery mode, per-run enrichment subset, high-impact profile confirmation)
@@ -470,8 +470,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.8.2
 
-- **Scan profiles** — phase validation allows **Full TCP** and **Fast Full TCP** to run banner/fingerprint phases despite an empty fixed `port_list` (those profiles use all-TCP `-p-` in the scanner).
-- **Fast Full TCP** — nmap **version intensity 3** (aligned with Standard Inventory); **routed** discovery uses a **large finite port set** instead of `-p-` for reliability on high-latency paths. LAN runs use tuned **batching**, **`-T4`**, and **host-timeout** behavior appropriate to the profile.
+- **Scan profiles** — phase validation allows **Full TCP** to run banner/fingerprint phases despite an empty fixed `port_list` (all-TCP `-p-` mode on LAN in the scanner). *(0.8.2 also shipped a separate **Fast Full TCP** UI profile; that option has been **removed** because it often returned empty port lists. Any legacy `fast_full_tcp` value in the API or database **normalizes to `full_tcp`**.)*
 - **Scanner** — continues to **union prior open ports** (and related banner/CPE hints) on upsert for full-port profiles so inventory does not regress on a thin result pass.
 - **Collectors** — redeploy **`daemon/profiles.py`** and **`daemon/scanner_daemon.py`** on collector hosts after upgrade (`collector/deploy.sh` copies both).
 
@@ -499,8 +498,8 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### 0.6.2
 
 - **Host rescan modal parity** — Assets host rescan now exposes the same scan controls as manual/scheduled workflows: profile defaults, phases, rates, discovery mode, exclusions, and per-run enrichment selection.
-- **Deep Scan vs Full TCP clarity + behavior** — UI/help text and profile descriptions now explicitly distinguish Deep Scan (fixed expanded list) from Full/Fast Full TCP (`-p-` all ports). `full_tcp` now uses longer host-timeout tiers on small scopes to reduce empty-result runs.
-- **Full/Fast TCP overwrite guard** — daemon upsert path now preserves prior inventory signal by unioning `open_ports` (and merging banners / fallback CPE data) when a weak `-p-` pass returns fewer results.
+- **Deep Scan vs Full TCP clarity + behavior** — UI/help text and profile descriptions now explicitly distinguish Deep Scan (fixed expanded list) from Full TCP (`-p-` all ports on LAN). `full_tcp` now uses longer host-timeout tiers on small scopes to reduce empty-result runs.
+- **Full TCP overwrite guard** — daemon upsert path now preserves prior inventory signal by unioning `open_ports` (and merging banners / fallback CPE data) when a weak `-p-` pass returns fewer results.
 - **Scheduled + on-demand DB backups** — scheduler-managed DB backups with Settings controls (enable, cron, retention days, keep-count), backup status telemetry, plus an admin **Run backup now** action and restore helper script.
 
 ### 0.6.1
@@ -706,11 +705,10 @@ surveytrace/
 | IoT Safe | Passive only — ARP/ICMP, no port scanning | ✅ | ✅ |
 | Standard Inventory | Common ports, light banners, CVE correlation | ⚠️ | ❌ |
 | Deep Scan | Aggressive nmap `-sV` + SNMP on SurveyTrace’s **expanded fixed port list** (~60+ ports, not `1–65535`); requires confirmation | ❌ | ❌ |
-| Full TCP | **All** TCP ports (`-p-`) with `-sV`; longest per-host runtime; requires confirmation | ❌ | ❌ |
-| Fast Full TCP | **All** TCP ports (`-p-`) with lighter `-sV`; routed jobs may use a finite port set (see scanner logs) | ❌ | ❌ |
+| Full TCP | **All** TCP ports (`-p-`) with `-sV`; longest per-host runtime; requires confirmation. **Routed** mode still uses a per-host **`-p-`** sweep (with extra CIDR-based discovery seeding when ping scans miss hosts); expect long runtimes or sparse results over VPNs — prefer **Standard Inventory** or **Deep Scan** for routed reconnaissance | ❌ | ❌ |
 | OT Careful | Passive-first OT baseline; very low scan rates; requires confirmation | ✅ | ✅ |
 
-**Full TCP / Fast Full TCP and existing inventory:** the scanner unions new results with any **open ports already stored** for that IP so a timed-out or filtered `-p-` pass does not clear a good prior inventory row (`prior_inventory_ports_merged` may appear in discovery metadata).
+**Full TCP and existing inventory:** the scanner unions new results with any **open ports already stored** for that IP so a timed-out or filtered pass does not clear a good prior inventory row (`prior_inventory_ports_merged` may appear in discovery metadata).
 
 ## Discovery Modes
 

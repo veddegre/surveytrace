@@ -429,6 +429,11 @@ function st_normalize_mac(string $m): ?string {
     return $m;
 }
 
+/** Deprecated profile `fast_full_tcp` is remapped to `full_tcp` everywhere (API + DB cleanup). */
+function st_normalize_scan_profile(string $profile): string {
+    return $profile === 'fast_full_tcp' ? 'full_tcp' : $profile;
+}
+
 function st_migrate_device_identity_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_device_identity_v1'")->fetchColumn();
     if ($v === '1' || $v === 1) {

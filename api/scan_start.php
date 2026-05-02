@@ -153,7 +153,7 @@ if (!empty($body['retry_job_id'])) {
         $orig['rate_pps'],
         $orig['inter_delay'],
         $orig['scan_mode'] ?? 'auto',
-        $orig['profile']   ?? 'standard_inventory',
+        st_normalize_scan_profile((string)($orig['profile'] ?? 'standard_inventory')),
         $prio,
         (int)($orig['collector_id'] ?? 0),
         $enrRetry,
@@ -163,7 +163,7 @@ if (!empty($body['retry_job_id'])) {
         'job_id' => $newJobId,
         'source_job_id' => $orig_id,
         'status_suffix' => (($orig['status'] ?? '') === 'failed') ? 'retry' : 're-run',
-        'profile' => (string)($orig['profile'] ?? 'standard_inventory'),
+        'profile' => st_normalize_scan_profile((string)($orig['profile'] ?? 'standard_inventory')),
         'target_cidr' => (string)($orig['target_cidr'] ?? ''),
         'label' => $newLabel !== null && $newLabel !== '' ? $newLabel : null,
     ]);
@@ -245,13 +245,14 @@ $rate_pps    = max(1,    min(50,   (int)($body['rate_pps']    ?? 5)));
 $inter_delay = max(0,    min(2000, (int)($body['inter_delay'] ?? 200)));
 
 // --- Profile -------------------------------------------------------------
-$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
-$profile = in_array($body['profile'] ?? '', $valid_profiles)
-    ? $body['profile']
+$valid_profiles = ['iot_safe', 'standard_inventory', 'deep_scan', 'full_tcp', 'ot_careful'];
+$profileRaw = st_normalize_scan_profile((string)($body['profile'] ?? ''));
+$profile = in_array($profileRaw, $valid_profiles, true)
+    ? $profileRaw
     : 'standard_inventory';
 
 // Require confirmation for dangerous profiles
-if (in_array($profile, ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'])) {
+if (in_array($profile, ['deep_scan', 'full_tcp', 'ot_careful'], true)) {
     if (!($body['confirmed'] ?? false)) {
         st_json(['error' => "Profile '$profile' requires confirmation. Resend with confirmed:true.", 'requires_confirmation' => true], 400);
     }

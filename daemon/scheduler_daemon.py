@@ -506,6 +506,9 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
                 if not ok:
                     raise RuntimeError(f"target outside collector allowlist: {t}")
     enr_ids = schedule.get("enrichment_source_ids")
+    prof = str(schedule.get("profile") or "standard_inventory").strip()
+    if prof == "fast_full_tcp":
+        prof = "full_tcp"
     conn.execute("""
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
@@ -519,7 +522,7 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
         schedule["rate_pps"] or 5,
         schedule["inter_delay"] or 200,
         schedule["scan_mode"] or "auto",
-        schedule["profile"] or "standard_inventory",
+        prof,
         schedule["priority"] or 20,
         schedule["id"],
         collector_id,

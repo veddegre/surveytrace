@@ -98,6 +98,8 @@ if ($enrRaw === null || $enrRaw === '') {
     $job['enrichment_source_ids'] = is_array($dec) ? $dec : null;
 }
 
+$job['profile'] = st_normalize_scan_profile((string)($job['profile'] ?? 'standard_inventory'));
+
 // Progress percentage
 $found   = max(1, (int)$job['hosts_found']);
 $scanned = (int)$job['hosts_scanned'];
@@ -254,7 +256,7 @@ st_json([
         };
         $h['retry_count'] = (int)($h['retry_count'] ?? 0);
         $h['priority']    = (int)($h['priority']    ?? 10);
-        $h['profile']     = $h['profile'] ?? 'standard_inventory';
+        $h['profile']     = st_normalize_scan_profile((string)($h['profile'] ?? 'standard_inventory'));
         $h['summary']     = json_decode((string)($h['summary_json'] ?? ''), true) ?: null;
         unset($h['summary_json']);
         return $h;

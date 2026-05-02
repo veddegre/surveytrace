@@ -475,15 +475,6 @@ if (is_readable($dbProbe)) {
             </div>
             <div class="pc-badge warn">Confirmation required</div>
           </label>
-          <label class="profile-card" id="prof-fast_full_tcp" title="All TCP ports with lighter detection for faster host turnover">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="fast_full_tcp">
-            <div class="pc-icon">&#9889;</div>
-            <div class="profile-copy">
-              <div class="pc-name">Fast Full TCP</div>
-              <div class="pc-desc">All TCP ports (-p-) + lighter detection — faster turnover</div>
-            </div>
-            <div class="pc-badge warn">Confirmation required</div>
-          </label>
           <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: read-only OT probes on by default; strict rate limits">
             <input class="radio-hidden" type="radio" name="scan_profile" value="ot_careful">
             <div class="pc-icon">&#9888;</div>
@@ -623,7 +614,6 @@ if (is_readable($dbProbe)) {
         <option value="iot_safe">IoT Safe</option>
         <option value="deep_scan">Deep Scan — fixed large port list (not 1–65535)</option>
         <option value="full_tcp">Full TCP — all 65,535 TCP ports</option>
-        <option value="fast_full_tcp">Fast Full TCP — all ports, lighter -sV</option>
         <option value="ot_careful">OT Careful</option>
       </select>
       <div id="sched-profile-help" class="help-box mb8"></div>
@@ -1028,7 +1018,7 @@ if (is_readable($dbProbe)) {
         </div>
         <label class="flbl mt10">Extra routed safe ports (comma-separated)</label>
         <div class="help-line mb6 text-dim">
-          Added only to routed <code class="code-accent">fast_full_tcp</code> safe-port scans.
+          Added only to routed <code class="code-accent">full_tcp</code> safe-port scans (finite port union on high-latency paths).
           Example: <code class="code-accent">10000,15672,11434</code>
         </div>
         <div class="row-wrap">
@@ -1472,7 +1462,6 @@ if (is_readable($dbProbe)) {
       <option value="standard_inventory">Standard Inventory — common ports, light banners</option>
       <option value="deep_scan">Deep Scan — aggressive -sV on ~60+ listed ports (not 1&ndash;65535)</option>
       <option value="full_tcp">Full TCP — all 65,535 TCP ports + -sV (longest; true full sweep)</option>
-      <option value="fast_full_tcp">Fast Full TCP — all ports, lighter detect (still very high traffic)</option>
     </select>
     <div id="host-rescan-hint" class="hint-micro mb6" style="min-height:2.6em"></div>
     <div id="host-rescan-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber);font-size:0.9em"></div>
@@ -3554,7 +3543,7 @@ async function startScan(urgent = false) {
     const profileVal  = profileEl ? profileEl.value : 'standard_inventory';
 
     // Confirmation required for dangerous profiles
-    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
             `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed?`,
             {title: 'High-impact scan profile', okText: 'Proceed'}
@@ -3630,7 +3619,7 @@ async function startScan(urgent = false) {
 var hostRescanModalResolve = null;
 
 const HOST_RESCAN_PROFILE_IDS = new Set([
-    'iot_safe', 'ot_careful', 'standard_inventory', 'deep_scan', 'full_tcp', 'fast_full_tcp',
+    'iot_safe', 'ot_careful', 'standard_inventory', 'deep_scan', 'full_tcp',
 ]);
 
 function hostRescanProfileHintText(profile) {
@@ -3638,7 +3627,7 @@ function hostRescanProfileHintText(profile) {
     if (p === 'deep_scan') {
         return 'Deep Scan: aggressive -sV on a fixed large port list (~60+ ports), not a 1–65535 sweep. For every TCP port, pick Full TCP.';
     }
-    if (p === 'full_tcp' || p === 'fast_full_tcp') {
+    if (p === 'full_tcp') {
         return 'Warning: scans all 65,535 TCP ports with active service detection. Avoid on fragile IoT, cameras, or OT gear unless you accept disruption risk.';
     }
     if (p === 'iot_safe' || p === 'ot_careful') {
@@ -3734,7 +3723,7 @@ function applyHostRescanModalProfileDefaults(profile) {
     if (icmp) icmp.checked = true;
     const snmpEl = document.getElementById('hr-ph-snmp');
     const otEl = document.getElementById('hr-ph-ot');
-    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+    if (profile === 'deep_scan' || profile === 'full_tcp') {
         if (snmpEl) snmpEl.checked = true;
         if (otEl) otEl.checked = false;
     } else if (profile === 'ot_careful') {
@@ -3874,7 +3863,7 @@ async function queueHostRescan(ip, triggerBtn) {
 
     const profileVal = choice.profile;
 
-    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
             `Profile "${profileVal}" generates significant network traffic and requires confirmation.\n\nProceed with rescan of ${ipTrim}?`,
             { title: 'High-impact scan profile', okText: 'Queue scan' }
@@ -7579,7 +7568,7 @@ async function saveSchedule() {
     if (enrSel !== undefined) payload.enrichment_source_ids = enrSel;
 
     const profileVal = payload.profile;
-    if (['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'].includes(profileVal)) {
+    if (['deep_scan', 'full_tcp', 'ot_careful'].includes(profileVal)) {
         const ok = await showConfirmModal(
             `Profile "${profileVal}" can generate significant network traffic and is meant for controlled use.\n\n` +
             `You are saving a recurring schedule — each run will repeat with these settings until you change or disable it.\n\n` +
@@ -7874,10 +7863,6 @@ const PROFILE_HELP_TEXT = {
         title: 'Full TCP',
         text:  'The only profile that scans all 65,535 TCP ports (-p-) with service detection. Slowest per host; use when Deep Scan’s fixed list misses services on unusual ports.'
     },
-    fast_full_tcp: {
-        title: 'Fast Full TCP',
-        text:  'Scans all TCP ports with lighter detection and shorter host timeouts. Better responsiveness on /24 and larger sweeps.'
-    },
     ot_careful: {
         title: 'OT Careful',
         text:  'Conservative profile for industrial environments. Passive-oriented defaults and strict pacing to minimize disruption risk. New schedules default read-only OT protocol probes on — clear the toggle for passive-only.'
@@ -7894,14 +7879,13 @@ function updateProfileHelp(profile) {
 // ---------------------------------------------------------------------------
 // Schedule modal — profile presets (aligned with manual Scan tab)
 // ---------------------------------------------------------------------------
-const SCHED_HIGH_IMPACT_PROFILES = ['deep_scan', 'full_tcp', 'fast_full_tcp', 'ot_careful'];
+const SCHED_HIGH_IMPACT_PROFILES = ['deep_scan', 'full_tcp', 'ot_careful'];
 const SCHED_PROFILE_RATE_DEFAULTS = {
     iot_safe:             { pps: 2,  delay: 500 },
     ot_careful:           { pps: 1,  delay: 1000 },
     standard_inventory:   { pps: 5,  delay: 200 },
     deep_scan:            { pps: 50, delay: 50 },
     full_tcp:             { pps: 50, delay: 25 },
-    fast_full_tcp:        { pps: 50, delay: 10 },
 };
 
 /** Match Scan tab rate sliders to profile defaults (used after host-rescan profile pick). */
@@ -7936,7 +7920,7 @@ function applyScanTabProfileDefaults(profile) {
     if (icmp) icmp.checked = true;
     const snmpEl = document.getElementById('ph-snmp');
     const otEl = document.getElementById('ph-ot');
-    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+    if (profile === 'deep_scan' || profile === 'full_tcp') {
         if (snmpEl) snmpEl.checked = true;
         if (otEl) otEl.checked = false;
     } else if (profile === 'ot_careful') {
@@ -8077,7 +8061,7 @@ function applySchedProfileDefaults(profile) {
     if (icmp) icmp.checked = true;
     const snmpEl = document.getElementById('sched-ph-snmp');
     const otEl = document.getElementById('sched-ph-ot');
-    if (profile === 'deep_scan' || profile === 'full_tcp' || profile === 'fast_full_tcp') {
+    if (profile === 'deep_scan' || profile === 'full_tcp') {
         if (snmpEl) snmpEl.checked = true;
         if (otEl) otEl.checked = false;
     } else if (profile === 'ot_careful') {
@@ -8130,7 +8114,6 @@ function updateSchedProfileWarn(profile) {
         const lines = {
             deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
             full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
-            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };
         w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');
@@ -8148,7 +8131,6 @@ function updateScanProfileWarn(profile) {
         const lines = {
             deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
             full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
-            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };
         w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');
@@ -8166,7 +8148,6 @@ function updateHostRescanProfileWarn(profile) {
         const lines = {
             deep_scan: 'Deep Scan is aggressive -sV on a fixed large port list — not a 1–65535 sweep. Choose Full TCP for every TCP port.',
             full_tcp: 'Full TCP probes all 65,535 TCP ports (-p-) with -sV. Expect high traffic and long per-host runtimes.',
-            fast_full_tcp: 'Fast Full TCP still scans all TCP ports with lighter detection — traffic remains high across the full target.',
             ot_careful: 'OT Careful limits active probing, but the scanner still requires explicit confirmation before recurring use of this profile.',
         };
         w.innerHTML = '<strong>Warning:</strong> ' + esc(lines[profile] || 'This profile has elevated network impact.');

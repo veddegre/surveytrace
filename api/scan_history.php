@@ -83,6 +83,7 @@ if ($id > 0) {
     if (!$job) {
         st_json(['error' => "Job #$id not found"], 404);
     }
+    $job['profile'] = st_normalize_scan_profile((string)($job['profile'] ?? 'standard_inventory'));
     $job['collector_name'] = '';
     if ($hasCollectors && (int)($job['collector_id'] ?? 0) > 0) {
         $cstmt = $db->prepare("SELECT name FROM collectors WHERE id=? LIMIT 1");
@@ -201,7 +202,7 @@ if ($id > 0) {
             'target_cidr' => (string)($r['target_cidr'] ?? ''),
             'status' => (string)($r['status'] ?? ''),
             'finished_at' => $r['finished_at'] ?? null,
-            'profile' => (string)($r['profile'] ?? ''),
+            'profile' => st_normalize_scan_profile((string)($r['profile'] ?? '')),
             'scan_mode' => (string)($r['scan_mode'] ?? ''),
         ];
     }, $optStmt->fetchAll());
@@ -450,6 +451,7 @@ $history = array_map(function($r) {
     unset($r['summary_json']);
     $r['priority'] = (int)($r['priority'] ?? 10);
     $r['retry_count'] = (int)($r['retry_count'] ?? 0);
+    $r['profile'] = st_normalize_scan_profile((string)($r['profile'] ?? 'standard_inventory'));
     return $r;
 }, $rows->fetchAll());
 
