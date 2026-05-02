@@ -90,6 +90,10 @@ if (is_readable($dbProbe)) {
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8v10H3z"/><path d="M5 5h4M5 8h4M5 11h2"/></svg>
     Scan history
   </div>
+  <div class="ni" id="nreport" onclick="goTab('report');hiNav('nreport')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5l2.5 2.5V12a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z"/><path d="M9 1.5V4H11.5"/></svg>
+    Reporting
+  </div>
   <div class="ni" id="nsched" onclick="goTab('sched');hiNav('nsched')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
     Schedules
@@ -573,6 +577,123 @@ if (is_readable($dbProbe)) {
       <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>AI</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
       <tbody id="scan-hist"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
     </table>
+  </div>
+</div>
+
+<!-- ================================================================ REPORTING (Phase 13) -->
+<div class="tab" id="t-report">
+  <div class="hint-micro mb10">
+    <strong>Snapshot semantics:</strong> comparisons use frozen per-run tables (<span class="mono-sm">scan_asset_snapshots</span>, <span class="mono-sm">scan_finding_snapshots</span>), not live <span class="mono-sm">assets</span> / <span class="mono-sm">findings</span>. This page is read-only except <strong>Set baseline</strong> (scan editor or admin).
+  </div>
+
+  <div class="sth section-top">Baseline</div>
+  <div class="card mb10">
+    <div id="report-baseline-status" class="help-mono">Loading…</div>
+    <div id="report-baseline-validation" class="hint-micro mt8" style="display:none"></div>
+    <div id="report-baseline-set-wrap" class="mt10" style="display:none">
+      <label class="flbl">Set global baseline (writes <span class="mono-sm">config.phase13_baseline_job_id</span>)</label>
+      <div class="row-wrap gap6">
+        <select class="finp" id="report-baseline-job" style="min-width:280px" aria-label="Completed scan for baseline"></select>
+        <button type="button" class="tbtn" id="report-baseline-save" onclick="saveReportingBaseline()">Set baseline</button>
+      </div>
+      <div class="hint-micro mt6">Pick a <strong>completed</strong> job that already has asset snapshots. Same role rules as queueing scans: <strong>scan editor</strong> or <strong>admin</strong>.</div>
+    </div>
+    <div id="report-baseline-debug-wrap" class="mt10" style="display:none">
+      <div class="hint-micro mb6">Admin-only: server validation detail (not shown to viewers).</div>
+      <button type="button" class="tbtn btn-xs" onclick="loadReportingBaselineDebug()">Load baseline_debug</button>
+      <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+
+  <div class="sth section-top">Trends</div>
+  <div class="card mb10">
+    <div class="hint-micro mb8">
+      <strong>Snapshot-based trend (not real-time):</strong> each row is one completed job, ordered by finish time. Counts come from <span class="mono-sm">scan_asset_snapshots</span> / <span class="mono-sm">scan_finding_snapshots</span> only (<span class="mono-sm">GET …/reporting.php?action=trends_summary</span>). No drill-down.
+    </div>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
+        <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+      <button type="button" class="tbtn" onclick="loadReportingTrendsSummary()">Load trends</button>
+    </div>
+    <div id="report-trends-out" class="help-mono text-dim">Choose how many recent jobs to include, then <strong>Load trends</strong>.</div>
+  </div>
+
+  <div class="sth section-top">Compliance summary</div>
+  <div class="card mb10">
+    <div class="hint-micro mb8">
+      Snapshot-based rules for one completed job. Optional <strong>vs baseline</strong> adds the “no new high/critical vs baseline” check when an effective baseline exists (<span class="mono-sm">GET …/reporting.php?action=compliance</span>).
+    </div>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-compliance-job">Completed scan job</label>
+        <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
+      </div>
+      <label class="flbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
+        <input type="checkbox" id="report-compliance-vs-baseline" checked>
+        <span>Vs baseline rules</span>
+      </label>
+      <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
+    </div>
+    <div id="report-compliance-out" class="help-mono text-dim">Select a completed job and click <strong>Load compliance</strong>.</div>
+  </div>
+
+  <div class="sth section-top">Compare scans (counts only)</div>
+  <div class="card mb10">
+    <div class="hint-micro mb8">
+      <strong>Job A</strong> = reference run (older baseline side). <strong>Job B</strong> = current run. The API returns aggregate <strong>counts</strong> and finding <strong>events</strong> only (<span class="mono-sm">compare_summary</span>) — not full host/CVE row lists.
+    </div>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-cmp-a">Job A — reference (baseline side)</label>
+        <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Compare job A reference"></select>
+      </div>
+      <div>
+        <label class="flbl" for="report-cmp-b">Job B — current (newer run)</label>
+        <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Compare job B current"></select>
+      </div>
+      <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
+    </div>
+    <div id="report-cmp-out" class="help-mono text-dim">Select two completed jobs, then <strong>Compare</strong>. Row-level data stays on the server unless you use admin debug below.</div>
+    <div id="report-cmp-debug-wrap" class="mt10" style="display:none">
+      <div class="hint-micro mb6">Admin-only: up to 12 sample rows per bucket (<span class="mono-sm">compare_debug</span>).</div>
+      <button type="button" class="tbtn btn-xs" onclick="runReportingCompareDebug()">Load compare_debug</button>
+      <pre id="report-cmp-debug-out" class="help-mono mt8" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+
+  <div class="sth section-top" id="report-artifacts-heading" style="display:none">Saved report artifacts</div>
+  <div id="report-artifacts-wrap" class="card mb10" style="display:none">
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
+        <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Report artifact detail (slim summary; raw JSON admin-only on demand) -->
+<div id="report-artifact-bg" class="modal-bg z100" style="display:none" onclick="if(event.target===this)closeReportArtifactModal()">
+  <div class="modal-card modal-w640" onclick="event.stopPropagation()">
+    <div class="row-between mb14" style="gap:12px;align-items:center">
+      <div class="modal-title" style="margin-bottom:0" id="report-artifact-title">Report artifact</div>
+      <button type="button" class="modal-close-x" onclick="closeReportArtifactModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <div id="report-artifact-body" class="help-mono" style="max-height:62vh;overflow:auto;font-size:13px"></div>
+    <div id="report-artifact-raw-wrap" class="mt10" style="display:none">
+      <label class="flbl" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="report-artifact-raw-toggle" onchange="toggleReportArtifactRawJson()">
+        <span>View raw JSON (admin debug — server-truncated)</span>
+      </label>
+      <pre id="report-artifact-raw-pre" class="help-mono mt6" style="display:none;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:11px"></pre>
+    </div>
   </div>
 </div>
 
@@ -2301,6 +2422,7 @@ function goTab(name) {
     if (name === 'logs')     loadLog();
     if (name === 'scan')     loadScanStatus();
     if (name === 'scanhist') loadScanStatus();
+    if (name === 'report')   loadReportingTab();
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
     if (name === 'scan' || name === 'sched' || name === 'collectors') {
@@ -2553,6 +2675,7 @@ async function submitLogin() {
         if (currentTab === 'vulns') loadFindings(vulnPage || 1);
         if (currentTab === 'logs') loadLog();
         if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
+        if (currentTab === 'report') loadReportingTab();
         if (currentTab === 'sched') loadSchedules();
         if (currentTab === 'collectors') loadCollectorsOverview();
         if (currentTab === 'health') loadHealth();
@@ -7140,6 +7263,841 @@ async function revokeCollector(id) {
     }
 }
 
+const REPORTING_DEBUG_JSON_MAX = 14000;
+const REPORTING_COUNT_METRICS_MAX = 72;
+
+function reportingUserErrorMessage(d, fallback) {
+    if (d && typeof d === 'object' && typeof d.error === 'string' && d.error.trim()) {
+        return d.error.trim();
+    }
+    return fallback;
+}
+
+function reportingToastApiError(context, d, fallback) {
+    const msg = reportingUserErrorMessage(d, fallback);
+    const short = msg.length > 280 ? msg.slice(0, 280) + '…' : msg;
+    toast(context + ': ' + short, 'err');
+}
+
+function reportingTruncateJsonDisplay(obj) {
+    const s = JSON.stringify(obj, null, 2);
+    if (s.length <= REPORTING_DEBUG_JSON_MAX) return s;
+    return s.slice(0, REPORTING_DEBUG_JSON_MAX) + '\n… (' + (s.length - REPORTING_DEBUG_JSON_MAX) + ' more characters truncated)';
+}
+
+function reportingFillJobSelect(selectId, rows) {
+    const el = document.getElementById(selectId);
+    if (!el) return;
+    el.innerHTML = '';
+    const o0 = document.createElement('option');
+    o0.value = '';
+    o0.textContent = '— select job —';
+    el.appendChild(o0);
+    for (const h of rows) {
+        const o = document.createElement('option');
+        o.value = String(h.id);
+        const lab = (h.label != null && String(h.label)) ? String(h.label) : '';
+        const tgt = (h.target_cidr != null) ? String(h.target_cidr) : '';
+        o.textContent = ('#' + h.id + ' ' + lab + ' — ' + tgt).slice(0, 220);
+        el.appendChild(o);
+    }
+}
+
+async function populateReportingJobSelects() {
+    const d = await api('/api/scan_history.php?limit=200&view=active', {quiet: true});
+    const ids = ['report-baseline-job', 'report-cmp-a', 'report-cmp-b', 'report-compliance-job'];
+    if (!d || !d.ok || !Array.isArray(d.history)) {
+        ids.forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = '';
+            const o0 = document.createElement('option');
+            o0.value = '';
+            o0.textContent = reportingUserErrorMessage(d, '— could not load job list —');
+            el.appendChild(o0);
+        });
+        if (currentTab === 'report') {
+            reportingToastApiError('Reporting', d, 'Could not load completed scans for pickers.');
+        }
+        return;
+    }
+    const done = d.history.filter((h) => String(h.status) === 'done');
+    reportingFillJobSelect('report-baseline-job', done);
+    reportingFillJobSelect('report-cmp-a', done);
+    reportingFillJobSelect('report-cmp-b', done);
+    reportingFillJobSelect('report-compliance-job', done);
+}
+
+function reportingRenderCountsTable(counts, fe) {
+    const rows = [];
+    if (counts && typeof counts === 'object') {
+        const keys = Object.keys(counts).sort();
+        const extra = keys.length - REPORTING_COUNT_METRICS_MAX;
+        const use = extra > 0 ? keys.slice(0, REPORTING_COUNT_METRICS_MAX) : keys;
+        use.forEach((k) => {
+            rows.push('<tr><td class="mono-sm">' + esc(k) + '</td><td>' + esc(String(counts[k])) + '</td></tr>');
+        });
+        if (extra > 0) {
+            rows.push(
+                '<tr><td colspan="2" class="text-dim">Showing first ' +
+                    REPORTING_COUNT_METRICS_MAX +
+                    ' metrics; +' +
+                    extra +
+                    ' omitted for display.</td></tr>'
+            );
+        }
+    }
+    let feHtml = '';
+    if (fe && typeof fe === 'object') {
+        feHtml = '<div class="sth" style="margin-top:10px;font-size:12px">Finding events</div><table class="tbl mt4"><tbody>';
+        Object.keys(fe).sort().forEach((k) => {
+            feHtml += '<tr><td class="mono-sm">' + esc(k) + '</td><td>' + esc(String(fe[k])) + '</td></tr>';
+        });
+        feHtml += '</tbody></table>';
+    }
+    if (!rows.length && !feHtml) return '<span class="text-dim">No counts returned.</span>';
+    return '<table class="tbl"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' + feHtml;
+}
+
+function reportingHumanizeRuleKey(k) {
+    return String(k || '').replace(/_/g, ' ');
+}
+
+function reportingRenderComplianceArtifactCard(cs) {
+    if (!cs || typeof cs !== 'object' || !Object.keys(cs).length) {
+        return '';
+    }
+    const pass = !!cs.overall_pass;
+    const badge = pass
+        ? '<span style="color:var(--green);font-weight:600">PASS</span>'
+        : '<span style="color:var(--amber);font-weight:600">FAIL</span>';
+    let h =
+        '<div class="card" style="padding:10px;margin-bottom:14px;border:1px solid var(--border);border-radius:6px">';
+    h +=
+        '<div class="row-between mb8" style="align-items:center;flex-wrap:wrap;gap:8px"><span class="sth" style="margin:0;font-size:13px">Compliance (saved in artifact)</span>' +
+        badge +
+        '</div>';
+    h += '<table class="tbl"><tbody>';
+    h += '<tr><td class="mono-sm">job_id</td><td>' + esc(String(cs.job_id != null ? cs.job_id : '—')) + '</td></tr>';
+    h +=
+        '<tr><td class="mono-sm">baseline_job_id</td><td>' +
+        esc(String(cs.baseline_job_id != null ? cs.baseline_job_id : '—')) +
+        '</td></tr>';
+    h += '</tbody></table>';
+    h +=
+        '<div class="hint-micro mt6">Stored artifacts only keep pass/fail and ids. Use <strong>Compliance summary</strong> on this tab with the same job for full rule text.</div>';
+    h += '</div>';
+    return h;
+}
+
+function reportingRenderComplianceFull(c) {
+    if (!c || typeof c !== 'object') {
+        return '<div class="text-dim">No compliance data returned.</div>';
+    }
+    const pass = !!c.overall_pass;
+    const badge = pass
+        ? '<span style="color:var(--green);font-weight:600">PASS</span>'
+        : '<span style="color:var(--amber);font-weight:600">FAIL</span>';
+    let h =
+        '<div class="mb10" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="text-secondary">Overall</span>' +
+        badge +
+        '</div>';
+    h += '<table class="tbl mb10"><tbody>';
+    h += '<tr><td class="mono-sm">job_id</td><td>' + esc(String(c.job_id != null ? c.job_id : '—')) + '</td></tr>';
+    const beff = c.baseline_job_id != null ? c.baseline_job_id : c.baseline_effective;
+    h +=
+        '<tr><td class="mono-sm">baseline_job_id (effective)</td><td>' +
+        esc(String(beff != null && beff !== '' ? beff : '—')) +
+        '</td></tr>';
+    const bcfg = c.baseline_config_job_id != null ? c.baseline_config_job_id : c.baseline_config_id;
+    h +=
+        '<tr><td class="mono-sm">baseline_config_job_id</td><td>' +
+        esc(String(bcfg != null && bcfg !== '' ? bcfg : '—')) +
+        '</td></tr>';
+    h += '</tbody></table>';
+    const rules = c.rules && typeof c.rules === 'object' ? c.rules : {};
+    const ruleKeys = Object.keys(rules);
+    if (!ruleKeys.length) {
+        h += '<div class="text-dim">No compliance rules in response.</div>';
+        return h;
+    }
+    let passN = 0;
+    let failN = 0;
+    const fails = [];
+    ruleKeys.forEach((k) => {
+        const r = rules[k];
+        if (r && r.pass) {
+            passN++;
+        } else {
+            failN++;
+            if (r && !r.pass) {
+                fails.push({ k: k, detail: String(r.detail || '') });
+            }
+        }
+    });
+    h +=
+        '<div class="hint-micro mb8">Checks: <strong>' +
+        passN +
+        '</strong> passed, <strong>' +
+        failN +
+        '</strong> failed <span class="text-dim">(of ' +
+        ruleKeys.length +
+        ')</span></div>';
+    if (fails.length) {
+        h += '<div class="sth mb4" style="font-size:12px">Failed rules</div><ul class="hint-micro" style="margin:0;padding-left:18px;max-width:100%">';
+        fails.slice(0, 8).forEach(({ k, detail }) => {
+            const det = detail.length > 220 ? detail.slice(0, 220) + '…' : detail;
+            h += '<li style="margin-bottom:4px"><strong>' + esc(reportingHumanizeRuleKey(k)) + '</strong> — ' + esc(det) + '</li>';
+        });
+        if (fails.length > 8) {
+            h += '<li class="text-dim">(' + (fails.length - 8) + ' more failures omitted)</li>';
+        }
+        h += '</ul>';
+    } else {
+        h += '<div class="hint-micro text-dim">All evaluated rules passed.</div>';
+    }
+    return h;
+}
+
+async function loadReportingCompliancePanel() {
+    const sel = document.getElementById('report-compliance-job');
+    const out = document.getElementById('report-compliance-out');
+    const vs = document.getElementById('report-compliance-vs-baseline');
+    const jid = sel ? parseInt(String(sel.value), 10) : 0;
+    if (!jid) {
+        toast('Select a completed scan job', 'err');
+        if (out) {
+            out.innerHTML = '<span class="text-dim">Select a job to evaluate compliance rules.</span>';
+        }
+        return;
+    }
+    if (out) out.innerHTML = '<span class="text-dim">Loading…</span>';
+    const vsB = vs && vs.checked ? 1 : 0;
+    const d = await api('/api/reporting.php?action=compliance&job_id=' + jid + '&vs_baseline=' + vsB, {quiet: true});
+    if (!d || !d.ok) {
+        const msg = esc(reportingUserErrorMessage(d, 'Could not load compliance.'));
+        if (out) out.innerHTML = '<div class="text-dim">' + msg + '</div>';
+        reportingToastApiError('Compliance', d, 'Compliance request failed');
+        return;
+    }
+    const c = d.compliance;
+    if (!c || typeof c !== 'object') {
+        if (out) out.innerHTML = '<div class="text-dim">No compliance data in response.</div>';
+        return;
+    }
+    if (out) out.innerHTML = reportingRenderComplianceFull(c);
+}
+
+function reportingTrendsChronological(points) {
+    if (!Array.isArray(points)) {
+        return [];
+    }
+    return points.slice().reverse();
+}
+
+function reportingTrendSparkSvg(values) {
+    const n = values.length;
+    if (n < 2) {
+        return '<span class="text-dim">—</span>';
+    }
+    const pad = 2;
+    const w = 140;
+    const h = 40;
+    let minV = values[0];
+    let maxV = values[0];
+    for (let i = 1; i < n; i++) {
+        const v = values[i];
+        if (v < minV) {
+            minV = v;
+        }
+        if (v > maxV) {
+            maxV = v;
+        }
+    }
+    const span = maxV - minV || 1;
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+        const x = pad + (i / (n - 1)) * (w - 2 * pad);
+        const y = pad + (1 - (values[i] - minV) / span) * (h - 2 * pad);
+        parts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    return (
+        '<svg width="' +
+        w +
+        '" height="' +
+        h +
+        '" viewBox="0 0 ' +
+        w +
+        ' ' +
+        h +
+        '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" class="report-trend-spark" style="vertical-align:middle;opacity:0.9">' +
+        '<polyline fill="none" stroke="currentColor" stroke-width="1.25" points="' +
+        parts.join(' ') +
+        '" /></svg>'
+    );
+}
+
+function reportingTrendsCollectSeverityKeys(rows) {
+    const s = new Set();
+    rows.forEach((r) => {
+        const o = r.open_findings_by_severity;
+        if (o && typeof o === 'object') {
+            Object.keys(o).forEach((k) => s.add(k));
+        }
+    });
+    const order = ['critical', 'high', 'medium', 'low', 'info', ''];
+    const keys = [];
+    order.forEach((k) => {
+        if (s.has(k)) {
+            keys.push(k);
+            s.delete(k);
+        }
+    });
+    Array.from(s)
+        .sort()
+        .forEach((k) => keys.push(k));
+    return keys;
+}
+
+function reportingTrendsSevLabel(k) {
+    if (k === '') {
+        return '(unset)';
+    }
+    return k;
+}
+
+function reportingRenderTrendsSummaryHtml(chrono) {
+    if (!chrono.length) {
+        return '<div class="hint-micro text-dim">No completed scan jobs with a finish time were found. Run scans and return here after jobs complete.</div>';
+    }
+    let h = '';
+    const assetVals = chrono.map((r) => (r.asset_count != null ? r.asset_count : 0));
+    const findVals = chrono.map((r) => (r.open_findings_total != null ? r.open_findings_total : 0));
+    h += '<div class="row-wrap gap14 mb10" style="align-items:center">';
+    h += '<div class="hint-micro"><strong>Assets</strong> ' + reportingTrendSparkSvg(assetVals) + '</div>';
+    h += '<div class="hint-micro"><strong>Open findings</strong> ' + reportingTrendSparkSvg(findVals) + '</div>';
+    h += '</div>';
+
+    h +=
+        '<div class="sth" style="font-size:12px;margin-bottom:6px">Assets over time <span class="text-dim">(oldest → newest)</span></div>';
+    h += '<div class="tbl-wrap mb12"><table class="tbl"><thead><tr><th>Finished</th><th>Job</th><th>Label</th><th>Asset count</th></tr></thead><tbody>';
+    chrono.forEach((r) => {
+        h +=
+            '<tr><td>' +
+            esc(String(r.timestamp || '—')) +
+            '</td><td class="mono-sm">' +
+            esc(String(r.job_id)) +
+            '</td><td>' +
+            esc(String(r.label || '')) +
+            '</td><td>' +
+            esc(String(r.asset_count != null ? r.asset_count : 0)) +
+            '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+
+    const sevKeys = reportingTrendsCollectSeverityKeys(chrono);
+    h +=
+        '<div class="sth" style="font-size:12px;margin-bottom:6px">Findings over time <span class="text-dim">(open in snapshot, by severity)</span></div>';
+    h += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Finished</th><th>Job</th><th>Total open</th>';
+    sevKeys.forEach((k) => {
+        h += '<th>' + esc(reportingTrendsSevLabel(k)) + '</th>';
+    });
+    h += '</tr></thead><tbody>';
+    chrono.forEach((r) => {
+        const by =
+            r.open_findings_by_severity && typeof r.open_findings_by_severity === 'object'
+                ? r.open_findings_by_severity
+                : {};
+        h +=
+            '<tr><td>' +
+            esc(String(r.timestamp || '—')) +
+            '</td><td class="mono-sm">' +
+            esc(String(r.job_id)) +
+            '</td><td>' +
+            esc(String(r.open_findings_total != null ? r.open_findings_total : 0)) +
+            '</td>';
+        sevKeys.forEach((k) => {
+            const v = by[k];
+            h += '<td>' + esc(String(v != null ? v : 0)) + '</td>';
+        });
+        h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    return h;
+}
+
+async function loadReportingTrendsSummary() {
+    const sel = document.getElementById('report-trends-limit');
+    const out = document.getElementById('report-trends-out');
+    const limRaw = sel ? parseInt(String(sel.value), 10) : 30;
+    const lim = Math.min(50, Math.max(1, limRaw || 30));
+    if (out) {
+        out.innerHTML = '<span class="text-dim">Loading…</span>';
+    }
+    const d = await api('/api/reporting.php?action=trends_summary&limit=' + lim, {quiet: true});
+    if (!d || !d.ok) {
+        const msg = esc(reportingUserErrorMessage(d, 'Could not load trends.'));
+        if (out) {
+            out.innerHTML = '<div class="text-dim">' + msg + '</div>';
+        }
+        reportingToastApiError('Trends', d, 'Trends request failed');
+        return;
+    }
+    const pts = d.trends_summary;
+    if (!Array.isArray(pts)) {
+        if (out) {
+            out.innerHTML = '<div class="text-dim">Invalid trends response.</div>';
+        }
+        return;
+    }
+    const chrono = reportingTrendsChronological(pts);
+    if (out) {
+        out.innerHTML = reportingRenderTrendsSummaryHtml(chrono);
+    }
+}
+
+async function loadReportingTab() {
+    const baseEl = document.getElementById('report-baseline-status');
+    const valEl = document.getElementById('report-baseline-validation');
+    const setWrap = document.getElementById('report-baseline-set-wrap');
+    const dbgWrap = document.getElementById('report-baseline-debug-wrap');
+    const cmpDbgWrap = document.getElementById('report-cmp-debug-wrap');
+    const dbgOut = document.getElementById('report-baseline-debug-out');
+    const cmpDbgOut = document.getElementById('report-cmp-debug-out');
+    if (dbgOut) {
+        dbgOut.style.display = 'none';
+        dbgOut.textContent = '';
+    }
+    if (cmpDbgOut) {
+        cmpDbgOut.style.display = 'none';
+        cmpDbgOut.textContent = '';
+    }
+    if (baseEl) baseEl.textContent = 'Loading…';
+    if (valEl) {
+        valEl.style.display = 'none';
+        valEl.textContent = '';
+    }
+    const trendsOut = document.getElementById('report-trends-out');
+    if (trendsOut) {
+        trendsOut.innerHTML =
+            'Choose how many recent jobs to include, then <strong>Load trends</strong>.';
+        trendsOut.className = 'help-mono text-dim';
+    }
+    // Baseline first so a failure loading scan history (job pickers) does not block baseline or artifacts.
+    const d = await api('/api/reporting.php?action=baseline', {quiet: true});
+    if (!d || !d.ok) {
+        const msg = reportingUserErrorMessage(d, 'Unable to load baseline status. Check your session or try again.');
+        if (baseEl) baseEl.innerHTML = '<div class="text-dim">' + esc(msg) + '</div>';
+        if (valEl) {
+            valEl.style.display = 'none';
+            valEl.textContent = '';
+        }
+        if (currentTab === 'report') {
+            reportingToastApiError('Baseline status', d, 'Unable to load baseline.');
+        }
+    } else {
+        const cfg = d.baseline_config_job_id;
+        const eff = d.baseline_job_id;
+        const un = !!d.baseline_unavailable;
+        if (baseEl) {
+            baseEl.innerHTML =
+                '<div><strong>Configured baseline (saved id):</strong> ' +
+                (cfg == null ? '— none —' : esc(String(cfg))) +
+                '</div><div><strong>Effective baseline (used for diffs):</strong> ' +
+                (eff == null ? '— none —' : esc(String(eff))) +
+                '</div><div><strong>Baseline unavailable for diffs:</strong> ' +
+                (un ? '<span class="hstate-warn">yes</span> — config points at a job that cannot be resolved' : 'no') +
+                '</div>';
+        }
+        if (valEl) {
+            if (un) {
+                valEl.style.display = '';
+                valEl.textContent =
+                    'A baseline id is configured, but it is not usable (missing job, not completed, in trash, or no asset snapshots). Comparisons fall back to “no baseline” until you set a valid job. Admins may use baseline_debug below for the exact reason.';
+            } else {
+                valEl.style.display = 'none';
+                valEl.textContent = '';
+            }
+        }
+    }
+    if (setWrap) setWrap.style.display = stRoleCanManageScans() ? '' : 'none';
+    if (dbgWrap) dbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
+    if (cmpDbgWrap) cmpDbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
+    await populateReportingJobSelects();
+    const artH = document.getElementById('report-artifacts-heading');
+    const artW = document.getElementById('report-artifacts-wrap');
+    if (stRoleCanManageScans()) {
+        if (artH) artH.style.display = '';
+        if (artW) artW.style.display = '';
+        await loadReportingArtifacts();
+    } else {
+        if (artH) artH.style.display = 'none';
+        if (artW) artW.style.display = 'none';
+    }
+}
+
+async function saveReportingBaseline() {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required to set baseline.', 'err');
+        return;
+    }
+    const sel = document.getElementById('report-baseline-job');
+    const jid = sel ? parseInt(String(sel.value), 10) : 0;
+    if (!jid) {
+        toast('Select a completed scan', 'err');
+        return;
+    }
+    const r = await apiPost('/api/reporting.php?action=set_baseline', {job_id: jid});
+    if (r && r.ok) {
+        toast('Baseline updated', 'ok');
+        await loadReportingTab();
+    } else {
+        reportingToastApiError('Set baseline', r, 'Failed to set baseline');
+    }
+}
+
+async function runReportingCompareSummary() {
+    const a = parseInt(String(document.getElementById('report-cmp-a') && document.getElementById('report-cmp-a').value), 10);
+    const b = parseInt(String(document.getElementById('report-cmp-b') && document.getElementById('report-cmp-b').value), 10);
+    const out = document.getElementById('report-cmp-out');
+    if (!a || !b) {
+        toast('Select job A and job B', 'err');
+        return;
+    }
+    if (a === b) {
+        toast('Job A and B must differ', 'err');
+        return;
+    }
+    if (out) out.innerHTML = '<span class="text-dim">Loading…</span>';
+    const d = await api('/api/reporting.php?action=compare_summary&job_a=' + a + '&job_b=' + b, {quiet: true});
+    if (!d || !d.ok) {
+        const msg = esc(reportingUserErrorMessage(d, 'Could not compare jobs (network or server error).'));
+        if (out) out.innerHTML = '<div class="text-dim">' + msg + '</div>';
+        reportingToastApiError('Compare', d, 'Could not load compare summary.');
+        return;
+    }
+    const s = d.diff_summary || {};
+    const warnList = Array.isArray(s.warnings) ? s.warnings.slice(0, 24) : [];
+    const warns = warnList.length
+        ? '<div class="hint-micro mt6">' +
+          warnList.map((w) => esc(String(w))).join('<br>') +
+          (Array.isArray(s.warnings) && s.warnings.length > 24
+              ? '<br><span class="text-dim">(' + (s.warnings.length - 24) + ' more warnings omitted)</span>'
+              : '') +
+          '</div>'
+        : '';
+    const tbl = reportingRenderCountsTable(s.counts, s.finding_events);
+    if (out) {
+        out.innerHTML =
+            '<div class="hint-micro mb6">job_a=' +
+            esc(String(s.job_a)) +
+            ' job_b=' +
+            esc(String(s.job_b)) +
+            ' · ' +
+            esc(String(s.semantics || '')) +
+            '</div>' +
+            tbl +
+            warns;
+    }
+}
+
+async function loadReportingBaselineDebug() {
+    if (!stRoleIsAdmin()) {
+        toast('Admin role required for baseline_debug.', 'err');
+        return;
+    }
+    const pre = document.getElementById('report-baseline-debug-out');
+    if (!pre) return;
+    pre.style.display = '';
+    pre.textContent = 'Loading…';
+    const d = await api('/api/reporting.php?action=baseline_debug', {quiet: true});
+    if (!d || !d.ok) {
+        pre.textContent = reportingUserErrorMessage(d, 'Request failed (forbidden or server error).');
+        reportingToastApiError('baseline_debug', d, 'Could not load debug detail.');
+        return;
+    }
+    pre.textContent = reportingTruncateJsonDisplay(d.baseline || d);
+}
+
+async function runReportingCompareDebug() {
+    if (!stRoleIsAdmin()) {
+        toast('Admin role required for compare_debug.', 'err');
+        return;
+    }
+    const pre = document.getElementById('report-cmp-debug-out');
+    if (!pre) return;
+    const a = parseInt(String(document.getElementById('report-cmp-a') && document.getElementById('report-cmp-a').value), 10);
+    const b = parseInt(String(document.getElementById('report-cmp-b') && document.getElementById('report-cmp-b').value), 10);
+    if (!a || !b) {
+        toast('Select job A and job B first', 'err');
+        return;
+    }
+    if (a === b) {
+        toast('Job A and B must differ', 'err');
+        return;
+    }
+    pre.style.display = '';
+    pre.textContent = 'Loading…';
+    const d = await api(
+        '/api/reporting.php?action=compare_debug&job_a=' + a + '&job_b=' + b + '&sample_limit=12',
+        {quiet: true}
+    );
+    if (!d || !d.ok) {
+        pre.textContent = reportingUserErrorMessage(d, 'Request failed (forbidden or server error).');
+        reportingToastApiError('compare_debug', d, 'Could not load debug samples.');
+        return;
+    }
+    pre.textContent = reportingTruncateJsonDisplay(d.compare_debug || d);
+}
+
+async function loadReportingArtifacts() {
+    const tbody = document.getElementById('report-artifacts-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-dim">Loading…</td></tr>';
+    const d = await api('/api/reporting.php?action=artifacts&limit=40', {quiet: true});
+    if (!d || !d.ok) {
+        const hint = reportingUserErrorMessage(
+            d,
+            'Could not load artifacts. This list requires scan editor or admin.'
+        );
+        tbody.innerHTML = '<tr><td colspan="7" class="text-dim">' + esc(hint) + '</td></tr>';
+        if (currentTab === 'report') {
+            reportingToastApiError('Report artifacts', d, 'Could not load saved reports.');
+        }
+        return;
+    }
+    const rows = d.artifacts || [];
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-dim">No report artifacts yet.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows
+        .map((r) => {
+            const rid = esc(String(r.id));
+            return (
+                '<tr><td class="mono-sm">' +
+                rid +
+                '</td><td>' +
+                esc(String(r.created_at || '')) +
+                '</td><td>' +
+                esc(String(r.schedule_id != null ? r.schedule_id : '')) +
+                '</td><td>' +
+                esc(String(r.compare_job_id != null ? r.compare_job_id : '')) +
+                '</td><td>' +
+                esc(String(r.baseline_job_id != null ? r.baseline_job_id : '')) +
+                '</td><td>' +
+                esc(String(r.title || '')) +
+                '</td><td><button type="button" class="tbtn btn-xs" onclick="openReportArtifactSummary(' +
+                parseInt(String(r.id), 10) +
+                ')">Details</button></td></tr>'
+            );
+        })
+        .join('');
+}
+
+var reportArtifactDetailId = 0;
+var reportArtifactSummaryLoading = false;
+
+function reportingRenderArtifactSummaryBody(s) {
+    if (!s || typeof s !== 'object') {
+        return '<p class="text-dim">No data.</p>';
+    }
+    let h = '<div class="sth mb6">Metadata</div><table class="tbl mb10"><tbody>';
+    const metaRows = [
+        ['artifact_id', s.artifact_id],
+        ['created_at', s.created_at],
+        ['schedule_id', s.schedule_id],
+        ['schedule_name', s.schedule_name],
+        ['title', s.title],
+        ['kind', s.kind],
+        ['job_id', s.job_id],
+        ['compare_job_id', s.compare_job_id],
+        ['baseline_job_id', s.baseline_job_id],
+        ['baseline_config_job_id', s.baseline_config_job_id],
+        ['baseline_unavailable', s.baseline_unavailable],
+        ['generated_at', s.generated_at],
+        ['schema_version', s.schema_version],
+    ];
+    metaRows.forEach(([k, v]) => {
+        let disp = v === null || v === undefined || v === '' ? '—' : String(v);
+        if ((k === 'title' || k === 'schedule_name') && disp.length > 400) {
+            disp = disp.slice(0, 400) + '…';
+        }
+        h += '<tr><td class="mono-sm">' + esc(k) + '</td><td>' + esc(disp) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    const _csArt = s.compliance_summary;
+    if (_csArt && typeof _csArt === 'object' && Object.keys(_csArt).length) {
+        h += reportingRenderComplianceArtifactCard(_csArt);
+    }
+    if (s.error) {
+        h += '<div class="hint-micro mb8 hstate-warn">' + esc(String(s.error)) + '</div>';
+    }
+    if (s.payload_warning) {
+        h += '<div class="hint-micro mb8 hstate-warn">' + esc(String(s.payload_warning).slice(0, 500)) + '</div>';
+    }
+    const sum = s.summary && typeof s.summary === 'object' ? s.summary : {};
+    h += '<div class="sth mb6">Summary</div><table class="tbl mb10"><tbody>';
+    h +=
+        '<tr><td class="mono-sm">job_id</td><td>' +
+        esc(String(sum.job_id != null ? sum.job_id : s.job_id != null ? s.job_id : '—')) +
+        '</td></tr>';
+    h +=
+        '<tr><td class="mono-sm">asset_snapshots</td><td>' +
+        esc(String(sum.asset_snapshots != null ? sum.asset_snapshots : '—')) +
+        '</td></tr>';
+    h +=
+        '<tr><td class="mono-sm">open_findings_total</td><td>' +
+        esc(String(sum.open_findings_total != null ? sum.open_findings_total : '—')) +
+        '</td></tr>';
+    const bySev = sum.open_findings_by_severity;
+    if (bySev && typeof bySev === 'object') {
+        Object.keys(bySev)
+            .sort()
+            .forEach((sev) => {
+                h +=
+                    '<tr><td class="mono-sm">open_' +
+                    esc(sev) +
+                    '</td><td>' +
+                    esc(String(bySev[sev])) +
+                    '</td></tr>';
+            });
+    }
+    h += '</tbody></table>';
+    if (s.delta && typeof s.delta === 'object' && Object.keys(s.delta).length) {
+        h += '<div class="sth mb6">Delta</div><table class="tbl mb10"><tbody>';
+        Object.keys(s.delta)
+            .sort()
+            .forEach((k) => {
+                const dv = s.delta[k];
+                let cell = dv !== null && typeof dv === 'object' ? JSON.stringify(dv) : String(dv);
+                if (cell.length > 400) {
+                    cell = cell.slice(0, 400) + '…';
+                }
+                h += '<tr><td class="mono-sm">' + esc(k) + '</td><td>' + esc(cell) + '</td></tr>';
+            });
+        h += '</tbody></table>';
+    }
+    const ds = s.diff_summary;
+    if (!ds || typeof ds !== 'object') {
+        h += '<div class="sth mb6">Diff summary</div><div class="text-dim">None stored for this artifact.</div>';
+    } else if (ds.error) {
+        h += '<div class="sth mb6">Diff summary</div><div class="text-dim">' + esc(String(ds.error)) + '</div>';
+    } else {
+        h += '<div class="sth mb6">Diff summary</div>';
+        h +=
+            '<div class="hint-micro mb4">job_a=' +
+            esc(String(ds.job_a)) +
+            ' job_b=' +
+            esc(String(ds.job_b)) +
+            ' · ' +
+            esc(String(ds.semantics || '')) +
+            '</div>';
+        h += reportingRenderCountsTable(ds.counts, ds.finding_events);
+        if (Array.isArray(ds.warnings) && ds.warnings.length) {
+            h +=
+                '<div class="hint-micro mt6">' +
+                ds.warnings
+                    .slice(0, 16)
+                    .map((w) => esc(String(w)))
+                    .join('<br>') +
+                (ds.warnings.length > 16
+                    ? '<br><span class="text-dim">(' + (ds.warnings.length - 16) + ' more)</span>'
+                    : '') +
+                '</div>';
+        }
+    }
+    return h;
+}
+
+function closeReportArtifactModal() {
+    const bg = document.getElementById('report-artifact-bg');
+    if (bg) bg.style.display = 'none';
+    reportArtifactDetailId = 0;
+    const rawCb = document.getElementById('report-artifact-raw-toggle');
+    const rawPre = document.getElementById('report-artifact-raw-pre');
+    if (rawCb) rawCb.checked = false;
+    if (rawPre) {
+        rawPre.style.display = 'none';
+        rawPre.textContent = '';
+    }
+}
+
+async function openReportArtifactSummary(id) {
+    const aid = parseInt(String(id), 10);
+    if (!aid) {
+        toast('Invalid artifact id', 'err');
+        return;
+    }
+    if (reportArtifactSummaryLoading) {
+        return;
+    }
+    reportArtifactSummaryLoading = true;
+    reportArtifactDetailId = aid;
+    const bg = document.getElementById('report-artifact-bg');
+    const title = document.getElementById('report-artifact-title');
+    const body = document.getElementById('report-artifact-body');
+    const rawWrap = document.getElementById('report-artifact-raw-wrap');
+    const rawCb = document.getElementById('report-artifact-raw-toggle');
+    const rawPre = document.getElementById('report-artifact-raw-pre');
+    if (!bg || !body) {
+        reportArtifactSummaryLoading = false;
+        return;
+    }
+    if (rawCb) rawCb.checked = false;
+    if (rawPre) {
+        rawPre.style.display = 'none';
+        rawPre.textContent = '';
+    }
+    if (rawWrap) {
+        rawWrap.style.display = stRoleIsAdmin() ? 'block' : 'none';
+        rawWrap.setAttribute('aria-hidden', stRoleIsAdmin() ? 'false' : 'true');
+    }
+    body.innerHTML = '<span class="text-dim">Loading…</span>';
+    if (title) title.textContent = 'Report artifact #' + aid;
+    bg.style.display = 'flex';
+    try {
+        const d = await api('/api/reporting.php?action=artifact_summary&id=' + aid, {quiet: true});
+        if (!d || !d.ok) {
+            const msg = reportingUserErrorMessage(d, 'Could not load artifact.');
+            body.innerHTML = '<div class="text-dim">' + esc(msg) + '</div>';
+            reportingToastApiError('Artifact', d, 'Could not load artifact summary.');
+            return;
+        }
+        body.innerHTML = reportingRenderArtifactSummaryBody(d.artifact_summary || {});
+    } finally {
+        reportArtifactSummaryLoading = false;
+    }
+}
+
+async function toggleReportArtifactRawJson() {
+    const cb = document.getElementById('report-artifact-raw-toggle');
+    const pre = document.getElementById('report-artifact-raw-pre');
+    if (!cb || !pre) return;
+    if (!stRoleIsAdmin()) {
+        cb.checked = false;
+        toast('Raw JSON preview is admin-only.', 'err');
+        return;
+    }
+    if (!cb.checked) {
+        pre.style.display = 'none';
+        pre.textContent = '';
+        return;
+    }
+    const id = reportArtifactDetailId;
+    if (!id) return;
+    pre.style.display = 'block';
+    pre.textContent = 'Loading…';
+    const d = await api('/api/reporting.php?action=artifact_payload_preview&id=' + id, {quiet: true});
+    if (!d || !d.ok) {
+        pre.textContent = reportingUserErrorMessage(d, 'Could not load preview.');
+        reportingToastApiError('Raw JSON preview', d, 'Preview failed');
+        return;
+    }
+    const txt = typeof d.preview === 'string' ? d.preview : '';
+    pre.textContent = txt.length > REPORTING_DEBUG_JSON_MAX ? txt.slice(0, REPORTING_DEBUG_JSON_MAX) + '\n… (truncated)' : txt;
+}
+
 async function loadSchedules() {
     const d = await api('/api/schedules.php');
     if (!d) return;
@@ -8966,7 +9924,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -8993,7 +9951,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
+        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');

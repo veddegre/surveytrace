@@ -10,6 +10,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Features](#features)
 - [Requirements](#requirements)
 - [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
+- [Reporting API (Phase 13)](#reporting-api-phase-13)
 - [SQLite locking and concurrency](#sqlite-locking-and-concurrency)
 - [Asset lifecycle](#asset-lifecycle)
 - [Quick Start](#quick-start)
@@ -149,6 +150,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Explainable CVE triage (Phase 10)** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** (scanner + collector); surfaced on **Vulnerabilities** and host detail; export columns on **`findings_export.php`**.
 - **CVE intelligence (Phase 11)** — **`cve_intel`** table (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystem hints); **`daemon/sync_cve_intel.py`** and Settings **Sync CVE intel** / full **Sync all feeds**; joined on **`findings.php`** as structured **`intel`** (useful across Linux, Windows, **macOS**, **Hyper-V**, containers, and mobile platforms where OSV/NVD overlap).
 - **Asset lifecycle (Phase 12)** — **`assets.lifecycle_status`** (**`active`**, **`stale`**, **`retired`**) driven by **expected scan coverage** (IP in job **`target_cidr`** vs presence in **`scan_asset_snapshots`** for that job), not idle time since **`last_seen`**. **`change_alerts`** for stale/retired/reactivated; optional **owner / business_unit / criticality / environment** tagging; **`identity_confidence`** fields reserved for provenance scoring. See **[Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)**.
+- **Baselines & reporting (Phase 13)** — Reuses existing **`scan_asset_snapshots`** / **`scan_finding_snapshots`** (no duplicate snapshot tables). **`GET /api/reporting.php`** (`compare`, **`compare_summary`**, `summary`, `trends`, **`trends_summary`**, `compliance`, `baseline`, `artifacts`, **`artifact_summary`**, admin **`artifact_payload_preview`**, **`compare_debug`** / **`baseline_debug`**) plus **`POST …?action=set_baseline`**; global baseline in **`config.phase13_baseline_job_id`** and **`scan_jobs.is_baseline`**. **`scan_schedules.schedule_action`**: **`scan`** (default) or **`report`**; report schedules run **`api/reporting_cli.php`** in a **subprocess** (separate DB connection, no scan **`queued`/`running`** row). Invalid baseline config is ignored safely for diffs. Structured **`SurveyTrace.reporting`** JSON lines in **`error_log`** for compares, baseline resolution, materialize, and report payloads. The **Reporting** sidebar tab uses **slim summary actions** by default (no full stored payloads in the list path); **Trends** uses small tables and inline SVG sparklines. See **[Reporting API (Phase 13)](#reporting-api-phase-13)** and **`RELEASE_NOTES.md`** (0.13.0). Rich charts / CSV export remain a follow-up.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner and HTTP-title analysis; **Proxmox VE** node-name extraction; **VMware ESXi / vSphere / vCenter** and **Microsoft Hyper-V** signals; mDNS hints for **Apple** mobile/desktop classes where visible
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -273,6 +275,151 @@ Editable via **`PUT /api/assets.php`** (and the **Edit asset** modal): **`owner`
 
 - **Assets** list: filter by **`lifecycle_status`**, lifecycle badge column.
 - **`GET /api/export.php`**: CSV and JSON include the Phase 12 columns (see **`api/export.php`** header order).
+
+## Reporting API (Phase 13)
+
+All reporting compares **per-job snapshot tables** only (`scan_asset_snapshots`, `scan_finding_snapshots`). It does **not** diff live `assets` / `findings` rows. Semantics: **job A = reference / baseline**, **job B = current** (newer run).
+
+### Reporting tab (web UI)
+
+The **Reporting** tab (sidebar) is for operators who need snapshot diffs, baselines, scheduled report artifacts, and rule-based compliance **without** pulling full diff payloads into the browser by default.
+
+| Area | What it does | Typical API |
+|------|----------------|---------------|
+| **Baseline status** | Shows configured vs **effective** baseline job id (when the configured job is missing, not `done`, or has no snapshots, the UI treats baseline as unavailable for diffs). | `baseline` |
+| **Trends** | Last **N** completed jobs (**≤ 50**): snapshot **asset** and **open finding** counts over time; tables plus small inline SVG sparklines (not a charting library). Labeled as snapshot-based, not real-time. | `trends_summary` |
+| **Compare summary** | Pick two completed jobs; loads **counts and finding events** only (not full row arrays). | `compare_summary` |
+| **Saved report artifacts** | Lists rows from **`report_artifacts`** produced by **`report`** schedules (metadata only in the list path). | `artifacts` |
+| **Artifact detail** | **Details** opens a modal fed by **`artifact_summary`** (slim decoded fields: metadata, **`summary`**, **`delta`**, **`compliance_summary`**, **`diff_summary`**). Full **`payload_json`** is **not** loaded here. | `artifact_summary` |
+| **Compliance summary** | Pick a completed job; optional **vs baseline**; shows overall pass/fail, ids, per-rule results, and capped failure text. Uses the live computed ruleset (not the artifact’s stored snapshot alone). | `compliance` |
+
+**Why slim endpoints:** `compare` and `action=artifact` can return large JSON. The default UI path uses **`trends_summary`**, **`compare_summary`**, **`artifacts`**, **`artifact_summary`**, **`compliance`**, and **`baseline`** so responses stay bounded. Admins may use **`compare_debug`**, **`baseline_debug`**, and **`artifact_payload_preview`** for truncated or sampled debug views.
+
+### Baseline: config vs effective
+
+- **`baseline_config_job_id`** — value stored in `config` under **`phase13_baseline_job_id`** (what an operator set).
+- **`baseline_job_id` (effective)** — id actually used for diffs: same job only if it **exists**, **`status=done`**, not trashed, and has **at least one** `scan_asset_snapshots` row. Otherwise **`null`** and **`baseline_unavailable`** is true when a config id was set but could not be resolved.
+
+### Soft limits
+
+- **`compare`**, **`compare_summary`**, and **`compare_debug`** use the same per-job size guard: when either job’s `COUNT(asset snapshots)+COUNT(finding snapshots)` exceeds **200,000**, the API returns HTTP **400** with a clear message. **`compare_summary`** returns only **`counts`**, **`finding_events`**, **`warnings`**, and job metadata (smaller JSON for UI).
+- **`compare_debug`** returns at most **`sample_limit`** rows per bucket (default **15**, max **50**); **admin** role only.
+- **`trends`** — `limit` default **30**, max **200** completed jobs per response.
+- **`trends_summary`** — `limit` default **30**, max **50**; each point is counts only (no per-host/CVE rows). Uses the same batched aggregate queries as **`trends`**.
+- **`artifacts`** — list `limit` default **20**, max **100** rows (metadata columns only).
+
+### Endpoints (session auth + CSRF on POST)
+
+| Action | Method | Roles | Notes |
+|--------|--------|-------|-------|
+| `compare` | GET | viewer+ | `job_a`, `job_b` required, must differ (full diff rows) |
+| `compare_summary` | GET | viewer+ | Same as `compare`; response has **`diff_summary`** only (counts + events) |
+| `summary` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
+| `trends` | GET | viewer+ | `limit` default 30, max 200 (legacy shape: `finished_at`, `assets`) |
+| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — `job_id`, `timestamp`, `asset_count`, `open_findings_total`, `open_findings_by_severity`, `label`; same batched queries as `trends` |
+| `compliance` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
+| `baseline` | GET | viewer+ | Current baseline config + effective id |
+| `baseline_debug` | GET | **admin** | Validation detail for baseline |
+| `compare_debug` | GET | **admin** | `job_a`, `job_b`, optional `sample_limit` |
+| `artifacts` / `artifact` | GET | scan_editor+ | Scheduled report rows; **`artifact`** returns full **`payload_json`** (use sparingly) |
+| `artifact_summary` | GET | scan_editor+ | `id` — metadata + **`summary`**, **`delta`**, **`compliance_summary`**, **`diff_summary`** only (no diff row arrays) |
+| `artifact_payload_preview` | GET | **admin** | `id` — pretty-printed stored JSON, **truncated** (~14k chars) for debugging |
+| `set_baseline` | POST | scan_editor+ | JSON `{"job_id":N}` + CSRF |
+
+**Artifact summary:** `artifact_summary` **reads and decodes** `payload_json` **only on the server** to support legacy rows; the JSON **response is always slim** (metadata, `summary`, `delta`, `compliance_summary`, `diff_summary`, optional `payload_warning` — no full diff row arrays). The Reporting UI does **not** call `action=artifact` or ship full stored payloads by default.
+
+### Example: `GET /api/reporting.php?action=compare&job_a=12&job_b=20`
+
+```json
+{
+  "ok": true,
+  "diff": {
+    "job_a": 12,
+    "job_b": 20,
+    "semantics": "A=reference/baseline, B=current",
+    "warnings": [],
+    "assets_new_in_b": [],
+    "assets_missing_in_b": [],
+    "findings_new_in_b": [],
+    "findings_only_in_a": [],
+    "finding_resolution_changes": [],
+    "finding_events": {
+      "marked_resolved_in_b": 0,
+      "reopened_in_b": 0,
+      "open_in_a_absent_in_b_snapshots": 0
+    },
+    "counts": {
+      "assets_a": 42,
+      "assets_b": 43,
+      "assets_only_in_a": 1,
+      "assets_only_in_b": 2,
+      "findings_only_in_a": 0,
+      "findings_only_in_b": 3,
+      "marked_resolved_in_b": 0,
+      "reopened_in_b": 0,
+      "open_in_a_absent_in_b": 0
+    }
+  }
+}
+```
+
+Row arrays use legacy names (`assets_new_in_b` = hosts only in B; `assets_missing_in_b` = only in A; `findings_only_in_a` = CVE rows in A’s snapshot missing from B’s). **`counts`** adds stable **`assets_only_in_*` / `findings_only_in_*`** mirrors for UI.
+
+### Example: `GET /api/reporting.php?action=baseline`
+
+```json
+{
+  "ok": true,
+  "baseline_config_job_id": 12,
+  "baseline_job_id": 12,
+  "baseline_unavailable": false
+}
+```
+
+### Example: `GET /api/reporting.php?action=baseline_debug` (admin)
+
+```json
+{
+  "ok": true,
+  "baseline": {
+    "baseline_config_job_id": 12,
+    "baseline_job_id": null,
+    "validation_ok": false,
+    "reason_code": "job_not_done",
+    "reason_detail": "Baseline job must have status done."
+  }
+}
+```
+
+### Scheduled report artifacts (`report_artifacts`)
+
+Stored JSON uses **`schema_version`: 1** and a **slim** shape: `job_id`, `schedule_id`, `schedule_name`, `baseline_*`, `generated_at`, **`summary`**, **`delta`**, **`compliance_summary`**, **`diff_summary`** (counts + `finding_events` only — not full CVE/host lists). Full diffs remain available via **`compare`** / **`summary`** over HTTP.
+
+### CLI: `php reporting_cli.php materialize <schedule_id>`
+
+On success, prints one JSON line to stdout, for example:
+
+```json
+{"ok":true,"schedule_id":3,"artifact_id":14,"duration_ms":87}
+```
+
+### Observability
+
+PHP **`error_log`** receives lines prefixed with **`SurveyTrace.reporting`** and a JSON object including **`_event`** (e.g. `reporting.compare`, `reporting.baseline_resolve`, `reporting.materialize_start` / `materialize_end`, `reporting.report_payload`, `reporting.baseline_set`) and **`_ts_ms`**. Use for debugging without exposing debug payloads to non-admin users.
+
+### Phase 13 validation checklist
+
+Use after deploy / migration **`migration_phase13_reporting_v1`** with at least one **`done`** job that has snapshot rows. Snapshot semantics: counts and diffs are from **`scan_asset_snapshots`** / **`scan_finding_snapshots`** only, not live inventory tables.
+
+1. **Baseline** — Open **Reporting** → baseline card loads without waiting on job pickers; config and effective ids match expectations. **Viewer:** can read baseline; **Set baseline** hidden. **Scan editor / admin:** set baseline via UI or **`POST …?action=set_baseline`** (CSRF).
+2. **Compare summary** — Two distinct completed jobs → **`compare_summary`** response includes **`diff_summary`** only (counts, **`finding_events`**, warnings); verify DevTools response has **no** full `assets_new_in_b` / `findings_new_in_b` arrays at the top level.
+3. **Artifact list / detail** — **Scan editor / admin:** with a **`report`** schedule that has produced rows, **Artifacts** lists entries (**`artifacts`**, capped list). **Details** uses **`artifact_summary`** only (slim body); UI must not call **`action=artifact`** for that flow. **Viewer:** artifacts section hidden.
+4. **Compliance summary** — Pick a job → **Load compliance** with and without **vs baseline**; pass/fail and rule lines when applicable; readable empty/error states.
+5. **Trends** — **Load trends** (10–50 jobs); **`trends_summary`** payload is a bounded array of points (`job_id`, `timestamp`, counts, severity buckets); tables + optional SVG sparklines; empty state when no qualifying **done** jobs.
+6. **Scheduled report artifact** — **`schedule_action=report`**; after scheduler run, new **`report_artifacts`** row with materialized **`payload_json`** (verify via **`artifacts`** or admin **`artifact_payload_preview`**).
+7. **Admin debug endpoints** — As **admin**: **`baseline_debug`**, **`compare_debug`** (`sample_limit` ≤ 50), **`artifact_payload_preview`** (truncated ~14k chars). **Viewer / scan editor** must not receive admin-only payloads from these actions.
+8. **RBAC quick pass** — **Viewer:** Reporting tab shows baseline, trends, compare, compliance; no baseline save, no artifacts, no admin debug controls. **Scan editor:** artifacts + set baseline; no admin debug unless also admin.
+9. **Panel isolation** — If **`scan_history`** fails (e.g. network), baseline and (for scan_editor+) artifacts panels should still populate after refresh; job pickers show the error option until history loads again.
 
 ## SQLite locking and concurrency
 
@@ -446,6 +593,14 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.13.0
+
+- **Reporting foundation** — **`api/lib_reporting.php`**, **`api/reporting.php`**, **`api/reporting_cli.php`**; migration **`migration_phase13_reporting_v1`**; **`report_artifacts`**; schedule action **`report`**; baseline config **`phase13_baseline_job_id`**.
+- **API surfaces** — **`compare_summary`**, **`artifact_summary`**, admin **`artifact_payload_preview`**; existing **`compare`**, **`summary`**, **`trends`**, **`compliance`**, **`artifacts`**, **`set_baseline`**.
+- **Reporting UI** — Sidebar **Reporting** tab: baseline status, compare summary, artifact list, artifact detail (slim summary), compliance summary panel (bounded rule output).
+- **SQLite / ops** — Reporting CLI retries on lock; shared busy timeout / WAL behavior documented in **SQLite locking and concurrency**; scheduler subprocess isolation for PHP report work.
+- **Version** — **`VERSION`** **0.13.0**; **`api/st_version.php`** / **`daemon/surveytrace_version.py`** fallbacks aligned.
 
 ### 0.12.0
 
@@ -742,7 +897,7 @@ surveytrace/
 
 ## Roadmap
 
-Roadmap **phase numbers 9–12** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1` … `migration_phase12_asset_lifecycle_v1`). Later phases are planning-only until shipped.
+Roadmap **phase numbers 9–13** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1` … `migration_phase13_reporting_v1`). Later phases are planning-only until shipped.
 
 ### Completed (summary)
 - **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
@@ -757,9 +912,9 @@ Roadmap **phase numbers 9–12** match the SQLite migration markers in **`api/db
 - **Phase 10 — Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** JSON; scanner + **`daemon/finding_triage.py`** + collector parity; **Vulnerabilities** / host UI, **`findings.php`** filters/sorts, **`findings_export.php`**.
 - **Phase 11 — CVE intelligence** — **`cve_intel`** sidecar (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystems); **`daemon/sync_cve_intel.py`** + feed sync wiring; **`intel`** on finding payloads and exports (complements NVD for mixed fleets: Linux, Windows, **macOS**, **Hyper-V**, containers, and **iOS / iPadOS / Android**-relevant shared components where data exists).
 - **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle (Phase 12)](#asset-lifecycle)**.
+- **Phase 13 — Baselines & reporting** — snapshot **`compare`** / **`compare_summary`**, **`summary`**, **`trends`**, **`compliance`**; global baseline (**`phase13_baseline_job_id`**, **`scan_jobs.is_baseline`**); **`report_artifacts`** and **`schedule_action`** **`report`** (**`reporting_cli.php`**); **Reporting** UI (baseline card, compare summary, artifacts + slim detail, compliance panel). See **[Reporting API (Phase 13)](#reporting-api-phase-13)**. *Follow-ons:* reporting CSV/charts, richer compliance rules.
 
 ### Upcoming
-- **Phase 13**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.
 - **Phase 14**: Integrations program —
   - **14.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
   - **14.2 Monitoring/ops:** Zabbix + alert/status mapping

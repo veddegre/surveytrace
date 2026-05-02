@@ -612,7 +612,38 @@ def _materialize_scheduled_report(conn: sqlite3.Connection, schedule_id: int) ->
                 (r.stdout or "")[:500],
             )
         else:
-            log.info("Scheduled report OK schedule_id=%s", schedule_id)
+            # reporting_cli.php prints one JSON line on success; parse first non-empty line only.
+            payload = None
+            line = ""
+            for ln in (r.stdout or "").splitlines():
+                s = ln.strip()
+                if s:
+                    line = s
+                    break
+            if line:
+                try:
+                    payload = json.loads(line)
+                except ValueError:
+                    log.warning(
+                        "Scheduled report stdout is not valid JSON schedule_id=%s snippet=%s",
+                        schedule_id,
+                        line[:500],
+                    )
+            if isinstance(payload, dict) and payload.get("ok") is True:
+                log.info(
+                    "Scheduled report OK schedule_id=%s artifact_id=%s duration_ms=%s",
+                    payload.get("schedule_id", schedule_id),
+                    payload.get("artifact_id"),
+                    payload.get("duration_ms"),
+                )
+            else:
+                log.info("Scheduled report OK schedule_id=%s", schedule_id)
+            if r.stderr and r.stderr.strip():
+                log.warning(
+                    "Scheduled report stderr schedule_id=%s: %s",
+                    schedule_id,
+                    r.stderr.strip()[:500],
+                )
     except Exception as e:
         log.error("Scheduled report subprocess schedule_id=%s: %s", schedule_id, e)
 

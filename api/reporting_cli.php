@@ -27,12 +27,35 @@ if ($sid <= 0) {
     exit(1);
 }
 
-try {
-    st_reporting_materialize_scheduled(st_db(), $sid);
-} catch (Throwable $e) {
-    fwrite(STDERR, $e->getMessage() . "\n");
-    exit(1);
+$maxAttempts = 5;
+$delayMs = 100;
+$lastErr = '';
+$cliT0 = microtime(true);
+for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
+    try {
+        $artifactId = st_reporting_materialize_scheduled(st_db(), $sid);
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        $out = [
+            'ok'           => true,
+            'schedule_id'  => $sid,
+            'artifact_id'  => $artifactId,
+            'duration_ms'  => (int) round((microtime(true) - $cliT0) * 1000),
+        ];
+        echo json_encode($out, $flags) . "\n";
+        exit(0);
+    } catch (Throwable $e) {
+        $lastErr = $e->getMessage();
+        $msg = strtolower($lastErr);
+        $busy = str_contains($msg, 'database is locked') || str_contains($msg, 'busy')
+            || str_contains($msg, 'locked');
+        if ($busy && $attempt < $maxAttempts - 1) {
+            usleep($delayMs * 1000);
+            $delayMs = min($delayMs * 2, 2000);
+            continue;
+        }
+        break;
+    }
 }
 
-echo "OK\n";
-exit(0);
+fwrite(STDERR, $lastErr . "\n");
+exit(1);

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_FALLBACK = "0.12.0"
+_FALLBACK = "0.13.0"
 
 
 def surveytrace_version() -> str:
