@@ -590,7 +590,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top" style="margin-bottom:8px">Reports &amp; Analysis</div>
   <div class="hint-micro mb12">
     This page extends the <strong>Executive View</strong> with <strong>snapshot-based</strong> reporting: baseline drift, compliance checks, per-job trends, and saved report artifacts. Numbers from completed scans reflect frozen inventory and findings at job time — not the same as live Dashboard totals. Read-only except <strong>Set baseline</strong> (scan editor or admin).
-    <span class="text-dim">Use <strong>All scopes</strong> for the classic view, or narrow to one network so drift stays comparable.</span>
+    <span class="text-dim"><strong>All scopes</strong> shows every finished job (overview only — not one shared baseline for all networks). Narrow to a scope for per-network baselines and drift.</span>
   </div>
 
   <div class="card mb10" id="report-scope-card">
@@ -623,7 +623,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Snapshot drift</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: compares the latest scan to the most recent prior scan <em>in the same scope</em> (never cross-network by accident). <strong>Named / Unscoped</strong>: uses scoped or global baseline when set, otherwise the prior completed job in that filter.
+      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: automatic drift always stays inside the <em>latest scan’s scope</em> (that scope’s baseline if set and valid, else legacy unscoped global only when both jobs are unscoped, else the prior finished job in the same scope). It never picks two different named scopes by date alone. <strong>Named / Unscoped filter</strong>: uses that filter’s baseline rules, then prior job in the list.
     </div>
     <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
   </div>
@@ -659,12 +659,14 @@ if (is_readable($dbProbe)) {
     <div id="report-baseline-status" class="help-mono">Loading…</div>
     <div id="report-baseline-validation" class="hint-micro mt8" style="display:none"></div>
     <div id="report-baseline-set-wrap" class="mt10" style="display:none">
-      <label class="flbl">Set global baseline (writes <span class="mono-sm">config.phase13_baseline_job_id</span>)</label>
+      <label class="flbl" id="report-baseline-set-label">Set baseline</label>
       <div class="row-wrap gap6">
         <select class="finp" id="report-baseline-job" style="min-width:280px" aria-label="Completed scan for baseline"></select>
         <button type="button" class="tbtn" id="report-baseline-save" onclick="saveReportingBaseline()">Set baseline</button>
       </div>
-      <div class="hint-micro mt6">Pick a <strong>completed</strong> job that already has asset snapshots. Same role rules as queueing scans: <strong>scan editor</strong> or <strong>admin</strong>.</div>
+      <div id="report-baseline-set-hint" class="hint-micro mt6">
+        Pick a <strong>completed</strong> job that already has asset snapshots. Same role rules as queueing scans: <strong>scan editor</strong> or <strong>admin</strong>.
+      </div>
     </div>
     <div id="report-baseline-debug-wrap" class="mt10" style="display:none">
       <div class="hint-micro mb6">Admin-only: server validation detail (not shown to viewers).</div>
@@ -7439,7 +7441,7 @@ function updateReportingScopeDetail() {
     }
     if (reportingScopeApiFilter === null) {
         detailEl.innerHTML =
-            '<strong>All scopes</strong> — trends and job lists include every completed scan (same as before scope tags). Snapshot drift picks the latest scan and the previous finished job <em>in the same scope</em> so different networks are not compared automatically.';
+            '<strong>All scopes (overview)</strong> — lists every completed scan. This mode is <em>not</em> a single comparison universe: there is no one baseline for all networks here. Automatic drift only compares within the latest scan’s scope (see Snapshot drift). Use a named scope or Unscoped only to set or inspect baselines.';
         return;
     }
     if (reportingScopeApiFilter === 0) {
@@ -7546,6 +7548,17 @@ function onReportingScopeChange() {
     void loadReportingTab();
 }
 
+function reportingJobSelectScopeTag(h) {
+    if (!h || h.scope_id == null) {
+        return '';
+    }
+    const sid = parseInt(String(h.scope_id), 10);
+    if (!Number.isFinite(sid) || sid <= 0) {
+        return ' [unscoped]';
+    }
+    return ' [scope #' + sid + ']';
+}
+
 function reportingFillJobSelect(selectId, rows) {
     const el = document.getElementById(selectId);
     if (!el) return;
@@ -7559,7 +7572,8 @@ function reportingFillJobSelect(selectId, rows) {
         o.value = String(h.id);
         const lab = (h.label != null && String(h.label)) ? String(h.label) : '';
         const tgt = (h.target_cidr != null) ? String(h.target_cidr) : '';
-        o.textContent = ('#' + h.id + ' ' + lab + ' — ' + tgt).slice(0, 220);
+        const sc = reportingJobSelectScopeTag(h);
+        o.textContent = ('#' + h.id + ' ' + lab + ' — ' + tgt + sc).slice(0, 240);
         el.appendChild(o);
     }
 }
@@ -8423,8 +8437,21 @@ async function loadReportingChangeSince() {
     }
     const ts = tr.trends_summary;
     if (!Array.isArray(ts) || ts.length < 1) {
+        let emptyMsg =
+            'No completed scans yet — snapshot drift appears after at least one job finishes.';
+        if (reportingScopeApiFilter > 0) {
+            emptyMsg =
+                'No completed scans match this named scope in the recent window. Run a finished scan in this scope, switch to All scopes, or use Manual compare.';
+        } else if (reportingScopeApiFilter === 0) {
+            emptyMsg =
+                'No unscoped completed scans in the recent window (jobs need no scope tag). Try All scopes if you expect legacy data here.';
+        }
+        out.innerHTML = '<div class="hint-micro text-dim">' + esc(emptyMsg) + '</div>';
+        return;
+    }
+    if (ts.length === 1 && reportingScopeApiFilter !== null && reportingScopeApiFilter !== undefined) {
         out.innerHTML =
-            '<div class="hint-micro text-dim">No completed scans yet — snapshot drift appears after at least one job finishes.</div>';
+            '<div class="hint-micro text-dim">Only <strong>one</strong> completed scan matches this scope filter in the recent window. Drift needs a second finished job in the same scope, a valid baseline for that scope, or switch to <strong>All scopes</strong> / <strong>Manual compare</strong>.</div>';
         return;
     }
     const newest = parseInt(String(ts[0].job_id), 10);
@@ -8441,13 +8468,39 @@ async function loadReportingChangeSince() {
     let labelMode = 'none';
     if (modeAll) {
         const sk = reportingTrendsRowScopeKey(ts[0]);
-        for (let i = 1; i < ts.length; i++) {
-            if (reportingTrendsRowScopeKey(ts[i]) === sk) {
-                const cand = parseInt(String(ts[i].job_id), 10);
-                if (cand > 0 && cand !== newest) {
-                    jobA = cand;
-                    labelMode = 'same_scope_prior_all';
-                    break;
+        let picked = false;
+        if (sk > 0) {
+            const bxs = await api('/api/reporting.php?action=baseline&scope_id=' + encodeURIComponent(String(sk)), {
+                quiet: true,
+            });
+            const effS =
+                bxs && bxs.ok && bxs.scope_baseline_job_id != null
+                    ? parseInt(String(bxs.scope_baseline_job_id), 10)
+                    : 0;
+            if (effS > 0 && effS !== newest) {
+                jobA = effS;
+                labelMode = 'scope_baseline_latest_network';
+                picked = true;
+            }
+        }
+        if (!picked && sk === 0 && bl && bl.ok) {
+            const us = bl.unscoped_comparison_baseline_job_id;
+            const usEff = us != null ? parseInt(String(us), 10) : 0;
+            if (usEff > 0 && usEff !== newest) {
+                jobA = usEff;
+                labelMode = 'legacy_unscoped_global_all';
+                picked = true;
+            }
+        }
+        if (!picked) {
+            for (let i = 1; i < ts.length; i++) {
+                if (reportingTrendsRowScopeKey(ts[i]) === sk) {
+                    const cand = parseInt(String(ts[i].job_id), 10);
+                    if (cand > 0 && cand !== newest) {
+                        jobA = cand;
+                        labelMode = 'same_scope_prior_all';
+                        break;
+                    }
                 }
             }
         }
@@ -8456,14 +8509,22 @@ async function loadReportingChangeSince() {
                 sk === 0
                     ? 'unscoped / legacy (no scope tag)'
                     : 'scope #' + sk + ' (named network)';
+            const baselineNote =
+                sk > 0
+                    ? ' (No scoped baseline set for that network, or it matches the latest scan.)'
+                    : sk === 0 && bl && bl.ok && bl.legacy_global_points_to_named_scope
+                      ? ' (Legacy global baseline points at a named-scope job, so it is not used for unscoped drift here.)'
+                      : '';
             out.innerHTML =
                 '<div class="hint-micro text-dim">Latest completed scan is <span class="mono-sm">#' +
                 esc(String(newest)) +
                 '</span> (' +
                 esc(scopeLabel) +
-                '). <strong>No comparable previous scan</strong> in that same scope was found in the last ' +
+                '). <strong>No comparable reference</strong> in that same scope in the last ' +
                 esc(String(driftLimit)) +
-                ' finished jobs — run another scan in this scope, filter to a named scope, or use <strong>Manual compare</strong>.</div>';
+                ' finished jobs — add another scan in this scope, set a scoped baseline for that network, or use <strong>Manual compare</strong>.' +
+                esc(baselineNote) +
+                '</div>';
             return;
         }
     } else {
@@ -8490,8 +8551,14 @@ async function loadReportingChangeSince() {
         }
     }
     if (!jobA || jobA === newest) {
+        const narrow =
+            reportingScopeApiFilter !== null && reportingScopeApiFilter !== undefined
+                ? ' At least two completed scans in this filter, or a baseline that differs from the latest scan, are needed.'
+                : '';
         out.innerHTML =
-            '<div class="hint-micro text-dim">Need another completed scan before drift can be shown. If you use a baseline, it must resolve to a finished job that is not the same as your latest scan.</div>';
+            '<div class="hint-micro text-dim">Drift cannot be shown for this pair: the reference scan is missing or the same as the latest.' +
+            esc(narrow) +
+            ' If a baseline is configured but deleted or invalid, set a new one or wait for another finished job.</div>';
         return;
     }
     const d = await api(
@@ -8518,9 +8585,26 @@ async function loadReportingChangeSince() {
             ') vs latest scan #' +
             newest +
             ' — snapshot tables only (not live inventory).';
+    } else if (labelMode === 'scope_baseline_latest_network') {
+        hintText =
+            'All scopes — reference: <strong>baseline for the latest scan’s network</strong> (scan #' +
+            jobA +
+            ') vs latest scan #' +
+            newest +
+            ' — snapshots only.';
+    } else if (labelMode === 'legacy_unscoped_global_all') {
+        hintText =
+            'All scopes — reference: <strong>legacy global baseline</strong> (unscoped job, scan #' +
+            jobA +
+            ') vs latest unscoped scan #' +
+            newest +
+            ' — snapshots only.';
     } else if (labelMode === 'baseline') {
         hintText =
-            'Reference: configured baseline (scan #' +
+            (reportingScopeApiFilter > 0
+                ? 'Named scope — reference: '
+                : 'Unscoped filter — reference: ') +
+            'configured baseline (scan #' +
             jobA +
             ') vs current scan #' +
             newest +
@@ -8799,9 +8883,14 @@ async function loadReportingTrendsSummary(silentFail) {
     if (out) {
         out.innerHTML = '<span class="text-dim">Loading…</span>';
     }
-    const d = await api('/api/reporting.php?action=trends_summary&limit=' + lim + reportingScopeQuery(), {
-        quiet: true,
-    });
+    const trendUrl = '/api/reporting.php?action=trends_summary&limit=' + lim + reportingScopeQuery();
+    const d = await api(trendUrl, {quiet: true});
+    if (typeof window !== 'undefined' && stRoleIsAdmin()) {
+        window.__stReportingDiag = Object.assign({}, window.__stReportingDiag || {}, {
+            lastTrendsUrl: trendUrl,
+            lastTrendsOk: !!(d && d.ok),
+        });
+    }
     if (!d || !d.ok) {
         const msg = esc(reportingUserErrorMessage(d, 'Could not load scan history.'));
         if (out) {
@@ -8827,11 +8916,38 @@ async function loadReportingTrendsSummary(silentFail) {
     }
     const chrono = reportingTrendsChronological(pts);
     if (out) {
-        out.innerHTML = reportingRenderTrendsSummaryHtml(chrono);
+        if (!chrono.length) {
+            let why =
+                '<div class="hint-micro text-dim">No completed scans match this scope filter in the recent window.</div>';
+            if (reportingScopeApiFilter === null) {
+                why =
+                    '<div class="hint-micro text-dim">No finished jobs with snapshots appeared in the last ' +
+                    esc(String(lim)) +
+                    ' completed scans. Run a scan and return after it completes.</div>';
+            } else if (reportingScopeApiFilter === 0) {
+                why =
+                    '<div class="hint-micro text-dim"><strong>Unscoped only</strong> — no completed jobs without a scope tag in this list. Legacy scans may still be tagged; try <strong>All scopes</strong> to confirm data exists.</div>';
+            } else {
+                why =
+                    '<div class="hint-micro text-dim"><strong>This named scope</strong> has no completed scans in the last ' +
+                    esc(String(lim)) +
+                    ' jobs. Pick another scope or run a scan with this scope selected.</div>';
+            }
+            out.innerHTML = why;
+            out.className = 'report-trends-out text-dim';
+        } else {
+            out.innerHTML = reportingRenderTrendsSummaryHtml(chrono);
+            out.className = 'report-trends-out';
+        }
     }
 }
 
 async function loadReportingTab() {
+    if (typeof window !== 'undefined' && !stRoleIsAdmin()) {
+        try {
+            delete window.__stReportingDiag;
+        } catch (_e) {}
+    }
     try {
         await loadReportingScopeSelector(false);
     } catch (_e) {}
@@ -8861,66 +8977,135 @@ async function loadReportingTab() {
         trendsOut.className = 'report-trends-out text-dim';
     }
     // Baseline first so a failure loading scan history (job pickers) does not block baseline or artifacts.
-    const d = await api('/api/reporting.php?action=baseline' + reportingScopeQuery(), {quiet: true});
-    reportingTabBaseline = d && d.ok ? d : null;
-    if (!d || !d.ok) {
-        const msg = reportingUserErrorMessage(d, 'Unable to load baseline status. Check your session or try again.');
-        if (baseEl) baseEl.innerHTML = '<div class="text-dim">' + esc(msg) + '</div>';
+    const baselineUrl = '/api/reporting.php?action=baseline' + reportingScopeQuery();
+    const d = await api(baselineUrl, {quiet: true});
+    if (typeof window !== 'undefined' && stRoleIsAdmin()) {
+        window.__stReportingDiag = Object.assign({}, window.__stReportingDiag || {}, {
+            lastBaselineUrl: baselineUrl,
+            lastBaselineAt: Date.now(),
+            lastBaselineOk: !!(d && (d.ok !== false || d.baseline_soft_error)),
+        });
+    }
+    reportingTabBaseline = d && d.ok !== false ? d : null;
+    const lblEl = document.getElementById('report-baseline-set-label');
+    const setHintEl = document.getElementById('report-baseline-set-hint');
+    const overviewMode = reportingScopeApiFilter === null;
+    const namedMode = reportingScopeApiFilter !== null && reportingScopeApiFilter > 0;
+    const unscopedMode = reportingScopeApiFilter !== null && reportingScopeApiFilter === 0;
+    if (!d) {
+        if (baseEl) {
+            baseEl.innerHTML =
+                '<div class="hstate-warn">Baseline status could not be loaded (network, session, or non-JSON response). Charts and trends below may still work after sign-in.</div>';
+        }
         if (valEl) {
             valEl.style.display = 'none';
             valEl.textContent = '';
         }
-        if (currentTab === 'report') {
-            reportingToastApiError('Baseline status', d, 'Unable to load baseline.');
+    } else if (d.baseline_soft_error) {
+        if (baseEl) {
+            baseEl.innerHTML =
+                '<div class="hstate-warn">' +
+                esc(String(d.baseline_soft_error)) +
+                '</div><div class="hint-micro mt6 text-dim">If this persists, check the server <strong>error_log</strong> for <span class="mono-sm">reporting baseline</span>.</div>';
+        }
+        if (valEl) {
+            valEl.style.display = 'none';
+            valEl.textContent = '';
         }
     } else {
         const cfg = d.baseline_config_job_id;
         const eff = d.baseline_job_id;
         const un = !!d.baseline_unavailable;
+        const gScope = d.global_baseline_job_scope_id;
+        const gScopeTxt =
+            gScope != null && parseInt(String(gScope), 10) > 0
+                ? 'named scope #' + esc(String(gScope))
+                : 'unscoped / legacy';
+        const unscopedEff = d.unscoped_comparison_baseline_job_id;
+        const legNamed = !!d.legacy_global_points_to_named_scope;
+        const upePool = d.unscoped_pool_baseline_job_id;
         if (baseEl) {
-            let scopeBaselineHtml = '';
-            if (reportingScopeApiFilter !== null && reportingScopeApiFilter > 0) {
+            let html = '';
+            if (overviewMode) {
+                html +=
+                    '<div class="hint-micro mb10" style="line-height:1.5">' +
+                    '<strong>Baselines are per scope.</strong> <em>All scopes</em> is an overview: trends list every finished job; automatic drift compares within the latest scan’s scope only. ' +
+                    'The legacy global row below is diagnostic — it is <em>not</em> a single baseline for all networks in this view. ' +
+                    'Select a <strong>named scope</strong> or <strong>Unscoped only</strong> above to view or set that bucket’s baseline.</div>';
+            }
+            html +=
+                '<div class="text-dim" style="font-size:11px;margin-bottom:4px"><strong>Legacy global baseline</strong> (<span class="mono-sm">config.phase13_baseline_job_id</span>) — historical; does not apply to every network or drive All-scopes drift by itself.</div>' +
+                '<div><strong>Configured id:</strong> ' +
+                (cfg == null ? '— none —' : esc(String(cfg))) +
+                '</div><div><strong>Effective job:</strong> ' +
+                (eff == null ? '— none —' : esc(String(eff))) +
+                (d.scoping_enabled ? ' <span class="text-dim">(scope: ' + gScopeTxt + ')</span>' : '') +
+                '</div><div><strong>Unusable for diffs:</strong> ' +
+                (un ? '<span class="hstate-warn">yes</span>' : 'no') +
+                '</div>';
+            if (d.scoping_enabled) {
+                html +=
+                    '<div class="mt8"><strong>Unscoped comparison baseline:</strong> ' +
+                    (unscopedEff == null ? '— none —' : esc(String(unscopedEff))) +
+                    ' <span class="text-dim">(only when the legacy global baseline job is itself unscoped)</span></div>';
+            }
+            if (namedMode) {
                 const scfg = d.scope_baseline_config_job_id;
                 const seff = d.scope_baseline_job_id;
                 const sun = !!d.scope_baseline_unavailable;
-                scopeBaselineHtml =
-                    '<div class="mt8"><strong>Scoped baseline (this scope, saved id):</strong> ' +
+                html +=
+                    '<div class="mt8"><strong>Named scope baseline (saved id):</strong> ' +
                     (scfg == null ? '— none —' : esc(String(scfg))) +
-                    '</div><div><strong>Scoped effective baseline:</strong> ' +
+                    '</div><div><strong>Named scope effective:</strong> ' +
                     (seff == null ? '— none —' : esc(String(seff))) +
-                    '</div><div><strong>Scoped baseline unusable:</strong> ' +
+                    '</div><div><strong>Named scope baseline unusable:</strong> ' +
                     (sun ? '<span class="hstate-warn">yes</span>' : 'no') +
                     '</div>';
+                {
+                    const scfgNum = scfg != null && String(scfg) !== '' ? parseInt(String(scfg), 10) : 0;
+                    if (!(scfgNum > 0) && !sun) {
+                        html +=
+                            '<div class="hint-micro mt6 text-dim">No baseline saved for this named scope yet — pick a completed scan in this scope and use <strong>Set baseline</strong>.</div>';
+                    }
+                }
             }
-            baseEl.innerHTML =
-                '<div><strong>Global baseline (saved id):</strong> ' +
-                (cfg == null ? '— none —' : esc(String(cfg))) +
-                '</div><div><strong>Global effective baseline:</strong> ' +
-                (eff == null ? '— none —' : esc(String(eff))) +
-                '</div><div><strong>Global baseline unavailable for diffs:</strong> ' +
-                (un ? '<span class="hstate-warn">yes</span> — config points at a job that cannot be resolved' : 'no') +
-                '</div>' +
-                scopeBaselineHtml;
+            if (unscopedMode) {
+                const upc = d.unscoped_pool_config_job_id;
+                const upe = d.unscoped_pool_baseline_job_id;
+                html +=
+                    '<div class="mt8"><strong>Unscoped pool — configured (legacy global):</strong> ' +
+                    (upc == null ? '— none —' : esc(String(upc))) +
+                    '</div><div><strong>Unscoped pool — effective:</strong> ' +
+                    (upe == null ? '— none —' : esc(String(upe))) +
+                    '</div>';
+            }
+            baseEl.innerHTML = html;
         }
         if (valEl) {
-            const scopeUn =
-                reportingScopeApiFilter !== null &&
-                reportingScopeApiFilter > 0 &&
-                !!(d.scope_baseline_config_job_id != null && parseInt(String(d.scope_baseline_config_job_id), 10) > 0) &&
-                !!d.scope_baseline_unavailable;
-            if (un || scopeUn) {
+            const parts = [];
+            if (un) {
+                parts.push(
+                    'Legacy global baseline: configured id is not usable (missing job, not completed, in trash, or no asset snapshots).'
+                );
+            }
+            if (namedMode && d.scope_baseline_config_job_id != null && parseInt(String(d.scope_baseline_config_job_id), 10) > 0 && d.scope_baseline_unavailable) {
+                parts.push('Named scope baseline: saved id is not usable for this scope.');
+            }
+            if (overviewMode && legNamed) {
+                parts.push(
+                    'Legacy global baseline points at a named-scope job — it is not an “all networks” baseline and is not used for unscoped-only drift until repointed to an unscoped completed job.'
+                );
+            }
+            if (unscopedMode && legNamed) {
+                parts.push(
+                    'The legacy global baseline points at a named-scope scan — it is not used as the unscoped comparison baseline. Set a new baseline from an unscoped completed job, or pick a named scope.'
+                );
+            }
+            if (unscopedMode && (upePool == null || upePool === '') && !legNamed) {
+                parts.push('No unscoped comparison baseline is set yet. Choose a completed unscoped scan and set baseline.');
+            }
+            if (parts.length) {
                 valEl.style.display = '';
-                const parts = [];
-                if (un) {
-                    parts.push(
-                        'Global baseline: configured id is not usable (missing job, not completed, in trash, or no asset snapshots). Comparisons fall back until you set a valid job.'
-                    );
-                }
-                if (scopeUn) {
-                    parts.push(
-                        'Scoped baseline: saved id for this scope is not usable; drift for this scope ignores that baseline until you set a valid completed scan.'
-                    );
-                }
                 valEl.textContent = parts.join(' ');
             } else {
                 valEl.style.display = 'none';
@@ -8928,7 +9113,27 @@ async function loadReportingTab() {
             }
         }
     }
-    if (setWrap) setWrap.style.display = stRoleCanManageScans() ? '' : 'none';
+    if (setWrap) {
+        const canSet = stRoleCanManageScans();
+        if (!canSet) {
+            setWrap.style.display = 'none';
+        } else if (overviewMode) {
+            setWrap.style.display = 'none';
+        } else {
+            setWrap.style.display = '';
+            if (lblEl) {
+                lblEl.innerHTML =
+                    namedMode
+                        ? 'Set baseline for <strong>this named scope</strong> (<span class="mono-sm">scan_scope_baselines</span>)'
+                        : 'Set <strong>legacy global</strong> baseline (applies to unscoped comparisons; writes <span class="mono-sm">config.phase13_baseline_job_id</span>)';
+            }
+            if (setHintEl) {
+                setHintEl.innerHTML = namedMode
+                    ? 'The selected job must belong to this scope and have asset snapshots.'
+                    : 'Pick a <strong>completed</strong> job with <strong>no scope tag</strong> (unscoped) so legacy comparisons stay meaningful.';
+            }
+        }
+    }
     if (dbgWrap) dbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
     if (cmpDbgWrap) cmpDbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
     try {
@@ -8942,16 +9147,11 @@ async function loadReportingTab() {
     } catch (_e) {}
     const artH = document.getElementById('report-artifacts-heading');
     const artW = document.getElementById('report-artifacts-wrap');
-    if (stRoleCanManageScans()) {
-        if (artH) artH.style.display = '';
-        if (artW) artW.style.display = '';
-        try {
-            await loadReportingArtifacts();
-        } catch (_e) {}
-    } else {
-        if (artH) artH.style.display = 'none';
-        if (artW) artW.style.display = 'none';
-    }
+    if (artH) artH.style.display = '';
+    if (artW) artW.style.display = '';
+    try {
+        await loadReportingArtifacts();
+    } catch (_e) {}
     try {
         await loadReportingTrendsSummary(true);
     } catch (_e) {}
@@ -9063,21 +9263,36 @@ async function loadReportingArtifacts() {
     const tbody = document.getElementById('report-artifacts-tbody');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7" class="text-dim">Loading…</td></tr>';
-    const d = await api('/api/reporting.php?action=artifacts&limit=40', {quiet: true});
-    if (!d || !d.ok) {
-        const hint = reportingUserErrorMessage(
-            d,
-            'Could not load artifacts. This list requires scan editor or admin.'
-        );
+    const artUrl = '/api/reporting.php?action=artifacts&limit=40';
+    const d = await api(artUrl, {quiet: true});
+    if (typeof window !== 'undefined' && stRoleIsAdmin()) {
+        window.__stReportingDiag = Object.assign({}, window.__stReportingDiag || {}, {
+            lastArtifactsUrl: artUrl,
+            lastArtifactsAt: Date.now(),
+            lastArtifactsOk: !!(d && d.ok !== false),
+        });
+    }
+    if (!d) {
+        tbody.innerHTML =
+            '<tr><td colspan="7" class="text-dim">Could not load saved reports (network or session). Sign in again if needed.</td></tr>';
+        return;
+    }
+    if (!d.ok) {
+        const hint = reportingUserErrorMessage(d, 'Saved reports could not be loaded.');
         tbody.innerHTML = '<tr><td colspan="7" class="text-dim">' + esc(hint) + '</td></tr>';
-        if (currentTab === 'report') {
-            reportingToastApiError('Report artifacts', d, 'Could not load saved reports.');
-        }
+        return;
+    }
+    if (d.artifacts_soft_error) {
+        tbody.innerHTML =
+            '<tr><td colspan="7" class="text-dim">' +
+            esc(String(d.artifacts_soft_error)) +
+            '</td></tr>';
         return;
     }
     const rows = d.artifacts || [];
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-dim">No report artifacts yet.</td></tr>';
+        tbody.innerHTML =
+            '<tr><td colspan="7" class="text-dim">No saved reports yet. Scheduled <strong>report</strong> runs create rows here (scan editor or admin).</td></tr>';
         return;
     }
     tbody.innerHTML = rows
@@ -9096,9 +9311,13 @@ async function loadReportingArtifacts() {
                 esc(String(r.baseline_job_id != null ? r.baseline_job_id : '')) +
                 '</td><td>' +
                 esc(String(r.title || '')) +
-                '</td><td><button type="button" class="tbtn btn-xs" onclick="openReportArtifactSummary(' +
-                parseInt(String(r.id), 10) +
-                ')">Details</button></td></tr>'
+                '</td><td>' +
+                (stRoleCanManageScans()
+                    ? '<button type="button" class="tbtn btn-xs" onclick="openReportArtifactSummary(' +
+                      parseInt(String(r.id), 10) +
+                      ')">Details</button>'
+                    : '<span class="text-dim" title="Details require scan editor or admin">—</span>') +
+                '</td></tr>'
             );
         })
         .join('');
@@ -9213,6 +9432,10 @@ function closeReportArtifactModal() {
 }
 
 async function openReportArtifactSummary(id) {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required to open report details.', 'err');
+        return;
+    }
     const aid = parseInt(String(id), 10);
     if (!aid) {
         toast('Invalid artifact id', 'err');

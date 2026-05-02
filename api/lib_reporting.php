@@ -1117,6 +1117,70 @@ function st_reporting_materialize_scheduled(PDO $db, int $scheduleId): int
     return $artifactId;
 }
 
+/**
+ * Payload for GET reporting.php?action=baseline (all scope filter modes; safe for JSON).
+ *
+ * @return array<string, mixed>
+ */
+function st_reporting_baseline_status_response(PDO $db, ?int $scopeF): array
+{
+    $hasScope = st_scan_scopes_table_scan_jobs_has_scope_id($db);
+    $cfg = st_reporting_get_baseline_config_job_id($db);
+    $eff = st_reporting_resolve_baseline_job_id($db, $cfg);
+    $globalBaselineScopeId = null;
+    if ($hasScope && $eff !== null && (int) $eff > 0) {
+        $q = $db->prepare('SELECT COALESCE(scope_id, 0) FROM scan_jobs WHERE id = ? LIMIT 1');
+        $q->execute([(int) $eff]);
+        $col = $q->fetchColumn();
+        $globalBaselineScopeId = ($col === false || $col === null) ? 0 : (int) $col;
+    }
+    $unscopedComparison = null;
+    if ($eff !== null && (int) $eff > 0) {
+        if (! $hasScope) {
+            $unscopedComparison = (int) $eff;
+        } elseif ($globalBaselineScopeId === 0) {
+            $unscopedComparison = (int) $eff;
+        }
+    }
+    $legacyGlobalPointsToNamed = $hasScope && $eff !== null && (int) $eff > 0
+        && $globalBaselineScopeId !== null && $globalBaselineScopeId > 0;
+
+    $scopeCfg = null;
+    $scopeEff = null;
+    $scopeUnavailable = false;
+    if ($scopeF !== null && $scopeF > 0) {
+        $scopeCfg = st_reporting_get_scope_baseline_config_job_id($db, $scopeF);
+        $scopeEff = st_reporting_resolve_scope_baseline_job_id($db, $scopeF);
+        $scopeUnavailable = ($scopeCfg !== null && $scopeCfg > 0 && $scopeEff === null);
+    }
+
+    $unscopedPoolCfg = null;
+    $unscopedPoolEff = null;
+    if ($scopeF !== null && $scopeF === 0) {
+        $unscopedPoolCfg = $cfg;
+        $unscopedPoolEff = $unscopedComparison;
+    }
+
+    return [
+        'ok'                                   => true,
+        'baseline_config_job_id'               => $cfg,
+        'baseline_job_id'                      => $eff,
+        'baseline_unavailable'                 => ($cfg !== null && $cfg > 0 && $eff === null),
+        'scoping_enabled'                        => $hasScope,
+        'scope_filter'                         => $scopeF,
+        'scope_id'                             => ($scopeF !== null && $scopeF > 0) ? $scopeF : null,
+        'scope_baseline_config_job_id'         => $scopeCfg,
+        'scope_baseline_job_id'                => $scopeEff,
+        'scope_baseline_unavailable'           => $scopeUnavailable,
+        'baseline_overview'                    => $scopeF === null,
+        'global_baseline_job_scope_id'         => $hasScope ? $globalBaselineScopeId : null,
+        'unscoped_comparison_baseline_job_id'  => $unscopedComparison,
+        'legacy_global_points_to_named_scope'   => $legacyGlobalPointsToNamed,
+        'unscoped_pool_config_job_id'          => $unscopedPoolCfg,
+        'unscoped_pool_baseline_job_id'        => $unscopedPoolEff,
+    ];
+}
+
 function st_reporting_get_scope_baseline_config_job_id(PDO $db, int $scopeId): ?int
 {
     if ($scopeId <= 0) {

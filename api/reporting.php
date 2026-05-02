@@ -175,28 +175,31 @@ switch ($action) {
         ]);
 
     case 'baseline':
-        $cfg = st_reporting_get_baseline_config_job_id($db);
-        $eff = st_reporting_resolve_baseline_job_id($db, $cfg);
-        $scopeF = st_reporting_scope_filter_param();
-        $scopeCfg = null;
-        $scopeEff = null;
-        $scopeUnavailable = false;
-        if ($scopeF !== null && $scopeF > 0) {
-            $scopeCfg = st_reporting_get_scope_baseline_config_job_id($db, $scopeF);
-            $scopeEff = st_reporting_resolve_scope_baseline_job_id($db, $scopeF);
-            $scopeUnavailable = ($scopeCfg !== null && $scopeCfg > 0 && $scopeEff === null);
+        try {
+            $scopeF = st_reporting_scope_filter_param();
+            st_json(st_reporting_baseline_status_response($db, $scopeF));
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace reporting baseline: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            st_json([
+                'ok'                                  => true,
+                'baseline_soft_error'                 => 'Baseline metadata could not be loaded completely. Other reporting features may still work.',
+                'baseline_config_job_id'              => null,
+                'baseline_job_id'                     => null,
+                'baseline_unavailable'                => false,
+                'scoping_enabled'                     => false,
+                'scope_filter'                        => null,
+                'scope_id'                            => null,
+                'scope_baseline_config_job_id'        => null,
+                'scope_baseline_job_id'               => null,
+                'scope_baseline_unavailable'          => false,
+                'baseline_overview'                   => true,
+                'global_baseline_job_scope_id'        => null,
+                'unscoped_comparison_baseline_job_id' => null,
+                'legacy_global_points_to_named_scope'  => false,
+                'unscoped_pool_config_job_id'         => null,
+                'unscoped_pool_baseline_job_id'       => null,
+            ]);
         }
-        st_json([
-            'ok'                        => true,
-            'baseline_config_job_id'    => $cfg,
-            'baseline_job_id'           => $eff,
-            'baseline_unavailable'      => ($cfg !== null && $cfg > 0 && $eff === null),
-            'scoping_enabled'           => st_scan_scopes_table_scan_jobs_has_scope_id($db),
-            'scope_id'                  => ($scopeF !== null && $scopeF > 0) ? $scopeF : null,
-            'scope_baseline_config_job_id' => $scopeCfg,
-            'scope_baseline_job_id'     => $scopeEff,
-            'scope_baseline_unavailable'=> $scopeUnavailable,
-        ]);
 
     case 'baseline_debug':
         st_require_role(['admin']);
@@ -221,18 +224,27 @@ switch ($action) {
         st_json(['ok' => true, 'compare_debug' => $debug]);
 
     case 'artifacts':
-        st_require_role(['scan_editor', 'admin']);
+        st_require_role(['viewer', 'scan_editor', 'admin']);
         $lim = st_int('limit', 20, 1, 100);
-        $has = (int) $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_artifacts' LIMIT 1")->fetchColumn();
-        if ($has !== 1) {
-            st_json(['ok' => true, 'artifacts' => []]);
+        try {
+            $has = (int) $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_artifacts' LIMIT 1")->fetchColumn();
+            if ($has !== 1) {
+                st_json(['ok' => true, 'artifacts' => []]);
+            }
+            $limI = max(1, min(100, $lim));
+            $st = $db->query(
+                "SELECT id, created_at, schedule_id, baseline_job_id, compare_job_id, kind, title
+                 FROM report_artifacts ORDER BY id DESC LIMIT {$limI}"
+            );
+            st_json(['ok' => true, 'artifacts' => $st ? $st->fetchAll(PDO::FETCH_ASSOC) : []]);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace reporting artifacts: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            st_json([
+                'ok'                   => true,
+                'artifacts'            => [],
+                'artifacts_soft_error' => 'Saved report list could not be read. Try again or check server error_log.',
+            ]);
         }
-        $limI = max(1, min(100, $lim));
-        $st = $db->query(
-            "SELECT id, created_at, schedule_id, baseline_job_id, compare_job_id, kind, title
-             FROM report_artifacts ORDER BY id DESC LIMIT {$limI}"
-        );
-        st_json(['ok' => true, 'artifacts' => $st ? $st->fetchAll(PDO::FETCH_ASSOC) : []]);
 
     case 'artifact_summary':
         st_require_role(['scan_editor', 'admin']);

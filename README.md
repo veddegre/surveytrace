@@ -298,6 +298,16 @@ The **Reports & Analysis** tab extends the Executive View: **At a glance** (live
 - **`baseline_config_job_id`** — value stored in `config` under **`phase13_baseline_job_id`** (what an operator set).
 - **`baseline_job_id` (effective)** — id actually used for diffs: same job only if it **exists**, **`status=done`**, not trashed, and has **at least one** `scan_asset_snapshots` row. Otherwise **`null`** and **`baseline_unavailable`** is true when a config id was set but could not be resolved.
 
+### Phase 14 — Scopes and baselines (Reports & Analysis)
+
+SurveyTrace can tag each **`scan_jobs`** row with an optional **`scope_id`** (see **`scan_scopes`** and **`scan_scope_baselines`**). Reporting behavior:
+
+- **Named scope** — Each network/environment row in **`scan_scopes`** can have **one** baseline in **`scan_scope_baselines`** (`scope_id` → `baseline_job_id`). **Set baseline** in the UI with a named scope selected writes that row (not the legacy global key). Drift and compliance for that filter use the scoped baseline first, then the previous completed job in the same scope.
+- **Unscoped only** — Jobs with **`scope_id` NULL or 0** are “legacy / no tag.” The **legacy global** baseline (`config.phase13_baseline_job_id`) is only used as the *unscoped comparison baseline* when the resolved global baseline **job** is itself unscoped. If the global baseline points at a **named-scope** scan, it is **not** silently reused for unscoped-only comparisons (the UI explains this).
+- **All scopes (overview)** — Lists **all** completed jobs for trends and selectors. There is **no** single baseline that applies to every network. Automatic **Snapshot drift** picks the globally latest scan, then compares within **that job’s scope**: scoped baseline for that scope if valid, else **legacy global** only when the latest scan is unscoped and the global baseline job is unscoped, else the **previous completed scan in the same scope bucket**. **Manual compare** can still pick any two jobs; cross-scope pairs are **low-confidence** in the UI.
+
+Cross-scope manual compare remains allowed but uses cautious wording when **`scope_alignment.comparable`** is false.
+
 ### Soft limits
 
 - **`compare`**, **`compare_summary`**, and **`compare_debug`** use the same per-job size guard: when either job’s `COUNT(asset snapshots)+COUNT(finding snapshots)` exceeds **200,000**, the API returns HTTP **400** with a clear message. **`compare_summary`** returns only **`counts`**, **`finding_events`**, **`warnings`**, and job metadata (smaller JSON for UI).
@@ -319,7 +329,7 @@ The **Reports & Analysis** tab extends the Executive View: **At a glance** (live
 | `baseline` | GET | viewer+ | Current baseline config + effective id |
 | `baseline_debug` | GET | **admin** | Validation detail for baseline |
 | `compare_debug` | GET | **admin** | `job_a`, `job_b`, optional `sample_limit` |
-| `artifacts` / `artifact` | GET | scan_editor+ | Scheduled report rows; **`artifact`** returns full **`payload_json`** (use sparingly) |
+| `artifacts` / `artifact` | GET | viewer+ (list) / scan_editor+ (**`artifact`**) | **`artifacts`** lists saved scheduled-report rows (metadata only). **`artifact`** returns full **`payload_json`** (use sparingly); scan_editor+ |
 | `artifact_summary` | GET | scan_editor+ | `id` — metadata + **`summary`**, **`delta`**, **`compliance_summary`**, **`diff_summary`** only (no diff row arrays) |
 | `artifact_payload_preview` | GET | **admin** | `id` — pretty-printed stored JSON, **truncated** (~14k chars) for debugging |
 | `set_baseline` | POST | scan_editor+ | JSON `{"job_id":N}` + CSRF |
