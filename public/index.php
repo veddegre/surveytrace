@@ -155,10 +155,6 @@ if (is_readable($dbProbe)) {
         <div id="exec-actions" class="exec-brief-list">Loading…</div>
       </div>
     </div>
-    <div class="card" id="exec-ai-card-wrap" style="margin-top:12px">
-      <div class="ct">AI scan summary (latest completed run)</div>
-      <div id="exec-ai-summary" class="exec-brief-list text-micro">Loading…</div>
-    </div>
     <div class="sth">Security posture overview</div>
     <div class="sgrid" id="exec-kpis">
       <div class="sc g"><div class="sl">Total systems tracked</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
@@ -2823,52 +2819,9 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         metricChip('New systems', cmp.assets_new, false),
     ].join('');
     const brief = Array.isArray(exec.brief) ? exec.brief : [];
-    const aiRunSummary = exec.ai_scan_summary && typeof exec.ai_scan_summary === 'object' ? exec.ai_scan_summary : null;
-    const aiMeta = exec.ai_scan_meta && typeof exec.ai_scan_meta === 'object' ? exec.ai_scan_meta : null;
-    const aiOverview = aiRunSummary && aiRunSummary.overview ? String(aiRunSummary.overview) : '';
-    const aiConcerns = aiRunSummary && Array.isArray(aiRunSummary.concerns) ? aiRunSummary.concerns : [];
-    const aiNext = aiRunSummary && Array.isArray(aiRunSummary.next_steps) ? aiRunSummary.next_steps : [];
     document.getElementById('exec-brief-list').innerHTML = brief.length
         ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
         : '<div class="text-dim">No executive brief available yet.</div>';
-
-    const aiEl = document.getElementById('exec-ai-summary');
-    if (aiEl) {
-        if (!aiMeta || !aiMeta.job_id) {
-            aiEl.innerHTML = '<div class="text-dim">No completed scan with a stored summary yet. After a successful scan, AI text appears here when AI enrichment produced a run summary.</div>';
-        } else {
-            const jid = Number(aiMeta.job_id || 0);
-            const att = Number(aiMeta.ai_enrichment_attempts || 0);
-            const app = Number(aiMeta.ai_enrichment_applied || 0);
-            const rc = aiMeta.ai_reason_counts && typeof aiMeta.ai_reason_counts === 'object'
-                ? Object.entries(aiMeta.ai_reason_counts).map(([k, v]) => `${k}:${v}`).join(', ')
-                : '';
-            const metaLine = `Scan <span class="mono">#${jid}</span>${aiMeta.label ? ' — ' + esc(String(aiMeta.label)) : ''} · per-host AI: attempted <b>${att}</b> · applied <b>${app}</b>`;
-            const reasonLine = rc ? `<div class="summary-line" style="margin-top:6px">Gate/skip reasons: <span class="mono">${esc(rc)}</span></div>` : '';
-            if (aiOverview || aiConcerns.length || aiNext.length) {
-                aiEl.innerHTML = `
-                  <div class="summary-line text-dim">${metaLine}</div>
-                  ${reasonLine}
-                  ${aiOverview ? `<div class="summary-line" style="margin-top:8px">${esc(aiOverview)}</div>` : ''}
-                  ${aiConcerns.length ? `<div class="summary-line" style="margin-top:6px"><b>Concerns</b><ul class="exec-brief-ul">${aiConcerns.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
-                  ${aiNext.length ? `<div class="summary-line" style="margin-top:6px"><b>Next checks</b><ul class="exec-brief-ul">${aiNext.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
-                  <div class="summary-line" style="margin-top:8px"><button type="button" class="tbtn btn-xs" onclick="goTab('scanhist');hiNav('nscanhist');void openScanHistDetail(${jid})">Open scan #${jid} details</button></div>
-                `;
-            } else {
-                const st = aiMeta.ai_scan_summary_status ? String(aiMeta.ai_scan_summary_status) : '';
-                const det = aiMeta.ai_scan_summary_detail ? String(aiMeta.ai_scan_summary_detail) : '';
-                const statusLine = st || det
-                    ? `<div class="summary-line" style="margin-top:8px"><b>AI run summary status</b>: <span class="mono">${esc(st || '—')}</span>${det ? `<div class="text-dim" style="margin-top:4px">${esc(det)}</div>` : ''}</div>`
-                    : `<div class="summary-line" style="margin-top:8px">No AI executive summary text for this run. Check <b>Settings → Local AI</b>, model pull, and scan job logs.</div>`;
-                aiEl.innerHTML = `
-                  <div class="summary-line text-dim">${metaLine}</div>
-                  ${reasonLine}
-                  ${statusLine}
-                  <div class="summary-line" style="margin-top:8px"><button type="button" class="tbtn btn-xs" onclick="goTab('scanhist');hiNav('nscanhist');void openScanHistDetail(${jid})">Open scan #${jid} details</button></div>
-                `;
-            }
-        }
-    }
 
     const actions = [];
     if ((k.critical_open || 0) > 0) {
