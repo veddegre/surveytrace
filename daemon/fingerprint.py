@@ -755,7 +755,7 @@ HOSTNAME_PATTERNS: list[tuple[str, str, str]] = [
     (r"\bphoton\b",                   "srv",   ""),
     (r"proxmox|pve\.|\.pve\b|pve-",    "hv",    "Proxmox"),
     (r"zabbix",                       "srv",   "Zabbix"),
-    (r"kasm",                         "voi",   "Kasm Workspaces"),
+    (r"kasm",                         "srv",   "Kasm Workspaces"),
     (r"ntfy",                         "srv",   "ntfy"),
     (r"mastodon",                     "srv",   "Mastodon"),
     (r"hyperv|hyper-v",               "hv",    "Microsoft Hyper-V"),
@@ -890,8 +890,8 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     # Servers — identifiable apps before generic nginx/Apache (first match wins).
     (r"Zabbix|zabbix\.js|zabbix-server", "srv", "zabbix:zabbix"),
     (r"\bntfy\b",                    "srv",  "ntfy:server"),
-    # Kasm before plain "nginx" so SPA bodies that mention kasmweb still classify as VDI, not generic srv.
-    (r"Kasm|kasmweb|KasmVNC",        "voi",  "kasm:workspace"),
+    # Kasm before plain "nginx" so SPA bodies that mention kasmweb still classify as product srv, not generic nginx.
+    (r"Kasm|kasmweb|KasmVNC",        "srv",  "kasm:workspace"),
     (r"Mastodon",                    "srv",  "mastodon:mastodon"),
     (r"Grafana",                     "srv",  "grafana:grafana"),
     (r"AdGuard",                     "srv",  "adguard:adguardhome"),
@@ -1257,7 +1257,7 @@ def fingerprint(
     # Kasm / browser VDI often exposes RDP (3389) — hostname is a stronger signal than "RDP → Windows"
     if hostname and re.search(r"kasm", hostname, re.I):
         if result["category"] in ("ws", "srv", "unk"):
-            result["category"] = "voi"
+            result["category"] = "srv"
         if not result["vendor"]:
             result["vendor"] = "Kasm Workspaces"
 
@@ -1271,7 +1271,7 @@ def fingerprint(
         and result["category"] in ("ws", "srv", "unk")
     ):
         if result["category"] in ("ws", "srv", "unk"):
-            result["category"] = "voi"
+            result["category"] = "srv"
         if not result.get("vendor") or str(result.get("vendor") or "").strip().lower() == "nginx":
             result["vendor"] = "Kasm Workspaces"
         low_cpe = (result.get("cpe") or "").lower()

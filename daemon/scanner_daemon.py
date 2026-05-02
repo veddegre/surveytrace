@@ -1739,10 +1739,10 @@ TITLE_MAP: list[tuple[str, str, str]] = [
     (r"netdata",            "srv",  "Netdata"),
     (r"zabbix|zabbix-server", "srv", "Zabbix"),
     (r"\bntfy\b",           "srv",  "ntfy"),
-    (r"\bkasm\b",           "voi",  "Kasm Workspaces"),
+    (r"\bkasm\b",           "srv",  "Kasm Workspaces"),
     # Kasm SPA often hides product in <title> — match stable body / script markers
     (r"kasmweb|kasmtechnologies|[\"']kasm_api[\"']|/api/public/kasm",
-     "voi",  "Kasm Workspaces"),
+     "srv",  "Kasm Workspaces"),
     (r"mastodon",           "srv",  "Mastodon"),
     (r"checkmk",            "srv",  "Check MK"),
     (r"librenms",           "srv",  "LibreNMS"),
@@ -2833,7 +2833,7 @@ def upsert_asset(job_id: int, ip: str, mac: str,
 
     # Port profile category takes highest priority (e.g. port 8006 → hv/Proxmox).
     # Use the same Linux-aware port set as fingerprint() — raw classify_from_ports(ports)
-    # would keep 3389 → ws and overwrite Kasm/nginx/voi results from fingerprint().
+    # would keep 3389 → ws and overwrite Kasm/nginx/srv results from fingerprint().
     port_cat_effective = ""
     _combined_ports = " ".join((banners or {}).values())
     _ports_profiled = _ports_for_windows_endpoint_profile(ports, _combined_ports)
@@ -2868,7 +2868,13 @@ def upsert_asset(job_id: int, ip: str, mac: str,
             current_cpe = (fp.get("cpe") or "").lower()
             weak_vendor = current_vendor in {"cisco", "cisco voip", "unknown"}
             weak_cpe = "cisco:ip_phone" in current_cpe or current_cpe.endswith(":sip:*")
-            if prod and (not fp.get("vendor") or cat_hit == "voi" or weak_vendor or weak_cpe):
+            if prod and (
+                not fp.get("vendor")
+                or cat_hit == "voi"
+                or (cat_hit == "srv" and "kasm" in prod.lower())
+                or weak_vendor
+                or weak_cpe
+            ):
                 fp["vendor"] = prod
             if cat_hit == "voi":
                 fp["category"] = "voi"
