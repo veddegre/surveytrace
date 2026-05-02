@@ -149,6 +149,9 @@ API_FILES=(
   health.php
   export.php
   devices.php
+  lib_reporting.php
+  reporting.php
+  reporting_cli.php
 )
 for f in "${API_FILES[@]}"; do
   sudo cp "$SRC/api/$f" "$DEST/api/"

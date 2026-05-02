@@ -3,7 +3,11 @@
  * SurveyTrace — GET /api/assets.php
  *
  * Returns the full asset inventory with filtering, sorting, and pagination.
- * Also supports PUT to update asset metadata (category override, notes).
+ * Also supports PUT to update asset metadata (category override, notes, scan locks).
+ * PUT may include `unlock`: ["hostname","category","vendor"] to allow scans to refresh
+ * those fields again, or per-field `hostname_locked` / `category_locked` / `vendor_locked` as booleans.
+ * Hostname/category/vendor locks are set to 1 only when that field's value changes in the same request;
+ * use explicit `*_locked` to lock without editing the value.
  *
  * GET query params:
  *   q          — free-text search across ip, hostname, vendor, model, mac
@@ -43,8 +47,40 @@ require_once __DIR__ . '/db.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
+/**
+ * Parse explicit per-field lock from JSON body. Missing key => leave lock unchanged (null).
+ *
+ * @param array<string,mixed> $body
+ */
+function st_asset_lock_tristate(array $body, string $key): ?int {
+    if (!array_key_exists($key, $body)) {
+        return null;
+    }
+    $v = $body[$key];
+    if ($v === true || $v === 1 || $v === '1') {
+        return 1;
+    }
+    if ($v === false || $v === 0 || $v === '0') {
+        return 0;
+    }
+    if (is_string($v)) {
+        $s = strtolower(trim($v));
+        if ($s === 'true' || $s === 'yes') {
+            return 1;
+        }
+        if ($s === 'false' || $s === 'no' || $s === '') {
+            return 0;
+        }
+    }
+
+    return null;
+}
+
 // ---------------------------------------------------------------------------
-// PUT — update asset metadata (category, hostname, notes)
+// PUT — update asset metadata (category, hostname, notes, lock/unlock)
+// Body may include:
+//   unlock: ["hostname","category","vendor"] — clear per-field scan lock (values unchanged)
+//   hostname_locked / category_locked / vendor_locked — explicit 0|1|false|true
 // ---------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
     st_require_csrf();
@@ -53,26 +89,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
     $asset_id = st_int('id', 0, 1);
     if (!$asset_id) st_json(['error' => 'id required for PUT'], 400);
 
+    $db = st_db();
+    $curStmt = $db->prepare(
+        'SELECT id, ip, hostname, category, vendor, notes, hostname_locked, category_locked, vendor_locked FROM assets WHERE id = ? LIMIT 1'
+    );
+    $curStmt->execute([$asset_id]);
+    $before = $curStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$before) {
+        st_json(['error' => 'Asset not found'], 404);
+    }
+
     $allowed_cats = ['srv','ws','net','iot','ot','voi','prn','hv','unk'];
     $updates = [];
     $params  = [];
 
-    if (isset($body['category']) && in_array($body['category'], $allowed_cats, true)) {
-        $updates[]           = 'category = :cat';
-        $params[':cat']      = $body['category'];
+    $unlockFields = [];
+    if (array_key_exists('unlock', $body)) {
+        if (!is_array($body['unlock'])) {
+            st_json(['error' => 'unlock must be a JSON array of field names'], 400);
+        }
+        foreach ($body['unlock'] as $u) {
+            $k = strtolower(trim((string) $u));
+            if (in_array($k, ['hostname', 'category', 'vendor'], true)) {
+                $unlockFields[$k] = true;
+            }
+        }
     }
-    if (isset($body['hostname'])) {
-        $updates[]           = 'hostname = :host';
-        $params[':host']     = substr(trim($body['hostname']), 0, 253);
+
+    $lockH = null;
+    $lockC = null;
+    $lockV = null;
+
+    // Only set scan locks when the operator actually changes the field value (not on unrelated saves).
+    if (isset($body['category']) && in_array($body['category'], $allowed_cats, true)) {
+        $newCat = (string) $body['category'];
+        if ($newCat !== (string) ($before['category'] ?? '')) {
+            $updates[]      = 'category = :cat';
+            $params[':cat'] = $newCat;
+            $lockC          = 1;
+        }
+    }
+    if (array_key_exists('hostname', $body)) {
+        $hostTrim = substr(trim((string) $body['hostname']), 0, 253);
+        if ($hostTrim !== trim((string) ($before['hostname'] ?? ''))) {
+            $updates[]       = 'hostname = :host';
+            $params[':host'] = $hostTrim;
+            $lockH           = $hostTrim !== '' ? 1 : 0;
+        }
     }
     if (isset($body['notes'])) {
         $updates[]           = 'notes = :notes';
         $params[':notes']    = substr(trim($body['notes']), 0, 2000);
     }
-    if (isset($body['vendor'])) {
-        $updates[]           = 'vendor = :vendor';
-        $params[':vendor']   = substr(trim($body['vendor']), 0, 200);
+    if (array_key_exists('vendor', $body)) {
+        $vtrim = substr(trim((string) $body['vendor']), 0, 200);
+        if ($vtrim !== trim((string) ($before['vendor'] ?? ''))) {
+            $updates[]         = 'vendor = :vendor';
+            $params[':vendor'] = $vtrim;
+            $lockV             = $vtrim !== '' ? 1 : 0;
+        }
     }
+
+    $tH = st_asset_lock_tristate($body, 'hostname_locked');
+    if ($tH !== null) {
+        $lockH = $tH;
+    }
+    $tC = st_asset_lock_tristate($body, 'category_locked');
+    if ($tC !== null) {
+        $lockC = $tC;
+    }
+    $tV = st_asset_lock_tristate($body, 'vendor_locked');
+    if ($tV !== null) {
+        $lockV = $tV;
+    }
+
     if (isset($body['owner'])) {
         $updates[]           = 'owner = :owner';
         $params[':owner']    = substr(trim((string)$body['owner']), 0, 200);
@@ -95,20 +185,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
         $params[':env']      = $env !== '' ? substr($env, 0, 120) : 'unknown';
     }
 
-    if (empty($updates)) st_json(['error' => 'No updatable fields provided'], 400);
+    if (isset($unlockFields['hostname'])) {
+        $lockH = 0;
+    }
+    if (isset($unlockFields['category'])) {
+        $lockC = 0;
+    }
+    if (isset($unlockFields['vendor'])) {
+        $lockV = 0;
+    }
+
+    if ($lockH !== null) {
+        $updates[]        = 'hostname_locked = :lh';
+        $params[':lh']    = (int) $lockH;
+    }
+    if ($lockC !== null) {
+        $updates[]        = 'category_locked = :lc';
+        $params[':lc']    = (int) $lockC;
+    }
+    if ($lockV !== null) {
+        $updates[]        = 'vendor_locked = :lv';
+        $params[':lv']    = (int) $lockV;
+    }
+
+    if ($updates === []) {
+        st_json(['error' => 'No updatable fields provided'], 400);
+    }
 
     $params[':id'] = $asset_id;
-    st_db()->prepare("UPDATE assets SET " . implode(', ', $updates) . " WHERE id = :id")
-           ->execute($params);
+    $db->prepare('UPDATE assets SET ' . implode(', ', $updates) . ' WHERE id = :id')->execute($params);
 
-    $row = st_db()->prepare("SELECT * FROM assets WHERE id = ?")->execute([$asset_id])
-        ? st_db()->prepare("SELECT * FROM assets WHERE id = ?")->execute([$asset_id]) && false
-        : null;
-
-    $stmt = st_db()->prepare("SELECT * FROM assets WHERE id = ?");
+    $stmt = $db->prepare('SELECT * FROM assets WHERE id = ?');
     $stmt->execute([$asset_id]);
     $asset = $stmt->fetch();
     if (!$asset) st_json(['error' => 'Asset not found'], 404);
+
+    $actor = st_current_user();
+    $aidActor = (int) ($actor['id'] ?? 0);
+    $anActor = (string) ($actor['username'] ?? '');
+
+    $afterH = (int) ($asset['hostname_locked'] ?? 0);
+    $afterC = (int) ($asset['category_locked'] ?? 0);
+    $afterV = (int) ($asset['vendor_locked'] ?? 0);
+    $beforeH = (int) ($before['hostname_locked'] ?? 0);
+    $beforeC = (int) ($before['category_locked'] ?? 0);
+    $beforeV = (int) ($before['vendor_locked'] ?? 0);
+
+    $logLockChange = static function (
+        PDO $db,
+        string $field,
+        int $prevLock,
+        int $newLock,
+        array $beforeRow,
+        int $assetId,
+        int $actorId,
+        string $actorName
+    ): void {
+        if ($prevLock === $newLock) {
+            return;
+        }
+        $action = $newLock === 1 ? 'locked' : 'unlocked';
+        $ip = (string) ($beforeRow['ip'] ?? '');
+        st_audit_log('asset.field_lock_change', $actorId, $actorName !== '' ? $actorName : null, null, null, [
+            'asset_id'       => $assetId,
+            'ip'             => $ip,
+            'field'          => $field,
+            'action'         => $action,
+            'previous_lock'  => $prevLock,
+            'new_lock'       => $newLock,
+            'previous_value' => substr((string) ($beforeRow[$field] ?? ''), 0, 400),
+        ]);
+        $msg = sprintf(
+            'Asset id=%d ip=%s: %s %s (scan lock %d→%d)',
+            $assetId,
+            $ip,
+            $field,
+            $action,
+            $prevLock,
+            $newLock
+        );
+        try {
+            $db->prepare('INSERT INTO scan_log (job_id, level, ip, message) VALUES (NULL, ?, ?, ?)')
+                ->execute(['INFO', $ip, $msg]);
+        } catch (Throwable $e) {
+            // scan_log may be missing on degenerate installs
+        }
+    };
+
+    $logLockChange($db, 'hostname', $beforeH, $afterH, $before, $asset_id, $aidActor, $anActor);
+    $logLockChange($db, 'category', $beforeC, $afterC, $before, $asset_id, $aidActor, $anActor);
+    $logLockChange($db, 'vendor', $beforeV, $afterV, $before, $asset_id, $aidActor, $anActor);
 
     st_json(['ok' => true, 'asset' => decode_asset($asset)]);
 }
@@ -484,6 +650,9 @@ function decode_asset(array $a): array {
     $a['business_unit'] = isset($a['business_unit']) && $a['business_unit'] !== '' ? (string)$a['business_unit'] : null;
     $a['criticality'] = (string)($a['criticality'] ?? 'medium');
     $a['environment'] = (string)($a['environment'] ?? 'unknown');
+    $a['hostname_locked'] = (int)($a['hostname_locked'] ?? 0);
+    $a['category_locked'] = (int)($a['category_locked'] ?? 0);
+    $a['vendor_locked'] = (int)($a['vendor_locked'] ?? 0);
     $ic = $a['identity_confidence'] ?? null;
     $a['identity_confidence'] = $ic !== null && $ic !== '' ? (float)$ic : null;
     $icr = $a['identity_confidence_reason'] ?? null;

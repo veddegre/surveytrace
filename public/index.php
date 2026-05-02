@@ -1702,10 +1702,14 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
   <div class="modal-card modal-w440">
     <div class="modal-title">Edit asset — <span id="modal-ip" class="text-strong"></span></div>
     <input type="hidden" id="modal-asset-id">
+    <input type="hidden" id="modal-hl" value="0">
+    <input type="hidden" id="modal-cl" value="0">
+    <input type="hidden" id="modal-vl" value="0">
     <label class="form-label">Hostname</label>
-    <input class="finp w100 mb10" id="modal-hostname" type="text">
+    <input class="finp w100 mb4" id="modal-hostname" type="text">
+    <div id="modal-host-lock-row" class="help-mono mb10 hide">Manual lock — scans will not overwrite this hostname. <button type="button" class="tbtn btn-xs" onclick="unlockAssetField('hostname')">Unlock</button></div>
     <label class="form-label">Category</label>
-    <select class="finp w100 mb10" id="modal-cat">
+    <select class="finp w100 mb4" id="modal-cat">
       <option value="srv">Server</option>
       <option value="ws">Workstation</option>
       <option value="net">Network gear</option>
@@ -1716,8 +1720,10 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
       <option value="hv">Hypervisor</option>
       <option value="unk">Unknown</option>
     </select>
+    <div id="modal-cat-lock-row" class="help-mono mb10 hide">Manual lock — scans will not overwrite this category. <button type="button" class="tbtn btn-xs" onclick="unlockAssetField('category')">Unlock</button></div>
     <label class="form-label">Vendor override</label>
-    <input class="finp w100 mb10" id="modal-vendor" type="text" placeholder="Leave blank to keep existing">
+    <input class="finp w100 mb4" id="modal-vendor" type="text" placeholder="Leave blank to keep existing">
+    <div id="modal-vendor-lock-row" class="help-mono mb10 hide">Manual lock — scans will not overwrite this vendor. <button type="button" class="tbtn btn-xs" onclick="unlockAssetField('vendor')">Unlock</button></div>
     <label class="form-label">Owner</label>
     <input class="finp w100 mb10" id="modal-owner" type="text" maxlength="200" placeholder="Team or person">
     <label class="form-label">Business unit</label>
@@ -3367,7 +3373,7 @@ async function loadAssets(page) {
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td>
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
-            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}')">&#9998;</button>
+            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>
           </td>
         </tr>`;
     }).join('') || '<tr><td colspan="11" class="loading">No assets found</td></tr>';
@@ -7732,12 +7738,18 @@ function exportFindings(format) {
 // ==========================================================================
 // Reclassify modal
 // ==========================================================================
-function openReclassify(id, ip, hostname, category, vendor, notes, owner, businessUnit, criticality, environment) {
+function openReclassify(id, ip, hostname, category, vendor, notes, owner, businessUnit, criticality, environment, hl, cl, vl) {
     document.getElementById('modal-asset-id').value  = id;
     document.getElementById('modal-ip').textContent  = ip;
     document.getElementById('modal-hostname').value  = hostname;
     document.getElementById('modal-vendor').value    = vendor;
     document.getElementById('modal-notes').value     = notes;
+    const hle = document.getElementById('modal-hl');
+    const cle = document.getElementById('modal-cl');
+    const vle = document.getElementById('modal-vl');
+    if (hle) hle.value = hl ? 1 : 0;
+    if (cle) cle.value = cl ? 1 : 0;
+    if (vle) vle.value = vl ? 1 : 0;
     const mo = document.getElementById('modal-owner');
     const mb = document.getElementById('modal-business-unit');
     const mc = document.getElementById('modal-criticality');
@@ -7753,9 +7765,58 @@ function openReclassify(id, ip, hostname, category, vendor, notes, owner, busine
     for (let i = 0; i < sel.options.length; i++) {
         sel.options[i].selected = (sel.options[i].value === category);
     }
+    window._reclassifyOrig = {
+        category: category || 'unk',
+        hostname: hostname || '',
+        vendor: vendor || '',
+    };
     const bg = document.getElementById('modal-bg');
     bg.style.display = 'flex';
+    modalRefreshLockUi();
     document.getElementById('modal-hostname').focus();
+}
+
+function modalRefreshLockUi() {
+    const hl = parseInt(document.getElementById('modal-hl')?.value || '0', 10) ? 1 : 0;
+    const cl = parseInt(document.getElementById('modal-cl')?.value || '0', 10) ? 1 : 0;
+    const vl = parseInt(document.getElementById('modal-vl')?.value || '0', 10) ? 1 : 0;
+    const rh = document.getElementById('modal-host-lock-row');
+    const rc = document.getElementById('modal-cat-lock-row');
+    const rv = document.getElementById('modal-vendor-lock-row');
+    if (rh) rh.classList.toggle('hide', !hl);
+    if (rc) rc.classList.toggle('hide', !cl);
+    if (rv) rv.classList.toggle('hide', !vl);
+}
+
+async function unlockAssetField(field) {
+    const id = document.getElementById('modal-asset-id')?.value;
+    if (!id) return;
+    const headers = {'Content-Type': 'application/json'};
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    const r = await fetch(`/api/assets.php?id=${id}`, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify({ unlock: [field] }),
+        credentials: 'same-origin'
+    });
+    let data = {};
+    try { data = await r.json(); } catch (e) {}
+    if (!data.ok) {
+        toast(data.error || 'Unlock failed', 'err');
+        return;
+    }
+    if (field === 'hostname') {
+        const h = document.getElementById('modal-hl');
+        if (h) h.value = '0';
+    } else if (field === 'category') {
+        const c = document.getElementById('modal-cl');
+        if (c) c.value = '0';
+    } else if (field === 'vendor') {
+        const v = document.getElementById('modal-vl');
+        if (v) v.value = '0';
+    }
+    modalRefreshLockUi();
+    toast('Unlocked — the next scan can refresh this field from discovery', 'ok');
 }
 
 function closeModal() {
@@ -7773,9 +7834,17 @@ async function saveReclassify() {
     const crit     = document.getElementById('modal-criticality') ? document.getElementById('modal-criticality').value : 'medium';
     const env      = document.getElementById('modal-environment') ? document.getElementById('modal-environment').value.trim() : '';
 
-    const body = {category};
-    if (hostname) body.hostname = hostname;
-    if (vendor)   body.vendor   = vendor;
+    const o = window._reclassifyOrig || {};
+    const body = {};
+    if (category !== (o.category || 'unk')) {
+        body.category = category;
+    }
+    if (hostname !== (o.hostname || '')) {
+        body.hostname = hostname;
+    }
+    if (vendor !== (o.vendor || '')) {
+        body.vendor = vendor;
+    }
     if (notes !== undefined) body.notes = notes;
     body.owner = owner;
     body.business_unit = bu;
@@ -8532,7 +8601,7 @@ async function openHostPanel(id, ip) {
 
       <div class="hp-actions hp-actions-host-primary mb14">
         <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
-        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}')">&#9998; Edit</button>
+        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>
         ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
 

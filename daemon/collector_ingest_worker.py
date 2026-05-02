@@ -32,6 +32,21 @@ from sqlite_pragmas import apply_surveytrace_pragmas
 
 _INGEST_ROW_COMMIT_INTERVAL = 100
 
+
+def _ensure_asset_metadata_lock_columns(conn: sqlite3.Connection) -> None:
+    """Match api/db.php migration so SELECT can reference lock columns before web hits DB."""
+    for col, defn in (
+        ("hostname_locked", "INTEGER DEFAULT 0"),
+        ("category_locked", "INTEGER DEFAULT 0"),
+        ("vendor_locked", "INTEGER DEFAULT 0"),
+    ):
+        try:
+            conn.execute(f"ALTER TABLE assets ADD COLUMN {col} {defn}")
+            log.info("collector ingest: added assets.%s", col)
+        except sqlite3.OperationalError:
+            pass
+
+
 # Ensure shared scanner helpers point to this master's DB/NVD paths.
 scanner_daemon.DB_PATH = DB_PATH
 scanner_daemon.DATA_DIR = DB_PATH.parent
@@ -154,7 +169,12 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int
     if ip == "":
         return 0, {"is_new": False, "prev_open_ports": None}
     existing = conn.execute(
-        "SELECT id, open_ports, COALESCE(lifecycle_status,'active') AS ls FROM assets WHERE ip=? LIMIT 1",
+        """SELECT id, open_ports, COALESCE(lifecycle_status,'active') AS ls,
+                  hostname, category, vendor,
+                  COALESCE(hostname_locked, 0) AS hl,
+                  COALESCE(category_locked, 0) AS cl,
+                  COALESCE(vendor_locked, 0) AS vl
+           FROM assets WHERE ip=? LIMIT 1""",
         (ip,),
     ).fetchone()
     fields = {
@@ -178,6 +198,12 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int
         aid = int(existing["id"])
         prev_ports = str(existing["open_ports"] or "")
         prior_ls = str(existing["ls"] or "active").strip().lower()
+        if int(existing["hl"] or 0):
+            fields["hostname"] = str(existing["hostname"] or "")
+        if int(existing["cl"] or 0):
+            fields["category"] = str(existing["category"] or "unk")
+        if int(existing["vl"] or 0):
+            fields["vendor"] = str(existing["vendor"] or "")
         conn.execute(
             """UPDATE assets SET
                hostname=:hostname, mac=:mac, mac_vendor=:mac_vendor, category=:category,
@@ -601,6 +627,9 @@ def process_one(qrow: dict) -> None:
 
 def main() -> None:
     log.info("collector ingest worker started")
+    with db_conn() as conn:
+        _ensure_asset_metadata_lock_columns(conn)
+        conn.commit()
     while True:
         try:
             # One queue item per outer attempt: payload vs enrichment are separate transactions;

@@ -393,6 +393,8 @@ function st_db(): PDO {
     st_migrate_phase10_finding_triage_v1($pdo);
     st_migrate_phase11_cve_intel_v1($pdo);
     st_migrate_phase12_asset_lifecycle_v1($pdo);
+    st_migrate_asset_metadata_locks_v1($pdo);
+    st_migrate_phase13_reporting_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -637,6 +639,80 @@ function st_migrate_phase12_asset_lifecycle_v1(PDO $pdo): void {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_lifecycle_status ON assets(lifecycle_status)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase12_asset_lifecycle_v1', '1')"
+    );
+}
+
+/**
+ * Asset hostname/category/vendor locks — preserve operator edits across scans.
+ */
+function st_migrate_asset_metadata_locks_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_asset_metadata_locks_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!is_array($tables) || !in_array('assets', $tables, true)) {
+        return;
+    }
+    foreach ([
+        'ALTER TABLE assets ADD COLUMN hostname_locked INTEGER DEFAULT 0',
+        'ALTER TABLE assets ADD COLUMN category_locked INTEGER DEFAULT 0',
+        'ALTER TABLE assets ADD COLUMN vendor_locked INTEGER DEFAULT 0',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_asset_metadata_locks_v1', '1')"
+    );
+}
+
+/**
+ * Phase 13 — baselines, report artifacts, schedule_action for report-only schedules.
+ */
+function st_migrate_phase13_reporting_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase13_reporting_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!is_array($tables)) {
+        return;
+    }
+    if (in_array('scan_jobs', $tables, true)) {
+        try {
+            $pdo->exec('ALTER TABLE scan_jobs ADD COLUMN is_baseline INTEGER DEFAULT 0');
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    if (in_array('scan_schedules', $tables, true)) {
+        try {
+            $pdo->exec("ALTER TABLE scan_schedules ADD COLUMN schedule_action TEXT DEFAULT 'scan'");
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS report_artifacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            schedule_id INTEGER,
+            baseline_job_id INTEGER,
+            compare_job_id INTEGER,
+            kind TEXT DEFAULT 'scheduled',
+            title TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}'
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_artifacts_created ON report_artifacts(created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_report_artifacts_schedule ON report_artifacts(schedule_id, id DESC)');
+    $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('phase13_baseline_job_id', '')");
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase13_reporting_v1', '1')"
     );
 }
 

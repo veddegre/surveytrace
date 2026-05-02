@@ -1126,35 +1126,41 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> tupl
                     if row and row["category"] == "unk":
                         if cat:
                             conn.execute(
-                                "UPDATE assets SET category=? WHERE ip=? AND category='unk'",
+                                "UPDATE assets SET category=? WHERE ip=? AND category='unk' "
+                                "AND COALESCE(category_locked, 0) = 0",
                                 (cat, ip)
                             )
                         if vendor:
                             conn.execute(
-                                "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='')",
+                                "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='') "
+                                "AND COALESCE(vendor_locked, 0) = 0",
                                 (vendor, ip)
                             )
             for ip, host in llmnr_hints.items():
                 conn.execute(
-                    "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='')",
+                    "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='') "
+                    "AND COALESCE(hostname_locked, 0) = 0",
                     (host, ip),
                 )
             # Keep separate source tag from LLMNR where no concrete hostname was parsed.
             for ip, host in nbns_hints.items():
                 if host:
                     conn.execute(
-                        "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='')",
+                        "UPDATE assets SET hostname=? WHERE ip=? AND (hostname IS NULL OR hostname='') "
+                        "AND COALESCE(hostname_locked, 0) = 0",
                         (host, ip),
                     )
             for ip, (cat, vendor) in ssdp_hints.items():
                 if cat:
                     conn.execute(
-                        "UPDATE assets SET category=? WHERE ip=? AND category='unk'",
+                        "UPDATE assets SET category=? WHERE ip=? AND category='unk' "
+                        "AND COALESCE(category_locked, 0) = 0",
                         (cat, ip),
                     )
                 if vendor:
                     conn.execute(
-                        "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='')",
+                        "UPDATE assets SET vendor=? WHERE ip=? AND (vendor IS NULL OR vendor='') "
+                        "AND COALESCE(vendor_locked, 0) = 0",
                         (vendor, ip),
                     )
 
@@ -3000,11 +3006,19 @@ def upsert_asset(job_id: int, ip: str, mac: str,
                     :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid,
                     'active','observed_in_scan',0,NULL)
             ON CONFLICT(ip) DO UPDATE SET
-                hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
+                hostname   = CASE
+                    WHEN COALESCE(hostname_locked, 0) = 1 THEN hostname
+                    WHEN excluded.hostname != '' THEN excluded.hostname
+                    ELSE hostname END,
                 mac        = COALESCE(excluded.mac, mac),
                 mac_vendor = COALESCE(excluded.mac_vendor, mac_vendor),
-                category   = CASE WHEN excluded.category != 'unk' THEN excluded.category ELSE category END,
-                vendor     = COALESCE(NULLIF(excluded.vendor,''), vendor),
+                category   = CASE
+                    WHEN COALESCE(category_locked, 0) = 1 THEN category
+                    WHEN excluded.category != 'unk' THEN excluded.category
+                    ELSE category END,
+                vendor     = CASE
+                    WHEN COALESCE(vendor_locked, 0) = 1 THEN vendor
+                    ELSE COALESCE(NULLIF(excluded.vendor,''), vendor) END,
                 cpe        = CASE
                                WHEN :clear_cpe = 1 THEN ''
                                ELSE COALESCE(NULLIF(excluded.cpe,''), cpe)
@@ -3880,7 +3894,8 @@ def backfill_oui(conn: sqlite3.Connection) -> int:
     Returns count of updated assets.
     """
     rows = conn.execute(
-        "SELECT id, mac, category FROM assets WHERE mac != '' AND (vendor IS NULL OR vendor = '')"
+        "SELECT id, mac, category FROM assets WHERE mac != '' AND (vendor IS NULL OR vendor = '') "
+        "AND COALESCE(vendor_locked, 0) = 0"
     ).fetchall()
 
     updated = 0
@@ -3892,7 +3907,10 @@ def backfill_oui(conn: sqlite3.Connection) -> int:
             UPDATE assets SET
                 vendor   = ?,
                 mac_vendor = ?,
-                category = CASE WHEN category = 'unk' THEN ? ELSE category END
+                category = CASE
+                    WHEN COALESCE(category_locked, 0) = 1 THEN category
+                    WHEN category = 'unk' THEN ?
+                    ELSE category END
             WHERE id = ?
         """, (oui_vendor, oui_vendor,
                 oui_cat if oui_cat else 'unk',
@@ -3910,7 +3928,8 @@ def backfill_proxmox_hostnames(conn: sqlite3.Connection) -> int:
     hostname is still blank.
     """
     rows = conn.execute(
-        "SELECT id, ip, hostname, banners FROM assets WHERE (hostname IS NULL OR hostname='')"
+        "SELECT id, ip, hostname, banners FROM assets WHERE (hostname IS NULL OR hostname='') "
+        "AND COALESCE(hostname_locked, 0) = 0"
     ).fetchall()
     updated = 0
     for row in rows:
@@ -4162,6 +4181,16 @@ def main() -> None:
             ("ai_last_reason", "TEXT"),
             ("ai_last_attempted", "INTEGER DEFAULT 0"),
             ("ai_last_decision_ts", "DATETIME"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE assets ADD COLUMN {col} {defn}")
+                log.info("Schema migration: added column assets.%s", col)
+            except Exception:
+                pass
+        for col, defn in [
+            ("hostname_locked", "INTEGER DEFAULT 0"),
+            ("category_locked", "INTEGER DEFAULT 0"),
+            ("vendor_locked", "INTEGER DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE assets ADD COLUMN {col} {defn}")

@@ -77,6 +77,7 @@ $schedMigrations = [
     'missed_run_policy' => "TEXT DEFAULT 'run_once'",
     'missed_run_max'    => 'INTEGER DEFAULT 5',
     'enrichment_source_ids' => 'TEXT',
+    'schedule_action'   => "TEXT DEFAULT 'scan'",
 ];
 foreach ($schedMigrations as $col => $def) {
     if (!in_array($col, $schedCols, true)) {
@@ -335,6 +336,13 @@ $rate_pps    = max(1, min(50, (int)($body['rate_pps'] ?? 5)));
 $inter_delay = max(0, min(2000, (int)($body['inter_delay'] ?? 200)));
 $priority    = max(1, min(100, (int)($body['priority'] ?? 20)));
 $collector_id = max(0, (int)($body['collector_id'] ?? 0));
+$schedule_action = strtolower(trim((string) ($body['schedule_action'] ?? 'scan')));
+if (!in_array($schedule_action, ['scan', 'report'], true)) {
+    $schedule_action = 'scan';
+}
+if ($schedule_action === 'report') {
+    $collector_id = 0;
+}
 $enabled     = (int)($body['enabled'] ?? 1);
 $has_paused  = array_key_exists('paused', $body);
 $paused      = $has_paused ? (int)$body['paused'] : null;
@@ -344,7 +352,7 @@ $timezone    = trim($body['timezone'] ?? 'UTC');
 if (!in_array($timezone, timezone_identifiers_list())) {
     $timezone = 'UTC';
 }
-if ($collector_id > 0) {
+if ($schedule_action !== 'report' && $collector_id > 0) {
     $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
     if (!$hasCollectors) {
         st_json(['error' => 'Collectors are not initialized yet', 'field' => 'collector_id'], 400);
@@ -479,6 +487,7 @@ if ($id > 0) {
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
+                schedule_action=?,
                 next_run = ?
             WHERE id=?
         ")->execute([
@@ -486,6 +495,7 @@ if ($id > 0) {
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
             $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $schedule_action,
             $nextRunComputed,
             $id,
         ]);
@@ -504,6 +514,7 @@ if ($id > 0) {
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
+                schedule_action=?,
                 next_run = ?
             WHERE id=?
         ")->execute([
@@ -511,6 +522,7 @@ if ($id > 0) {
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
             $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $schedule_action,
             $nextRunComputed,
             $id,
         ]);
@@ -528,13 +540,15 @@ if ($id > 0) {
                 name=?, cron_expr=?, target_cidr=?, exclusions=?, phases=?,
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
-                missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?
+                missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
+                schedule_action=?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
             $profile, $scan_mode, $rate_pps, $inter_delay, $priority,
             $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
+            $schedule_action,
             $id,
         ]);
     }
@@ -551,12 +565,13 @@ if ($id > 0) {
         INSERT INTO scan_schedules
             (name, cron_expr, target_cidr, exclusions, phases, profile,
              scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone, collector_id,
-             missed_run_policy, missed_run_max, next_run, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             missed_run_policy, missed_run_max, next_run, enrichment_source_ids, schedule_action)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
         $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone, $collector_id,
-        $missed_run_policy, $missed_run_max, $nextRunComputed, $enrichmentIdsJson
+        $missed_run_policy, $missed_run_max, $nextRunComputed, $enrichmentIdsJson,
+        $schedule_action,
     ]);
     $id = (int)$db->lastInsertId();
     @error_log(sprintf(

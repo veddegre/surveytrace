@@ -69,7 +69,11 @@ CREATE TABLE IF NOT EXISTS assets (
     criticality                   TEXT DEFAULT 'medium',
     environment                   TEXT DEFAULT 'unknown',
     identity_confidence           REAL,
-    identity_confidence_reason    TEXT
+    identity_confidence_reason    TEXT,
+    -- When 1, scan/enrichment must not overwrite the field (set via API PUT).
+    hostname_locked               INTEGER DEFAULT 0,
+    category_locked               INTEGER DEFAULT 0,
+    vendor_locked                 INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_ip ON assets(ip);
@@ -178,7 +182,9 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     batch_total  INTEGER DEFAULT 0,
     created_by   TEXT DEFAULT 'web',
     -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
-    enrichment_source_ids TEXT
+    enrichment_source_ids TEXT,
+    -- Phase 13: operator-selected baseline for reporting (at most one job should have 1)
+    is_baseline INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_batch ON scan_jobs(batch_id, status, id);
@@ -258,6 +264,22 @@ CREATE TABLE IF NOT EXISTS scan_finding_snapshots (
 CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_job ON scan_finding_snapshots(job_id);
 CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snapshots(asset_id, job_id DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC);
+
+-- -------------------------------------------------------
+-- Phase 13 — scheduled report outputs (JSON payloads)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS report_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    schedule_id INTEGER,
+    baseline_job_id INTEGER,
+    compare_job_id INTEGER,
+    kind TEXT DEFAULT 'scheduled',
+    title TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_report_artifacts_created ON report_artifacts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_artifacts_schedule ON report_artifacts(schedule_id, id DESC);
 
 -- -------------------------------------------------------
 -- Port snapshots: track port changes over time

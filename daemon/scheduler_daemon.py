@@ -95,9 +95,38 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         ("missed_run_policy", "TEXT DEFAULT 'run_once'"),
         ("missed_run_max", "INTEGER DEFAULT 5"),
         ("enrichment_source_ids", "TEXT"),
+        ("schedule_action", "TEXT DEFAULT 'scan'"),
     ]:
         if col not in existing:
             conn.execute(f"ALTER TABLE scan_schedules ADD COLUMN {col} {defn}")
+
+    try:
+        job_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(scan_jobs)").fetchall()}
+        if "is_baseline" not in job_cols2:
+            conn.execute("ALTER TABLE scan_jobs ADD COLUMN is_baseline INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS report_artifacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            schedule_id INTEGER,
+            baseline_job_id INTEGER,
+            compare_job_id INTEGER,
+            kind TEXT DEFAULT 'scheduled',
+            title TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}'
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_report_artifacts_created ON report_artifacts(created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_report_artifacts_schedule ON report_artifacts(schedule_id, id DESC)"
+    )
 
     # scan_jobs columns used when enqueueing from a schedule (may predate manual-scan UI)
     try:
@@ -559,6 +588,35 @@ def _missed_fire_times(
     return slots
 
 
+def _materialize_scheduled_report(conn: sqlite3.Connection, schedule_id: int) -> None:
+    """Run api/reporting_cli.php materialize <schedule_id> (Phase 13)."""
+    root = Path(__file__).resolve().parent.parent
+    php_bin = os.environ.get("SURVEYTRACE_PHP_BIN", "php")
+    script = root / "api" / "reporting_cli.php"
+    if not script.is_file():
+        log.error("reporting_cli.php missing at %s", script)
+        return
+    try:
+        r = subprocess.run(
+            [php_bin, str(script), "materialize", str(schedule_id)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if r.returncode != 0:
+            log.error(
+                "Scheduled report failed schedule_id=%s rc=%s err=%s out=%s",
+                schedule_id,
+                r.returncode,
+                (r.stderr or "")[:500],
+                (r.stdout or "")[:500],
+            )
+        else:
+            log.info("Scheduled report OK schedule_id=%s", schedule_id)
+    except Exception as e:
+        log.error("Scheduled report subprocess schedule_id=%s: %s", schedule_id, e)
+
+
 def process_due_schedule(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> None:
     """Enqueue according to missed_run_policy and advance next_run."""
     s = dict(row)
@@ -576,6 +634,42 @@ def process_due_schedule(conn: sqlite3.Connection, row: sqlite3.Row, now: dateti
 
     nr = next_cron_run(expr, now, tz_name)
     nr_str = nr.strftime("%Y-%m-%d %H:%M:%S")
+
+    action = (s.get("schedule_action") or "scan").strip().lower()
+    if action == "report":
+        if policy == "skip_no_run":
+            conn.execute(
+                """
+                UPDATE scan_schedules
+                SET next_run = ?
+                WHERE id = ?
+                """,
+                (nr_str, s["id"]),
+            )
+            log.info(
+                "Schedule '%s' (id=%d) report — skip_no_run: advancing next_run to %s",
+                s["name"],
+                s["id"],
+                nr_str,
+            )
+            return
+        if policy == "run_all":
+            log.warning(
+                "Schedule '%s' (id=%d): run_all with schedule_action=report — emitting one report",
+                s["name"],
+                s["id"],
+            )
+        _materialize_scheduled_report(conn, int(s["id"]))
+        conn.execute(
+            """
+            UPDATE scan_schedules
+            SET last_run = ?, last_job_id = 0, next_run = ?
+            WHERE id = ?
+            """,
+            (now_str, nr_str, s["id"]),
+        )
+        log.info("Schedule '%s' (report) next_run: %s", s["name"], nr_str)
+        return
 
     if policy == "skip_no_run":
         conn.execute(
