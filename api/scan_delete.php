@@ -86,6 +86,13 @@ if ($deletedAt === '') {
 
 try {
     $db->beginTransaction();
+    if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scope_baselines' LIMIT 1")->fetchColumn()) {
+        try {
+            $db->prepare('DELETE FROM scan_scope_baselines WHERE baseline_job_id = ?')->execute([$jobId]);
+        } catch (Throwable $e) {
+            // ignore if table schema differs
+        }
+    }
     // Always present
     $db->prepare("DELETE FROM scan_log WHERE job_id = ?")->execute([$jobId]);
     $db->prepare("DELETE FROM port_history WHERE scan_id = ?")->execute([$jobId]);

@@ -84,12 +84,14 @@ $scanJobMigrations = [
     'batch_index' => "INTEGER DEFAULT 0",
     'batch_total' => "INTEGER DEFAULT 0",
     'collector_id' => "INTEGER DEFAULT 0",
+    'scope_id'   => 'INTEGER',
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
         $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
     }
 }
+$scanJobCols = array_column($db->query('PRAGMA table_info(scan_jobs)')->fetchAll(), 'name');
 $db->exec("
     CREATE TABLE IF NOT EXISTS scan_batches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,11 +142,16 @@ if (!empty($body['retry_job_id'])) {
         $prio = 99;
     }
 
+    $origScope = null;
+    if (in_array('scope_id', $scanJobCols, true)) {
+        $ov = $orig['scope_id'] ?? null;
+        $origScope = ($ov !== null && $ov !== '') ? (int) $ov : null;
+    }
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
+             scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids, scope_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)
     ")->execute([
         $orig['target_cidr'],
         $newLabel,
@@ -157,6 +164,7 @@ if (!empty($body['retry_job_id'])) {
         $prio,
         (int)($orig['collector_id'] ?? 0),
         $enrRetry,
+        $origScope,
     ]);
     $newJobId = (int)$db->lastInsertId();
     st_audit_log('scan.rerun_queued', (int)($actor['id'] ?? 0), (string)($actor['username'] ?? ''), null, null, [
@@ -288,6 +296,29 @@ if ($collector_id > 0) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. Optional scan scope (Phase 14 — reporting / multi-network)
+// ---------------------------------------------------------------------------
+$scopeIdBody = isset($body['scope_id']) ? (int) ($body['scope_id'] ?? 0) : 0;
+if ($scopeIdBody < 0) {
+    $scopeIdBody = 0;
+}
+$jobScopeId = null;
+if (in_array('scope_id', $scanJobCols, true) && $scopeIdBody > 0) {
+    $hs = (int) $db->query(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1"
+    )->fetchColumn();
+    if ($hs !== 1) {
+        st_json(['error' => 'scan_scopes table not available', 'field' => 'scope_id'], 503);
+    }
+    $sv = $db->prepare('SELECT id FROM scan_scopes WHERE id=?');
+    $sv->execute([$scopeIdBody]);
+    if (! $sv->fetchColumn()) {
+        st_json(['error' => 'Unknown scope_id', 'field' => 'scope_id'], 400);
+    }
+    $jobScopeId = $scopeIdBody;
+}
+
+// ---------------------------------------------------------------------------
 // 4. Exclusions — accept freeform text, strip comment lines
 // ---------------------------------------------------------------------------
 $exclusions_raw = (string)($body['exclusions'] ?? '');
@@ -370,8 +401,8 @@ $priority = max(1, min(100, (int)($body['priority'] ?? 10)));
 // ---------------------------------------------------------------------------
 $stmt = $db->prepare("
     INSERT INTO scan_jobs (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-        scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids, batch_id, batch_index, batch_total)
-    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, :collector_id, 'web', :enrids, :bid, :bidx, :btotal)
+        scan_mode, profile, priority, collector_id, created_by, enrichment_source_ids, batch_id, batch_index, batch_total, scope_id)
+    VALUES (:cidr, :label, :excl, :phases, :pps, :delay, :mode, :profile, :priority, :collector_id, 'web', :enrids, :bid, :bidx, :btotal, :scope_id)
 ");
 $resolved_job_label = $label !== '' ? $label : ('Scan ' . date('Y-m-d H:i'));
 $job_ids = [];
@@ -423,6 +454,7 @@ foreach (array_slice($scan_targets, 0, $enqueueNow) as $idx => $targetCidr) {
         ':bid'    => $batchId,
         ':bidx'   => $totalJobs > 1 ? ($idx + 1) : 0,
         ':btotal' => $totalJobs > 1 ? $totalJobs : 0,
+        ':scope_id' => $jobScopeId,
     ]);
     $newJobId = (int)$db->lastInsertId();
     $job_ids[] = $newJobId;

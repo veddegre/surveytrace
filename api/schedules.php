@@ -33,6 +33,7 @@ foreach ([
     'retry_count'            => "INTEGER DEFAULT 0",
     'max_retries'            => "INTEGER DEFAULT 2",
     'enrichment_source_ids'  => 'TEXT',
+    'scope_id'               => 'INTEGER',
 ] as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
         $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
@@ -78,12 +79,14 @@ $schedMigrations = [
     'missed_run_max'    => 'INTEGER DEFAULT 5',
     'enrichment_source_ids' => 'TEXT',
     'schedule_action'   => "TEXT DEFAULT 'scan'",
+    'scope_id'          => 'INTEGER',
 ];
 foreach ($schedMigrations as $col => $def) {
     if (!in_array($col, $schedCols, true)) {
         $db->exec('ALTER TABLE scan_schedules ADD COLUMN ' . $col . ' ' . $def);
     }
 }
+$schedCols = array_column($db->query('PRAGMA table_info(scan_schedules)')->fetchAll(), 'name');
 
 // Deprecated fast_full_tcp (removed from UI): remap stored rows so schedulers/jobs use full_tcp.
 $db->exec("UPDATE scan_schedules SET profile = 'full_tcp' WHERE profile = 'fast_full_tcp'");
@@ -121,6 +124,7 @@ if ($method === 'DELETE') {
 // ---------------------------------------------------------------------------
 if ($method === 'GET') {
     $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
+    $hasScanScopes = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1")->fetchColumn();
     if (isset($_GET['history'])) {
         $hid = (int)($_GET['id'] ?? 0);
         $limit = max(1, min(100, (int)($_GET['limit'] ?? 20)));
@@ -145,6 +149,7 @@ if ($method === 'GET') {
             j.hosts_found AS last_hosts_found,
             j.finished_at AS last_finished_at,
             " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
+            " . ($hasScanScopes ? 'COALESCE(sc.name, \'\')' : "''") . " AS scope_name,
             CASE
                 WHEN s.next_run IS NULL THEN NULL
                 WHEN s.next_run <= datetime('now') THEN 0
@@ -153,6 +158,7 @@ if ($method === 'GET') {
         FROM scan_schedules s
         LEFT JOIN scan_jobs j ON j.id = s.last_job_id
         " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(s.collector_id, 0)" : "") . "
+        " . ($hasScanScopes ? 'LEFT JOIN scan_scopes sc ON sc.id = COALESCE(s.scope_id, 0) AND COALESCE(s.scope_id, 0) > 0' : '') . "
         ORDER BY s.enabled DESC, COALESCE(s.paused, 0) ASC, s.next_run ASC
     ")->fetchAll();
     st_json(['schedules' => $rows]);
@@ -178,11 +184,15 @@ if (isset($_GET['run_now'])) {
         st_json(['error' => 'Schedule target is outside collector allowed CIDR ranges'], 400);
     }
 
+    $schedScopeRun = null;
+    if (isset($s['scope_id']) && (int) ($s['scope_id'] ?? 0) > 0) {
+        $schedScopeRun = (int) $s['scope_id'];
+    }
     $db->prepare("
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, collector_id, schedule_id, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
+             scan_mode, profile, priority, collector_id, schedule_id, created_by, enrichment_source_ids, scope_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)
     ")->execute([
         $s['target_cidr'],
         '[Scheduled] ' . $s['name'] . ' (manual)',
@@ -196,6 +206,7 @@ if (isset($_GET['run_now'])) {
         (int)($s['collector_id'] ?? 0),
         $id,
         $s['enrichment_source_ids'] ?? null,
+        $schedScopeRun,
     ]);
     $job_id = (int)$db->lastInsertId();
 
@@ -433,6 +444,43 @@ if (array_key_exists('enrichment_source_ids', $body)) {
     }
 }
 
+$scheduleScopeBind = null;
+$prevSchScope = null;
+if (in_array('scope_id', $schedCols, true)) {
+    if ($id > 0) {
+        $ps = $db->prepare('SELECT COALESCE(scope_id, 0) AS s FROM scan_schedules WHERE id=?');
+        $ps->execute([$id]);
+        $pv = $ps->fetchColumn();
+        if ($pv !== false && $pv !== null && (int) $pv > 0) {
+            $prevSchScope = (int) $pv;
+        }
+    }
+    if (array_key_exists('scope_id', $body)) {
+        $rs = (int) $body['scope_id'];
+        if ($rs < 0) {
+            $rs = 0;
+        }
+        if ($rs > 0) {
+            $hs = (int) $db->query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1"
+            )->fetchColumn();
+            if ($hs !== 1) {
+                st_json(['error' => 'scan_scopes table not available', 'field' => 'scope_id'], 503);
+            }
+            $sv = $db->prepare('SELECT id FROM scan_scopes WHERE id=?');
+            $sv->execute([$rs]);
+            if (! $sv->fetchColumn()) {
+                st_json(['error' => 'Unknown scope_id', 'field' => 'scope_id'], 400);
+            }
+            $scheduleScopeBind = $rs;
+        } else {
+            $scheduleScopeBind = null;
+        }
+    } else {
+        $scheduleScopeBind = ($id > 0) ? $prevSchScope : null;
+    }
+}
+
 if (!$name)        st_json(['error' => 'name is required'],        400);
 if (!$cron_expr)   st_json(['error' => 'cron_expr is required'],   400);
 if (!$target_cidr) st_json(['error' => 'target_cidr is required'], 400);
@@ -488,7 +536,7 @@ if ($id > 0) {
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
                 schedule_action=?,
-                next_run = ?
+                next_run = ?, scope_id=?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
@@ -497,6 +545,7 @@ if ($id > 0) {
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
             $schedule_action,
             $nextRunComputed,
+            $scheduleScopeBind,
             $id,
         ]);
         @error_log(sprintf(
@@ -515,7 +564,7 @@ if ($id > 0) {
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
                 schedule_action=?,
-                next_run = ?
+                next_run = ?, scope_id=?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
@@ -524,6 +573,7 @@ if ($id > 0) {
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
             $schedule_action,
             $nextRunComputed,
+            $scheduleScopeBind,
             $id,
         ]);
         @error_log(sprintf(
@@ -541,7 +591,7 @@ if ($id > 0) {
                 profile=?, scan_mode=?, rate_pps=?, inter_delay=?, priority=?,
                 enabled=?, paused=COALESCE(?, paused), notes=?, timezone=?, collector_id=?,
                 missed_run_policy=?, missed_run_max=?, enrichment_source_ids=?,
-                schedule_action=?
+                schedule_action=?, scope_id=?
             WHERE id=?
         ")->execute([
             $name, $cron_expr, $target_cidr, $exclusions, $phases,
@@ -549,6 +599,7 @@ if ($id > 0) {
             $enabled, $paused, $notes, $timezone, $collector_id,
             $missed_run_policy, $missed_run_max, $enrichmentIdsJson,
             $schedule_action,
+            $scheduleScopeBind,
             $id,
         ]);
     }
@@ -565,13 +616,14 @@ if ($id > 0) {
         INSERT INTO scan_schedules
             (name, cron_expr, target_cidr, exclusions, phases, profile,
              scan_mode, rate_pps, inter_delay, priority, enabled, paused, notes, timezone, collector_id,
-             missed_run_policy, missed_run_max, next_run, enrichment_source_ids, schedule_action)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             missed_run_policy, missed_run_max, next_run, enrichment_source_ids, schedule_action, scope_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ")->execute([
         $name, $cron_expr, $target_cidr, $exclusions, $phases, $profile,
         $scan_mode, $rate_pps, $inter_delay, $priority, $enabled, (int)($paused ?? 0), $notes, $timezone, $collector_id,
         $missed_run_policy, $missed_run_max, $nextRunComputed, $enrichmentIdsJson,
         $schedule_action,
+        $scheduleScopeBind,
     ]);
     $id = (int)$db->lastInsertId();
     @error_log(sprintf(

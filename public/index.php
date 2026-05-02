@@ -391,6 +391,11 @@ if (is_readable($dbProbe)) {
         <textarea class="finput" id="sc-excl" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
         <label class="flbl">Scan label (optional)</label>
         <input class="finput" id="sc-label" type="text" placeholder="Weekly full scan">
+        <label class="flbl">Reporting scope (optional)</label>
+        <select class="finput" id="sc-scope-id">
+          <option value="0">None — unscoped job</option>
+        </select>
+        <div class="hint-micro mt4 mb0">Tags the job for Reports &amp; Analysis so drift and baselines stay within the same network/environment.</div>
       </div>
       <div class="card">
         <div class="ct">Rate limiting</div>
@@ -585,12 +590,30 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top" style="margin-bottom:8px">Reports &amp; Analysis</div>
   <div class="hint-micro mb12">
     This page extends the <strong>Executive View</strong> with <strong>snapshot-based</strong> reporting: baseline drift, compliance checks, per-job trends, and saved report artifacts. Numbers from completed scans reflect frozen inventory and findings at job time — not the same as live Dashboard totals. Read-only except <strong>Set baseline</strong> (scan editor or admin).
+    <span class="text-dim">Comparisons are scoped to the selected network/environment where job tags allow.</span>
+  </div>
+
+  <div class="card mb10" id="report-scope-card">
+    <div class="sth" style="font-size:13px;margin-bottom:6px">Reporting scope</div>
+    <div class="row-wrap gap10" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-scope-select">Scope</label>
+        <select class="finp" id="report-scope-select" style="min-width:260px" onchange="onReportingScopeChange()">
+          <option value="0">Unscoped (legacy jobs)</option>
+        </select>
+      </div>
+      <button type="button" class="tbtn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
+    </div>
+    <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
+    <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
+      <strong>Unscoped jobs</strong> — older scans may lack a scope tag. Drift and baselines mix only unscoped history; results may not be comparable across different networks.
+    </div>
   </div>
 
   <div class="sth section-top">At a glance</div>
   <div class="card mb10" id="report-at-glance-card">
     <div class="hint-micro mb8">
-      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for your <em>latest completed</em> scan only; job number is called out in the sentence.
+      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan in the selected scope</em> (or unscoped pool); job number is called out in the sentence.
     </div>
     <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
     <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
@@ -599,7 +622,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Snapshot drift</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based</strong> — compares <strong>reference scan</strong> (baseline or previous completed job) to <strong>current scan</strong> (latest finished job) using frozen per-scan tables, not live hosts.
+      <strong>Snapshot-based</strong> — compares <strong>reference scan</strong> (scoped baseline or previous completed job in this scope) to <strong>current scan</strong> (latest finished job in this scope) using frozen per-scan tables, not live hosts.
     </div>
     <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
   </div>
@@ -607,7 +630,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Scan history (snapshots)</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based trend (not real-time)</strong> — each point is one finished job (asset rows and open findings in that job’s snapshots). Charts and tables use the same bounded history list.
+      <strong>Snapshot-based trend (not real-time)</strong> — each point is one finished job in the <strong>selected scope</strong> (asset rows and open findings in that job’s snapshots). Charts and tables use the same bounded history list.
     </div>
     <div class="row-wrap gap6 mb8" style="align-items:flex-end">
       <div>
@@ -830,6 +853,12 @@ if (is_readable($dbProbe)) {
       </select>
       <div class="hint-micro mb10">Choose where scheduled jobs execute.</div>
 
+      <label class="flbl">Reporting scope (optional)</label>
+      <select class="finp w100 mb8" id="sched-scope-id">
+        <option value="0">None — unscoped jobs from this schedule</option>
+      </select>
+      <div class="hint-micro mb10">Inherited by each queued job for scoped reporting and baselines.</div>
+
       <label class="flbl">Exclusions (optional)</label>
       <textarea class="finp w100 mb10" id="sched-excl" placeholder="192.168.86.1&#10;10.0.0.0/8" style="min-height:100px;resize:vertical"></textarea>
 
@@ -915,11 +944,11 @@ if (is_readable($dbProbe)) {
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr>
-        <th>Name</th><th>Target</th><th>Profile</th><th>Cron</th>
+        <th>Name</th><th>Target</th><th>Scope</th><th>Profile</th><th>Cron</th>
         <th>Collector</th><th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
         <th>On</th><th></th>
       </tr></thead>
-      <tbody id="sched-tbody"><tr><td colspan="11" class="loading">Loading…</td></tr></tbody>
+      <tbody id="sched-tbody"><tr><td colspan="12" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -2453,6 +2482,9 @@ function goTab(name) {
     if (name === 'scan' || name === 'sched' || name === 'collectors') {
         loadCollectorsOverview();
     }
+    if (name === 'scan' || name === 'sched') {
+        void ensureStScopeSelects();
+    }
     if (name === 'health')   loadHealth();
     if (name === 'alerts')   loadChangeAlerts();
     if (name === 'access') {
@@ -3727,6 +3759,10 @@ async function startScan(urgent = false) {
     if (collectorId > 0) body.collector_id = collectorId;
     const enrSel = scanEnrichmentPayloadField();
     if (enrSel !== undefined) body.enrichment_source_ids = enrSel;
+    const scanScopePick = parseInt(String(document.getElementById('sc-scope-id')?.value || '0'), 10) || 0;
+    if (scanScopePick > 0) {
+        body.scope_id = scanScopePick;
+    }
 
     document.getElementById('btn-start').disabled = true;
     const urgentBtn = document.getElementById('btn-start-urgent');
@@ -4060,6 +4096,8 @@ async function queueHostRescan(ip, triggerBtn) {
     }
     const collectorId = Math.max(0, parseInt(String(choice.collector_id ?? '0'), 10) || 0);
     if (collectorId > 0) body.collector_id = collectorId;
+    const rescanScope = parseInt(String(document.getElementById('sc-scope-id')?.value || '0'), 10) || 0;
+    if (rescanScope > 0) body.scope_id = rescanScope;
 
     const btn = triggerBtn instanceof HTMLElement ? triggerBtn : null;
     const prevText = btn ? btn.textContent : '';
@@ -7310,6 +7348,161 @@ function reportingTruncateJsonDisplay(obj) {
     return s.slice(0, REPORTING_DEBUG_JSON_MAX) + '\n… (' + (s.length - REPORTING_DEBUG_JSON_MAX) + ' more characters truncated)';
 }
 
+const REPORTING_SCOPE_LS_KEY = 'st_report_scope_id';
+var reportingUiScopeId = 0;
+var reportingScopesList = [];
+var stScopesForFormsCache = null;
+var stScopesMeta = { default_scope_id: 0, scoping_enabled: false };
+
+function reportingScopeQuery() {
+    return '&scope_id=' + encodeURIComponent(String(reportingUiScopeId));
+}
+
+function fillStScopeOptionSelects(scopes) {
+    const pairs = [
+        ['sc-scope-id', 'None — unscoped job'],
+        ['sched-scope-id', 'None — unscoped jobs from this schedule'],
+    ];
+    pairs.forEach(([id, zlbl]) => {
+        const el = document.getElementById(id);
+        if (!el) {
+            return;
+        }
+        const prev = el.value;
+        el.innerHTML = '<option value="0">' + zlbl + '</option>';
+        (scopes || []).forEach((sc) => {
+            const o = document.createElement('option');
+            o.value = String(sc.id);
+            o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
+            el.appendChild(o);
+        });
+        if (prev && [...el.options].some((opt) => opt.value === prev)) {
+            el.value = prev;
+        }
+    });
+}
+
+async function ensureStScopeSelects(force) {
+    const anyEl =
+        document.getElementById('sc-scope-id') ||
+        document.getElementById('sched-scope-id') ||
+        document.getElementById('report-scope-select');
+    if (!anyEl) {
+        return;
+    }
+    if (!force && stScopesForFormsCache !== null) {
+        fillStScopeOptionSelects(stScopesForFormsCache);
+        return;
+    }
+    const d = await api('/api/scan_scopes.php', { quiet: true });
+    stScopesForFormsCache = d && d.ok && Array.isArray(d.scopes) ? d.scopes : [];
+    stScopesMeta.default_scope_id =
+        d && d.default_scope_id != null && parseInt(String(d.default_scope_id), 10) > 0
+            ? parseInt(String(d.default_scope_id), 10)
+            : 0;
+    stScopesMeta.scoping_enabled = !!(d && d.scoping_enabled);
+    fillStScopeOptionSelects(stScopesForFormsCache);
+}
+
+function updateReportingScopeDetail() {
+    const detailEl = document.getElementById('report-scope-detail');
+    const warnEl = document.getElementById('report-scope-unscoped-warn');
+    if (warnEl) {
+        warnEl.style.display = reportingUiScopeId === 0 && stScopesMeta.scoping_enabled ? '' : 'none';
+    }
+    if (!detailEl) {
+        return;
+    }
+    if (reportingUiScopeId === 0) {
+        detailEl.innerHTML =
+            '<strong>Unscoped</strong> — drift, trends, and compliance use completed jobs with no scope tag only.';
+        return;
+    }
+    const sc = reportingScopesList.find((x) => parseInt(String(x.id), 10) === reportingUiScopeId);
+    if (!sc) {
+        detailEl.textContent = 'Scope #' + reportingUiScopeId;
+        return;
+    }
+    let cidrTxt = '';
+    try {
+        const arr = JSON.parse(String(sc.cidrs || '[]'));
+        if (Array.isArray(arr) && arr.length) {
+            cidrTxt = arr.slice(0, 8).join(', ') + (arr.length > 8 ? ' …' : '');
+        }
+    } catch (_e) {
+        cidrTxt = '';
+    }
+    const env = sc.environment != null && String(sc.environment).trim() ? esc(String(sc.environment).trim()) : 'unknown';
+    detailEl.innerHTML =
+        '<strong>' +
+        esc(String(sc.name || 'Scope')) +
+        '</strong>' +
+        (cidrTxt ? ' · CIDRs: <span class="mono-sm">' + esc(cidrTxt) + '</span>' : '') +
+        ' · Environment: <strong>' +
+        env +
+        '</strong>';
+}
+
+async function loadReportingScopeSelector(forceRefresh) {
+    await ensureStScopeSelects(!!forceRefresh);
+    const sel = document.getElementById('report-scope-select');
+    if (!sel) {
+        return;
+    }
+    const scopes = stScopesForFormsCache || [];
+    reportingScopesList = scopes;
+    const keepVal = forceRefresh ? String(reportingUiScopeId) : null;
+    sel.innerHTML = '<option value="0">Unscoped (legacy jobs)</option>';
+    scopes.forEach((sc) => {
+        const o = document.createElement('option');
+        o.value = String(sc.id);
+        o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
+        sel.appendChild(o);
+    });
+    if (keepVal !== null && [...sel.options].some((opt) => opt.value === keepVal)) {
+        sel.value = keepVal;
+    } else {
+        let pick = 0;
+        const savedRaw = localStorage.getItem(REPORTING_SCOPE_LS_KEY);
+        if (savedRaw !== null && savedRaw !== '') {
+            const sn = parseInt(savedRaw, 10);
+            if (Number.isFinite(sn) && (sn === 0 || scopes.some((s) => parseInt(String(s.id), 10) === sn))) {
+                pick = sn;
+            }
+        }
+        if (
+            pick === 0 &&
+            stScopesMeta.default_scope_id > 0 &&
+            scopes.some((s) => parseInt(String(s.id), 10) === stScopesMeta.default_scope_id)
+        ) {
+            pick = stScopesMeta.default_scope_id;
+        } else if (pick === 0 && scopes.length > 0) {
+            pick = parseInt(String(scopes[0].id), 10) || 0;
+        }
+        sel.value = String(pick);
+    }
+    if (![...sel.options].some((opt) => opt.value === sel.value)) {
+        sel.value = '0';
+    }
+    reportingUiScopeId = parseInt(String(sel.value), 10);
+    if (!Number.isFinite(reportingUiScopeId)) {
+        reportingUiScopeId = 0;
+    }
+    localStorage.setItem(REPORTING_SCOPE_LS_KEY, String(reportingUiScopeId));
+    updateReportingScopeDetail();
+}
+
+function onReportingScopeChange() {
+    const sel = document.getElementById('report-scope-select');
+    if (!sel) {
+        return;
+    }
+    reportingUiScopeId = parseInt(String(sel.value), 10) || 0;
+    localStorage.setItem(REPORTING_SCOPE_LS_KEY, String(reportingUiScopeId));
+    updateReportingScopeDetail();
+    void loadReportingTab();
+}
+
 function reportingFillJobSelect(selectId, rows) {
     const el = document.getElementById(selectId);
     if (!el) return;
@@ -7329,7 +7522,10 @@ function reportingFillJobSelect(selectId, rows) {
 }
 
 async function populateReportingJobSelects() {
-    const d = await api('/api/scan_history.php?limit=200&view=active', {quiet: true});
+    const d = await api(
+        '/api/scan_history.php?limit=200&view=active' + reportingScopeQuery(),
+        {quiet: true}
+    );
     const ids = ['report-baseline-job', 'report-cmp-a', 'report-cmp-b', 'report-compliance-job'];
     if (!d || !d.ok || !Array.isArray(d.history)) {
         ids.forEach((id) => {
@@ -7666,7 +7862,9 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
     return '<p class="hint-micro report-snapshot-narrative" style="line-height:1.55;margin:0 0 8px">' + parts.join('') + '</p>';
 }
 
-function reportingCompareSummaryCardsHtml(nc) {
+function reportingCompareSummaryCardsHtml(nc, cardOpts) {
+    cardOpts = cardOpts || {};
+    const cross = !!cardOpts.crossScope;
     const dAssets = nc.assets_b - nc.assets_a;
     const dShow = dAssets > 0 ? '+' + dAssets : String(dAssets);
     const card = (title, value, sub, tone) => {
@@ -7686,15 +7884,19 @@ function reportingCompareSummaryCardsHtml(nc) {
             '</div>'
         );
     };
-    let assetSub = 'Snapshot host rows (current − reference)';
-    if (dAssets < 0) {
-        assetSub = 'Fewer hosts in current snapshot';
-    } else if (dAssets > 0) {
-        assetSub = 'More hosts in current snapshot';
-    } else {
-        assetSub = 'Same host count';
+    let assetSub = cross
+        ? 'Raw counter delta — not a reliable “hosts removed” signal across scopes'
+        : 'Snapshot host rows (current − reference)';
+    if (!cross) {
+        if (dAssets < 0) {
+            assetSub = 'Fewer hosts in current snapshot';
+        } else if (dAssets > 0) {
+            assetSub = 'More hosts in current snapshot';
+        } else {
+            assetSub = 'Same host count';
+        }
     }
-    const assetTone = dAssets !== 0 || nc.assets_only_in_a > 0 ? 'warn' : 'unk';
+    const assetTone = cross ? 'unk' : dAssets !== 0 || nc.assets_only_in_a > 0 ? 'warn' : 'unk';
     const newFindTone = nc.new_findings_rows > 0 ? 'warn' : 'unk';
     const reopenTone = nc.reopened_in_b > 0 ? 'bad' : 'unk';
     const resolvedTone = nc.marked_resolved_in_b > 0 ? 'good' : 'unk';
@@ -7706,7 +7908,7 @@ function reportingCompareSummaryCardsHtml(nc) {
     h += card('Reopened findings', String(nc.reopened_in_b), 'Were resolved, open again', reopenTone);
     h += card('Port changes', String(nc.hosts_with_port_delta), 'Hosts with port deltas', portTone);
     h += '</div>';
-    if (nc.assets_only_in_b > 0 || nc.assets_only_in_a > 0) {
+    if (!cross && (nc.assets_only_in_b > 0 || nc.assets_only_in_a > 0)) {
         const invParts = [];
         if (nc.assets_only_in_b > 0) {
             invParts.push(
@@ -7833,6 +8035,8 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
     const jobRef = s.job_a;
     const jobCur = s.job_b;
     const nc = reportingCompareNormalizeCounts(s.counts, s.finding_events);
+    const align = s.scope_alignment;
+    const crossScope = !!(opts.crossScope || (align && align.comparable === false));
     const warnList = Array.isArray(s.warnings) ? s.warnings.slice(0, 24) : [];
     const warns =
         warnList.length > 0
@@ -7848,6 +8052,31 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
         deltaHc = 0;
     }
     const hasTrendPair = !!opts.trendHasPair;
+    if (crossScope) {
+        const head =
+            '<div class="hint-micro mb8">' +
+            '<strong>Reference scan</strong> <span class="mono-sm">#' +
+            esc(String(jobRef)) +
+            '</span> · <strong>Current scan</strong> <span class="mono-sm">#' +
+            esc(String(jobCur)) +
+            '</span> <span class="text-dim">(frozen per-scan snapshots)</span></div>' +
+            '<div class="hint-micro mb8 hstate-warn" style="line-height:1.5">' +
+            '<strong>Low-confidence comparison</strong> — scopes differ or one job is unscoped. ' +
+            'Raw counters are shown below; do not read asset deltas as “hosts disappeared” across networks.</div>';
+        const narrative =
+            '<p class="hint-micro report-snapshot-narrative" style="line-height:1.55;margin:0 0 8px">' +
+            'Use this pair for manual inspection only. Prefer the <strong>Reports</strong> scope selector and two jobs from the same scope for production drift review.</p>';
+        const badgeRow =
+            '<div class="row-wrap gap10 mb8" style="align-items:center"><span class="hstate-unk" style="font-weight:600">Cross-scope / unscoped mix</span></div>';
+        const cards = showCards ? reportingCompareSummaryCardsHtml(nc, { crossScope: true }) : '';
+        const adv =
+            '<details class="mt10 report-snapshot-advanced" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+            '<summary class="hint-micro" style="cursor:pointer;font-weight:600">Advanced details</summary>' +
+            '<div class="hint-micro text-dim mt6 mb6">Counter table for this scan pair (technical).</div>' +
+            reportingRenderCompareAdvancedDetails(s.counts, s.finding_events) +
+            '</details>';
+        return head + narrative + badgeRow + cards + warns + adv;
+    }
     const risk = reportingCompareRiskClassification(nc, deltaHc, hasTrendPair);
     const narrative = reportingCompareNarrativeParagraph(jobRef, jobCur, nc, deltaHc, hasTrendPair);
     const callouts = reportingCompareAttentionCalloutsHtml(nc, deltaHc, hasTrendPair);
@@ -7860,7 +8089,7 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
         '</span> <span class="text-dim">(frozen per-scan snapshots, not live inventory)</span></div>';
     const badgeRow =
         '<div class="row-wrap gap10 mb8" style="align-items:center">' + risk.html + '</div>';
-    const cards = showCards ? reportingCompareSummaryCardsHtml(nc) : '';
+    const cards = showCards ? reportingCompareSummaryCardsHtml(nc, {}) : '';
     const adv =
         '<details class="mt10 report-snapshot-advanced" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
         '<summary class="hint-micro" style="cursor:pointer;font-weight:600">Advanced details</summary>' +
@@ -8017,7 +8246,14 @@ async function loadReportingCompliancePanel() {
     }
     if (out) out.innerHTML = '<span class="text-dim">Loading…</span>';
     const vsB = vs && vs.checked ? 1 : 0;
-    const d = await api('/api/reporting.php?action=compliance&job_id=' + jid + '&vs_baseline=' + vsB, {quiet: true});
+    const d = await api(
+        '/api/reporting.php?action=compliance&job_id=' +
+            jid +
+            '&vs_baseline=' +
+            vsB +
+            reportingScopeQuery(),
+        {quiet: true}
+    );
     if (!d || !d.ok) {
         const msg = esc(reportingUserErrorMessage(d, 'Could not load compliance.'));
         if (out) out.innerHTML = '<div class="text-dim">' + msg + '</div>';
@@ -8086,7 +8322,9 @@ async function loadReportingAtGlance() {
     if (!cmpEl) {
         return;
     }
-    const tr = await api('/api/reporting.php?action=trends_summary&limit=1', {quiet: true});
+    const tr = await api('/api/reporting.php?action=trends_summary&limit=1' + reportingScopeQuery(), {
+        quiet: true,
+    });
     const jid =
         tr && tr.ok && Array.isArray(tr.trends_summary) && tr.trends_summary[0]
             ? parseInt(String(tr.trends_summary[0].job_id), 10)
@@ -8097,7 +8335,7 @@ async function loadReportingAtGlance() {
         return;
     }
     const comp = await api(
-        '/api/reporting.php?action=compliance&job_id=' + jid + '&vs_baseline=1',
+        '/api/reporting.php?action=compliance&job_id=' + jid + '&vs_baseline=1' + reportingScopeQuery(),
         {quiet: true}
     );
     if (!comp || !comp.ok) {
@@ -8130,7 +8368,9 @@ async function loadReportingChangeSince() {
         return;
     }
     out.innerHTML = '<span class="text-dim">Loading snapshot drift…</span>';
-    const tr = await api('/api/reporting.php?action=trends_summary&limit=15', {quiet: true});
+    const tr = await api('/api/reporting.php?action=trends_summary&limit=15' + reportingScopeQuery(), {
+        quiet: true,
+    });
     if (!tr || !tr.ok) {
         out.innerHTML =
             '<div class="hint-micro text-dim">Snapshot drift could not load (recent scans unavailable). Other sections may still work.</div>';
@@ -8241,12 +8481,15 @@ async function loadReportingChangeSince() {
             trendHasPair = true;
         }
     }
+    const align = ds.scope_alignment;
+    const crossScope = !!(align && align.comparable === false);
     out.innerHTML =
         hint +
         reportingRenderCompareExecutiveSummary(ds, {
             cards: false,
             trendDeltaHc: trendDeltaHc,
             trendHasPair: trendHasPair,
+            crossScope: crossScope,
         });
 }
 
@@ -8474,7 +8717,9 @@ async function loadReportingTrendsSummary(silentFail) {
     if (out) {
         out.innerHTML = '<span class="text-dim">Loading…</span>';
     }
-    const d = await api('/api/reporting.php?action=trends_summary&limit=' + lim, {quiet: true});
+    const d = await api('/api/reporting.php?action=trends_summary&limit=' + lim + reportingScopeQuery(), {
+        quiet: true,
+    });
     if (!d || !d.ok) {
         const msg = esc(reportingUserErrorMessage(d, 'Could not load scan history.'));
         if (out) {
@@ -8505,6 +8750,9 @@ async function loadReportingTrendsSummary(silentFail) {
 }
 
 async function loadReportingTab() {
+    try {
+        await loadReportingScopeSelector(false);
+    } catch (_e) {}
     const baseEl = document.getElementById('report-baseline-status');
     const valEl = document.getElementById('report-baseline-validation');
     const setWrap = document.getElementById('report-baseline-set-wrap');
@@ -8531,7 +8779,7 @@ async function loadReportingTab() {
         trendsOut.className = 'report-trends-out text-dim';
     }
     // Baseline first so a failure loading scan history (job pickers) does not block baseline or artifacts.
-    const d = await api('/api/reporting.php?action=baseline', {quiet: true});
+    const d = await api('/api/reporting.php?action=baseline' + reportingScopeQuery(), {quiet: true});
     reportingTabBaseline = d && d.ok ? d : null;
     if (!d || !d.ok) {
         const msg = reportingUserErrorMessage(d, 'Unable to load baseline status. Check your session or try again.');
@@ -8548,20 +8796,49 @@ async function loadReportingTab() {
         const eff = d.baseline_job_id;
         const un = !!d.baseline_unavailable;
         if (baseEl) {
+            let scopeBaselineHtml = '';
+            if (reportingUiScopeId > 0) {
+                const scfg = d.scope_baseline_config_job_id;
+                const seff = d.scope_baseline_job_id;
+                const sun = !!d.scope_baseline_unavailable;
+                scopeBaselineHtml =
+                    '<div class="mt8"><strong>Scoped baseline (this scope, saved id):</strong> ' +
+                    (scfg == null ? '— none —' : esc(String(scfg))) +
+                    '</div><div><strong>Scoped effective baseline:</strong> ' +
+                    (seff == null ? '— none —' : esc(String(seff))) +
+                    '</div><div><strong>Scoped baseline unusable:</strong> ' +
+                    (sun ? '<span class="hstate-warn">yes</span>' : 'no') +
+                    '</div>';
+            }
             baseEl.innerHTML =
-                '<div><strong>Configured baseline (saved id):</strong> ' +
+                '<div><strong>Global baseline (saved id):</strong> ' +
                 (cfg == null ? '— none —' : esc(String(cfg))) +
-                '</div><div><strong>Effective baseline (used for diffs):</strong> ' +
+                '</div><div><strong>Global effective baseline:</strong> ' +
                 (eff == null ? '— none —' : esc(String(eff))) +
-                '</div><div><strong>Baseline unavailable for diffs:</strong> ' +
+                '</div><div><strong>Global baseline unavailable for diffs:</strong> ' +
                 (un ? '<span class="hstate-warn">yes</span> — config points at a job that cannot be resolved' : 'no') +
-                '</div>';
+                '</div>' +
+                scopeBaselineHtml;
         }
         if (valEl) {
-            if (un) {
+            const scopeUn =
+                reportingUiScopeId > 0 &&
+                !!(d.scope_baseline_config_job_id != null && parseInt(String(d.scope_baseline_config_job_id), 10) > 0) &&
+                !!d.scope_baseline_unavailable;
+            if (un || scopeUn) {
                 valEl.style.display = '';
-                valEl.textContent =
-                    'A baseline id is configured, but it is not usable (missing job, not completed, in trash, or no asset snapshots). Comparisons fall back to “no baseline” until you set a valid job. Admins may use baseline_debug below for the exact reason.';
+                const parts = [];
+                if (un) {
+                    parts.push(
+                        'Global baseline: configured id is not usable (missing job, not completed, in trash, or no asset snapshots). Comparisons fall back until you set a valid job.'
+                    );
+                }
+                if (scopeUn) {
+                    parts.push(
+                        'Scoped baseline: saved id for this scope is not usable; drift for this scope ignores that baseline until you set a valid completed scan.'
+                    );
+                }
+                valEl.textContent = parts.join(' ');
             } else {
                 valEl.style.display = 'none';
                 valEl.textContent = '';
@@ -8608,7 +8885,11 @@ async function saveReportingBaseline() {
         toast('Select a completed scan', 'err');
         return;
     }
-    const r = await apiPost('/api/reporting.php?action=set_baseline', {job_id: jid});
+    const body = { job_id: jid };
+    if (reportingUiScopeId > 0) {
+        body.scope_id = reportingUiScopeId;
+    }
+    const r = await apiPost('/api/reporting.php?action=set_baseline', body);
     if (r && r.ok) {
         toast('Baseline updated', 'ok');
         await loadReportingTab();
@@ -8638,18 +8919,11 @@ async function runReportingCompareSummary() {
         return;
     }
     const s = d.diff_summary || {};
-    const warnList = Array.isArray(s.warnings) ? s.warnings.slice(0, 24) : [];
-    const warns = warnList.length
-        ? '<div class="hint-micro mt6">' +
-          warnList.map((w) => esc(String(w))).join('<br>') +
-          (Array.isArray(s.warnings) && s.warnings.length > 24
-              ? '<br><span class="text-dim">(' + (s.warnings.length - 24) + ' more warnings omitted)</span>'
-              : '') +
-          '</div>'
-        : '';
+    const align = s.scope_alignment;
+    const crossScope = !!(align && align.comparable === false);
     if (out) {
         out.className = 'report-snapshot-drift-out';
-        out.innerHTML = reportingRenderCompareExecutiveSummary(s);
+        out.innerHTML = reportingRenderCompareExecutiveSummary(s, { crossScope: crossScope });
     }
 }
 
@@ -8937,7 +9211,7 @@ async function loadSchedules() {
     const statColor = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)'};
     const tbody = document.getElementById('sched-tbody');
     if (!d.schedules || !d.schedules.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="loading">No schedules yet — create one to get started</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="loading">No schedules yet — create one to get started</td></tr>';
         return;
     }
 
@@ -8983,9 +9257,13 @@ async function loadSchedules() {
                 : `<button class="tbtn btn-xxs" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
             : '';
 
+        const scn = s.scope_name && String(s.scope_name).trim()
+            ? esc(String(s.scope_name).slice(0, 80))
+            : (parseInt(String(s.scope_id || 0), 10) > 0 ? '<span class="text-dim">#' + esc(String(s.scope_id)) + '</span>' : '—');
         return `<tr>
           <td class="text-primary">${esc(s.name)}${pausedTag}</td>
           <td class="mono">${esc(s.target_cidr)}</td>
+          <td class="status-text">${scn}</td>
           <td class="status-text">${esc((s.profile||'').replace(/_/g,' '))}</td>
           <td class="mono">${esc(s.cron_expr)}</td>
           <td class="mono-sm">${s.collector_id ? esc(s.collector_name || ('#' + String(s.collector_id))) : 'master'}</td>
@@ -9144,6 +9422,12 @@ async function openSchedModal(s) {
 
     await refreshSchedEnrichmentPicker(parseSchedEnrichmentIds(s));
     updateCronDesc();
+    await ensureStScopeSelects(false);
+    const ss = document.getElementById('sched-scope-id');
+    if (ss) {
+        const sid = s && s.scope_id != null ? parseInt(String(s.scope_id), 10) || 0 : 0;
+        ss.value = sid > 0 ? String(sid) : '0';
+    }
     const schedBg = document.getElementById('sched-bg');
     schedBg.style.display = 'flex';
     const schedCard = schedBg.querySelector('.modal-card');
@@ -9359,6 +9643,7 @@ async function saveSchedule() {
         inter_delay: parseInt(document.getElementById('sched-delay')?.value || '200', 10) || 0,
         priority:    pr,
         collector_id: parseInt(document.getElementById('sched-collector')?.value || '0', 10) || 0,
+        scope_id:    parseInt(String(document.getElementById('sched-scope-id')?.value || '0'), 10) || 0,
     };
     const enrSel = schedEnrichmentPayloadField();
     if (enrSel !== undefined) payload.enrichment_source_ids = enrSel;

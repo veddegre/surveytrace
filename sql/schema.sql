@@ -146,6 +146,29 @@ CREATE INDEX IF NOT EXISTS idx_cve_intel_kev ON cve_intel(kev);
 CREATE INDEX IF NOT EXISTS idx_cve_intel_epss ON cve_intel(epss DESC);
 
 -- -------------------------------------------------------
+-- Scan scopes — reporting / multi-network boundaries (Phase 14)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS scan_scopes (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    description   TEXT,
+    scope_type    TEXT DEFAULT 'network',
+    cidrs         TEXT DEFAULT '[]',
+    tags          TEXT DEFAULT '[]',
+    owner         TEXT,
+    environment   TEXT DEFAULT 'unknown',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_scan_scopes_name ON scan_scopes(name);
+
+CREATE TABLE IF NOT EXISTS scan_scope_baselines (
+    scope_id         INTEGER PRIMARY KEY REFERENCES scan_scopes(id) ON DELETE CASCADE,
+    baseline_job_id  INTEGER NOT NULL,
+    updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- -------------------------------------------------------
 -- Scan jobs: queued/running/done jobs dispatched by PHP / scheduler
 -- (Keep in sync with migrations in api/scan_start.php, dashboard.php,
 --  scanner_daemon.py, and daemon/scheduler_daemon.py.)
@@ -184,10 +207,13 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
     enrichment_source_ids TEXT,
     -- Phase 13: operator-selected baseline for reporting (at most one job should have 1)
-    is_baseline INTEGER DEFAULT 0
+    is_baseline INTEGER DEFAULT 0,
+    -- Phase 14: optional link to scan_scopes for scoped reporting
+    scope_id INTEGER REFERENCES scan_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_batch ON scan_jobs(batch_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_scope_status_finished ON scan_jobs(scope_id, status, finished_at DESC);
 
 -- -------------------------------------------------------
 -- Scan batches: staged feeder for large target sets

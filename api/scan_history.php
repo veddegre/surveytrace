@@ -6,6 +6,7 @@
  *   - id: optional scan job id for full detail
  *   - limit: list size when id is omitted (default 50, max 200)
  *   - q: optional filter on label, target_cidr, or job id (substring match, max 120 chars)
+ *   - scope_id: optional when listing jobs; 0 = unscoped only (NULL/0 scope_id); N = that scan_scopes row
  */
 
 require_once __DIR__ . '/db.php';
@@ -19,6 +20,11 @@ $compareToId = st_int('compare_to', 0, 0);
 $compareScope = st_str('compare_scope', 'any', ['any', 'target', 'profile', 'both']);
 $view = st_str('view', 'active', ['active', 'trash', 'all']);
 $limit = st_int('limit', 50, 1, 200);
+/** null = no filter (legacy); 0 = unscoped jobs only; >0 = that scope */
+$scopeHistoryFilter = null;
+if (array_key_exists('scope_id', $_GET)) {
+    $scopeHistoryFilter = st_int('scope_id', 0, 0, 2147483647);
+}
 $currentRole = st_current_role();
 
 if ($view !== 'active' && !in_array($currentRole, ['scan_editor', 'admin'], true)) {
@@ -59,6 +65,7 @@ $hasTable = function(string $name) use ($existingTables): bool {
     return isset($existingTables[$name]);
 };
 $hasCollectors = $hasTable('collectors');
+$scopeColSql = in_array('scope_id', $scanJobCols, true) ? ', j.scope_id' : '';
 
 if ($id > 0) {
     $stmt = $db->prepare("
@@ -72,7 +79,8 @@ if ($id > 0) {
                COALESCE(batch_total, 0) AS batch_total,
                COALESCE(priority, 10) AS priority,
                COALESCE(retry_count, 0) AS retry_count,
-               summary_json, deleted_at,
+               summary_json, deleted_at
+               " . (in_array('scope_id', $scanJobCols, true) ? ', scope_id' : '') . ",
                CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs
         WHERE id = ?
@@ -384,6 +392,15 @@ if ($view === 'trash') {
     $listWhere = 'WHERE 1=1';
 }
 
+$scopeListExtra = '';
+if ($scopeHistoryFilter !== null && in_array('scope_id', $scanJobCols, true)) {
+    if ($scopeHistoryFilter === 0) {
+        $scopeListExtra = ' AND (j.scope_id IS NULL OR j.scope_id = 0) ';
+    } else {
+        $scopeListExtra = ' AND j.scope_id = ' . (int) $scopeHistoryFilter . ' ';
+    }
+}
+
 if ($likePat !== null) {
     $rows = $db->prepare("
         SELECT j.id, j.status, j.target_cidr, j.label, j.hosts_found, j.hosts_scanned, j.deleted_at,
@@ -397,11 +414,13 @@ if ($likePat !== null) {
                COALESCE(j.batch_total, 0) AS batch_total,
                COALESCE(j.priority, 10) AS priority,
                COALESCE(j.retry_count, 0) AS retry_count,
-               j.summary_json,
+               j.summary_json
+               $scopeColSql,
                CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs j
         " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(j.collector_id, 0)" : "") . "
         $listWhere
+          $scopeListExtra
           AND (COALESCE(j.label, '') LIKE :qp1 ESCAPE '\\'
             OR COALESCE(j.target_cidr, '') LIKE :qp2 ESCAPE '\\'
             OR CAST(j.id AS TEXT) LIKE :qp3 ESCAPE '\\')
@@ -426,11 +445,13 @@ if ($likePat !== null) {
                COALESCE(j.batch_total, 0) AS batch_total,
                COALESCE(j.priority, 10) AS priority,
                COALESCE(j.retry_count, 0) AS retry_count,
-               j.summary_json,
+               j.summary_json
+               $scopeColSql,
                CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs j
         " . ($hasCollectors ? "LEFT JOIN collectors c ON c.id = COALESCE(j.collector_id, 0)" : "") . "
         $listWhere
+          $scopeListExtra
         ORDER BY j.id DESC
         LIMIT ?
     ");

@@ -15,13 +15,25 @@
  * GET  reporting.php?action=artifact_payload_preview&id=N  (truncated raw JSON; admin)
  * GET  reporting.php?action=compare_debug&job_a=1&job_b=2&sample_limit=15  (admin)
  * GET  reporting.php?action=baseline_debug  (admin)
- * POST reporting.php?action=set_baseline  JSON: {"job_id": 10}
+ * POST reporting.php?action=set_baseline  JSON: {"job_id": 10} or {"job_id": 10, "scope_id": 3} for scoped baseline
+ * GET  …&scope_id=N  — optional on trends_summary, trends, compliance, summary, baseline (0 = unscoped-only jobs)
  */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reporting.php';
+
+/** null = omit (legacy global); int >= 0 including 0 = unscoped-only */
+function st_reporting_scope_filter_param(): ?int
+{
+    if (! array_key_exists('scope_id', $_GET)) {
+        return null;
+    }
+
+    return (int) $_GET['scope_id'];
+}
 
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
@@ -39,16 +51,26 @@ if ($method === 'POST' && $action === 'set_baseline') {
     if ($jobId <= 0) {
         st_json(['ok' => false, 'error' => 'job_id required'], 400);
     }
+    $scopeId = (int) ($body['scope_id'] ?? 0);
     try {
-        st_reporting_set_baseline($db, $jobId);
+        if ($scopeId > 0) {
+            st_reporting_set_scope_baseline($db, $scopeId, $jobId);
+        } else {
+            st_reporting_set_baseline($db, $jobId);
+        }
     } catch (Throwable $e) {
         st_json(['ok' => false, 'error' => $e->getMessage()], 400);
     }
     $actor = st_current_user();
     st_audit_log('report.baseline_set', (int) ($actor['id'] ?? 0), (string) ($actor['username'] ?? ''), null, null, [
         'baseline_job_id' => $jobId,
+        'scope_id'        => $scopeId > 0 ? $scopeId : null,
     ]);
-    st_json(['ok' => true, 'baseline_job_id' => $jobId]);
+    st_json([
+        'ok'               => true,
+        'baseline_job_id'  => $jobId,
+        'scope_id'         => $scopeId > 0 ? $scopeId : null,
+    ]);
 }
 
 st_method('GET');
@@ -84,15 +106,17 @@ switch ($action) {
         } catch (Throwable $e) {
             st_json(['ok' => false, 'error' => $e->getMessage()], 400);
         }
+        $scopeAlign = st_reporting_compare_scope_alignment($db, $ja, $jb);
         st_json([
             'ok'           => true,
             'diff_summary' => [
-                'job_a'          => $diff['job_a'],
-                'job_b'          => $diff['job_b'],
-                'semantics'      => $diff['semantics'],
-                'warnings'       => $diff['warnings'],
-                'counts'         => $diff['counts'],
-                'finding_events' => $diff['finding_events'],
+                'job_a'            => $diff['job_a'],
+                'job_b'            => $diff['job_b'],
+                'semantics'        => $diff['semantics'],
+                'warnings'         => $diff['warnings'],
+                'counts'           => $diff['counts'],
+                'finding_events'   => $diff['finding_events'],
+                'scope_alignment'  => $scopeAlign,
             ],
         ]);
 
@@ -102,9 +126,20 @@ switch ($action) {
             st_json(['ok' => false, 'error' => 'job_id required'], 400);
         }
         $vs = st_int('vs_baseline', 1, 0, 1) === 1;
-        $baseline = $vs ? st_reporting_get_baseline_config_job_id($db) : null;
+        $scopeF = st_reporting_scope_filter_param();
+        $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
+        $scopeCfg = ($scopeF !== null && $scopeF > 0)
+            ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
+            : null;
+        $baselineCfg = $scopeCfg ?? $cfgGlobal;
+        $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
         try {
-            $payload = st_reporting_build_report_payload($db, $jid, $baseline);
+            $payload = st_reporting_build_report_payload(
+                $db,
+                $jid,
+                $vs ? $baselineCfg : null,
+                $vs ? $effResolved : null
+            );
         } catch (Throwable $e) {
             st_json(['ok' => false, 'error' => $e->getMessage()], 400);
         }
@@ -112,11 +147,13 @@ switch ($action) {
 
     case 'trends':
         $lim = st_int('limit', 30, 1, 200);
-        st_json(['ok' => true, 'trends' => st_reporting_trends($db, $lim)]);
+        $scopeF = st_reporting_scope_filter_param();
+        st_json(['ok' => true, 'trends' => st_reporting_trends($db, $lim, $scopeF)]);
 
     case 'trends_summary':
         $lim = st_int('limit', 30, 1, 50);
-        st_json(['ok' => true, 'trends_summary' => st_reporting_trends_summary($db, $lim)]);
+        $scopeF = st_reporting_scope_filter_param();
+        st_json(['ok' => true, 'trends_summary' => st_reporting_trends_summary($db, $lim, $scopeF)]);
 
     case 'compliance':
         $jid = st_int('job_id', 0, 1);
@@ -124,17 +161,40 @@ switch ($action) {
             st_json(['ok' => false, 'error' => 'job_id required'], 400);
         }
         $vs = st_int('vs_baseline', 1, 0, 1) === 1;
-        $baseline = $vs ? st_reporting_get_baseline_config_job_id($db) : null;
-        st_json(['ok' => true, 'compliance' => st_reporting_compliance($db, $jid, $baseline)]);
+        $scopeF = st_reporting_scope_filter_param();
+        $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
+        $scopeCfg = ($scopeF !== null && $scopeF > 0)
+            ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
+            : null;
+        $baselineCfg = $scopeCfg ?? $cfgGlobal;
+        $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
+        st_json([
+            'ok'         => true,
+            'compliance' => st_reporting_compliance($db, $jid, $vs ? $baselineCfg : null, $vs ? $effResolved : null),
+        ]);
 
     case 'baseline':
         $cfg = st_reporting_get_baseline_config_job_id($db);
         $eff = st_reporting_resolve_baseline_job_id($db, $cfg);
+        $scopeF = st_reporting_scope_filter_param();
+        $scopeCfg = null;
+        $scopeEff = null;
+        $scopeUnavailable = false;
+        if ($scopeF !== null && $scopeF > 0) {
+            $scopeCfg = st_reporting_get_scope_baseline_config_job_id($db, $scopeF);
+            $scopeEff = st_reporting_resolve_scope_baseline_job_id($db, $scopeF);
+            $scopeUnavailable = ($scopeCfg !== null && $scopeCfg > 0 && $scopeEff === null);
+        }
         st_json([
-            'ok'                      => true,
-            'baseline_config_job_id'  => $cfg,
-            'baseline_job_id'         => $eff,
-            'baseline_unavailable'    => ($cfg !== null && $cfg > 0 && $eff === null),
+            'ok'                        => true,
+            'baseline_config_job_id'    => $cfg,
+            'baseline_job_id'           => $eff,
+            'baseline_unavailable'      => ($cfg !== null && $cfg > 0 && $eff === null),
+            'scoping_enabled'           => st_scan_scopes_table_scan_jobs_has_scope_id($db),
+            'scope_id'                  => ($scopeF !== null && $scopeF > 0) ? $scopeF : null,
+            'scope_baseline_config_job_id' => $scopeCfg,
+            'scope_baseline_job_id'     => $scopeEff,
+            'scope_baseline_unavailable'=> $scopeUnavailable,
         ]);
 
     case 'baseline_debug':

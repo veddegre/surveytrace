@@ -538,11 +538,18 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
     prof = str(schedule.get("profile") or "standard_inventory").strip()
     if prof == "fast_full_tcp":
         prof = "full_tcp"
+    try:
+        sched_scope_i = int(schedule.get("scope_id") or 0)
+    except (TypeError, ValueError):
+        sched_scope_i = 0
+    if sched_scope_i < 0:
+        sched_scope_i = 0
+    scope_bind = sched_scope_i if sched_scope_i > 0 else None
     conn.execute("""
         INSERT INTO scan_jobs
             (target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-             scan_mode, profile, priority, schedule_id, collector_id, created_by, enrichment_source_ids)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler', ?)
+             scan_mode, profile, priority, schedule_id, collector_id, created_by, enrichment_source_ids, scope_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduler', ?, ?)
     """, (
         schedule["target_cidr"],
         label,
@@ -556,6 +563,7 @@ def enqueue_job(conn: sqlite3.Connection, schedule: dict, label_suffix: str = ""
         schedule["id"],
         collector_id,
         enr_ids,
+        scope_bind,
     ))
     job_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 

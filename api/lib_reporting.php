@@ -9,6 +9,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/lib_scan_scopes.php';
+
 /** @var string */
 const ST_REPORTING_BASELINE_CONFIG_KEY = 'phase13_baseline_job_id';
 
@@ -657,15 +659,20 @@ function st_reporting_summary_for_job(PDO $db, int $jobId): array
  *
  * @return array<string,mixed>
  */
-function st_reporting_build_report_payload(PDO $db, int $jobB, ?int $baselineJobId): array
+function st_reporting_build_report_payload(PDO $db, int $jobB, ?int $baselineJobId, ?int $effectiveBaselineResolved = null): array
 {
     $t0 = microtime(true);
     $summary = st_reporting_summary_for_job($db, $jobB);
     $diff = null;
-    $effBaseline = $baselineJobId !== null && $baselineJobId > 0
-        ? st_reporting_resolve_baseline_job_id($db, $baselineJobId)
-        : null;
-    $baselineUnavailable = ($baselineJobId !== null && $baselineJobId > 0 && $effBaseline === null);
+    $effBaseline = null;
+    if ($effectiveBaselineResolved !== null && $effectiveBaselineResolved > 0) {
+        $effBaseline = st_reporting_resolve_baseline_job_id($db, $effectiveBaselineResolved);
+    } elseif ($baselineJobId !== null && $baselineJobId > 0) {
+        $effBaseline = st_reporting_resolve_baseline_job_id($db, $baselineJobId);
+    }
+    $expectedBaseline = ($baselineJobId !== null && $baselineJobId > 0)
+        || ($effectiveBaselineResolved !== null && $effectiveBaselineResolved > 0);
+    $baselineUnavailable = $expectedBaseline && $effBaseline === null;
     if ($baselineUnavailable) {
         st_reporting_log('reporting.baseline_resolve', [
             'job_id'                 => $jobB,
@@ -702,7 +709,7 @@ function st_reporting_build_report_payload(PDO $db, int $jobB, ?int $baselineJob
         'summary'                => $summary,
         'diff_vs_baseline'       => $diff,
         'delta'                  => $newResolved,
-        'compliance'             => st_reporting_compliance($db, $jobB, $baselineJobId),
+        'compliance'             => st_reporting_compliance($db, $jobB, $baselineJobId, $effBaseline),
         'generated_at'           => gmdate('Y-m-d\TH:i:s\Z'),
     ];
     $rpLog = [
@@ -726,18 +733,32 @@ function st_reporting_build_report_payload(PDO $db, int $jobB, ?int $baselineJob
  *
  * @return list<array<string,mixed>>
  */
-function st_reporting_trends(PDO $db, int $limit = 30): array
+/**
+ * @param int|null $scopeFilter null = all jobs (legacy); 0 = unscoped only (scope_id IS NULL); >0 = that scope
+ */
+function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null): array
 {
     $limit = max(1, min(200, $limit));
+    $scopeSql = '';
+    $scopeBinds = [];
+    if (st_scan_scopes_table_scan_jobs_has_scope_id($db) && $scopeFilter !== null) {
+        if ($scopeFilter === 0) {
+            $scopeSql = ' AND (j.scope_id IS NULL OR j.scope_id = 0) ';
+        } elseif ($scopeFilter > 0) {
+            $scopeSql = ' AND j.scope_id = ? ';
+            $scopeBinds[] = $scopeFilter;
+        }
+    }
     $jobs = $db->prepare(
-        "SELECT id, finished_at, label, status
-         FROM scan_jobs
-         WHERE status = 'done' AND (deleted_at IS NULL OR deleted_at = '')
-           AND finished_at IS NOT NULL
-         ORDER BY datetime(finished_at) DESC, id DESC
+        "SELECT j.id, j.finished_at, j.label, j.status
+         FROM scan_jobs j
+         WHERE j.status = 'done' AND (j.deleted_at IS NULL OR j.deleted_at = '')
+           AND j.finished_at IS NOT NULL
+           $scopeSql
+         ORDER BY datetime(j.finished_at) DESC, j.id DESC
          LIMIT $limit"
     );
-    $jobs->execute();
+    $jobs->execute($scopeBinds);
     $jobRows = $jobs->fetchAll(PDO::FETCH_ASSOC);
     if ($jobRows === []) {
         return [];
@@ -791,10 +812,10 @@ function st_reporting_trends(PDO $db, int $limit = 30): array
  *
  * @return list<array{job_id:int,timestamp:string,asset_count:int,open_findings_total:int,open_findings_by_severity:array<string,int>,label:string}>
  */
-function st_reporting_trends_summary(PDO $db, int $limit = 30): array
+function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter = null): array
 {
     $limit = max(1, min(50, $limit));
-    $raw = st_reporting_trends($db, $limit);
+    $raw = st_reporting_trends($db, $limit, $scopeFilter);
     $out = [];
     foreach ($raw as $row) {
         $out[] = [
@@ -817,7 +838,7 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30): array
  *
  * @return array<string,mixed>
  */
-function st_reporting_compliance(PDO $db, int $jobB, ?int $baselineJobId): array
+function st_reporting_compliance(PDO $db, int $jobB, ?int $baselineJobId, ?int $effectiveBaselineResolved = null): array
 {
     $summary = st_reporting_summary_for_job($db, $jobB);
     $bySev = $summary['open_findings_by_severity'] ?? [];
@@ -831,9 +852,12 @@ function st_reporting_compliance(PDO $db, int $jobB, ?int $baselineJobId): array
     ];
 
     $newHigh = 0;
-    $effBaseline = $baselineJobId !== null && $baselineJobId > 0
-        ? st_reporting_resolve_baseline_job_id($db, $baselineJobId)
-        : null;
+    $effBaseline = null;
+    if ($effectiveBaselineResolved !== null && $effectiveBaselineResolved > 0) {
+        $effBaseline = st_reporting_resolve_baseline_job_id($db, $effectiveBaselineResolved);
+    } elseif ($baselineJobId !== null && $baselineJobId > 0) {
+        $effBaseline = st_reporting_resolve_baseline_job_id($db, $baselineJobId);
+    }
     if ($effBaseline !== null && $effBaseline !== $jobB) {
         try {
             $diff = st_reporting_compare_jobs($db, $effBaseline, $jobB);
@@ -1078,4 +1102,187 @@ function st_reporting_materialize_scheduled(PDO $db, int $scheduleId): int
     ]);
 
     return $artifactId;
+}
+
+function st_reporting_get_scope_baseline_config_job_id(PDO $db, int $scopeId): ?int
+{
+    if ($scopeId <= 0) {
+        return null;
+    }
+    try {
+        $st = $db->prepare('SELECT baseline_job_id FROM scan_scope_baselines WHERE scope_id = ?');
+        $st->execute([$scopeId]);
+        $v = $st->fetchColumn();
+    } catch (Throwable $e) {
+        return null;
+    }
+    if ($v === false || $v === null) {
+        return null;
+    }
+    $n = (int) $v;
+
+    return $n > 0 ? $n : null;
+}
+
+function st_reporting_resolve_scope_baseline_job_id(PDO $db, int $scopeId): ?int
+{
+    $cfg = st_reporting_get_scope_baseline_config_job_id($db, $scopeId);
+    if ($cfg === null) {
+        return null;
+    }
+    $eff = st_reporting_resolve_baseline_job_id($db, $cfg);
+    if ($eff === null) {
+        return null;
+    }
+    if (!st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        return $eff;
+    }
+    $st = $db->prepare('SELECT scope_id FROM scan_jobs WHERE id = ?');
+    $st->execute([$eff]);
+    $sj = $st->fetchColumn();
+    $sid = ($sj === null || $sj === '') ? null : (int) $sj;
+    if ($sid !== $scopeId) {
+        return null;
+    }
+
+    return $eff;
+}
+
+/**
+ * Effective baseline for drift/compliance when filtering by scope.
+ * null $scopeFilter = legacy callers (use global baseline only).
+ */
+function st_reporting_effective_baseline_for_scope(PDO $db, ?int $scopeFilter): ?int
+{
+    if ($scopeFilter !== null && $scopeFilter > 0) {
+        $sb = st_reporting_resolve_scope_baseline_job_id($db, $scopeFilter);
+        if ($sb !== null) {
+            return $sb;
+        }
+    }
+    $gCfg = st_reporting_get_baseline_config_job_id($db);
+    $gEff = st_reporting_resolve_baseline_job_id($db, $gCfg);
+    if ($gEff === null) {
+        return null;
+    }
+    if ($scopeFilter === null || !st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        return $gEff;
+    }
+    if ($scopeFilter === 0) {
+        $st = $db->prepare('SELECT scope_id FROM scan_jobs WHERE id = ?');
+        $st->execute([$gEff]);
+        $sj = $st->fetchColumn();
+        if ($sj === null || $sj === '' || (int) $sj === 0) {
+            return $gEff;
+        }
+
+        return null;
+    }
+    $st = $db->prepare('SELECT scope_id FROM scan_jobs WHERE id = ?');
+    $st->execute([$gEff]);
+    $sj = $st->fetchColumn();
+    $sid = ($sj === null || $sj === '' || (int) $sj === 0) ? null : (int) $sj;
+    if ($sid === $scopeFilter) {
+        return $gEff;
+    }
+
+    return null;
+}
+
+function st_reporting_set_scope_baseline(PDO $db, int $scopeId, int $jobId): void
+{
+    if ($scopeId <= 0 || $jobId <= 0) {
+        throw new InvalidArgumentException('invalid scope or job id');
+    }
+    $sc = $db->prepare('SELECT id FROM scan_scopes WHERE id = ?');
+    $sc->execute([$scopeId]);
+    if (! $sc->fetchColumn()) {
+        throw new InvalidArgumentException('scope not found');
+    }
+    if (! st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        throw new InvalidArgumentException('scope columns not available');
+    }
+    $chk = $db->prepare(
+        "SELECT id, status, COALESCE(scope_id, 0) AS scope_id FROM scan_jobs WHERE id = ? AND (deleted_at IS NULL OR deleted_at = '') LIMIT 1"
+    );
+    $chk->execute([$jobId]);
+    $row = $chk->fetch(PDO::FETCH_ASSOC);
+    if (! $row) {
+        throw new InvalidArgumentException('job not found');
+    }
+    if ((string) ($row['status'] ?? '') !== 'done') {
+        throw new InvalidArgumentException('baseline must be a completed (done) scan job');
+    }
+    if ((int) ($row['scope_id'] ?? 0) !== $scopeId) {
+        throw new InvalidArgumentException('job scope_id must match selected scope');
+    }
+    $cntStmt = $db->prepare('SELECT COUNT(*) FROM scan_asset_snapshots WHERE job_id = ?');
+    $cntStmt->execute([$jobId]);
+    if ((int) $cntStmt->fetchColumn() < 1) {
+        throw new InvalidArgumentException('job has no asset snapshots');
+    }
+    $db->prepare(
+        'INSERT OR REPLACE INTO scan_scope_baselines (scope_id, baseline_job_id, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)'
+    )->execute([$scopeId, $jobId]);
+    st_reporting_log('reporting.scope_baseline_set', [
+        'scope_id' => $scopeId,
+        'job_id'   => $jobId,
+    ]);
+}
+
+/**
+ * @return array{job_a_scope_id:?int, job_b_scope_id:?int, same_scope:bool, comparable:bool}
+ */
+function st_reporting_compare_scope_alignment(PDO $db, int $jobA, int $jobB): array
+{
+    $nullOut = [
+        'job_a_scope_id' => null,
+        'job_b_scope_id' => null,
+        'same_scope'     => true,
+        'comparable'     => true,
+    ];
+    if (! st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        return $nullOut;
+    }
+    $st = $db->prepare('SELECT id, scope_id FROM scan_jobs WHERE id IN (?,?)');
+    $st->execute([$jobA, $jobB]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+    $byId = [];
+    foreach ($rows as $r) {
+        $byId[(int) $r['id']] = $r['scope_id'] ?? null;
+    }
+    if (! isset($byId[$jobA], $byId[$jobB])) {
+        return $nullOut;
+    }
+    $sa = $byId[$jobA];
+    $sb = $byId[$jobB];
+    $ia = ($sa === null || $sa === '') ? null : (int) $sa;
+    $ib = ($sb === null || $sb === '') ? null : (int) $sb;
+    $norm = static function (?int $x): int {
+        if ($x === null || $x <= 0) {
+            return 0;
+        }
+
+        return $x;
+    };
+    $same = $norm($ia) === $norm($ib);
+
+    return [
+        'job_a_scope_id' => $ia,
+        'job_b_scope_id' => $ib,
+        'same_scope'     => $same,
+        'comparable'     => $same,
+    ];
+}
+
+function st_reporting_clear_scope_baselines_for_job(PDO $db, int $jobId): void
+{
+    if ($jobId <= 0) {
+        return;
+    }
+    try {
+        $db->prepare('DELETE FROM scan_scope_baselines WHERE baseline_job_id = ?')->execute([$jobId]);
+    } catch (Throwable $e) {
+        // table missing on legacy DB
+    }
 }

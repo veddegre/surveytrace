@@ -395,6 +395,7 @@ function st_db(): PDO {
     st_migrate_phase12_asset_lifecycle_v1($pdo);
     st_migrate_asset_metadata_locks_v1($pdo);
     st_migrate_phase13_reporting_v1($pdo);
+    st_migrate_phase14_scan_scopes_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -713,6 +714,62 @@ function st_migrate_phase13_reporting_v1(PDO $pdo): void {
     $pdo->exec("INSERT OR IGNORE INTO config (key, value) VALUES ('phase13_baseline_job_id', '')");
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase13_reporting_v1', '1')"
+    );
+}
+
+/**
+ * Phase 14 — scan scopes: multi-network reporting boundaries + scoped baselines.
+ */
+function st_migrate_phase14_scan_scopes_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase14_scan_scopes_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS scan_scopes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            description   TEXT,
+            scope_type    TEXT DEFAULT \'network\',
+            cidrs         TEXT DEFAULT \'[]\',
+            tags          TEXT DEFAULT \'[]\',
+            owner         TEXT,
+            environment   TEXT DEFAULT \'unknown\',
+            created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_scan_scopes_name ON scan_scopes(name)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS scan_scope_baselines (
+            scope_id         INTEGER PRIMARY KEY REFERENCES scan_scopes(id) ON DELETE CASCADE,
+            baseline_job_id  INTEGER NOT NULL,
+            updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+        )'
+    );
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (is_array($tables) && in_array('scan_jobs', $tables, true)) {
+        try {
+            $pdo->exec('ALTER TABLE scan_jobs ADD COLUMN scope_id INTEGER');
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+        try {
+            $pdo->exec(
+                'CREATE INDEX IF NOT EXISTS idx_scan_jobs_scope_status_finished ON scan_jobs(scope_id, status, finished_at DESC)'
+            );
+        } catch (Throwable $e) {
+        }
+    }
+    if (is_array($tables) && in_array('scan_schedules', $tables, true)) {
+        try {
+            $pdo->exec('ALTER TABLE scan_schedules ADD COLUMN scope_id INTEGER');
+        } catch (Throwable $e) {
+        }
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_scan_scopes_v1', '1')"
     );
 }
 
