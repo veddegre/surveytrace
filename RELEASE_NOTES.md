@@ -3,6 +3,14 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.12.0 (2026-05-01)
+
+- **Phase 12 — Asset lifecycle** — Coverage-based **stale** / **retired** status (not “age since last_seen”): after each completed scan job, assets whose **IP is inside the job’s `target_cidr`** but missing from that job’s **`scan_asset_snapshots`** increment **`missed_scan_count`**; first miss → **`stale`**, second+ → **`retired`** (with **`retired_at`**). Observing a host again (**scanner** `upsert_asset` or **collector** ingest) resets to **active** and clears misses. **`change_alerts`**: **`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**. Migration: **`migration_phase12_asset_lifecycle_v1`** (`api/db.php`). Daemons: **`daemon/asset_lifecycle.py`**, **`scanner_daemon.py`**, **`collector_ingest_worker.py`**, **`change_detection.py`**.
+- **Business / identity context on `assets`** — **`owner`**, **`business_unit`**, **`criticality`**, **`environment`** (API PUT + UI edit modal); **`identity_confidence`**, **`identity_confidence_reason`** (schema for future enrichment). **`GET /api/assets.php`** filter **`lifecycle_status`**; **Assets** table lifecycle badge + filter.
+- **Export** — **`api/export.php`** CSV/JSON include Phase 12 columns (after **Last Seen**, before **Notes**); optional **`lifecycle_status`** query filter; finding sub-rows stay column-aligned.
+- **Setup / deploy** — **`setup.sh`**: WAL/SHM sidecar ownership if present; comments on fresh schema vs PHP migrations. **`deploy.sh`** / **`collector/deploy.sh`**: ship **`asset_lifecycle.py`**; normalize **`surveytrace.db-wal`** / **`-shm`** permissions; optional **`php -r 'require api/db.php; st_db();'`** from install root as **www-data** to apply migrations before daemon restart; post-deploy check for **`asset_lifecycle.py`**.
+- **SQLite concurrency (recap)** — Shared **`daemon/sqlite_pragmas.py`** + **`api/db.php`** busy timeout / WAL (see README). Deploy reminds that the **data directory** must allow WAL file creation for **surveytrace** + **www-data**.
+
 ## 0.11.0 (2026-05-01)
 
 - **Phase 10 — Explainable CVE triage** — Migration `migration_phase10_finding_triage_v1`: new **`findings`** fields (**`confidence`**, **`risk_score`**, **`detection_method`**, **`provenance_source`**, **`evidence_json`**, related lifecycle timestamps as applicable). **`daemon/finding_triage.py`** and scanner/collector paths populate triage; **`GET /api/findings.php`** supports confidence/sort filters; **Vulnerabilities** tab and host detail show triage; **`findings_export.php`** adds columns.

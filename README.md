@@ -11,6 +11,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Requirements](#requirements)
 - [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
 - [SQLite locking and concurrency](#sqlite-locking-and-concurrency)
+- [Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)
 - [Quick Start](#quick-start)
 - [Manual Installation](#manual-installation)
 - [Updating / Deploying Changes](#updating--deploying-changes)
@@ -147,6 +148,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **Change detection (Phase 9)** — in-app **Change alerts** for new hosts, material port deltas, and CVE lifecycle (new / active / mitigated / accepted / reopened); **`GET/POST /api/change_alerts.php`** and lifecycle-aware **`findings.php`** actions.
 - **Explainable CVE triage (Phase 10)** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** (scanner + collector); surfaced on **Vulnerabilities** and host detail; export columns on **`findings_export.php`**.
 - **CVE intelligence (Phase 11)** — **`cve_intel`** table (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystem hints); **`daemon/sync_cve_intel.py`** and Settings **Sync CVE intel** / full **Sync all feeds**; joined on **`findings.php`** as structured **`intel`** (useful across Linux, Windows, **macOS**, **Hyper-V**, containers, and mobile platforms where OSV/NVD overlap).
+- **Asset lifecycle (Phase 12)** — **`assets.lifecycle_status`** (**`active`**, **`stale`**, **`retired`**) driven by **expected scan coverage** (IP in job **`target_cidr`** vs presence in **`scan_asset_snapshots`** for that job), not idle time since **`last_seen`**. **`change_alerts`** for stale/retired/reactivated; optional **owner / business_unit / criticality / environment** tagging; **`identity_confidence`** fields reserved for provenance scoring. See **[Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)**.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner and HTTP-title analysis; **Proxmox VE** node-name extraction; **VMware ESXi / vSphere / vCenter** and **Microsoft Hyper-V** signals; mDNS hints for **Apple** mobile/desktop classes where visible
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -249,6 +251,29 @@ ollama rm <old-model-tag>
 ollama prune -f
 ```
 
+## Asset lifecycle (Phase 12)
+
+SurveyTrace tracks each asset’s **lifecycle** separately from “last time we saw any packet.” Lifecycle answers: *given a completed scan that was supposed to cover this IP’s subnet, did we get a row for this host in that run’s evidence?*
+
+### Status values (`assets.lifecycle_status`)
+
+| Status | Meaning |
+|--------|---------|
+| **`active`** | Default. The asset was observed on a recent ingest path (**scanner** upsert or **collector** artifact apply), or has not yet accumulated a coverage miss. |
+| **`stale`** | The asset’s IP lies inside a finished job’s **`target_cidr`**, but that job’s **`scan_asset_snapshots`** did **not** include this host — **one** such miss (**`missed_scan_count` = 1**). |
+| **`retired`** | **Two or more** consecutive coverage misses for in-scope jobs (**`missed_scan_count` ≥ 2**). **`retired_at`** is set the first time the row enters retired. |
+
+Supporting columns include **`lifecycle_reason`** (e.g. `observed_in_scan`, `missing_from_expected_scan`, `rediscovered`), **`last_expected_scan_id` / `last_expected_scan_at`**, **`last_missed_scan_id` / `last_missed_scan_at`**, and **`missed_scan_count`**. This is **not** a substitute for monitoring packet loss; it reflects **inventory coverage vs declared scan scope**.
+
+### Business and identity context (optional metadata)
+
+Editable via **`PUT /api/assets.php`** (and the **Edit asset** modal): **`owner`**, **`business_unit`**, **`criticality`** (`low` / `medium` / `high` / `critical`), **`environment`** (free text, default `unknown`). **`identity_confidence`** and **`identity_confidence_reason`** are stored for future enrichment signals (scanner/collector may populate later).
+
+### UI and export
+
+- **Assets** list: filter by **`lifecycle_status`**, lifecycle badge column.
+- **`GET /api/export.php`**: CSV and JSON include the Phase 12 columns (see **`api/export.php`** header order).
+
 ## SQLite locking and concurrency
 
 SurveyTrace uses **SQLite** for `data/surveytrace.db` (inventory, findings, auth, config) with a **separate** `data/nvd.db` for the NVD corpus so CVE sync heavy writes do not contend with the main app database.
@@ -257,7 +282,7 @@ SurveyTrace uses **SQLite** for `data/surveytrace.db` (inventory, findings, auth
 
 **What the product already does**
 
-- **WAL** (`PRAGMA journal_mode=WAL`) and **`synchronous=NORMAL`** on PHP and Python connections.
+- **WAL** (`PRAGMA journal_mode=WAL`) and **`synchronous=NORMAL`** on PHP and Python connections. WAL creates **`surveytrace.db-wal`** and **`surveytrace.db-shm`** next to the main file — the **`data/`** directory must stay **writable** by both **`surveytrace`** and **`www-data`** (group), with **setgid** on the directory so new sidecars inherit the right group (`setup.sh` / `deploy.sh` enforce this).
 - **Long busy waits** (default **60s**) so API workers wait for the scanner/ingest instead of failing immediately — see **`api/db.php`** (`st_sqlite_runtime_pragmas`) and **`daemon/sqlite_pragmas.py`** (shared across scanner, scheduler, collector ingest, sync scripts).
 - **Shorter write transactions** in the scanner and ingest worker: batched commits (e.g. every 100 rows) for snapshots, findings, and change-detection so the writer lock is not held for an entire scan.
 - **Bootstrap serialization**: `.surveytrace_bootstrap.lock` during first-time migrations so many PHP workers do not replay `ALTER TABLE` in parallel after a deploy.
@@ -340,7 +365,7 @@ bash deploy.sh
 On a **master**, `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
 - **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, etc.
-- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
+- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`asset_lifecycle.py`** (Phase 12), **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
@@ -421,6 +446,14 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### Unreleased
 
 - (no entries yet)
+
+### 0.12.0
+
+- **Phase 12 — Asset lifecycle** — Coverage-based **`active` / `stale` / `retired`** on **`assets`** (migration **`migration_phase12_asset_lifecycle_v1`**); **`daemon/asset_lifecycle.py`** + scanner/collector evaluation; **`change_alerts`** types **`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**.
+- **Operator fields** — **`owner`**, **`business_unit`**, **`criticality`**, **`environment`** on **`assets`** (API + UI); **`identity_confidence`**, **`identity_confidence_reason`** on schema.
+- **Export + API** — **`export.php`** extended CSV/JSON columns; **`assets.php`** **`lifecycle_status`** filter.
+- **Setup / deploy** — **`setup.sh`** WAL/SHM ownership guard; **`deploy.sh`** ships **`asset_lifecycle.py`**, normalizes WAL sidecars, optional PHP **`st_db()`** bootstrap as **www-data** before daemon restart; **`collector/deploy.sh`** includes **`asset_lifecycle.py`**.
+- **Version** — **`VERSION`** **0.12.0**; **`api/st_version.php`** / **`daemon/surveytrace_version.py`** fallbacks aligned.
 
 ### 0.11.0
 
@@ -711,7 +744,7 @@ surveytrace/
 
 ## Roadmap
 
-Roadmap **phase numbers 9–11** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1`, `migration_phase10_finding_triage_v1`, `migration_phase11_cve_intel_v1`). Later phases are planning-only until shipped.
+Roadmap **phase numbers 9–12** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1` … `migration_phase12_asset_lifecycle_v1`). Later phases are planning-only until shipped.
 
 ### Completed (summary)
 - **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
@@ -725,9 +758,9 @@ Roadmap **phase numbers 9–11** match the SQLite migration markers in **`api/db
 - **Phase 9 — Change detection** — `change_alerts` feed (new asset, port change, new CVE, finding mitigated/reopened); **`findings`** lifecycle columns (`new` → `active`, scanner-driven `mitigated` when absent from correlated results, `accepted` via API, `reopened` after regression); **`GET/POST /api/change_alerts.php`** and **Change alerts** UI; scanner + collector ingest share **`daemon/change_detection.py`**.
 - **Phase 10 — Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** JSON; scanner + **`daemon/finding_triage.py`** + collector parity; **Vulnerabilities** / host UI, **`findings.php`** filters/sorts, **`findings_export.php`**.
 - **Phase 11 — CVE intelligence** — **`cve_intel`** sidecar (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystems); **`daemon/sync_cve_intel.py`** + feed sync wiring; **`intel`** on finding payloads and exports (complements NVD for mixed fleets: Linux, Windows, **macOS**, **Hyper-V**, containers, and **iOS / iPadOS / Android**-relevant shared components where data exists).
+- **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)**.
 
 ### Upcoming
-- **Phase 12**: Asset lifecycle — stale/active/retired status, auto-retire, identity confidence scoring, and improved ownership/business-context tagging.
 - **Phase 13**: Baselines and reporting — snapshot comparisons, scheduled reports, and baseline policy/compliance checks by asset class with trend views.
 - **Phase 14**: Integrations program —
   - **14.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks

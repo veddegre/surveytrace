@@ -186,6 +186,15 @@ body.light-mode .cat.prn{background:#e8f4f4;color:#2c7272}
 body.light-mode .cat.hv{background:#eaf0fa;color:#3e669a}
 body.light-mode .cat.unk{background:#edf1f6;color:#607286}
 
+/* Asset lifecycle (Phase 12) */
+.life-badge{font-family:var(--mf);font-size:10px;font-weight:600;text-transform:uppercase;padding:2px 6px;border-radius:3px;letter-spacing:.04em;white-space:nowrap}
+.life-active{background:#0d2818;color:#86efac}
+.life-stale{background:#3a2f0a;color:#fde047}
+.life-retired{background:#3a1218;color:#fca5a5}
+body.light-mode .life-active{background:#dcfce7;color:#14532d}
+body.light-mode .life-stale{background:#fef9c3;color:#713f12}
+body.light-mode .life-retired{background:#fee2e2;color:#7f1d1d}
+
 /* Port tags */
 .pts{display:flex;flex-wrap:wrap;gap:3px}
 .pt{font-family:var(--mf);font-size:11px;padding:2px 7px;border:1px solid var(--bd2);border-radius:999px;color:var(--tx2)}

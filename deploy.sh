@@ -171,6 +171,7 @@ DAEMON_CORE=(
   surveytrace_version.py
   scanner_daemon.py
   change_detection.py
+  asset_lifecycle.py
   finding_triage.py
   scheduler_daemon.py
   ai_cloud_client.py
@@ -209,6 +210,12 @@ echo "  Daemon files deployed"
 
 # ---------------------------------------------------------------------------
 # Permission sanity for UI-triggered feed sync + daemon runtime
+#
+# SQLite WAL mode writes the main DB plus optional sidecars in the SAME directory:
+#   surveytrace.db, surveytrace.db-wal, surveytrace.db-shm
+# The directory must be writable by every process that opens the DB (surveytrace
+# daemons + www-data for PHP). setup.sh uses setgid 2770 on data/ so new WAL/SHM
+# files inherit group www-data; deploy normalizes ownership on existing sidecars.
 # ---------------------------------------------------------------------------
 if id surveytrace >/dev/null 2>&1; then
   sudo usermod -aG surveytrace www-data 2>/dev/null || true
@@ -224,6 +231,25 @@ if id surveytrace >/dev/null 2>&1; then
   sudo chown -R surveytrace:www-data "$DEST/data" 2>/dev/null || true
   sudo find "$DEST/data" -type d -exec chmod 2770 {} \; 2>/dev/null || true
   sudo find "$DEST/data" -type f -exec chmod 660 {} \; 2>/dev/null || true
+  for _dbx in "$DEST/data/surveytrace.db-wal" "$DEST/data/surveytrace.db-shm"; do
+    if st_sudo test -f "$_dbx"; then
+      st_sudo chown surveytrace:www-data "$_dbx" 2>/dev/null || true
+      st_sudo chmod 660 "$_dbx" 2>/dev/null || true
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# SQLite migrations (PHP) — idempotent ALTERs in api/db.php (Phase 9–12, …)
+# Run once as www-data so schema matches before daemons restart (avoids rare races
+# on first writer after deploy). If this fails, migrations still apply on first web hit.
+# ---------------------------------------------------------------------------
+if [[ -f "$DEST/api/db.php" ]] && command -v php >/dev/null 2>&1; then
+  if st_sudo env -C "$DEST" php -r 'require "api/db.php"; st_db();' 2>/dev/null; then
+    echo "  PHP DB bootstrap (migrations) OK"
+  else
+    echo "  [WARN] PHP bootstrap skipped or failed — open the UI once or restart php-fpm so api/db.php migrations run"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -344,6 +370,7 @@ check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
+check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py (Phase 12)"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"

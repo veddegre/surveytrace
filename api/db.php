@@ -14,6 +14,8 @@ define('ST_DATA_DIR', dirname(__DIR__) . '/data');
 
 /**
  * Runtime PRAGMAs for surveytrace.db — keep in sync with daemon/sqlite_pragmas.py.
+ * WAL mode writes companion files beside the DB (surveytrace.db-wal, surveytrace.db-shm); the parent
+ * directory (ST_DATA_DIR) must be writable by the PHP process, not only the main .db file.
  * Env: SURVEYTRACE_SQLITE_BUSY_TIMEOUT_MS (1000–600000, default 60000),
  *      SURVEYTRACE_SQLITE_MMAP_BYTES (set 0 to disable mmap; default 67108864).
  */
@@ -390,6 +392,7 @@ function st_db(): PDO {
     st_migrate_phase9_change_detection_v1($pdo);
     st_migrate_phase10_finding_triage_v1($pdo);
     st_migrate_phase11_cve_intel_v1($pdo);
+    st_migrate_phase12_asset_lifecycle_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -589,6 +592,46 @@ function st_migrate_phase11_cve_intel_v1(PDO $pdo): void {
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cve_intel_epss ON cve_intel(epss DESC)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase11_cve_intel_v1', '1')"
+    );
+}
+
+/**
+ * Phase 12 — asset lifecycle (coverage-based stale/retire) + operator metadata columns.
+ */
+function st_migrate_phase12_asset_lifecycle_v1(PDO $pdo): void {
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase12_asset_lifecycle_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!is_array($tables) || !in_array('assets', $tables, true)) {
+        return;
+    }
+    foreach ([
+        "ALTER TABLE assets ADD COLUMN lifecycle_status TEXT DEFAULT 'active'",
+        'ALTER TABLE assets ADD COLUMN lifecycle_reason TEXT',
+        'ALTER TABLE assets ADD COLUMN last_expected_scan_id INTEGER',
+        'ALTER TABLE assets ADD COLUMN last_expected_scan_at DATETIME',
+        'ALTER TABLE assets ADD COLUMN last_missed_scan_id INTEGER',
+        'ALTER TABLE assets ADD COLUMN last_missed_scan_at DATETIME',
+        'ALTER TABLE assets ADD COLUMN missed_scan_count INTEGER DEFAULT 0',
+        'ALTER TABLE assets ADD COLUMN retired_at DATETIME',
+        'ALTER TABLE assets ADD COLUMN owner TEXT',
+        'ALTER TABLE assets ADD COLUMN business_unit TEXT',
+        "ALTER TABLE assets ADD COLUMN criticality TEXT DEFAULT 'medium'",
+        "ALTER TABLE assets ADD COLUMN environment TEXT DEFAULT 'unknown'",
+        'ALTER TABLE assets ADD COLUMN identity_confidence REAL',
+        'ALTER TABLE assets ADD COLUMN identity_confidence_reason TEXT',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable $e) {
+            // column may already exist
+        }
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_assets_lifecycle_status ON assets(lifecycle_status)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase12_asset_lifecycle_v1', '1')"
     );
 }
 

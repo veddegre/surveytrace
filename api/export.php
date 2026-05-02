@@ -10,12 +10,28 @@
  *   severity — filter by severity (optional)
  *   findings  — 1 = include findings rows in CSV (default: 0)
  *   device_id — if > 0, only assets for this logical device
+ *   lifecycle_status — active|stale|retired (optional; Phase 12)
+ *
+ * CSV/JSON include Phase 12 lifecycle and business-context columns on asset rows.
  */
 
 require_once __DIR__ . '/db.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 st_method('GET');
+
+/**
+ * Normalize a DB cell for CSV (null → empty string; trim strings).
+ */
+function st_export_csv_cell(mixed $v): string {
+    if ($v === null || $v === false) {
+        return '';
+    }
+    if (is_int($v) || is_float($v)) {
+        return (string)$v;
+    }
+    return trim((string)$v);
+}
 
 $db       = st_db();
 $format   = st_str('format', 'csv', ['csv', 'json']);
@@ -58,6 +74,12 @@ if ($device_filter > 0) {
     $params[':devid'] = $device_filter;
 }
 
+$lifecycle_status = st_str('lifecycle_status', '', ['', 'active', 'stale', 'retired']);
+if ($lifecycle_status !== '') {
+    $where[]          = "COALESCE(a.lifecycle_status,'active') = :lfs";
+    $params[':lfs']   = $lifecycle_status;
+}
+
 $where_sql = implode(' AND ', $where);
 
 $stmt = $db->prepare("
@@ -66,7 +88,18 @@ $stmt = $db->prepare("
         a.vendor, a.model, a.os_guess, a.cpe,
         a.open_ports, a.top_cve, a.top_cvss,
         (SELECT COUNT(*) FROM findings f WHERE f.asset_id = a.id AND f.resolved = 0) AS open_findings,
-        a.first_seen, a.last_seen, a.notes
+        a.first_seen, a.last_seen,
+        COALESCE(a.lifecycle_status, 'active') AS lifecycle_status,
+        a.lifecycle_reason,
+        COALESCE(a.missed_scan_count, 0) AS missed_scan_count,
+        a.last_expected_scan_id, a.last_expected_scan_at,
+        a.last_missed_scan_id, a.last_missed_scan_at,
+        a.retired_at,
+        a.owner, a.business_unit,
+        COALESCE(a.criticality, 'medium') AS criticality,
+        COALESCE(a.environment, 'unknown') AS environment,
+        a.identity_confidence, a.identity_confidence_reason,
+        a.notes
     FROM assets a
     WHERE $where_sql
     ORDER BY a.ip
@@ -86,6 +119,21 @@ if ($format === 'json') {
         $row['open_ports'] = json_decode($a['open_ports'] ?? '[]', true) ?: [];
         $row['top_cvss']   = $a['top_cvss'] ? (float)$a['top_cvss'] : null;
         $row['severity']   = $a['top_cvss'] ? st_severity((float)$a['top_cvss']) : 'none';
+        $row['lifecycle_status'] = (string)($a['lifecycle_status'] ?? 'active');
+        $row['lifecycle_reason'] = isset($a['lifecycle_reason']) && $a['lifecycle_reason'] !== ''
+            ? (string)$a['lifecycle_reason'] : null;
+        $row['missed_scan_count'] = (int)($a['missed_scan_count'] ?? 0);
+        foreach (
+            [
+                'last_expected_scan_id', 'last_expected_scan_at', 'last_missed_scan_id',
+                'last_missed_scan_at', 'retired_at', 'owner', 'business_unit',
+                'identity_confidence', 'identity_confidence_reason',
+            ] as $fk
+        ) {
+            $row[$fk] = isset($a[$fk]) && $a[$fk] !== '' && $a[$fk] !== null ? $a[$fk] : null;
+        }
+        $row['criticality'] = (string)($a['criticality'] ?? 'medium');
+        $row['environment'] = (string)($a['environment'] ?? 'unknown');
 
         if ($inc_find) {
             $fstmt = $db->prepare("
@@ -122,12 +170,17 @@ $out = fopen('php://output', 'w');
 // BOM for Excel UTF-8 compatibility
 fwrite($out, "\xEF\xBB\xBF");
 
-// Asset header row
+// Asset header row (Phase 12 fields follow Last Seen, before Notes — same order as SELECT)
 fputcsv($out, [
     'IP Address', 'Device ID', 'Hostname', 'MAC', 'MAC Vendor', 'Category',
     'Vendor', 'Model', 'OS Guess', 'CPE',
     'Open Ports', 'Top CVE', 'Top CVSS', 'Severity',
-    'Open Findings', 'First Seen', 'Last Seen', 'Notes',
+    'Open Findings', 'First Seen', 'Last Seen',
+    'Lifecycle Status', 'Lifecycle Reason', 'Missed Scan Count',
+    'Last Expected Scan Id', 'Last Expected Scan At', 'Last Missed Scan Id', 'Last Missed Scan At', 'Retired At',
+    'Owner', 'Business Unit', 'Criticality', 'Environment',
+    'Identity Confidence', 'Identity Confidence Reason',
+    'Notes',
 ]);
 
 foreach ($assets as $a) {
@@ -152,9 +205,23 @@ foreach ($assets as $a) {
         $cvss ?? '',
         $severity,
         (int)($a['open_findings'] ?? 0),
-        $a['first_seen'] ?? '',
-        $a['last_seen'] ?? '',
-        $a['notes'] ?? '',
+        st_export_csv_cell($a['first_seen'] ?? ''),
+        st_export_csv_cell($a['last_seen'] ?? ''),
+        st_export_csv_cell($a['lifecycle_status'] ?? ''),
+        st_export_csv_cell($a['lifecycle_reason'] ?? ''),
+        st_export_csv_cell($a['missed_scan_count'] ?? ''),
+        st_export_csv_cell($a['last_expected_scan_id'] ?? ''),
+        st_export_csv_cell($a['last_expected_scan_at'] ?? ''),
+        st_export_csv_cell($a['last_missed_scan_id'] ?? ''),
+        st_export_csv_cell($a['last_missed_scan_at'] ?? ''),
+        st_export_csv_cell($a['retired_at'] ?? ''),
+        st_export_csv_cell($a['owner'] ?? ''),
+        st_export_csv_cell($a['business_unit'] ?? ''),
+        st_export_csv_cell($a['criticality'] ?? ''),
+        st_export_csv_cell($a['environment'] ?? ''),
+        st_export_csv_cell($a['identity_confidence'] ?? ''),
+        st_export_csv_cell($a['identity_confidence_reason'] ?? ''),
+        st_export_csv_cell($a['notes'] ?? ''),
     ]);
 
     // Optionally append finding rows beneath each asset
@@ -168,24 +235,14 @@ foreach ($assets as $a) {
         ");
         $fstmt->execute([$a['ip']]);
         foreach ($fstmt->fetchAll() as $f) {
-            fputcsv($out, [
-                '',                  // IP (blank — belongs to asset above)
-                '',                  // Device ID
-                '',                  // Hostname
-                '', '', '',          // MAC, MAC Vendor, Category
-                '',                  // Vendor
-                '',                  // Model
-                '',                  // OS
-                '',                  // CPE
-                '',                  // Open Ports
-                $f['cve_id'],        // Top CVE → CVE ID
-                $f['cvss'] ?? '',    // CVSS
-                $f['severity'] ?? '',
-                '',                  // Open Findings count
-                '',                  // First Seen
-                $f['published'] ?? '',  // Last Seen → Published date
-                $f['description'] ?? '', // Notes → Description
-            ]);
+            // 32 columns — align with asset header (CVE row reuses legacy slots: Top CVE..Severity, Last Seen, Notes).
+            $frow = array_fill(0, 32, '');
+            $frow[11] = (string)($f['cve_id'] ?? '');
+            $frow[12] = (string)($f['cvss'] ?? '');
+            $frow[13] = (string)($f['severity'] ?? '');
+            $frow[16] = (string)($f['published'] ?? '');
+            $frow[31] = (string)($f['description'] ?? '');
+            fputcsv($out, $frow);
         }
     }
 }

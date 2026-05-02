@@ -273,6 +273,8 @@ ok "Python packages installed"
 # =============================================================================
 # STEP 5 — SQLite database bootstrap
 # =============================================================================
+# Fresh installs: sql/schema.sql includes Phase 12 asset lifecycle columns on assets.
+# Existing installs: api/db.php migrations (st_migrate_phase12_asset_lifecycle_v1, …) apply on first PHP connection.
 DB_FILE="$DATA_DIR/surveytrace.db"
 info "Bootstrapping SQLite database at $DB_FILE…"
 
@@ -331,6 +333,16 @@ chown -R "$APP_USER":"$APP_USER" "$INSTALL_DIR/daemon"
 # Existing files should be writable by both daemon user + web group
 find "$DATA_DIR" -type d -exec chmod 2770 {} \; 2>/dev/null || true
 find "$DATA_DIR" -type f -exec chmod 660 {} \; 2>/dev/null || true
+
+# WAL sidecars (created when SQLite uses journal_mode=WAL): must stay owned like surveytrace.db
+# so both surveytrace daemons and www-data (group) can read/write. Directory setgid (2770) applies
+# to new files; fix any pre-existing wal/shm from a manual copy or interrupted run.
+for _walpair in "$DB_FILE-wal" "$DB_FILE-shm"; do
+    if [[ -e "$_walpair" ]]; then
+        chown "$APP_USER":"$WEB_GROUP" "$_walpair" 2>/dev/null || true
+        chmod 660 "$_walpair" 2>/dev/null || true
+    fi
+done
 
 printf '%s\n' master > "$INSTALL_ROLE_FILE"
 chown "$APP_USER":"$WEB_GROUP" "$INSTALL_ROLE_FILE"

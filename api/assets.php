@@ -13,6 +13,7 @@
  *   since_days — only assets seen in last N days
  *   new_only   — "1" = only assets first seen in last 24h
  *   device_id  — if > 0, only assets for this logical device
+ *   lifecycle_status — active|stale|retired (optional)
  *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
@@ -71,6 +72,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
     if (isset($body['vendor'])) {
         $updates[]           = 'vendor = :vendor';
         $params[':vendor']   = substr(trim($body['vendor']), 0, 200);
+    }
+    if (isset($body['owner'])) {
+        $updates[]           = 'owner = :owner';
+        $params[':owner']    = substr(trim((string)$body['owner']), 0, 200);
+    }
+    if (isset($body['business_unit'])) {
+        $updates[]           = 'business_unit = :bu';
+        $params[':bu']       = substr(trim((string)$body['business_unit']), 0, 200);
+    }
+    if (isset($body['criticality'])) {
+        $crit = strtolower(trim((string)$body['criticality']));
+        $crit_ok = ['low', 'medium', 'high', 'critical'];
+        if (in_array($crit, $crit_ok, true)) {
+            $updates[]        = 'criticality = :crit';
+            $params[':crit']  = $crit;
+        }
+    }
+    if (isset($body['environment'])) {
+        $env = trim((string)$body['environment']);
+        $updates[]           = 'environment = :env';
+        $params[':env']      = $env !== '' ? substr($env, 0, 120) : 'unknown';
     }
 
     if (empty($updates)) st_json(['error' => 'No updatable fields provided'], 400);
@@ -362,6 +384,12 @@ if ($device_filter > 0) {
     $params[':devid']  = $device_filter;
 }
 
+$lifecycle_status = st_str('lifecycle_status', '', ['', 'active', 'stale', 'retired']);
+if ($lifecycle_status !== '') {
+    $where[]          = "COALESCE(a.lifecycle_status,'active') = :lfs";
+    $params[':lfs']  = $lifecycle_status;
+}
+
 $where_sql = implode(' AND ', $where);
 
 // For open_findings sort, we need the subquery in ORDER BY
@@ -447,6 +475,27 @@ function decode_asset(array $a): array {
     $a['ai_last_rationale'] = (string)($a['ai_last_rationale'] ?? '');
     $a['ai_last_suggested_category'] = (string)($a['ai_last_suggested_category'] ?? '');
     $a['ai_last_reason'] = (string)($a['ai_last_reason'] ?? '');
+    $a['lifecycle_status'] = (string)($a['lifecycle_status'] ?? 'active');
+    $lr = $a['lifecycle_reason'] ?? null;
+    $a['lifecycle_reason'] = $lr !== null && $lr !== '' ? (string)$lr : null;
+    $a['missed_scan_count'] = (int)($a['missed_scan_count'] ?? 0);
+    $a['retired_at'] = isset($a['retired_at']) && $a['retired_at'] !== '' ? $a['retired_at'] : null;
+    $a['owner'] = isset($a['owner']) && $a['owner'] !== '' ? (string)$a['owner'] : null;
+    $a['business_unit'] = isset($a['business_unit']) && $a['business_unit'] !== '' ? (string)$a['business_unit'] : null;
+    $a['criticality'] = (string)($a['criticality'] ?? 'medium');
+    $a['environment'] = (string)($a['environment'] ?? 'unknown');
+    $ic = $a['identity_confidence'] ?? null;
+    $a['identity_confidence'] = $ic !== null && $ic !== '' ? (float)$ic : null;
+    $icr = $a['identity_confidence_reason'] ?? null;
+    $a['identity_confidence_reason'] = $icr !== null && $icr !== '' ? (string)$icr : null;
+    $a['last_expected_scan_id'] = isset($a['last_expected_scan_id']) && $a['last_expected_scan_id'] !== ''
+        ? (int)$a['last_expected_scan_id'] : null;
+    $a['last_expected_scan_at'] = isset($a['last_expected_scan_at']) && $a['last_expected_scan_at'] !== ''
+        ? $a['last_expected_scan_at'] : null;
+    $a['last_missed_scan_id'] = isset($a['last_missed_scan_id']) && $a['last_missed_scan_id'] !== ''
+        ? (int)$a['last_missed_scan_id'] : null;
+    $a['last_missed_scan_at'] = isset($a['last_missed_scan_at']) && $a['last_missed_scan_at'] !== ''
+        ? $a['last_missed_scan_at'] : null;
     $fgRaw = $a['ai_findings_guidance_cache'] ?? null;
     $a['ai_findings_guidance'] = is_string($fgRaw) && $fgRaw !== ''
         ? (json_decode($fgRaw, true) ?: null)

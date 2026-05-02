@@ -54,13 +54,29 @@ CREATE TABLE IF NOT EXISTS assets (
     last_seen    DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_scan_id INTEGER,
     notes        TEXT,
-    device_id     INTEGER REFERENCES devices(id)
+    device_id     INTEGER REFERENCES devices(id),
+    -- Phase 12 — lifecycle vs expected scan coverage + operator metadata
+    lifecycle_status              TEXT DEFAULT 'active',
+    lifecycle_reason              TEXT,
+    last_expected_scan_id         INTEGER,
+    last_expected_scan_at         DATETIME,
+    last_missed_scan_id           INTEGER,
+    last_missed_scan_at           DATETIME,
+    missed_scan_count             INTEGER DEFAULT 0,
+    retired_at                    DATETIME,
+    owner                         TEXT,
+    business_unit                 TEXT,
+    criticality                   TEXT DEFAULT 'medium',
+    environment                   TEXT DEFAULT 'unknown',
+    identity_confidence           REAL,
+    identity_confidence_reason    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_ip ON assets(ip);
 CREATE INDEX IF NOT EXISTS idx_assets_device_id ON assets(device_id);
 CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(category);
 CREATE INDEX IF NOT EXISTS idx_assets_top_cvss ON assets(top_cvss DESC);
+CREATE INDEX IF NOT EXISTS idx_assets_lifecycle_status ON assets(lifecycle_status);
 
 -- -------------------------------------------------------
 -- Findings: one row per CVE per asset

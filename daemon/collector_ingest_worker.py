@@ -24,6 +24,7 @@ log = logging.getLogger("collector_ingest")
 DAEMON_DIR = Path(__file__).resolve().parent
 if str(DAEMON_DIR) not in sys.path:
     sys.path.insert(0, str(DAEMON_DIR))
+import asset_lifecycle  # type: ignore
 import change_detection  # type: ignore
 import finding_triage  # type: ignore
 import scanner_daemon  # type: ignore
@@ -152,7 +153,10 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int
     ip = str(row.get("ip", "")).strip()
     if ip == "":
         return 0, {"is_new": False, "prev_open_ports": None}
-    existing = conn.execute("SELECT id, open_ports FROM assets WHERE ip=? LIMIT 1", (ip,)).fetchone()
+    existing = conn.execute(
+        "SELECT id, open_ports, COALESCE(lifecycle_status,'active') AS ls FROM assets WHERE ip=? LIMIT 1",
+        (ip,),
+    ).fetchone()
     fields = {
         "hostname": row.get("hostname", ""),
         "mac": row.get("mac", ""),
@@ -173,23 +177,37 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int
     if existing:
         aid = int(existing["id"])
         prev_ports = str(existing["open_ports"] or "")
+        prior_ls = str(existing["ls"] or "active").strip().lower()
         conn.execute(
             """UPDATE assets SET
                hostname=:hostname, mac=:mac, mac_vendor=:mac_vendor, category=:category,
                vendor=:vendor, model=:model, os_guess=:os_guess, cpe=:cpe, connected_via=:connected_via,
                open_ports=:open_ports, banners=:banners, nmap_cpes=:nmap_cpes, discovery_sources=:discovery_sources,
-               top_cve=:top_cve, top_cvss=:top_cvss, last_seen=datetime('now'), last_scan_id=:job_id
+               top_cve=:top_cve, top_cvss=:top_cvss, last_seen=datetime('now'), last_scan_id=:job_id,
+               lifecycle_status='active', lifecycle_reason='observed_in_scan', missed_scan_count=0, retired_at=NULL
                WHERE id=:id""",
             {**fields, "id": aid, "job_id": job_id},
         )
+        if prior_ls in ("stale", "retired"):
+            change_detection.insert_change_alert(
+                conn,
+                "asset_reactivated",
+                job_id,
+                asset_id=aid,
+                detail={"ip": ip, "prior_lifecycle": prior_ls},
+            )
         return aid, {"is_new": False, "prev_open_ports": prev_ports}
     conn.execute(
         """INSERT INTO assets
            (ip, hostname, mac, mac_vendor, category, vendor, model, os_guess, cpe, connected_via,
-            open_ports, banners, nmap_cpes, discovery_sources, top_cve, top_cvss, first_seen, last_seen, last_scan_id)
+            open_ports, banners, nmap_cpes, discovery_sources, top_cve, top_cvss,
+            first_seen, last_seen, last_scan_id,
+            lifecycle_status, lifecycle_reason, missed_scan_count, retired_at)
            VALUES
            (:ip, :hostname, :mac, :mac_vendor, :category, :vendor, :model, :os_guess, :cpe, :connected_via,
-            :open_ports, :banners, :nmap_cpes, :discovery_sources, :top_cve, :top_cvss, datetime('now'), datetime('now'), :job_id)""",
+            :open_ports, :banners, :nmap_cpes, :discovery_sources, :top_cve, :top_cvss,
+            datetime('now'), datetime('now'), :job_id,
+            'active', 'observed_in_scan', 0, NULL)""",
         {**fields, "ip": ip, "job_id": job_id},
     )
     aid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -519,6 +537,15 @@ def process_one(qrow: dict) -> None:
                 "UPDATE scan_jobs SET status=?, finished_at=COALESCE(finished_at, datetime('now')) WHERE id=? AND status='running'",
                 (job_status, job_id),
             )
+            if job_status == "done":
+                jcid = conn.execute("SELECT target_cidr FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+                tc = str(jcid["target_cidr"] if jcid and jcid["target_cidr"] is not None else "") or ""
+                obs_rows = conn.execute(
+                    "SELECT DISTINCT asset_id FROM scan_asset_snapshots WHERE job_id=? AND asset_id IS NOT NULL",
+                    (job_id,),
+                ).fetchall()
+                observed_ids = {int(r["asset_id"]) for r in obs_rows if r["asset_id"] is not None}
+                asset_lifecycle.evaluate_job_coverage_gaps(conn, job_id, tc, observed_ids)
             conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (job_id,))
 
 

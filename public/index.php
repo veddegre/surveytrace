@@ -236,6 +236,12 @@ if (is_readable($dbProbe)) {
       <option value="critical">Critical</option><option value="high">High</option>
       <option value="medium">Medium</option><option value="low">Low</option><option value="none">None</option>
     </select>
+    <select class="finp narrow" id="af-life" onchange="loadAssets(1)" title="Filter by asset lifecycle (scan coverage)">
+      <option value="">All lifecycle</option>
+      <option value="active">Active</option>
+      <option value="stale">Stale</option>
+      <option value="retired">Retired</option>
+    </select>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
       <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
       <option value="hostname">Hostname</option>
@@ -260,6 +266,7 @@ if (is_readable($dbProbe)) {
         <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
         <th onclick="sortAssets('category')">Type</th>
+        <th title="Coverage-based lifecycle">Life</th>
         <th>Vendor / model</th>
         <th>Open ports</th>
         <th onclick="sortAssets('open_findings')">CVEs</th>
@@ -267,7 +274,7 @@ if (is_readable($dbProbe)) {
         <th onclick="sortAssets('last_seen')">Last seen</th>
         <th>Edit</th>
       </tr></thead>
-      <tbody id="asset-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+      <tbody id="asset-tbody"><tr><td colspan="11" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
@@ -1703,7 +1710,7 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
 
 <!-- Reclassify modal -->
 <div id="modal-bg" class="modal-bg z100">
-  <div class="modal-card modal-w380">
+  <div class="modal-card modal-w440">
     <div class="modal-title">Edit asset — <span id="modal-ip" class="text-strong"></span></div>
     <input type="hidden" id="modal-asset-id">
     <label class="form-label">Hostname</label>
@@ -1722,6 +1729,19 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
     </select>
     <label class="form-label">Vendor override</label>
     <input class="finp w100 mb10" id="modal-vendor" type="text" placeholder="Leave blank to keep existing">
+    <label class="form-label">Owner</label>
+    <input class="finp w100 mb10" id="modal-owner" type="text" maxlength="200" placeholder="Team or person">
+    <label class="form-label">Business unit</label>
+    <input class="finp w100 mb10" id="modal-business-unit" type="text" maxlength="200" placeholder="Org / cost center">
+    <label class="form-label">Criticality</label>
+    <select class="finp w100 mb10" id="modal-criticality">
+      <option value="low">Low</option>
+      <option value="medium">Medium</option>
+      <option value="high">High</option>
+      <option value="critical">Critical</option>
+    </select>
+    <label class="form-label">Environment</label>
+    <input class="finp w100 mb10" id="modal-environment" type="text" maxlength="120" placeholder="e.g. prod, staging, lab">
     <label class="form-label">Notes</label>
     <textarea class="finp w100 mb14" id="modal-notes" style="min-height:56px" placeholder="Optional notes about this asset"></textarea>
     <div class="row-end">
@@ -3046,6 +3066,9 @@ function _alertTypeLabel(t) {
         new_cve: 'New CVE',
         finding_reopened: 'CVE reopened',
         finding_mitigated: 'CVE mitigated',
+        asset_stale: 'Asset stale',
+        asset_retired: 'Asset retired',
+        asset_reactivated: 'Asset reactivated',
     };
     return m[t] || t || '—';
 }
@@ -3202,11 +3225,13 @@ function clearAllAssetFilters() {
     const q = document.getElementById('af-q');
     const cat = document.getElementById('af-cat');
     const sev = document.getElementById('af-sev');
+    const life = document.getElementById('af-life');
     const srt = document.getElementById('af-sort');
     const aiq = document.getElementById('af-ai-review');
     if (q) q.value = '';
     if (cat) cat.value = '';
     if (sev) sev.value = '';
+    if (life) life.value = '';
     if (srt) srt.value = 'ip';
     if (aiq) aiq.checked = false;
     assetSort = 'ip';
@@ -3288,6 +3313,15 @@ function detectServiceHitsFromAsset(asset) {
     return collectDetectedServiceChips(ports, banners, httpProbe);
 }
 
+function lifecycleBadgeHtml(asset) {
+    const st = String((asset && asset.lifecycle_status) || 'active').toLowerCase();
+    const lbl = st === 'retired' ? 'Retired' : st === 'stale' ? 'Stale' : 'Active';
+    const cls = st === 'retired' ? 'life-retired' : st === 'stale' ? 'life-stale' : 'life-active';
+    const reason = asset && asset.lifecycle_reason ? String(asset.lifecycle_reason) : '';
+    const tip = reason ? esc(reason) : esc('Coverage-based lifecycle — see docs');
+    return `<span class="life-badge ${cls}" title="${tip}">${esc(lbl)}</span>`;
+}
+
 async function loadAssets(page) {
     refreshBadges();
     assetPage = page;
@@ -3299,7 +3333,7 @@ async function loadAssets(page) {
 
     // Show loading state immediately
     document.getElementById('asset-tbody').innerHTML =
-        '<tr><td colspan="10" class="loading">Loading assets…</td></tr>';
+        '<tr><td colspan="11" class="loading">Loading assets…</td></tr>';
 
     const b = document.getElementById('af-device-banner');
     const idEl = document.getElementById('af-device-banner-id');
@@ -3313,7 +3347,9 @@ async function loadAssets(page) {
 
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
     const aiQ = aiReview ? '&ai_review=1' : '';
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}`;
+    const life = document.getElementById('af-life')?.value || '';
+    const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}`;
     const d   = await api(url);
     if (!d) return;
 
@@ -3334,6 +3370,7 @@ async function loadAssets(page) {
           <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
+          <td style="white-space:nowrap">${lifecycleBadgeHtml(a)}</td>
           <td class="text-primary" style="font-size:12px">${vendorCell}</td>
           <td><div class="pts">${ports}${more}</div></td>
           <td class="mono">${a.open_findings||0}</td>
@@ -3341,10 +3378,10 @@ async function loadAssets(page) {
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td>
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
-            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998;</button>
+            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}')">&#9998;</button>
           </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="10" class="loading">No assets found</td></tr>';
+    }).join('') || '<tr><td colspan="11" class="loading">No assets found</td></tr>';
 
     document.getElementById('apgn-info').textContent =
         assetDeviceFilter > 0
@@ -7706,12 +7743,23 @@ function exportFindings(format) {
 // ==========================================================================
 // Reclassify modal
 // ==========================================================================
-function openReclassify(id, ip, hostname, category, vendor, notes) {
+function openReclassify(id, ip, hostname, category, vendor, notes, owner, businessUnit, criticality, environment) {
     document.getElementById('modal-asset-id').value  = id;
     document.getElementById('modal-ip').textContent  = ip;
     document.getElementById('modal-hostname').value  = hostname;
     document.getElementById('modal-vendor').value    = vendor;
     document.getElementById('modal-notes').value     = notes;
+    const mo = document.getElementById('modal-owner');
+    const mb = document.getElementById('modal-business-unit');
+    const mc = document.getElementById('modal-criticality');
+    const me = document.getElementById('modal-environment');
+    if (mo) mo.value = owner || '';
+    if (mb) mb.value = businessUnit || '';
+    if (mc) {
+        const c0 = (criticality || 'medium').toLowerCase();
+        mc.value = ['low', 'medium', 'high', 'critical'].includes(c0) ? c0 : 'medium';
+    }
+    if (me) me.value = environment || '';
     const sel = document.getElementById('modal-cat');
     for (let i = 0; i < sel.options.length; i++) {
         sel.options[i].selected = (sel.options[i].value === category);
@@ -7731,11 +7779,19 @@ async function saveReclassify() {
     const category = document.getElementById('modal-cat').value;
     const vendor   = document.getElementById('modal-vendor').value.trim();
     const notes    = document.getElementById('modal-notes').value.trim();
+    const owner    = document.getElementById('modal-owner') ? document.getElementById('modal-owner').value.trim() : '';
+    const bu       = document.getElementById('modal-business-unit') ? document.getElementById('modal-business-unit').value.trim() : '';
+    const crit     = document.getElementById('modal-criticality') ? document.getElementById('modal-criticality').value : 'medium';
+    const env      = document.getElementById('modal-environment') ? document.getElementById('modal-environment').value.trim() : '';
 
     const body = {category};
     if (hostname) body.hostname = hostname;
     if (vendor)   body.vendor   = vendor;
     if (notes !== undefined) body.notes = notes;
+    body.owner = owner;
+    body.business_unit = bu;
+    body.criticality = crit;
+    body.environment = env || 'unknown';
 
     const headers = {'Content-Type': 'application/json'};
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
@@ -8443,11 +8499,16 @@ async function openHostPanel(id, ip) {
       <div class="hp-meta">
         <div class="hp-meta-title">
           <span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span>
+          ${lifecycleBadgeHtml(a)}
           ${aiInfluenced ? '<span class="hp-chip" title="Category was adjusted by local AI enrichment">AI-assisted</span>' : ''}
           <span class="hp-meta-host">${esc(a.hostname||'—')}</span>
         </div>
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
+          <tr><td class="hp-meta-key">Lifecycle</td><td class="hp-meta-val">${lifecycleBadgeHtml(a)} <span class="text-dim mono-sm">${esc(a.lifecycle_reason || '—')}</span></td></tr>
+          <tr><td class="hp-meta-key">Missed scans</td><td class="hp-meta-val-dim">${esc(String(a.missed_scan_count ?? 0))}</td></tr>
+          <tr><td class="hp-meta-key">Owner / BU</td><td class="hp-meta-val-dim">${esc([a.owner, a.business_unit].filter(Boolean).join(' · ') || '—')}</td></tr>
+          <tr><td class="hp-meta-key">Criticality / env</td><td class="hp-meta-val-dim">${esc(String(a.criticality || 'medium'))} · ${esc(String(a.environment || 'unknown'))}</td></tr>
           <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Logical device overview">${esc(String(a.device_id))}</span>` : '—'}</td></tr>
           <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
             ${esc(a.mac||'—')}
@@ -8490,7 +8551,7 @@ async function openHostPanel(id, ip) {
 
       <div class="hp-actions hp-actions-host-primary mb14">
         <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
-        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}')">&#9998; Edit</button>
+        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}')">&#9998; Edit</button>
         ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
 
@@ -8715,9 +8776,11 @@ function exportAssets(format) {
     const q    = document.getElementById('af-q').value;
     const cat  = document.getElementById('af-cat').value;
     const sev  = document.getElementById('af-sev').value;
+    const life = document.getElementById('af-life')?.value || '';
+    const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
     const incf = document.getElementById('af-findings')?.checked ? '1' : '0';
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
-    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}`;
+    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}`;
     // Trigger download
     const a = document.createElement('a');
     a.href = url;

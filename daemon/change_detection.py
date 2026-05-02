@@ -1,7 +1,8 @@
 """
 Phase 9 — change detection: in-app alerts and CVE finding lifecycle.
 
-Alert types: new_asset, port_change, new_cve, finding_reopened, finding_mitigated.
+Alert types: new_asset, port_change, new_cve, finding_reopened, finding_mitigated,
+asset_stale, asset_retired, asset_reactivated (Phase 12 lifecycle).
 
 Finding lifecycle: new → active (still present on a later scan); mitigated when absent
 from correlated results; accepted (manual risk acceptance); reopened when a mitigated
@@ -34,6 +35,10 @@ ALERT_TYPES = frozenset(
         "new_cve",
         "finding_reopened",
         "finding_mitigated",
+        # Phase 12 — asset lifecycle vs scan coverage
+        "asset_stale",
+        "asset_retired",
+        "asset_reactivated",
     }
 )
 

@@ -25,7 +25,7 @@ if (!defined('ST_VERSION')) {
         }
     }
     if ($v === '' || !preg_match('/^\d+\.\d+\.\d+/', $v)) {
-        $v = '0.11.0';
+        $v = '0.12.0';
     }
     define('ST_VERSION', $v);
 }

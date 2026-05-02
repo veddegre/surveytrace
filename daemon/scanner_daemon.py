@@ -58,6 +58,7 @@ from fingerprint import (
     _printer_banner_conflicts_with_homelab_ports,
 )
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
+import asset_lifecycle
 import change_detection
 from sqlite_pragmas import apply_surveytrace_pragmas
 from surveytrace_version import surveytrace_version
@@ -2708,18 +2709,25 @@ def upsert_asset(job_id: int, ip: str, mac: str,
     existing_banners: dict[str, str] = {}
     existing_ncpes: list[str] = []
     existing_ipv6: list[str] = []
+    lifecycle_pre: str | None = None
     if reuse_conn is not None:
         cur = reuse_conn.execute(
-            "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
+            "SELECT open_ports, banners, nmap_cpes, ipv6_addrs, "
+            "COALESCE(lifecycle_status,'active') AS lifecycle_pre FROM assets WHERE ip=?",
             (ip,),
         ).fetchone()
     else:
         with db_conn() as conn:
             cur = conn.execute(
-                "SELECT open_ports, banners, nmap_cpes, ipv6_addrs FROM assets WHERE ip=?",
+                "SELECT open_ports, banners, nmap_cpes, ipv6_addrs, "
+                "COALESCE(lifecycle_status,'active') AS lifecycle_pre FROM assets WHERE ip=?",
                 (ip,),
             ).fetchone()
     if cur:
+        try:
+            lifecycle_pre = str(cur["lifecycle_pre"] or "active").strip().lower()
+        except (KeyError, IndexError, TypeError):
+            lifecycle_pre = None
         try:
             ep = json.loads(cur["open_ports"] or "[]")
             if isinstance(ep, list):
@@ -2973,10 +2981,13 @@ def upsert_asset(job_id: int, ip: str, mac: str,
             INSERT INTO assets (ip, hostname, mac, mac_vendor, category, vendor, cpe, os_guess,
                                 ai_last_confidence, ai_last_rationale, ai_last_applied, ai_last_suggested_category,
                                 ai_last_reason, ai_last_attempted, ai_last_decision_ts,
-                                connected_via, open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs, device_id, last_seen, last_scan_id)
+                                connected_via, open_ports, banners, nmap_cpes, discovery_sources, ipv6_addrs,
+                                device_id, last_seen, last_scan_id,
+                                lifecycle_status, lifecycle_reason, missed_scan_count, retired_at)
             VALUES (:ip,:host,:mac,:mv,:cat,:vnd,:cpe,:os,
                     :ai_confidence,:ai_rationale,:ai_applied,:ai_suggested_cat,:ai_reason,:ai_attempted,CURRENT_TIMESTAMP,
-                    :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid)
+                    :cv,:ports,:banners,:ncpes,:ds,:v6,:did,CURRENT_TIMESTAMP,:jid,
+                    'active','observed_in_scan',0,NULL)
             ON CONFLICT(ip) DO UPDATE SET
                 hostname   = CASE WHEN excluded.hostname != '' THEN excluded.hostname ELSE hostname END,
                 mac        = COALESCE(excluded.mac, mac),
@@ -3027,7 +3038,11 @@ def upsert_asset(job_id: int, ip: str, mac: str,
                                ELSE ipv6_addrs
                              END,
                 last_seen  = CURRENT_TIMESTAMP,
-                last_scan_id = excluded.last_scan_id
+                last_scan_id = excluded.last_scan_id,
+                lifecycle_status = 'active',
+                lifecycle_reason = 'observed_in_scan',
+                missed_scan_count = 0,
+                retired_at = NULL
         """, {
             "ip": ip, "host": hostname, "mac": mac, "mv": mac_vendor,
             "cat": fp["category"], "vnd": vendor,
@@ -3066,6 +3081,26 @@ def upsert_asset(job_id: int, ip: str, mac: str,
     else:
         with db_conn() as wconn:
             result = _write_asset_row(wconn)
+    _lp = (lifecycle_pre or "").strip().lower()
+    if _lp in ("stale", "retired") and int(result.get("id") or 0) > 0:
+        if reuse_conn is not None:
+            change_detection.insert_change_alert(
+                reuse_conn,
+                "asset_reactivated",
+                job_id,
+                asset_id=int(result["id"]),
+                detail={"ip": ip, "prior_lifecycle": _lp},
+            )
+        else:
+            with db_conn() as _ac:
+                change_detection.insert_change_alert(
+                    _ac,
+                    "asset_reactivated",
+                    job_id,
+                    asset_id=int(result["id"]),
+                    detail={"ip": ip, "prior_lifecycle": _lp},
+                )
+                _ac.commit()
     result["nmap_cpes"] = json.loads(result.get("nmap_cpes") or "[]")
     result["_routed_net_override_applied"] = isinstance(routed_override, dict)
     result["_ai_enrichment_attempted"] = ai_enrichment_attempted
@@ -3706,6 +3741,10 @@ def run_scan(job: dict) -> None:
             for j in range(0, len(snap_data), _BULK_WRITE_COMMIT_INTERVAL):
                 conn.executemany(ins_snap, snap_data[j : j + _BULK_WRITE_COMMIT_INTERVAL])
                 conn.commit()
+        observed_ids = {int(r["id"]) for r in snap_rows if r["id"] is not None}
+        asset_lifecycle.evaluate_job_coverage_gaps(
+            conn, job_id, str(job.get("target_cidr") or ""), observed_ids
+        )
         conn.execute("DELETE FROM scan_finding_snapshots WHERE job_id = ?", (job_id,))
         finding_rows = conn.execute(
             """
