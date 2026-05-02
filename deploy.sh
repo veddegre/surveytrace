@@ -1,14 +1,116 @@
 #!/bin/bash
 # SurveyTrace deploy script
-# Copies source files from the repo to /opt/surveytrace and restarts daemons.
-# Run from ~/surveytrace-repo after pulling changes:
-#   bash deploy.sh
+# Copies source from the repo to /opt/surveytrace and restarts the right services.
+# After setup.sh, the same script is used everywhere: it detects master vs collector
+# and either syncs the full app or runs collector/deploy.sh.
+# Run from the repo:  bash deploy.sh
+# Non-interactive / automation: SURVEYTRACE_DEPLOY=master|collector forces the mode
+# when the host could be ambiguous (rare). SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1
+# ignores .install_role vs chosen mode mismatches (emergency only).
 set -e
 
 DEST="/opt/surveytrace"
 SRC="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_ROLE_FILE="$DEST/data/.install_role"
 
-echo "Deploying SurveyTrace from $SRC to $DEST..."
+st_sudo() { sudo "$@" 2>/dev/null; }
+
+read_install_role() {
+  local r=""
+  if st_sudo test -f "$INSTALL_ROLE_FILE"; then
+    r=$(sudo cat "$INSTALL_ROLE_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+  fi
+  printf '%s' "$r"
+}
+
+# True only when master setup.sh has finished (paths under DEST + systemd).
+master_setup_complete() {
+  st_sudo test -d "$DEST/venv" \
+    && st_sudo test -f "$DEST/api/db.php" \
+    && st_sudo test -f "$DEST/data/surveytrace.db" \
+    && st_sudo test -f /etc/systemd/system/surveytrace-daemon.service
+}
+
+# True only when collector setup has finished (no master API tree).
+collector_setup_complete() {
+  st_sudo test -d "$DEST/venv" \
+    && st_sudo test -f "$DEST/daemon/collector_agent.py" \
+    && st_sudo test -f /etc/surveytrace/collector.json \
+    && st_sudo test -f /etc/systemd/system/surveytrace-collector.service \
+    && ! st_sudo test -f "$DEST/api/db.php"
+}
+
+die_deploy() { echo "$*" >&2; exit 1; }
+
+role=$(read_install_role)
+dep="$(printf '%s' "${SURVEYTRACE_DEPLOY:-}" | tr '[:upper:]' '[:lower:]')"
+forced=""
+case "$dep" in
+  master|full|server) forced="master" ;;
+  collector|agent) forced="collector" ;;
+  "") ;;
+  *) die_deploy "SURVEYTRACE_DEPLOY must be master or collector (got: ${SURVEYTRACE_DEPLOY})" ;;
+esac
+
+MODE=""
+
+if [[ -n "$forced" ]]; then
+  MODE="$forced"
+  if [[ "$MODE" == "master" ]] && ! master_setup_complete; then
+    die_deploy "SURVEYTRACE_DEPLOY=master but this host does not look like a finished master install (need $DEST/venv, $DEST/api/db.php, $DEST/data/surveytrace.db, /etc/systemd/system/surveytrace-daemon.service). Run: sudo bash \"$SRC/setup.sh\" (option 1) or SURVEYTRACE_SETUP=master"
+  fi
+  if [[ "$MODE" == "collector" ]] && ! collector_setup_complete; then
+    die_deploy "SURVEYTRACE_DEPLOY=collector but this host does not look like a finished collector install (need $DEST/venv, $DEST/daemon/collector_agent.py, /etc/surveytrace/collector.json, surveytrace-collector.service, and no $DEST/api/db.php). Run: sudo bash \"$SRC/setup.sh\" (option 2) or sudo bash \"$SRC/collector/setup.sh\""
+  fi
+elif [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" == 1 ]]; then
+  if master_setup_complete; then
+    MODE=master
+  elif collector_setup_complete; then
+    MODE=collector
+  fi
+else
+  if [[ "$role" == "collector" ]]; then
+    if collector_setup_complete; then
+      MODE=collector
+    else
+      die_deploy "This host is marked collector-only ($INSTALL_ROLE_FILE) but collector setup looks incomplete. Re-run: sudo bash \"$SRC/collector/setup.sh\""
+    fi
+  elif [[ "$role" == "master" ]]; then
+    if master_setup_complete; then
+      MODE=master
+    else
+      die_deploy "This host is marked master ($INSTALL_ROLE_FILE) but master setup looks incomplete. Re-run: sudo bash \"$SRC/setup.sh\" (option 1)"
+    fi
+  elif master_setup_complete; then
+    MODE=master
+  elif collector_setup_complete; then
+    MODE=collector
+  fi
+fi
+
+[[ -n "$MODE" ]] || die_deploy "SurveyTrace does not appear installed on this host (run setup first).
+
+  Full server:  sudo bash \"$SRC/setup.sh\"  (choose 1)  or  SURVEYTRACE_SETUP=master sudo bash \"$SRC/setup.sh\"
+  Collector:    sudo bash \"$SRC/setup.sh\"  (choose 2)  or  sudo bash \"$SRC/collector/setup.sh\"
+
+Expected for master deploy: $DEST/venv, $DEST/api/db.php, $DEST/data/surveytrace.db, surveytrace-daemon.service
+Expected for collector deploy: $DEST/venv, $DEST/daemon/collector_agent.py, /etc/surveytrace/collector.json, surveytrace-collector.service, and no $DEST/api/db.php
+
+If the install is correct but detection is wrong: SURVEYTRACE_DEPLOY=master|collector bash deploy.sh
+Override role mismatches only in emergencies: SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1"
+
+if [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" != 1 ]]; then
+  if [[ -n "$role" ]] && [[ "$role" != "$MODE" ]]; then
+    die_deploy "Chosen deploy mode ($MODE) does not match $INSTALL_ROLE_FILE (role: $role). Fix the marker or use the matching script. Emergency override: SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1 bash deploy.sh"
+  fi
+fi
+
+if [[ "$MODE" == "collector" ]]; then
+  echo "Detected collector install — syncing collector files..."
+  exec bash "$SRC/collector/deploy.sh"
+fi
+
+echo "Deploying SurveyTrace (master) from $SRC to $DEST..."
 
 # ---------------------------------------------------------------------------
 # API

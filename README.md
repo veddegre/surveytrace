@@ -5,6 +5,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 ## Table of Contents
 
 - [Deployment Models](#deployment-models)
+- [Setup and deploy (master vs collector)](#setup-and-deploy-master-vs-collector)
 - [Name and Purpose](#name-and-purpose)
 - [Features](#features)
 - [Requirements](#requirements)
@@ -28,6 +29,91 @@ SurveyTrace supports both single-host and multi-system deployments:
 - **Multi-system (with collectors)**: one master server handles UI/scheduling/ingest while one or more remote collectors run scans in their local networks and submit results back to master.
 
 Use collectors when you need local-segment visibility (ARP/mDNS/passive signals) in remote sites without exposing those networks directly to the master scanner.
+
+## Setup and deploy (master vs collector)
+
+SurveyTrace distinguishes a **full server (master)** install from a **collector-only** node. The repo root scripts guide you so the wrong stack is not applied to the wrong host.
+
+### First-time install (`setup.sh`)
+
+From the cloned repo:
+
+```bash
+cd surveytrace
+sudo bash setup.sh
+```
+
+**Interactive (normal terminal):** you are prompted to choose:
+
+1. **Full SurveyTrace server** — web UI, PHP API, SQLite, scanner + scheduler daemons, feed sync, etc. (same behavior as always).
+2. **Collector only** — minimal Python + `surveytrace-collector` agent for a remote site; continues into `collector/setup.sh`.
+
+**Non-interactive** (no TTY: some GUIs, automation, `ssh` without `-t`): the menu is skipped. Set the install type explicitly:
+
+```bash
+# Full server
+SURVEYTRACE_SETUP=master sudo bash setup.sh
+
+# Collector node
+SURVEYTRACE_SETUP=collector sudo bash setup.sh
+```
+
+Accepted values for `SURVEYTRACE_SETUP` include `master` / `full` / `server` and `collector` / `agent` (case-insensitive).
+
+### Updating from git (`deploy.sh`)
+
+After `git pull`, use the **same** command on the master and on collector nodes (from the repo directory):
+
+```bash
+bash deploy.sh
+```
+
+`deploy.sh` inspects the host (marker file + expected paths under `/opt/surveytrace`) and either:
+
+- syncs the **full application** (API, UI, daemons, schema reference, systemd hooks) and restarts master services, or
+- delegates to **`collector/deploy.sh`** on collector-only hosts (daemon files + schema reference + `surveytrace-collector` restart).
+
+`deploy.sh` refuses to run if first-time **setup** does not appear to have completed (missing venv, API/DB paths on master, or collector agent/config on collectors). The error text points back to `setup.sh` / `collector/setup.sh`.
+
+**Overrides (rare):**
+
+| Variable | Purpose |
+|----------|---------|
+| `SURVEYTRACE_DEPLOY=master` or `collector` | Force deploy mode after verifying that install type’s “setup complete” checks pass. |
+| `SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1` | Emergency only: infer mode from filesystem only and ignore `.install_role` vs chosen mode mismatches. |
+
+### Install marker file (`data/.install_role`)
+
+Current `setup.sh` / `collector/setup.sh` write a one-line marker (not in git):
+
+| Path | Content | Meaning |
+|------|---------|---------|
+| `/opt/surveytrace/data/.install_role` | `master` | Full server install |
+| `/opt/surveytrace/data/.install_role` | `collector` | Collector-only install |
+
+`deploy.sh` uses this together with on-disk checks to choose full vs collector sync.
+
+### Legacy installs (add the marker)
+
+If the host was set up **before** this marker existed, detection still uses paths (e.g. presence of `/opt/surveytrace/api/db.php` and `data/surveytrace.db` on master). To **lock** behavior and match new scripts exactly, create the marker after confirming the machine’s role:
+
+**Master server** (typical ownership matches `setup.sh`: app user + `www-data` on `data/`):
+
+```bash
+printf '%s\n' master | sudo tee /opt/surveytrace/data/.install_role >/dev/null
+sudo chown surveytrace:www-data /opt/surveytrace/data/.install_role
+sudo chmod 660 /opt/surveytrace/data/.install_role
+```
+
+**Collector-only node** (typical ownership: `surveytrace:surveytrace` on the install tree per `collector/setup.sh`):
+
+```bash
+printf '%s\n' collector | sudo tee /opt/surveytrace/data/.install_role >/dev/null
+sudo chown surveytrace:surveytrace /opt/surveytrace/data/.install_role
+sudo chmod 660 /opt/surveytrace/data/.install_role
+```
+
+If your site uses a non-default install user or group, match ownership to other files in `/opt/surveytrace/data/`.
 
 ## Name and Purpose
 
@@ -200,10 +286,12 @@ SurveyTrace uses **SQLite** for `data/surveytrace.db` (inventory, findings, auth
 ```bash
 git clone https://github.com/veddegre/surveytrace.git
 cd surveytrace
-sudo bash setup.sh
+sudo bash setup.sh   # choose (1) full server or (2) collector when prompted
 ```
 
-The web UI will be available at `http://your-server-ip/`
+On a **full server**, the web UI will be available at `http://your-server-ip/` after setup. Collectors have no local UI; configure `/etc/surveytrace/collector.json` and the service per **`collector/README.md`**.
+
+See **[Setup and deploy (master vs collector)](#setup-and-deploy-master-vs-collector)** for non-interactive setup, `deploy.sh` behavior, and legacy marker files.
 
 ## Manual Installation
 
@@ -241,13 +329,15 @@ sudo systemctl enable --now surveytrace-daemon surveytrace-scheduler
 ## Updating / Deploying Changes
 
 ```bash
-# After pulling changes from git
+# After pulling changes from git (same on master and collector nodes)
 cd ~/surveytrace-repo
 git pull
 bash deploy.sh
 ```
 
-`deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
+`deploy.sh` decides whether this host is a **master** or **collector** install (see **[Setup and deploy (master vs collector)](#setup-and-deploy-master-vs-collector)**) and syncs the appropriate files. You can still run `bash collector/deploy.sh` directly on a collector; root `deploy.sh` is the recommended single entry point.
+
+On a **master**, `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
 - **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, etc.
 - **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
@@ -268,8 +358,10 @@ sudo journalctl -u surveytrace-collector-ingest -n 40 --no-pager
 Collectors are packaged under `collector/` and are intended for remote network sites.
 
 - Full collector install/onboarding guide: **`collector/README.md`**
+- Repo root **`setup.sh`** — option **2** runs collector setup (same as below)
 - `collector/setup.sh` — installs a parity collector runtime and systemd service (`surveytrace-collector`) with passive capture capability defaults (`CAP_NET_RAW`, `CAP_NET_ADMIN`)
-- `collector/deploy.sh` — updates runtime files on an existing collector node
+- **`deploy.sh`** (repo root) — on a collector host, automatically runs the collector sync path after `git pull`
+- `collector/deploy.sh` — updates runtime files on an existing collector node (also invoked by root `deploy.sh`)
 - `collector/hardening.sh` — applies baseline host hardening
 
 Collector node requirements (remote site host):

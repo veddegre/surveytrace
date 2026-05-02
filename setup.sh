@@ -3,6 +3,8 @@
 # SurveyTrace — Ubuntu setup script
 # Tested on Ubuntu 24.04 LTS / 26.04 LTS
 # Run as root:  sudo bash setup.sh
+# You will be asked: full server (1) or collector-only (2). Non-interactive:
+#   SURVEYTRACE_SETUP=master|collector
 # =============================================================================
 set -euo pipefail
 
@@ -28,6 +30,61 @@ WEB_SERVER=""   # leave blank to auto-detect (Apache preferred; nginx if already
 
 # ---- Source dir (directory containing this script) -------------------------
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---- Full server vs collector (prompt or SURVEYTRACE_SETUP) -----------------
+# Interactive: choose at the start. Non-TTY (e.g. cloud-init): set
+#   SURVEYTRACE_SETUP=master   — full stack (this script continues)
+#   SURVEYTRACE_SETUP=collector — runs collector/setup.sh and exits
+_setup_env_lower="$(printf '%s' "${SURVEYTRACE_SETUP:-}" | tr '[:upper:]' '[:lower:]')"
+SETUP_MODE=""
+case "$_setup_env_lower" in
+    master|full|server) SETUP_MODE="master" ;;
+    collector|agent) SETUP_MODE="collector" ;;
+    "")
+        if [[ -t 0 ]] && [[ -t 1 ]]; then
+            echo ""
+            echo -e "${BLU}SurveyTrace — choose install type${NC}"
+            echo "  1) Full SurveyTrace server (web UI, API, daemons, database)"
+            echo "  2) Collector only (remote scan node; pairs with your SurveyTrace server)"
+            echo ""
+            read -r -p "Enter 1 or 2 [1]: " _setup_choice || true
+            _setup_choice="$(printf '%s' "${_setup_choice:-1}" | tr -d '[:space:]')"
+            [[ -z "$_setup_choice" ]] && _setup_choice=1
+            case "$_setup_choice" in
+                1) SETUP_MODE="master" ;;
+                2) SETUP_MODE="collector" ;;
+                *) die "Invalid choice: ${_setup_choice} — enter 1 or 2" ;;
+            esac
+        else
+            die "Cannot show install menu (stdin/stdout is not a terminal). Run: SURVEYTRACE_SETUP=master sudo bash setup.sh  or  SURVEYTRACE_SETUP=collector sudo bash setup.sh"
+        fi
+        ;;
+    *)
+        die "SURVEYTRACE_SETUP must be master or collector (got: ${SURVEYTRACE_SETUP})"
+        ;;
+esac
+unset _setup_env_lower
+
+if [[ "$SETUP_MODE" == "collector" ]]; then
+    info "Starting collector setup (collector/setup.sh)…"
+    exec bash "$SRC_DIR/collector/setup.sh"
+fi
+
+# ---- Install role guard (full stack vs collector-only) ---------------------
+# Writes $DATA_DIR/.install_role at end. Refuse full setup on collector nodes.
+INSTALL_ROLE_FILE="$DATA_DIR/.install_role"
+skip_install_role_check() { [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" == 1 ]]; }
+if ! skip_install_role_check; then
+    role=""
+    [[ -f "$INSTALL_ROLE_FILE" ]] && role=$(tr -d '[:space:]' < "$INSTALL_ROLE_FILE" 2>/dev/null || true)
+    if [[ "$role" == "collector" ]]; then
+        die "This host is marked collector-only ($INSTALL_ROLE_FILE). Do not run the full master setup.sh here. Use: sudo bash \"$SRC_DIR/collector/setup.sh\" or bash \"$SRC_DIR/collector/deploy.sh\". Override (emergency only): SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1"
+    fi
+    if [[ "$role" != "master" ]] && [[ -f /etc/surveytrace/collector.json ]] && [[ -f /etc/systemd/system/surveytrace-collector.service ]] \
+        && [[ ! -f "$INSTALL_DIR/api/db.php" ]]; then
+        die "This host looks like a SurveyTrace collector (collector.json + surveytrace-collector unit, no $INSTALL_DIR/api/db.php). Do not run the full master setup.sh. Use collector/setup.sh or collector/deploy.sh. If this is wrong, set SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1 or remove the mistaken collector files."
+    fi
+fi
 
 echo ""
 echo -e "${BLU}╔══════════════════════════════════════════╗${NC}"
@@ -274,6 +331,10 @@ chown -R "$APP_USER":"$APP_USER" "$INSTALL_DIR/daemon"
 # Existing files should be writable by both daemon user + web group
 find "$DATA_DIR" -type d -exec chmod 2770 {} \; 2>/dev/null || true
 find "$DATA_DIR" -type f -exec chmod 660 {} \; 2>/dev/null || true
+
+printf '%s\n' master > "$INSTALL_ROLE_FILE"
+chown "$APP_USER":"$WEB_GROUP" "$INSTALL_ROLE_FILE"
+chmod 660 "$INSTALL_ROLE_FILE"
 
 ok "Permissions set"
 

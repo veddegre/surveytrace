@@ -13,11 +13,24 @@ die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export SRC_DIR
 INSTALL_DIR="/opt/surveytrace"
+DATA_DIR="$INSTALL_DIR/data"
 VENV_DIR="$INSTALL_DIR/venv"
 APP_USER="surveytrace"
 GROUP="surveytrace"
 CFG_DIR="/etc/surveytrace"
 CFG_FILE="$CFG_DIR/collector.json"
+INSTALL_ROLE_FILE="$DATA_DIR/.install_role"
+
+if [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" != 1 ]]; then
+  role=""
+  [[ -f "$INSTALL_ROLE_FILE" ]] && role=$(tr -d '[:space:]' < "$INSTALL_ROLE_FILE" 2>/dev/null || true)
+  if [[ "$role" == "master" ]]; then
+    die "This host is marked as the full SurveyTrace server ($INSTALL_ROLE_FILE). Do not run collector/setup.sh here. Use the repo root: sudo bash \"$SRC_DIR/setup.sh\" or bash \"$SRC_DIR/deploy.sh\"."
+  fi
+  if [[ -f "$INSTALL_DIR/api/db.php" ]] || [[ -f "$DATA_DIR/surveytrace.db" ]]; then
+    die "Full SurveyTrace (api/db or surveytrace.db) is already present under $INSTALL_DIR. Do not run collector/setup.sh on the master. Use: sudo bash \"$SRC_DIR/setup.sh\" or bash \"$SRC_DIR/deploy.sh\"."
+  fi
+fi
 
 info "Installing collector dependencies..."
 apt-get update -qq
@@ -32,6 +45,7 @@ fi
 usermod -aG netdev "$APP_USER" 2>/dev/null || true
 
 mkdir -p "$INSTALL_DIR/daemon" "$INSTALL_DIR/sql" "$INSTALL_DIR/data"
+printf '%s\n' collector > "$INSTALL_ROLE_FILE"
 cp "$SRC_DIR/daemon/scanner_daemon.py" "$INSTALL_DIR/daemon/"
 cp "$SRC_DIR/daemon/change_detection.py" "$INSTALL_DIR/daemon/"
 cp "$SRC_DIR/daemon/fingerprint.py" "$INSTALL_DIR/daemon/"
