@@ -7,6 +7,30 @@
 declare(strict_types=1);
 
 /**
+ * True when sqlite_master lists the table (SurveyTrace uses SQLite only).
+ */
+function st_sqlite_table_exists(PDO $db, string $tableName): bool
+{
+    if ($tableName === '' || strlen($tableName) > 128) {
+        return false;
+    }
+    try {
+        $st = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1");
+        $st->execute([$tableName]);
+
+        return (int) $st->fetchColumn() === 1;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/** Scoped baseline rows (Phase 14); optional on partially migrated DBs. */
+function st_scan_scopes_table_scan_scope_baselines_exists(PDO $db): bool
+{
+    return st_sqlite_table_exists($db, 'scan_scope_baselines');
+}
+
+/**
  * @param array<int, string> $cache
  */
 function st_scan_scopes_table_scan_jobs_has_scope_id(PDO $db, ?array &$cache = null): bool
@@ -21,16 +45,29 @@ function st_scan_scopes_table_scan_jobs_has_scope_id(PDO $db, ?array &$cache = n
     if ($local !== null) {
         return $local;
     }
-    $hasScopes = (int) $db->query(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1"
-    )->fetchColumn() === 1;
-    if (!$hasScopes) {
-        $local = false;
+    try {
+        if (! st_sqlite_table_exists($db, 'scan_scopes')) {
+            $local = false;
+            if ($cache !== null) {
+                $cache['scan_jobs.scope_id'] = false;
+            }
 
-        return false;
+            return false;
+        }
+        if (! st_sqlite_table_exists($db, 'scan_jobs')) {
+            $local = false;
+            if ($cache !== null) {
+                $cache['scan_jobs.scope_id'] = false;
+            }
+
+            return false;
+        }
+        $ti = $db->query('PRAGMA table_info(scan_jobs)');
+        $cols = array_column($ti ? $ti->fetchAll(PDO::FETCH_ASSOC) : [], 'name');
+        $local = in_array('scope_id', $cols, true);
+    } catch (Throwable $e) {
+        $local = false;
     }
-    $cols = array_column($db->query('PRAGMA table_info(scan_jobs)')->fetchAll(PDO::FETCH_ASSOC), 'name');
-    $local = in_array('scope_id', $cols, true);
     if ($cache !== null) {
         $cache['scan_jobs.scope_id'] = $local;
     }
@@ -41,18 +78,19 @@ function st_scan_scopes_table_scan_jobs_has_scope_id(PDO $db, ?array &$cache = n
 /** @return list<array<string,mixed>> */
 function st_scan_scopes_list(PDO $db): array
 {
-    $has = (int) $db->query(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_scopes' LIMIT 1"
-    )->fetchColumn();
-    if ($has !== 1) {
+    if (! st_sqlite_table_exists($db, 'scan_scopes')) {
         return [];
     }
-    $st = $db->query(
-        'SELECT id, name, description, scope_type, cidrs, tags, owner, environment, created_at, updated_at
-         FROM scan_scopes ORDER BY name COLLATE NOCASE ASC, id ASC'
-    );
+    try {
+        $st = $db->query(
+            'SELECT id, name, description, scope_type, cidrs, tags, owner, environment, created_at, updated_at
+             FROM scan_scopes ORDER BY name COLLATE NOCASE ASC, id ASC'
+        );
 
-    return $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
+        return $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 /**

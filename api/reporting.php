@@ -107,7 +107,16 @@ switch ($action) {
         } catch (Throwable $e) {
             st_json(['ok' => false, 'error' => $e->getMessage()], 400);
         }
-        $scopeAlign = st_reporting_compare_scope_alignment($db, $ja, $jb);
+        try {
+            $scopeAlign = st_reporting_compare_scope_alignment($db, $ja, $jb);
+        } catch (Throwable $e) {
+            $scopeAlign = [
+                'job_a_scope_id' => null,
+                'job_b_scope_id' => null,
+                'same_scope'     => true,
+                'comparable'     => true,
+            ];
+        }
         st_json([
             'ok'           => true,
             'diff_summary' => [
@@ -126,15 +135,15 @@ switch ($action) {
         if ($jid <= 0) {
             st_json(['ok' => false, 'error' => 'job_id required'], 400);
         }
-        $vs = st_int('vs_baseline', 1, 0, 1) === 1;
-        $scopeF = st_reporting_scope_filter_param();
-        $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
-        $scopeCfg = ($scopeF !== null && $scopeF > 0)
-            ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
-            : null;
-        $baselineCfg = $scopeCfg ?? $cfgGlobal;
-        $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
         try {
+            $vs = st_int('vs_baseline', 1, 0, 1) === 1;
+            $scopeF = st_reporting_scope_filter_param();
+            $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
+            $scopeCfg = ($scopeF !== null && $scopeF > 0)
+                ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
+                : null;
+            $baselineCfg = $scopeCfg ?? $cfgGlobal;
+            $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
             $payload = st_reporting_build_report_payload(
                 $db,
                 $jid,
@@ -142,64 +151,66 @@ switch ($action) {
                 $vs ? $effResolved : null
             );
         } catch (Throwable $e) {
-            st_json(['ok' => false, 'error' => $e->getMessage()], 400);
+            @error_log('SurveyTrace reporting summary: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            $err = ['ok' => false, 'error' => 'Could not build report summary for this job.'];
+            $err = array_merge($err, st_reporting_debug_error_kv($e));
+            st_json($err);
         }
         st_json(['ok' => true, 'report' => $payload]);
 
     case 'trends':
-        $lim = st_int('limit', 30, 1, 200);
-        $scopeF = st_reporting_scope_filter_param();
-        st_json(['ok' => true, 'trends' => st_reporting_trends($db, $lim, $scopeF)]);
+        try {
+            $lim = st_int('limit', 30, 1, 200);
+            $scopeF = st_reporting_scope_filter_param();
+            st_json(['ok' => true, 'trends' => st_reporting_trends($db, $lim, $scopeF)]);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace reporting trends: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            $err = ['ok' => false, 'error' => 'Could not load trends.', 'trends' => []];
+            $err = array_merge($err, st_reporting_debug_error_kv($e));
+            st_json($err);
+        }
 
     case 'trends_summary':
-        $lim = st_int('limit', 30, 1, 50);
-        $scopeF = st_reporting_scope_filter_param();
-        st_json(['ok' => true, 'trends_summary' => st_reporting_trends_summary($db, $lim, $scopeF)]);
+        try {
+            $lim = st_int('limit', 30, 1, 50);
+            $scopeF = st_reporting_scope_filter_param();
+            st_json(['ok' => true, 'trends_summary' => st_reporting_trends_summary($db, $lim, $scopeF)]);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace reporting trends_summary: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            $err = ['ok' => false, 'error' => 'Could not load scan history.', 'trends_summary' => []];
+            $err = array_merge($err, st_reporting_debug_error_kv($e));
+            st_json($err);
+        }
 
     case 'compliance':
         $jid = st_int('job_id', 0, 1);
         if ($jid <= 0) {
             st_json(['ok' => false, 'error' => 'job_id required'], 400);
         }
-        $vs = st_int('vs_baseline', 1, 0, 1) === 1;
-        $scopeF = st_reporting_scope_filter_param();
-        $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
-        $scopeCfg = ($scopeF !== null && $scopeF > 0)
-            ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
-            : null;
-        $baselineCfg = $scopeCfg ?? $cfgGlobal;
-        $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
+        try {
+            $vs = st_int('vs_baseline', 1, 0, 1) === 1;
+            $scopeF = st_reporting_scope_filter_param();
+            $cfgGlobal = st_reporting_get_baseline_config_job_id($db);
+            $scopeCfg = ($scopeF !== null && $scopeF > 0)
+                ? st_reporting_get_scope_baseline_config_job_id($db, $scopeF)
+                : null;
+            $baselineCfg = $scopeCfg ?? $cfgGlobal;
+            $effResolved = $vs ? st_reporting_effective_baseline_for_scope($db, $scopeF) : null;
+            $comp = st_reporting_compliance($db, $jid, $vs ? $baselineCfg : null, $vs ? $effResolved : null);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace reporting compliance: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            $err = ['ok' => false, 'error' => 'Could not load compliance for this job.'];
+            $err = array_merge($err, st_reporting_debug_error_kv($e));
+            st_json($err);
+        }
         st_json([
             'ok'         => true,
-            'compliance' => st_reporting_compliance($db, $jid, $vs ? $baselineCfg : null, $vs ? $effResolved : null),
+            'compliance' => $comp,
         ]);
 
     case 'baseline':
-        try {
-            $scopeF = st_reporting_scope_filter_param();
-            st_json(st_reporting_baseline_status_response($db, $scopeF));
-        } catch (Throwable $e) {
-            @error_log('SurveyTrace reporting baseline: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
-            st_json([
-                'ok'                                  => true,
-                'baseline_soft_error'                 => 'Baseline metadata could not be loaded completely. Other reporting features may still work.',
-                'baseline_config_job_id'              => null,
-                'baseline_job_id'                     => null,
-                'baseline_unavailable'                => false,
-                'scoping_enabled'                     => false,
-                'scope_filter'                        => null,
-                'scope_id'                            => null,
-                'scope_baseline_config_job_id'        => null,
-                'scope_baseline_job_id'               => null,
-                'scope_baseline_unavailable'          => false,
-                'baseline_overview'                   => true,
-                'global_baseline_job_scope_id'        => null,
-                'unscoped_comparison_baseline_job_id' => null,
-                'legacy_global_points_to_named_scope'  => false,
-                'unscoped_pool_config_job_id'         => null,
-                'unscoped_pool_baseline_job_id'       => null,
-            ]);
-        }
+        $scopeF = st_reporting_scope_filter_param();
+        st_json(st_reporting_baseline_status_response($db, $scopeF));
 
     case 'baseline_debug':
         st_require_role(['admin']);
@@ -227,23 +238,35 @@ switch ($action) {
         st_require_role(['viewer', 'scan_editor', 'admin']);
         $lim = st_int('limit', 20, 1, 100);
         try {
-            $has = (int) $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_artifacts' LIMIT 1")->fetchColumn();
-            if ($has !== 1) {
-                st_json(['ok' => true, 'artifacts' => []]);
+            if (! st_sqlite_table_exists($db, 'report_artifacts')) {
+                st_json([
+                    'ok'                   => true,
+                    'artifacts'            => [],
+                    'artifacts_soft_error' => 'Report artifacts table is not present on this database yet.',
+                ]);
             }
             $limI = max(1, min(100, $lim));
+            [$colSql, $usable] = st_reporting_report_artifacts_select_list_sql($db);
+            if (! $usable) {
+                st_json([
+                    'ok'                   => true,
+                    'artifacts'            => [],
+                    'artifacts_soft_error' => 'Report artifacts table exists but is missing expected columns.',
+                ]);
+            }
             $st = $db->query(
-                "SELECT id, created_at, schedule_id, baseline_job_id, compare_job_id, kind, title
-                 FROM report_artifacts ORDER BY id DESC LIMIT {$limI}"
+                "SELECT {$colSql} FROM report_artifacts ORDER BY id DESC LIMIT {$limI}"
             );
             st_json(['ok' => true, 'artifacts' => $st ? $st->fetchAll(PDO::FETCH_ASSOC) : []]);
         } catch (Throwable $e) {
             @error_log('SurveyTrace reporting artifacts: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
-            st_json([
+            $out = [
                 'ok'                   => true,
                 'artifacts'            => [],
                 'artifacts_soft_error' => 'Saved report list could not be read. Try again or check server error_log.',
-            ]);
+            ];
+            $out = array_merge($out, st_reporting_debug_error_kv($e));
+            st_json($out);
         }
 
     case 'artifact_summary':
@@ -252,42 +275,52 @@ switch ($action) {
         if ($aid <= 0) {
             st_json(['ok' => false, 'error' => 'id required'], 400);
         }
-        $has = (int) $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_artifacts' LIMIT 1")->fetchColumn();
-        if ($has !== 1) {
-            st_json(['ok' => false, 'error' => 'report_artifacts table missing'], 404);
-        }
-        $st = $db->prepare(
-            'SELECT id, created_at, schedule_id, baseline_job_id, compare_job_id, kind, title, payload_json
-             FROM report_artifacts WHERE id = ? LIMIT 1'
-        );
-        $st->execute([$aid]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
-            st_json(['ok' => false, 'error' => 'not found'], 404);
-        }
-        $rawPayload = (string) ($row['payload_json'] ?? '');
-        $flags = 0;
-        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
-            $flags = JSON_INVALID_UTF8_SUBSTITUTE;
-        }
-        $payload = json_decode($rawPayload, true, 512, $flags);
-        $decodeWarning = null;
-        if (!is_array($payload)) {
-            $decodeWarning = $rawPayload === ''
-                ? null
-                : ('invalid payload_json: ' . json_last_error_msg());
-            $payload = [];
-        }
-        unset($row['payload_json']);
-        $row['payload'] = $payload;
-        $row['_decode_warning'] = $decodeWarning;
         try {
-            $artifactSummary = st_reporting_artifact_summary_for_response($row);
+            if (! st_sqlite_table_exists($db, 'report_artifacts')) {
+                st_json(['ok' => false, 'error' => 'report_artifacts table missing']);
+            }
+            $detailCols = st_reporting_report_artifacts_detail_select_sql($db);
+            if ($detailCols === null) {
+                st_json(['ok' => false, 'error' => 'report_artifacts schema is missing required columns']);
+            }
+            $st = $db->prepare("SELECT {$detailCols} FROM report_artifacts WHERE id = ? LIMIT 1");
+            $st->execute([$aid]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+            if (! $row) {
+                st_json(['ok' => false, 'error' => 'not found'], 404);
+            }
+            $rawPayload = (string) ($row['payload_json'] ?? '');
+            $flags = 0;
+            if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+                $flags = JSON_INVALID_UTF8_SUBSTITUTE;
+            }
+            $payload = json_decode($rawPayload, true, 512, $flags);
+            $decodeWarning = null;
+            if (!is_array($payload)) {
+                $decodeWarning = $rawPayload === ''
+                    ? null
+                    : ('invalid payload_json: ' . json_last_error_msg());
+                $payload = [];
+            }
+            unset($row['payload_json']);
+            $row['payload'] = $payload;
+            $row['_decode_warning'] = $decodeWarning;
+            try {
+                $artifactSummary = st_reporting_artifact_summary_for_response($row);
+            } catch (Throwable $e) {
+                @error_log('SurveyTrace reporting artifact_summary build: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+                $err = ['ok' => false, 'error' => 'could not build artifact summary'];
+                $err = array_merge($err, st_reporting_debug_error_kv($e));
+                st_json($err);
+            }
+            unset($row['_decode_warning']);
+            st_json(['ok' => true, 'artifact_summary' => $artifactSummary]);
         } catch (Throwable $e) {
-            st_json(['ok' => false, 'error' => 'could not build artifact summary'], 500);
+            @error_log('SurveyTrace reporting artifact_summary: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+            $err = ['ok' => false, 'error' => 'Could not load artifact.'];
+            $err = array_merge($err, st_reporting_debug_error_kv($e));
+            st_json($err);
         }
-        unset($row['_decode_warning']);
-        st_json(['ok' => true, 'artifact_summary' => $artifactSummary]);
 
     case 'artifact_payload_preview':
         st_require_role(['admin']);
