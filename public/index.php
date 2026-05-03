@@ -1017,65 +1017,29 @@ if (is_readable($dbProbe)) {
 
 <!-- ================================================================ ENRICHMENT -->
 <div class="tab" id="t-enrich">
-  <div class="card mb14" id="st-zabbix-enrich-card">
-    <div class="ct">Zabbix (enrichment)</div>
-    <p class="hint-micro mb10">
-      Uses data from the Zabbix integration: review matches, map host groups/tags to <strong>scan scopes</strong>, and manually link assets. Read-only Zabbix context also appears on host <strong>Details</strong>.
-      Connector URL/token and sync are under <strong>Integrations → Zabbix</strong>.
-    </p>
-    <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
-      <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
-      <div class="row-wrap gap6 mt6">
-        <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
-        <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
-      </div>
+  <div class="sth section-top">Enrichment</div>
+  <p class="hint-micro mb12" style="max-width:min(100%, 52rem)">
+    Phase 3b sources and optional vendor connectors add context to assets and scans. Configure network sources below; optional integrations (for example Zabbix) add dashboards you already trust.
+  </p>
+
+  <div class="row-wrap gap10 mb14" style="align-items:stretch">
+    <div class="card" style="flex:1;min-width:min(100%,220px)">
+      <div class="ct">Network enrichment</div>
+      <p class="hint-micro mb6">SNMP, files, APIs, and similar sources run during scans (narrow per job on <strong>Scan</strong> / <strong>Schedules</strong>).</p>
+      <p class="hint-micro text-dim mb0">Active sources appear in the card below.</p>
     </div>
-    <div class="flbl">Match review</div>
-    <p class="hint-micro mb6">High-confidence links, near-threshold candidates, unmatched Zabbix hosts, and assets without a link. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
-    <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-    <div id="zb-match-review-body" class="help-mono text-micro mb12" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open this tab to load, then click Refresh.</div>
-
-    <div class="flbl">Scope map rules</div>
-    <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-    <div id="zb-cache-status" class="hint-micro mb6 text-dim" style="display:none" aria-live="polite"></div>
-    <div id="zb-rules-wrap" class="mb6"></div>
-    <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
-    <div class="row-wrap gap6 mb8">
-      <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
-      <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+    <div class="card" id="enrich-zbx-overview-card" style="flex:1;min-width:min(100%,220px)">
+      <div class="ct">Zabbix</div>
+      <div id="enrich-zbx-overview-details"><p class="hint-micro text-dim mb0">Loading…</p></div>
+      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()">Open Zabbix enrichment tools</button>
     </div>
-    <div id="zb-preview" class="help-mono mb12" style="max-height:180px;overflow:auto">—</div>
-
-    <div id="zb-operator-blocks">
-      <div id="zb-scope-apply-block" style="display:none">
-        <div class="flbl">Apply scope map (saved + enabled rules)</div>
-        <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
-        <div class="row-wrap gap6 mb6">
-          <button type="button" class="tbtn" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
-        </div>
-        <div id="zb-apply-plan-body" class="mb6">—</div>
-        <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <input type="checkbox" id="zb-apply-confirm">
-          I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
-        </label>
-        <button type="button" class="btnp" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
-      </div>
-
-      <div class="flbl mt12">Manual link / unlink</div>
-      <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
-      <div class="row-wrap gap6 mb6 flex-wrap">
-        <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
-        <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
-        <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
-        <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
-        <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
-      </div>
-      <div class="row-wrap gap6 flex-wrap">
-        <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
-        <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
-      </div>
+    <div class="card" style="flex:1;min-width:min(100%,220px);opacity:0.95">
+      <div class="ct">More integrations</div>
+      <p class="hint-micro mb4"><strong>TeamDynamix</strong> — planned (future phase).</p>
+      <p class="hint-micro mb0"><strong>Defender</strong> — planned (future phase).</p>
     </div>
   </div>
+
   <div class="scgrid">
     <div>
       <div class="card">
@@ -1099,6 +1063,70 @@ if (is_readable($dbProbe)) {
           <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
           <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
           <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none">
+    <div class="row-between mb10" style="gap:12px;align-items:center;flex-wrap:wrap">
+      <div class="ct" style="margin:0">Zabbix enrichment tools</div>
+      <button type="button" class="tbtn btn-xs" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false">Expand</button>
+    </div>
+    <p class="hint-micro mb10" id="zb-enrich-tools-intro">
+      Match review, scope rules, apply plan, and manual link/unlink use data from <strong>Integrations → Zabbix</strong>. Read-only Zabbix context also appears on host <strong>Details</strong>.
+    </p>
+    <div id="zb-enrich-tools-panel" class="hide">
+      <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
+        <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
+        <div class="row-wrap gap6 mt6">
+          <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
+          <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
+        </div>
+      </div>
+      <div class="flbl">Match review</div>
+      <p class="hint-micro mb6">High-confidence links, near-threshold candidates, unmatched Zabbix hosts, and assets without a link. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+      <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+      <div id="zb-match-review-body" class="help-mono text-micro mb12" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open the tools panel, then click Refresh.</div>
+
+      <div class="flbl">Scope map rules</div>
+      <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+      <div id="zb-cache-status" class="hint-micro mb6 text-dim" style="display:none" aria-live="polite"></div>
+      <div id="zb-rules-wrap" class="mb6"></div>
+      <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
+      <div class="row-wrap gap6 mb8">
+        <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+        <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+      </div>
+      <div id="zb-preview" class="help-mono mb12" style="max-height:180px;overflow:auto">—</div>
+
+      <div id="zb-operator-blocks">
+        <div id="zb-scope-apply-block" style="display:none">
+          <div class="flbl">Apply scope map (saved + enabled rules)</div>
+          <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
+          <div class="row-wrap gap6 mb6">
+            <button type="button" class="tbtn" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
+          </div>
+          <div id="zb-apply-plan-body" class="mb6">—</div>
+          <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <input type="checkbox" id="zb-apply-confirm">
+            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+          </label>
+          <button type="button" class="btnp" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
+        </div>
+
+        <div class="flbl mt12">Manual link / unlink</div>
+        <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
+        <div class="row-wrap gap6 mb6 flex-wrap">
+          <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
+          <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
+          <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
+          <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
+          <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
+        </div>
+        <div class="row-wrap gap6 flex-wrap">
+          <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
+          <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
         </div>
       </div>
     </div>
@@ -1360,7 +1388,7 @@ if (is_readable($dbProbe)) {
       <div class="ct">Zabbix (integration)</div>
       <p class="hint-micro mb10">
         <strong>Transport only</strong> — pulls hosts, interfaces, groups, tags, and problems into local tables. Sync runs in the background; the API token is never returned from the server.
-        Match review, scope mapping, manual link/unlink, and apply workflows are under <strong>Enrichment → Zabbix</strong>.
+        Match review, scope mapping, manual link/unlink, and apply workflows are on the <strong>Enrichment</strong> tab (Zabbix tools panel, after sync).
       </p>
       <div class="row-wrap gap6 mb8 flex-wrap">
         <label class="flbl" style="min-width:80px">Name</label>
@@ -1777,25 +1805,27 @@ if (is_readable($dbProbe)) {
     <div class="text-muted mb10" id="login-msg">
       Session authentication required.
     </div>
-    <div id="login-local-fields">
-    <label class="flbl">Username</label>
-      <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
-    <label class="flbl">Password</label>
-      <input class="finp w100 mb10" id="login-pass" type="password" autocomplete="current-password">
-      <div id="login-mfa-step" class="hide">
-        <label class="flbl">Verification code</label>
-        <input class="finp w100 mb12" id="login-verify-code" placeholder="Authenticator OTP or recovery code" autocomplete="one-time-code">
+    <form id="login-form" onsubmit="event.preventDefault();void submitLogin();return false;">
+      <div id="login-local-fields">
+        <label class="flbl" for="login-user">Username</label>
+        <input class="finp w100 mb10" id="login-user" value="admin" autocomplete="username">
+        <label class="flbl" for="login-pass">Password</label>
+        <input class="finp w100 mb10" id="login-pass" type="password" autocomplete="current-password">
+        <div id="login-mfa-step" class="hide">
+          <label class="flbl" for="login-verify-code">Verification code</label>
+          <input class="finp w100 mb12" id="login-verify-code" placeholder="Authenticator OTP or recovery code" autocomplete="one-time-code">
+        </div>
       </div>
-    </div>
+      <div class="row-end">
+        <button class="tbtn" type="button" onclick="closeLoginModal()">Cancel</button>
+        <button class="btnp" type="submit" id="btn-login">Sign in</button>
+      </div>
+    </form>
     <div id="login-oidc-fields" class="hide mb12">
       <div class="help-line mb10" id="login-sso-msg">Single sign-on is enabled for this deployment.</div>
       <button class="btnp w100 mb8" type="button" id="btn-login-sso" onclick="startSsoLogin()">Sign in with SSO</button>
       <button class="tbtn w100 hide" type="button" id="btn-breakglass-show" onclick="toggleBreakglassLogin(true)">Use emergency local sign-in</button>
       <div class="hint-micro mt6">Emergency local sign-in is for IdP outages only; day-to-day users should sign in through SSO.</div>
-    </div>
-    <div class="row-end">
-      <button class="tbtn" type="button" onclick="closeLoginModal()">Cancel</button>
-      <button class="btnp" id="btn-login" onclick="submitLogin()">Sign in</button>
     </div>
   </div>
 </div>
@@ -1841,13 +1871,33 @@ if (is_readable($dbProbe)) {
 </div>
 
 <!-- Confirm modal -->
-<div id="confirm-bg" class="modal-bg z215">
-  <div class="modal-card modal-confirm">
-    <div id="confirm-title" class="modal-title mb8">Confirm action</div>
+<div id="confirm-bg" class="modal-bg z215" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onclick="if(event.target===this)closeConfirmModal(false)">
+  <div class="modal-card modal-confirm" onclick="event.stopPropagation()">
+    <div class="row-between mb10" style="gap:12px;align-items:flex-start">
+      <div id="confirm-title" class="modal-title" style="margin-bottom:0">Confirm action</div>
+      <button type="button" class="modal-close-x" onclick="closeConfirmModal(false)" title="Cancel" aria-label="Cancel">×</button>
+    </div>
     <div id="confirm-msg" class="text-muted mb14" style="line-height:1.45;white-space:pre-wrap"></div>
     <div class="row-end">
-      <button class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
-      <button class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
+      <button type="button" class="tbtn" id="confirm-cancel-btn" onclick="closeConfirmModal(false)">Cancel</button>
+      <button type="button" class="btnp" id="confirm-ok-btn" onclick="closeConfirmModal(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Text prompt (replaces window.prompt for queue priority and similar) -->
+<div id="st-prompt-bg" class="modal-bg z216" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-prompt-title" onclick="if(event.target===this)closeStPromptModal(false)">
+  <div class="modal-card modal-w360" onclick="event.stopPropagation()">
+    <div class="row-between mb10" style="gap:12px;align-items:flex-start">
+      <div id="st-prompt-title" class="modal-title" style="margin-bottom:0">Enter value</div>
+      <button type="button" class="modal-close-x" onclick="closeStPromptModal(false)" title="Cancel" aria-label="Cancel">×</button>
+    </div>
+    <div id="st-prompt-msg" class="text-muted mb10" style="line-height:1.45;white-space:pre-wrap"></div>
+    <label class="flbl" for="st-prompt-input" id="st-prompt-input-label">Value</label>
+    <input class="finp w100 mb14" id="st-prompt-input" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();closeStPromptModal(true);}">
+    <div class="row-end">
+      <button type="button" class="tbtn" id="st-prompt-cancel-btn" onclick="closeStPromptModal(false)">Cancel</button>
+      <button type="button" class="btnp" id="st-prompt-ok-btn" onclick="closeStPromptModal(true)">OK</button>
     </div>
   </div>
 </div>
@@ -2136,7 +2186,7 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
   </div>
 </div>
 
-<!-- Create scan scope (Reports & Analysis + Enrichment → Zabbix) -->
+<!-- Create scan scope (Reports & Analysis + Enrichment → Zabbix tools) -->
 <div id="st-create-scope-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-create-scope-title" onclick="if(event.target===this)closeStCreateScopeModal()">
   <div class="modal-card modal-w520" onclick="event.stopPropagation()">
     <div class="row-between mb14" style="gap:12px;align-items:center">
@@ -2292,7 +2342,9 @@ var breakglassEnabled = true;
 var breakglassUsername = 'admin';
 var scanDetailReturnDeviceId = 0;
 var confirmResolve = null;
+var promptResolve = null;
 var collectorRangesResolve = null;
+var loginSubmitInFlight = false;
 var themeMediaQuery = null;
 var themeMediaListener = null;
 var execPreviousTab = null;
@@ -2971,8 +3023,11 @@ function openLoginModal(msg) {
     if (vEl) vEl.value = '';
     updateLoginModeUI();
     bg.style.display = 'flex';
-    const p = document.getElementById('login-pass');
-    if (p) p.focus();
+    const local = document.getElementById('login-local-fields');
+    const localVis = local && !local.classList.contains('hide');
+    if (localVis) {
+        document.getElementById('login-user')?.focus();
+    }
 }
 
 function updateLoginModeUI() {
@@ -3034,56 +3089,66 @@ function closeLoginModal() {
 }
 
 async function submitLogin() {
-    const s = await api('/api/auth.php?status=1', { quiet: true });
-    if (s && s.csrf_token) csrfToken = s.csrf_token;
-    const u = (document.getElementById('login-user')?.value || '').trim();
-    const p = document.getElementById('login-pass')?.value || '';
-    const verifyCode = (document.getElementById('login-verify-code')?.value || '').trim();
-    if (!u || !p) {
-        toast('Enter username and password', 'err');
-        return;
-    }
-    const btn = document.getElementById('btn-login');
-    if (btn) btn.disabled = true;
-    const r = await apiPost('/api/auth.php?login=1', {
-        username: u,
-        password: p,
-        otp: verifyCode,
-        recovery_code: verifyCode
-    });
-    if (btn) btn.disabled = false;
-    if (r && r.ok) {
-        loginRequired = false;
-        lastSessionExpiredToastAt = 0;
-        loginNeedsMfaCode = false;
-        closeLoginModal();
-        const pass = document.getElementById('login-pass');
-        if (pass) pass.value = '';
-        const vEl = document.getElementById('login-verify-code');
-        if (vEl) vEl.value = '';
-        toast('Signed in', 'ok');
-        await initAuthMode();
-        loadDashboard();
-        if (currentTab === 'assets') loadAssets(assetPage || 1);
-        if (currentTab === 'vulns') loadFindings(vulnPage || 1);
-        if (currentTab === 'logs') loadLog();
-        if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
-        if (currentTab === 'report') loadReportingTab();
-        if (currentTab === 'sched') loadSchedules();
-        if (currentTab === 'collectors') loadCollectorsOverview();
-        if (currentTab === 'health') loadHealth();
-        loadEnrichment();
-        loadScanStatus();
-        startDashTimerIfNeeded();
-    } else {
-        if (r && r.mfa_required) {
-            loginNeedsMfaCode = true;
-            updateLoginModeUI();
-            toast('Enter your authenticator code or recovery code', 'ok');
-            document.getElementById('login-verify-code')?.focus();
+    if (loginSubmitInFlight) return;
+    loginSubmitInFlight = true;
+    try {
+        const s = await api('/api/auth.php?status=1', { quiet: true });
+        if (s && s.csrf_token) csrfToken = s.csrf_token;
+        const u = (document.getElementById('login-user')?.value || '').trim();
+        const p = document.getElementById('login-pass')?.value || '';
+        const verifyCode = (document.getElementById('login-verify-code')?.value || '').trim();
+        if (!u || !p) {
+            toast('Enter username and password', 'err');
             return;
         }
-        toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
+        const btn = document.getElementById('btn-login');
+        if (btn) btn.disabled = true;
+        let r;
+        try {
+            r = await apiPost('/api/auth.php?login=1', {
+                username: u,
+                password: p,
+                otp: verifyCode,
+                recovery_code: verifyCode
+            });
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+        if (r && r.ok) {
+            loginRequired = false;
+            lastSessionExpiredToastAt = 0;
+            loginNeedsMfaCode = false;
+            closeLoginModal();
+            const pass = document.getElementById('login-pass');
+            if (pass) pass.value = '';
+            const vEl = document.getElementById('login-verify-code');
+            if (vEl) vEl.value = '';
+            toast('Signed in', 'ok');
+            await initAuthMode();
+            loadDashboard();
+            if (currentTab === 'assets') loadAssets(assetPage || 1);
+            if (currentTab === 'vulns') loadFindings(vulnPage || 1);
+            if (currentTab === 'logs') loadLog();
+            if (currentTab === 'scan' || currentTab === 'scanhist') loadScanStatus();
+            if (currentTab === 'report') loadReportingTab();
+            if (currentTab === 'sched') loadSchedules();
+            if (currentTab === 'collectors') loadCollectorsOverview();
+            if (currentTab === 'health') loadHealth();
+            loadEnrichment();
+            loadScanStatus();
+            startDashTimerIfNeeded();
+        } else {
+            if (r && r.mfa_required) {
+                loginNeedsMfaCode = true;
+                updateLoginModeUI();
+                toast('Enter your authenticator code or recovery code', 'ok');
+                document.getElementById('login-verify-code')?.focus();
+                return;
+            }
+            toast((r && r.error) ? r.error : 'Sign-in failed', 'err');
+        }
+    } finally {
+        loginSubmitInFlight = false;
     }
 }
 
@@ -3671,7 +3736,10 @@ async function dismissChangeAlert(id) {
 
 async function dismissAllChangeAlerts() {
     if (!stRoleCanManageScans()) return;
-    if (!confirm('Dismiss all open change alerts?')) return;
+    if (!(await showConfirmModal(
+        'Dismiss all open change alerts? This hides every open row from the list; it does not change scan data.',
+        { title: 'Dismiss all change alerts', okText: 'Dismiss all', cancelText: 'Cancel' }
+    ))) return;
     const out = await apiPost('/api/change_alerts.php', { action: 'dismiss_all' });
     if (out && out.ok) {
         toast('Alerts dismissed', 'ok');
@@ -5167,7 +5235,19 @@ async function cancelJob(id) {
 }
 
 async function setQueuedJobPriority(jobId, currentPriority) {
-    const raw = window.prompt('Set queue priority (1 highest, 100 lowest):', String(currentPriority || 10));
+    const raw = await showPromptModal(
+        '1 = highest priority in the queue, 100 = lowest.',
+        {
+            title: 'Set queue priority',
+            label: 'Priority (1–100)',
+            defaultValue: String(currentPriority || 10),
+            okText: 'Set priority',
+            inputType: 'number',
+            inputMin: 1,
+            inputMax: 100,
+            placeholder: String(currentPriority || 10),
+        }
+    );
     if (raw == null) return;
     const nextPriority = parseInt(String(raw).trim(), 10);
     if (!Number.isFinite(nextPriority) || nextPriority < 1 || nextPriority > 100) {
@@ -5711,6 +5791,63 @@ function closeConfirmModal(accepted) {
     }
 }
 
+/**
+ * App-styled prompt (replaces window.prompt for normal UI).
+ * @param {string} message
+ * @param {{title?: string, label?: string, defaultValue?: string, okText?: string, cancelText?: string, placeholder?: string, inputMode?: string}} [opts]
+ * @returns {Promise<string|null>}
+ */
+function showPromptModal(message, opts) {
+    const o = opts || {};
+    const bg = document.getElementById('st-prompt-bg');
+    const titleEl = document.getElementById('st-prompt-title');
+    const msgEl = document.getElementById('st-prompt-msg');
+    const labEl = document.getElementById('st-prompt-input-label');
+    const inp = document.getElementById('st-prompt-input');
+    const okBtn = document.getElementById('st-prompt-ok-btn');
+    const cancelBtn = document.getElementById('st-prompt-cancel-btn');
+    if (!bg || !titleEl || !msgEl || !labEl || !inp || !okBtn || !cancelBtn) return Promise.resolve(null);
+    if (promptResolve) {
+        try { promptResolve(null); } catch (e) {}
+        promptResolve = null;
+    }
+    titleEl.textContent = o.title || 'Enter value';
+    msgEl.textContent = String(message || '');
+    labEl.textContent = o.label || 'Value';
+    inp.value = o.defaultValue != null ? String(o.defaultValue) : '';
+    inp.placeholder = o.placeholder || '';
+    inp.type = o.inputType || 'text';
+    if (inp.type === 'number') {
+        if (o.inputMin != null) inp.min = String(o.inputMin);
+        else inp.removeAttribute('min');
+        if (o.inputMax != null) inp.max = String(o.inputMax);
+        else inp.removeAttribute('max');
+    } else {
+        inp.removeAttribute('min');
+        inp.removeAttribute('max');
+    }
+    okBtn.textContent = o.okText || 'OK';
+    cancelBtn.textContent = o.cancelText || 'Cancel';
+    bg.style.display = 'flex';
+    requestAnimationFrame(() => {
+        inp.focus();
+        try { inp.select(); } catch (e) {}
+    });
+    return new Promise((resolve) => {
+        promptResolve = resolve;
+    });
+}
+
+function closeStPromptModal(accepted) {
+    const bg = document.getElementById('st-prompt-bg');
+    const inp = document.getElementById('st-prompt-input');
+    if (bg) bg.style.display = 'none';
+    if (!promptResolve) return;
+    const r = promptResolve;
+    promptResolve = null;
+    r(accepted ? String(inp && inp.value != null ? inp.value : '') : null);
+}
+
 /** @returns {Promise<string|null>} resolved value, or null if cancelled */
 function openCollectorRangesModal(initialValue) {
     const bg = document.getElementById('collector-ranges-bg');
@@ -5780,9 +5917,6 @@ async function copyCollectorInstallTokenReveal() {
     else toast('Copy failed — select the text and copy manually', 'err');
 }
 
-document.getElementById('confirm-bg')?.addEventListener('click', function(e) {
-    if (e.target === this) closeConfirmModal(false);
-});
 document.getElementById('collector-ranges-bg')?.addEventListener('click', function(e) {
     if (e.target === this) closeCollectorRangesModal(false);
 });
@@ -6947,7 +7081,153 @@ function stZabbixApplyCacheStatusHint(z) {
     }
 }
 
-/** Scan scopes for Zabbix rule dropdowns (Enrichment → Zabbix); mirrored on GET /api/zabbix.php as `scopes`. */
+const ST_LS_ZB_ENRICH_TOOLS_OPEN = 'st_zabbix_enrich_tools_open';
+
+function stZabbixEnrichToolsLsIsOpen() {
+    try {
+        return localStorage.getItem(ST_LS_ZB_ENRICH_TOOLS_OPEN) === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+function stZabbixEnrichToolsLsSet(open) {
+    try {
+        localStorage.setItem(ST_LS_ZB_ENRICH_TOOLS_OPEN, open ? '1' : '0');
+    } catch (e) {}
+}
+
+function stZabbixEnrichIsConfigured(z) {
+    if (!z || !z.ok) return false;
+    const c = z.connector || {};
+    return String(c.api_url || '').trim() !== '' && !!c.api_token_set;
+}
+
+function stZabbixEnrichHasSyncedData(z) {
+    if (!z || !z.ok) return false;
+    const h = z.stats && z.stats.hosts != null ? parseInt(String(z.stats.hosts), 10) : 0;
+    return Number.isFinite(h) && h > 0;
+}
+
+function stZabbixEnrichToolsPanelIsOpen() {
+    const panel = document.getElementById('zb-enrich-tools-panel');
+    return !!(panel && !panel.classList.contains('hide'));
+}
+
+function stZabbixEnrichToolsApplyDomOpen(open, opts) {
+    const o = opts || {};
+    const panel = document.getElementById('zb-enrich-tools-panel');
+    const innerToggle = document.getElementById('btn-zb-enrich-tools-toggle');
+    const cta = document.getElementById('enrich-zbx-tools-cta');
+    if (panel) {
+        if (open) panel.classList.remove('hide');
+        else panel.classList.add('hide');
+    }
+    if (innerToggle) {
+        innerToggle.textContent = open ? 'Collapse' : 'Expand';
+        innerToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    if (cta && cta.style.display !== 'none') {
+        cta.textContent = open ? 'Close Zabbix enrichment tools' : 'Open Zabbix enrichment tools';
+        cta.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    if (!o.skipLs) {
+        stZabbixEnrichToolsLsSet(open);
+    }
+}
+
+function stZabbixEnrichToolsToggle() {
+    const wrap = document.getElementById('st-zabbix-enrich-tools-wrap');
+    if (!wrap || wrap.style.display === 'none') return;
+    const wasOpen = stZabbixEnrichToolsPanelIsOpen();
+    stZabbixEnrichToolsApplyDomOpen(!wasOpen, { skipLs: false });
+    if (!wasOpen) wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/**
+ * Updates the Enrichment tab Zabbix overview card and tools panel visibility.
+ * @param {object|null} z Result of GET /api/zabbix.php
+ */
+function stEnrichmentRefreshZabbixOverview(z) {
+    const detailsEl = document.getElementById('enrich-zbx-overview-details');
+    const toolsWrap = document.getElementById('st-zabbix-enrich-tools-wrap');
+    const cta = document.getElementById('enrich-zbx-tools-cta');
+    const intro = document.getElementById('zb-enrich-tools-intro');
+    if (!detailsEl || !toolsWrap) return;
+
+    const showCta = (show) => {
+        if (cta) {
+            cta.style.display = show ? '' : 'none';
+            if (!show) cta.removeAttribute('aria-expanded');
+        }
+    };
+    showCta(false);
+
+    if (!stRoleIsAdmin()) {
+        detailsEl.innerHTML = '<p class="hint-micro text-dim mb0">Zabbix connector details are available to administrators only.</p>';
+        toolsWrap.style.display = 'none';
+        if (intro) intro.style.display = 'none';
+        return;
+    }
+
+    if (!z || !z.ok) {
+        const err = (z && z.error) ? esc(z.error) : 'Could not load Zabbix state.';
+        detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is unavailable.</p>'
+            + '<p class="hint-micro text-dim mb0">' + err + '</p>';
+        toolsWrap.style.display = 'none';
+        if (intro) intro.style.display = 'none';
+        return;
+    }
+
+    if (intro) intro.style.display = '';
+
+    const c = z.connector || {};
+    const configured = stZabbixEnrichIsConfigured(z);
+    const synced = stZabbixEnrichHasSyncedData(z);
+
+    if (!configured) {
+        detailsEl.innerHTML = '<p class="hint-micro mb8">Zabbix enrichment is not configured.</p>'
+            + '<button type="button" class="tbtn btn-xs" onclick="goTab(\'integrations\');hiNav(\'nintegrations\')">Configure under Integrations → Zabbix</button>';
+        toolsWrap.style.display = 'none';
+        return;
+    }
+
+    const matched = z.stats && z.stats.matched_pairs != null ? z.stats.matched_pairs : 0;
+    const unmd = z.stats && z.stats.hosts_unmatched != null ? z.stats.hosts_unmatched : 0;
+    const lastSync = c.last_sync_at ? esc(String(c.last_sync_at)) : '—';
+    const enOn = !!c.enabled;
+    let html = '<div class="hint-micro mb6"><span class="badge-mini ' + (enOn ? 'badge-on' : 'badge-off') + '">'
+        + (enOn ? 'enabled' : 'disabled') + '</span>'
+        + ' · last sync: <span class="mono-sm">' + lastSync + '</span></div>'
+        + '<div class="hint-micro mb6">Matched links: <strong>' + esc(String(matched)) + '</strong>'
+        + ' · Unmatched Zabbix hosts: <strong>' + esc(String(unmd)) + '</strong></div>';
+
+    if (z.zabbix_cache_status) {
+        const fm = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
+        if (fm.warn) {
+            html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span>'
+                + '<div class="text-micro mt4">' + esc(fm.detail || '') + '</div></div>';
+        } else if (fm.detail) {
+            html += '<p class="hint-micro text-dim mb6">' + esc(fm.detail) + '</p>';
+        }
+    }
+
+    if (!synced) {
+        html += '<div class="help-box mb6"><strong>Run Zabbix sync first.</strong> Open Integrations → Zabbix, then use <strong>Sync now</strong> (connector must be enabled).</div>'
+            + '<button type="button" class="tbtn btn-xs" onclick="goTab(\'integrations\');hiNav(\'nintegrations\')">Open Zabbix integration</button>';
+        detailsEl.innerHTML = html;
+        toolsWrap.style.display = 'none';
+        return;
+    }
+
+    detailsEl.innerHTML = html;
+    toolsWrap.style.display = '';
+    showCta(true);
+    const wantOpen = stZabbixEnrichToolsLsIsOpen();
+    stZabbixEnrichToolsApplyDomOpen(!!wantOpen, { skipLs: true });
+}
+
+/** Scan scopes for Zabbix rule dropdowns (Enrichment tab tools); mirrored on GET /api/zabbix.php as `scopes`. */
 var zbScopeOptions = [];
 /** Synced group / tag catalog for scope-map rules; from GET /api/zabbix.php `scope_map_catalog`. */
 var zbScopeMapCatalog = { groups: [], tags: [] };
@@ -7481,11 +7761,13 @@ async function loadZabbixIntegrationOnly() {
     if (!stRoleIsAdmin()) return;
     const z = await loadZabbixFromApi();
     stZabbixApplyIntegrationPanel(z);
+    stEnrichmentRefreshZabbixOverview(z);
 }
 
 async function loadZabbixEnrichmentPanel() {
-    if (!stRoleIsAdmin()) return;
     const z = await loadZabbixFromApi();
+    stEnrichmentRefreshZabbixOverview(z);
+    if (!stRoleIsAdmin()) return;
     stZabbixApplyIntegrationPanel(z);
     stZabbixApplyEnrichmentPanel(z);
 }
@@ -7641,7 +7923,10 @@ async function stZabbixApplyPlanSelection() {
         toast('Select at least one row to apply', 'err');
         return;
     }
-    if (!confirm(`Apply scan scope updates to ${apply.length} asset(s)? Logged in the audit trail.`)) return;
+    if (!(await showConfirmModal(
+        `Apply scan scope updates to ${apply.length} asset(s)? Changes are logged in the audit trail.`,
+        { title: 'Apply scope map', okText: 'Apply updates', cancelText: 'Cancel' }
+    ))) return;
     const r = await apiPost('/api/zabbix.php', { action: 'apply_scope_map', confirm: true, apply });
     if (r && r.ok) {
         const msg = `Applied ${r.applied != null ? r.applied : 0}, skipped ${r.skipped != null ? r.skipped : 0}` +
@@ -7732,7 +8017,10 @@ async function stZabbixManualUnlink() {
         toast('Asset id required', 'err');
         return;
     }
-    if (!confirm(`Remove Zabbix link for asset #${asset_id}? Denormalized Zabbix fields on the asset are refreshed.`)) return;
+    if (!(await showConfirmModal(
+        `Remove Zabbix link for asset #${asset_id}? Denormalized Zabbix fields on the asset are refreshed.`,
+        { title: 'Unlink Zabbix host', okText: 'Unlink', cancelText: 'Cancel' }
+    ))) return;
     const r = await apiPost('/api/zabbix.php', { action: 'unlink_asset', asset_id });
     if (r && r.ok) {
         toast('Unlinked', 'ok');
@@ -8043,7 +8331,10 @@ async function stIntegrationEditSave() {
 }
 
 async function stIntegrationDelete(id) {
-    if (!confirm('Delete integration #' + id + '?')) return;
+    if (!(await showConfirmModal(
+        'Delete integration #' + id + '? Push and pull consumers that use it will stop working until you configure a replacement.',
+        { title: 'Delete integration', okText: 'Delete', cancelText: 'Cancel' }
+    ))) return;
     const r = await apiPost('/api/integrations.php', { action: 'delete', id });
     if (r && r.ok) {
         toast('Deleted', 'ok');
@@ -8483,7 +8774,10 @@ async function saveNvdApiKey() {
 }
 
 async function clearNvdApiKey() {
-    if (!confirm('Remove the stored NVD API key from this server?')) return;
+    if (!(await showConfirmModal(
+        'Remove the stored NVD API key from this server? Sync will fall back to the slower public rate limit unless NVD_API_KEY is set in the environment.',
+        { title: 'Remove NVD API key', okText: 'Remove key', cancelText: 'Cancel' }
+    ))) return;
     const r = await apiPost('/api/settings.php', { nvd_api_key_remove: true });
     if (r && r.ok) {
         syncNvdKeyFormVisibility(false);
@@ -13342,6 +13636,21 @@ async function requestDeviceMerge(survivorId) {
 // close on Escape key
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const colRg = document.getElementById('collector-ranges-bg');
+    if (colRg && colRg.style.display === 'flex') {
+        closeCollectorRangesModal(false);
+        return;
+    }
+    const prBg = document.getElementById('st-prompt-bg');
+    if (prBg && prBg.style.display === 'flex') {
+        closeStPromptModal(false);
+        return;
+    }
+    const confBg = document.getElementById('confirm-bg');
+    if (confBg && confBg.style.display === 'flex') {
+        closeConfirmModal(false);
+        return;
+    }
     const rotBg = document.getElementById('st-int-rotate-confirm-bg');
     if (rotBg && rotBg.style.display === 'flex') {
         stIntegrationRotateConfirmClose();

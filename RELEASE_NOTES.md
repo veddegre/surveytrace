@@ -3,6 +3,8 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+**Roadmap index (planning labels, not SemVer):** **`README.md` → Roadmap** defines **Phase 16** as monitoring/ops enrichment (Zabbix and related), **Phase 17** as TeamDynamix + Microsoft Defender enrichment (planned), **Phase 18** as source connector completion (including infrastructure APIs such as Proxmox/VMware/TrueNAS), and **Phase 19** as cross-source data fusion.
+
 ## 0.16.0 (2026-05-01)
 
 - **Integrations admin UI** — Push vs Pull/API sections, friendly type labels, type-aware create/edit (modal), quick-start guidance, per-row token reveal copy (“will not be shown again”). Removed **Rotate legacy global pull token**.

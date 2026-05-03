@@ -800,11 +800,11 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Unreleased
 
-- (no entries yet)
+- **Documentation** — README [Roadmap](#roadmap): clarified **Phase 16** (monitoring/ops / Zabbix), **Phase 17** (TeamDynamix + Microsoft Defender enrichment), **Phase 18** (connector completion, including infrastructure APIs), and **Phase 19** (data fusion). No implementation change.
 
 ### 0.16.0
 
-- **Roadmap note** — **`VERSION` 0.16.0** is a **Phase 15 (Integrations)** follow-up (UI + legacy config cleanup), not the same as **Roadmap Phase 16** in [Upcoming](#upcoming) (monitoring / ops). **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is a SQLite migration **name** for ordering after the Phase 14.1 integration migrations; it does **not** mean roadmap Phase 16 is delivered.
+- **Roadmap note** — **`VERSION` 0.16.0** is a **Phase 15 (Integrations)** follow-up (UI + legacy config cleanup), not the same as **Roadmap Phase 16** in [Upcoming](#upcoming) (monitoring / ops enrichment — Zabbix and related). **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is a SQLite migration **name** for ordering after the Phase 14.1 integration migrations; it does **not** mean roadmap Phase 16 is delivered.
 - **Integrations UX** — Admin **Integrations** tab: **Push** vs **Pull / API** sections, friendly type labels, type-aware add/edit (modal), quick-start guidance (Grafana Infinity, Prometheus/Alloy, Splunk HEC, Splunk scripted input), per-row token reveal messaging.
 - **Pull auth** — Removed unused **legacy global** pull token (`config.integrations_pull_token_bcrypt`); pull endpoints accept **only** per-integration bearer tokens of the correct enabled type (**401** / **503** semantics unchanged intent). Migration **`migration_phase16_remove_legacy_integrations_pull_token_v1`** deletes the old config key if present.
 - **API** — **`GET /api/integrations.php`** drops legacy global status fields; list rows add **`type_label`**, **`mode`**, **`destination_summary`**. **`POST rotate_pull_token`** removed.
@@ -1134,9 +1134,15 @@ surveytrace/
 
 ## Roadmap
 
-**Roadmap phase numbers** (Phase 1, Phase 2, … below) are a **planning index**. They are **not** the same as **`VERSION`** / SemVer: e.g. **`VERSION` 0.16.0** can ship while **Phase 16** in [Upcoming](#upcoming) is still future work.
+**Roadmap phase numbers** (Phase 1, Phase 2, … below) are a **planning index**. They are **not** the same as **`VERSION`** / SemVer: e.g. **`VERSION` 0.16.0** can ship while parts of **Roadmap Phase 16** in [Upcoming](#upcoming) are still future work.
 
-**`migration_phaseN_*`** keys in **`api/db.php`** use integers for **ordering and grouping**; they often align with roadmap phases (e.g. **`migration_phase14_scan_scopes_v1`**) but not always — **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is still **Integrations (Phase 15 scope)** cleanup, not “Roadmap Phase 16 — monitoring.”
+At a high level (see [Upcoming](#upcoming) for slices):
+
+- **Phase 16 — Monitoring / ops enrichment** — Zabbix (and related) as a **source** of monitoring context in SurveyTrace, operator workflows on that data, scheduled/freshness work, and (later) SurveyTrace → Zabbix **output** of health/status-style signals. Does **not** subsume ownership or Defender-style device/CVE APIs.
+- **Phase 17 — Ownership, user, device, and endpoint-vulnerability enrichment** — **Planned:** TeamDynamix (ownership/business context) and **Microsoft Defender** (XDR / vulnerability management: device, users, CVE evidence). **Not shipped** until called out in [Changelog](#changelog) / **`RELEASE_NOTES.md`**.
+- **Phase 19 — Data fusion** — Later **cross-source** reconciliation and scoring (scanner vs Defender, OSV/NVD/KEV/EPSS, weighting, conflicts), after more sources exist.
+
+**`migration_phaseN_*`** keys in **`api/db.php`** use integers for **ordering and grouping**; they often align with roadmap phases (e.g. **`migration_phase14_scan_scopes_v1`**) but not always — **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is still **Integrations (Phase 15 scope)** cleanup, not “Roadmap Phase 16 — monitoring / ops enrichment.”
 
 Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changelog) above.
 
@@ -1161,13 +1167,13 @@ Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changel
 - **Phase 16.2 — Zabbix operator workflow** — **`assets.scope_id`** + denorm trust columns; migration **`migration_phase16_2_zabbix_workflow_v1`**; explicit **preview → confirm → apply** scope updates (**`preview_scope_apply`**, **`apply_scope_map`** + audit **`zabbix.scope_map_applied`**); **match review** UI + manual **`link_manual`** / **`unlink_asset`** (audited); **`zabbix_asset_links.is_manual`** preserved across rematch; **`GET /api/assets.php`** Zabbix filters + optional list column. See **[Using Zabbix data in SurveyTrace](#using-zabbix-data-in-surveytrace-phase-162)**.
 
 ### Upcoming
-- **Phase 16 (remainder)** — Zabbix as a SurveyTrace **output** target (health/status signals), deeper alert mapping, and related ops automation — after the **16.1** source connector baseline above.
-- **Planned — TeamDynamix + Microsoft Defender enrichment** — Normalized ownership, device/user, and source-attributed vulnerability context in SurveyTrace (see **[Planned: enrichment connectors](#planned-ownership-user-context-and-vulnerability-enrichment-connectors)**). Intended to **complement** [Phase 19 — Data fusion + enrichment](#upcoming); may ship as phased slices under that umbrella or as dedicated connector releases.
-- **Phase 17** — Infrastructure APIs: Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting.
-- **Phase 18** — Source connector completion: stubbed vendors (e.g. Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) behind a shared connector contract (auth, paging, retry, health, field mapping).
-- **Phase 19** — Data fusion + enrichment: normalize multi-source vulnerability/advisory data (dedupe, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
+- **Phase 16.3 — Enrichment freshness + scheduled sync** — **Planned:** scheduled background sync for enrichment connectors, starting with Zabbix; shared connector health/freshness model; stale indicators in UI and host details. **No** automatic scope or ownership changes. *(Today, Zabbix sync is operator-triggered — CLI worker and Integrations **Sync now** — not a global scheduler for all enrichment.)*
+- **Phase 16.4 — Zabbix output / monitoring signals** — **Planned:** SurveyTrace → Zabbix health/status items (e.g. latest scan status, collector health, ingest backlog, failed ingest counts, open critical/high summaries, compliance/integration/DB health signals); suggested items/triggers; **no** noisy alerts by default.
+- **Phase 17 — Ownership, user, device, and endpoint-vulnerability enrichment** — **Planned:** **TeamDynamix** for ownership/business context; **Microsoft Defender** (XDR / Defender Vulnerability Management) for device context, logged-in/recent users, exposure/risk, software inventory, and Defender-reported CVE evidence. Store **source-attributed** evidence; **do not** overwrite locked/manual asset fields or auto-resolve findings. See **[Planned: enrichment connectors](#planned-ownership-user-context-and-vulnerability-enrichment-connectors)** (design intent only until shipped).
+- **Phase 18 — Source connector completion** — First-class connectors for **Cisco DNA/Meraki**, **Juniper Mist**, **Infoblox**, **Palo Alto**, **Proxmox / VMware / TrueNAS** (and similar infrastructure APIs), and other vendors behind a shared connector contract (auth, paging, retry, health, field mapping). *(Passive fingerprinting for hypervisors already exists; this phase is **API-backed** inventory/enrichment.)*
+- **Phase 19 — Data fusion + enrichment** — Multi-source CVE/advisory **dedupe**; **source weighting** and **conflict resolution**; **SurveyTrace scanner vs Defender** (and other sources) evidence reconciliation; **OSV / NVD / KEV / EPSS** and package/advisory expansion; combine scanner, Defender, ownership, and monitoring context into coherent asset/finding views.
 - **Phase 20** — **UI polish:** asset timeline, bulk operations, fingerprint pattern editor. **Scan history UX:** pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links, **CSV export** of the filtered history list. **Navigation cleanup:** trim duplicate top-bar shortcuts where the sidebar already links the page. **Frontend modularization (possible):** split **`public/index.php`** into maintainable modules or bundles to reduce merge friction. **Modal consistency:** replace remaining browser-native **`alert` / `confirm` / `prompt`** flows with app-styled dialogs (including **delete integration** and other destructive or credential-related actions).
-- **Phase 21** — Credentialed collection + checks engine: authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, remediation guidance metadata.
+- **Phase 21** — Credentialed **in-host** collection + checks engine: authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, remediation guidance metadata. **Distinct from [Phase 17](#upcoming)**, which targets **read-only API-source** enrichment (TeamDynamix, Defender APIs), not executing checks on endpoints.
 - **Phase 22** — Risk operations + governance: composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, stronger audit/report controls.
 
 ### Zabbix source connector — operator notes (Phase 16.1)
@@ -1200,7 +1206,7 @@ Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changel
 
 ### Planned: ownership, user context, and vulnerability enrichment connectors
 
-This section is **design intent** for future work. **Zabbix (Phase 16.x)** is the first concrete **source connector** in code; TeamDynamix and Microsoft Defender should follow the same principles: **bounded sync**, **background workers**, **redacted secrets**, **explicit operator actions** for anything that changes ownership or scope, and **normalized rows** in SQLite rather than “Splunk-only” enrichment.
+This section is **design intent** for **Roadmap [Phase 17](#upcoming)** — **not** shipped until noted in [Changelog](#changelog) / **`RELEASE_NOTES.md`**. **Zabbix** remains **[Phase 16](#upcoming) — monitoring / ops enrichment** (source connector + operator workflow today; freshness scheduling and Zabbix **output** are upcoming slices **16.3** / **16.4**). **TeamDynamix** and **Microsoft Defender** should follow the **same connector principles** as Zabbix: **bounded sync**, **background workers**, **redacted secrets**, **explicit operator actions** for anything that changes ownership or scope, and **normalized rows** in SQLite. **Splunk** (or similar SIEM) remains the **correlation / primary alerting** layer — SurveyTrace stores normalized enrichment and can **push events**, not replace SIEM time-window joins.
 
 #### Architecture principle
 
