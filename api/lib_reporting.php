@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/lib_scan_scopes.php';
+require_once __DIR__ . '/lib_reporting_event_model.php';
 
 /** @var string */
 const ST_REPORTING_BASELINE_CONFIG_KEY = 'phase13_baseline_job_id';
@@ -1046,9 +1047,11 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter
     $raw = st_reporting_trends($db, $limit, $scopeFilter);
     $out = [];
     foreach ($raw as $row) {
+        $sid = (int) ($row['scope_id'] ?? 0);
         $out[] = [
             'job_id'                     => (int) ($row['job_id'] ?? 0),
-            'scope_id'                   => (int) ($row['scope_id'] ?? 0),
+            'scope_id'                   => $sid,
+            'scope_name'                 => $sid > 0 ? st_scan_scopes_resolve_name($db, $sid) : null,
             'timestamp'                  => (string) ($row['finished_at'] ?? ''),
             'asset_count'                => (int) ($row['assets'] ?? 0),
             'open_findings_total'        => (int) ($row['open_findings_total'] ?? 0),
@@ -1116,8 +1119,30 @@ function st_reporting_compliance(PDO $db, int $jobB, ?int $baselineJobId, ?int $
         ];
     }
 
+    $scopeIdNorm = 0;
+    $scopeName = null;
+    if (st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        try {
+            $sj = $db->prepare('SELECT COALESCE(scope_id, 0) AS sid FROM scan_jobs WHERE id = ? AND (deleted_at IS NULL OR deleted_at = \'\') LIMIT 1');
+            $sj->execute([$jobB]);
+            $rawS = $sj->fetchColumn();
+            $scopeIdNorm = ($rawS === null || $rawS === '') ? 0 : (int) $rawS;
+            if ($scopeIdNorm < 0) {
+                $scopeIdNorm = 0;
+            }
+            if ($scopeIdNorm > 0) {
+                $scopeName = st_scan_scopes_resolve_name($db, $scopeIdNorm);
+            }
+        } catch (Throwable $e) {
+            $scopeIdNorm = 0;
+            $scopeName = null;
+        }
+    }
+
     return [
         'job_id'                  => $jobB,
+        'scope_id'                => $scopeIdNorm,
+        'scope_name'              => $scopeName,
         'baseline_config_id'      => $baselineJobId,
         'baseline_config_job_id'  => $baselineJobId,
         'baseline_effective'      => $effBaseline,
@@ -1401,7 +1426,6 @@ function st_reporting_materialize_scheduled(PDO $db, int $scheduleId): int
             'duration_ms'   => $durationMs,
             'outcome'       => 'no_scan',
         ]);
-
         return $artifactId;
     }
 
@@ -1427,7 +1451,6 @@ function st_reporting_materialize_scheduled(PDO $db, int $scheduleId): int
         'duration_ms'    => $durationMs,
         'outcome'        => 'ok',
     ]);
-
     return $artifactId;
 }
 
@@ -1644,15 +1667,17 @@ function st_reporting_set_scope_baseline(PDO $db, int $scopeId, int $jobId): voi
 }
 
 /**
- * @return array{job_a_scope_id:?int, job_b_scope_id:?int, same_scope:bool, comparable:bool}
+ * @return array{job_a_scope_id:?int, job_b_scope_id:?int, job_a_scope_name:?string, job_b_scope_name:?string, same_scope:bool, comparable:bool}
  */
 function st_reporting_compare_scope_alignment(PDO $db, int $jobA, int $jobB): array
 {
     $nullOut = [
-        'job_a_scope_id' => null,
-        'job_b_scope_id' => null,
-        'same_scope'     => true,
-        'comparable'     => true,
+        'job_a_scope_id'   => null,
+        'job_b_scope_id'   => null,
+        'job_a_scope_name' => null,
+        'job_b_scope_name' => null,
+        'same_scope'       => true,
+        'comparable'       => true,
     ];
     if (! st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
         return $nullOut;
@@ -1680,12 +1705,16 @@ function st_reporting_compare_scope_alignment(PDO $db, int $jobA, int $jobB): ar
             return $x;
         };
         $same = $norm($ia) === $norm($ib);
+        $na = $norm($ia);
+        $nb = $norm($ib);
 
         return [
-            'job_a_scope_id' => $ia,
-            'job_b_scope_id' => $ib,
-            'same_scope'     => $same,
-            'comparable'     => $same,
+            'job_a_scope_id'   => $ia,
+            'job_b_scope_id'   => $ib,
+            'job_a_scope_name' => $na > 0 ? st_scan_scopes_resolve_name($db, $na) : null,
+            'job_b_scope_name' => $nb > 0 ? st_scan_scopes_resolve_name($db, $nb) : null,
+            'same_scope'       => $same,
+            'comparable'       => $same,
         ];
     } catch (Throwable $e) {
         return $nullOut;

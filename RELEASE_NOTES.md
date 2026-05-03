@@ -3,6 +3,30 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.14.3 (2026-05-01)
+
+- **Integrations — per-integration pull tokens** — Migration **`migration_phase14_1_integrations_per_pull_token_v1`**: **`integrations.token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`POST /api/integrations.php`** **`rotate_token`** + **`integration_id`** returns **`token`** once per row. **`prometheus_pull`** / **`json_events_pull`** / **`report_summary_pull`** map to metrics / events / (report summary + dashboard) pull routes only. **`config.integrations_pull_token_bcrypt`** remains an optional **legacy** fallback after per-row verification fails.
+- **Pull responses** — JSON pull endpoints may include **`pull_client`** (`integration_id`, `integration_name`, `integration_type`).
+- **UI** — Per-row pull token status, **Generate / Rotate token** on pull types; **Rotate legacy global pull token** for the config fallback.
+- **Docs** — **`README.md`** Phase 14.1 updated (routing, curl examples). **`sql/schema.sql`** aligned with new columns.
+
+## 0.14.2 (2026-05-01)
+
+- **Phase 14.1 validation** — **`VERSION`** matches this release. **`deploy.sh`** includes all integration API PHP files and copies **`integrations/starter/`** to **`/opt/surveytrace/integrations-starter/`**.
+- **Pull API** — **`integrations_metrics.php`** rejects unknown **`format=`** with HTTP **400** (only **`prometheus`** or **`json`**).
+- **Docs / legacy webhook** — Clarified that **`integration_webhook_*`** settings are stored but **`st_integrations_outbound_emit()`** is not invoked by reporting/scheduler in Phase 14.1 (push validation is **`integrations.php`** test/sample).
+
+## 0.14.1 (2026-05-01)
+
+- **Phase 14.1 — Integrations foundation** — Migration **`migration_phase14_1_integrations_v1`**: **`integrations`** table (push target config + operator markers for pull types). Config key **`integrations_pull_token_bcrypt`** holds a **`password_hash`** for Bearer / `?token=` access to read-only pull endpoints.
+- **Admin API** — **`GET/POST /api/integrations.php`** (admin, CSRF on POST): list/create/update/delete integrations; **`test`** / **`sample`** manual outbound sends (canonical **`surveytrace.reporting.event.v1`** JSON); **`rotate_pull_token`** returns the new token once. Responses never include **`auth_secret`**.
+- **Push helpers** — **`api/lib_integrations.php`** implements **`webhook`** (optional HMAC), **`splunk_hec`**, **`loki`** push, **`syslog`** (UDP default, optional TCP via **`extra_json.syslog_transport`**). Shared short-timeout HTTPS POST in **`api/lib_integrations_outbound.php`** (`st_integrations_http_post_json`).
+- **Pull endpoints** — **`GET /api/integrations_metrics.php`** (Prometheus text or **`?format=json`**), **`GET /api/integrations_events.php`**, **`GET /api/integrations_report_summary.php`**, **`GET /api/integrations_dashboard.php`**. All require the integration pull token.
+- **Reporting** — Removed automatic **`st_reporting_emit_artifact_integration_event`** calls after scheduled report materialization (**foundation-only**; no broad automatic export fan-out). Reserved **`integration_webhook_*`** settings are not invoked by the server in 14.1.
+- **UI** — Sidebar **Integrations** tab (admin): list, create, prompt-based edit, test/sample, enable/disable, delete, rotate pull token; shows last test status and redacted targets.
+- **Docs** — **`README.md`** Phase 14.1 section expanded (Grafana / Splunk patterns, security, sample payloads). **`deploy.sh`** ships new PHP files.
+- **Starter packages** — **`integrations/starter/splunk_surveytrace/`** (Splunk app + **`surveytrace:reporting:event`**) and **`integrations/starter/grafana/`** (Infinity starter dashboard + README); copied on deploy to **`/opt/surveytrace/integrations-starter/`**. **`integrations_report_summary`** / **`integrations_events`** envelopes include flat **`scope_id`** / **`scope_name`** where applicable (`flat_scope` for events).
+
 ## 0.13.0 (2026-05-01)
 
 - **Phase 13 — Reporting & baselines (foundation)** — Migration **`migration_phase13_reporting_v1`**: **`scan_jobs.is_baseline`**, **`scan_schedules.schedule_action`** (`scan` \| `report`), **`report_artifacts`** (JSON payloads for scheduled reports), config key **`phase13_baseline_job_id`**. Library and HTTP surface: **`api/lib_reporting.php`**, **`api/reporting.php`**, **`api/reporting_cli.php`** (CLI invoked by the scheduler for **`report`** schedules). Snapshot diffs are **job-scoped only** (not live **`assets`/`findings`**). Baseline **config** may point at a deleted or invalid job; **`st_reporting_resolve_baseline_job_id`** treats that as no effective baseline for comparisons. **`st_reporting_trends`** uses batched aggregates (avoids N+1). **`st_reporting_set_baseline`** uses **`BEGIN IMMEDIATE` … `COMMIT`**.

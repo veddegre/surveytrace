@@ -396,6 +396,8 @@ function st_db(): PDO {
     st_migrate_asset_metadata_locks_v1($pdo);
     st_migrate_phase13_reporting_v1($pdo);
     st_migrate_phase14_scan_scopes_v1($pdo);
+    st_migrate_phase14_1_integrations_v1($pdo);
+    st_migrate_phase14_1_integrations_per_pull_token_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -770,6 +772,79 @@ function st_migrate_phase14_scan_scopes_v1(PDO $pdo): void
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_scan_scopes_v1', '1')"
+    );
+}
+
+/**
+ * Phase 14.1 — integrations foundation (config rows + pull token storage in config).
+ */
+function st_migrate_phase14_1_integrations_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase14_1_integrations_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS integrations (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            name           TEXT NOT NULL,
+            type           TEXT NOT NULL,
+            enabled        INTEGER NOT NULL DEFAULT 1,
+            endpoint_url   TEXT NOT NULL DEFAULT \'\',
+            host           TEXT NOT NULL DEFAULT \'\',
+            port           INTEGER,
+            auth_secret    TEXT,
+            extra_json     TEXT NOT NULL DEFAULT \'{}\',
+            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_test_at   DATETIME,
+            last_test_status TEXT,
+            last_error     TEXT
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_integrations_enabled ON integrations(enabled)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_v1', '1')"
+    );
+}
+
+/**
+ * Phase 14.1 — per-integration pull token hashes (Prometheus / events / report summary consumers).
+ * Idempotent column adds on `integrations`.
+ */
+function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase14_1_integrations_per_pull_token_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='integrations'")->fetchAll(PDO::FETCH_COLUMN);
+    if (! is_array($tables) || ! in_array('integrations', $tables, true)) {
+        $pdo->exec(
+            "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
+        );
+
+        return;
+    }
+    $cols = array_column($pdo->query('PRAGMA table_info(integrations)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    $addCol = static function (string $name, string $ddl) use ($pdo, &$cols): void {
+        if (in_array($name, $cols, true)) {
+            return;
+        }
+        try {
+            $pdo->exec($ddl);
+        } catch (Throwable $e) {
+            // concurrent migration
+        }
+        $cols[] = $name;
+    };
+    $addCol('token_hash', 'ALTER TABLE integrations ADD COLUMN token_hash TEXT');
+    $addCol('token_created_at', 'ALTER TABLE integrations ADD COLUMN token_created_at TEXT');
+    $addCol('token_last_used_at', 'ALTER TABLE integrations ADD COLUMN token_last_used_at TEXT');
+    $addCol('token_last_used_ip', 'ALTER TABLE integrations ADD COLUMN token_last_used_ip TEXT');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
     );
 }
 

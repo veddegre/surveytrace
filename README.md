@@ -308,6 +308,156 @@ SurveyTrace can tag each **`scan_jobs`** row with an optional **`scope_id`** (se
 
 Cross-scope manual compare remains allowed but uses cautious wording when **`scope_alignment.comparable`** is false. When both jobs are unscoped and compatibility cannot be verified, **`diff_summary.unscoped_pair_uncertain`** is true.
 
+### External reporting event model (canonical contract)
+
+Canonical event payloads and producer mapping live in **`api/lib_reporting_event_model.php`** (PHP helpers + file docblock). Any HTTPS delivery must emit payloads that match this contract unchanged. Phase 14.1 adds row-based push targets in **`integrations`** (see **`api/lib_integrations.php`**) and shared HTTPS helpers in **`api/lib_integrations_outbound.php`** (reserved **`integration_webhook_*`** settings are not wired to automatic emits in 14.1).
+
+**Event producers (map into canonical shape; outbound webhook on artifact insert when configured):**
+
+| Producer | API / table | Canonical mapping |
+|----------|-------------|---------------------|
+| Change detection | **`GET /api/change_alerts.php`** | `st_reporting_event_from_change_alert_row()` — `data_plane`: **live** (alerts are not snapshot rows). |
+| Compliance evaluation | **`GET /api/reporting.php?action=compliance`** | `st_reporting_event_from_compliance_summary()` — **snapshot** job findings. |
+| Report artifact creation | **`report_artifacts`** (insert from **`reporting_cli.php`** materialize; list via **`GET …?action=artifacts`**) | `st_reporting_event_from_report_artifact_row()` — **snapshot**; outbound delivery is **manual** (Integrations test/sample) or optional legacy Settings webhook — **no automatic fan-out** in Phase 14.1. |
+| Findings lifecycle | **`findings.php`**, lifecycle columns on **`findings`** | Same canonical `subject.finding_id` + `payload` pattern; map at integration boundary from existing API shapes (no new endpoint here). |
+
+**Canonical event skeleton** (see `st_reporting_event_canonical_skeleton()`): `schema_version`, `event_id`, `source`, `occurred_at`, `event_type`, `severity`, `scope` (`scope_id`, `scope_name`), `subject` (`job_id`, `finding_id`, `asset_id`), `data_plane` (`snapshot` \| `live`), `payload` (opaque structured body).
+
+**Reporting endpoints safe for external consumers** (session-auth, bounded payloads; prefer over `compare` / full **`artifact`**):
+
+| Action | Notes |
+|--------|--------|
+| **`trends_summary`** | Per completed job: counts, **`scope_id`**, **`scope_name`**, drift compatibility fields. Response includes **`scope_context`** (request filter echo). |
+| **`compare_summary`** | Counts + **`finding_events`** + **`scope_alignment`** (includes **`job_a_scope_name`**, **`job_b_scope_name`**) + **`unscoped_pair_uncertain`**. **`scope_context`** on envelope. |
+| **`compliance`** | Rule pass/fail for one job; includes job **`scope_id`**, **`scope_name`**, and **`scope_context`**. |
+
+**`scope_context`** object: `scope_filter` (null = all scopes, `0` = unscoped-only filter, `N` = named scope), `scope_id` / `scope_name` (mirror of filter for named scopes; null when “all”), `scope_kind` (`all` \| `unscoped` \| `named`).
+
+**Snapshot vs live:** Reporting **`trends_summary`**, **`compare_summary`**, and **`compliance`** operate on **frozen per-job snapshot tables** and completed **`scan_jobs`**. **`dashboard.php`** and **`change_alerts`** reflect **live** or **operational** state — downstream systems must not treat them interchangeably without labeling `data_plane`.
+
+### Phase 14.1 — Integrations foundation (push + pull)
+
+**Goal:** one place to store outbound targets and **per-integration pull tokens** (Grafana, Splunk, scripts, etc.) so each consumer can be rotated or disabled independently — without wiring broad automatic exports yet. A **legacy global** pull token in **`config`** remains a temporary fallback.
+
+#### Storage and admin API
+
+- **Migrations:** `migration_phase14_1_integrations_v1` creates **`integrations`**. `migration_phase14_1_integrations_per_pull_token_v1` adds **`token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** (bcrypt hash only; never plaintext). Fresh **`sql/schema.sql`** includes the same columns.
+- **Types:** `splunk_hec`, `syslog`, `webhook`, `loki`, `prometheus_pull`, `json_events_pull`, `report_summary_pull`. The three **`*_pull`** types are **pull auth rows**: each enabled row with a rotated token may access only the routes mapped to that type (see table below).
+- **Admin HTTP:** **`GET /api/integrations.php`** — list rows plus **`legacy_pull_token_configured`**, **`per_integration_pull_token_configured`**, and **`pull_token_configured`** (true if either legacy or any per-row token exists — convenience for “is anything configured?”). Never returns **`token_hash`** or raw secrets. **`POST /api/integrations.php`** (CSRF, admin): `action` = `create` \| `update` \| `delete` \| `test` \| `sample` \| **`rotate_token`** (body: **`integration_id`**) \| **`rotate_pull_token`** (legacy global only). List rows expose **`token_configured`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** for pull types only. **`auth_secret_clear`** on update clears stored push secrets. Changing **`type`** away from a pull type clears that row’s pull token fields.
+
+#### Per-integration pull tokens vs legacy global
+
+- **Recommended:** one **`integrations`** row per external consumer (e.g. one **`report_summary_pull`** named “Grafana dashboard”, one **`json_events_pull`** named “Splunk HEC poller”). Use **Generate / Rotate token** on that row; rotating Grafana’s row does not change Splunk’s hash.
+- **Per-row storage:** **`password_hash`** in **`integrations.token_hash`**. **`POST … rotate_token`** with **`integration_id`** returns **`token`** once; afterward only **`token_configured`** and timestamps appear in lists.
+- **Legacy fallback:** **`config.integrations_pull_token_bcrypt`** — **`rotate_pull_token`** still sets this global hash. Pull endpoints try **per-integration** matches first (only types allowed for that route, **`enabled = 1`**); if none verify, they try the **legacy** hash. **That legacy secret is broad:** the same plaintext is accepted on **all** pull URLs (metrics, events, report summary, dashboard) until you rotate or clear it — prefer per-row tokens to limit blast radius. Plan to remove legacy once all clients use row tokens.
+- **Auth header / query:** **`Authorization: Bearer <token>`** or **`?token=`** (same as before). Disabled integrations do not appear in the candidate set (token rejected). Deleted rows remove the hash with the row.
+
+#### Push (manual only)
+
+- **`api/lib_integrations.php`** — `st_integrations_push_send_test()` posts canonical **`surveytrace.reporting.event.v1`** JSON for **`webhook`** (optional HMAC `X-SurveyTrace-Signature: sha256=…` when `auth_secret` is set), **`splunk_hec`** (wrapped HEC envelope; `Authorization: Splunk <hec_token>`), **`loki`** (Grafana Loki push JSON; optional Bearer), **`syslog`** (RFC5424 single line over UDP by default; set `extra_json` to `{"syslog_transport":"tcp"}` for TCP). Short curl timeouts (≈4s connect / 10s total).
+- **UI:** **Integrations** sidebar (admin): list, create, prompt-based edit, test, sample, enable/disable, delete, per-row pull token status + **Generate / Rotate token** on pull rows, optional **Rotate legacy global pull token**.
+
+#### Pull (token required)
+
+| Integration `type` | Allowed pull routes |
+|--------------------|---------------------|
+| **`prometheus_pull`** | **`GET /api/integrations_metrics.php`** only |
+| **`json_events_pull`** | **`GET /api/integrations_events.php`** only |
+| **`report_summary_pull`** | **`GET /api/integrations_report_summary.php`** and **`GET /api/integrations_dashboard.php`** |
+
+| Endpoint | Notes |
+|----------|--------|
+| **`GET /api/integrations_metrics.php`** | Default: **Prometheus** text. **`?format=json`** returns **`surveytrace.integrations.metrics.v1`** (… **`scope_context`** …) plus optional **`pull_client`** (`integration_id`, `integration_name`, `integration_type`). |
+| **`GET /api/integrations_dashboard.php`** | **Single JSON bundle** for scripted clients / Grafana Infinity (…). Includes **`pull_client`** when authenticated. |
+| **`GET /api/integrations_events.php?since=…&limit=…&format=json\|jsonl`** | … JSON envelope includes **`pull_client`** for **`format=json`** only. |
+| **`GET /api/integrations_report_summary.php?scope_id=…`** | … includes **`pull_client`**. |
+
+Successful per-integration auth updates **`token_last_used_at`** / **`token_last_used_ip`** best-effort (failure does not fail the request).
+
+#### Example `curl` (replace host and tokens)
+
+```bash
+# Grafana / Infinity — dashboard bundle (report_summary_pull token)
+curl -fsS -H 'Authorization: Bearer st_int_YOUR_REPORT_SUMMARY_PULL_TOKEN' \
+  'https://surveytrace.example.com/api/integrations_dashboard.php?event_limit=50'
+
+# Splunk / scripts — JSON events (json_events_pull token)
+curl -fsS -H 'Authorization: Bearer st_int_YOUR_JSON_EVENTS_PULL_TOKEN' \
+  'https://surveytrace.example.com/api/integrations_events.php?since=2026-05-01T00:00:00Z&limit=100&format=json'
+
+# Prometheus — text metrics (prometheus_pull token)
+curl -fsS -H 'Authorization: Bearer st_int_YOUR_PROMETHEUS_PULL_TOKEN' \
+  'https://surveytrace.example.com/api/integrations_metrics.php'
+```
+
+Legacy global token (same value for all routes until you migrate):
+
+```bash
+curl -fsS 'https://surveytrace.example.com/api/integrations_metrics.php?token=st_int_LEGACY_GLOBAL'
+```
+
+#### Starter visualization packages (Splunk + Grafana Infinity)
+
+Shipped under **`integrations/starter/`** (also copied to **`/opt/surveytrace/integrations-starter/`** on master **`deploy.sh`**):
+
+| Path | Purpose |
+|------|---------|
+| **`integrations/starter/splunk_surveytrace/`** | Minimal Splunk app: **`app.conf`**, **`macros.conf`** (`surveytrace_index` — override locally), **`props.conf`** for sourcetype **`surveytrace:reporting:event`** (`KV_MODE=json`), starter **saved searches**, Simple XML **dashboards** (posture, severity, scope trends, reporting events). See **`README.md`** in that folder for HEC sourcetype + macro setup. |
+| **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** (importable dashboard) + **`README.md`** for Infinity datasource install, **Bearer** header on the datasource (preferred), and variable **`surveytrace_base`**. Panels use **JSON** URLs against **`integrations_dashboard.php`** and **`integrations_events.php`** — **no Prometheus required**. |
+
+Canonical HEC / JSON lines should remain **`surveytrace.reporting.event.v1`** (see **`api/lib_reporting_event_model.php`**). Dashboard-friendly scope fields: top-level **`scope_id`** / **`scope_name`** on envelopes and (for JSON events, default) on each event via **`st_reporting_event_envelope_scope_fields()`**.
+
+#### Grafana Cloud / Splunk patterns (standards-based)
+
+- **Metrics:** Prometheus scrape of **`integrations_metrics.php`** (Bearer), or Grafana Alloy → Prometheus remote_write.
+- **Logs / events:** Loki push integration row targeting `…/loki/api/v1/push`, or poll **`integrations_events.php`** (`format=jsonl`) on a timer.
+- **Splunk:** HEC push row, or scripted input polling **`integrations_events.php`**.
+- **Security:** never log raw pull tokens or HEC secrets; **`st_integrations_redact_string()`** sanitizes integration logs. Failed outbound tests update **`last_error`** only on the integration row — they do not block scans, reporting, or the scheduler.
+
+#### Legacy Settings webhook (unchanged)
+
+- **`integration_webhook_*`** keys on **`POST /api/settings.php`** persist legacy URL/HMAC settings, but **Phase 14.1 does not call** **`st_integrations_outbound_emit()`** from any scheduler/reporting path (materialize hook removed; **no automatic fan-out**). Use **Integrations** push targets with **Test** / **Sample** for outbound checks; optional future release may reattach the settings webhook to selected events.
+
+#### Sample Prometheus excerpt
+
+```
+# HELP surveytrace_assets_total Assets in live inventory table.
+# TYPE surveytrace_assets_total gauge
+surveytrace_assets_total 42
+# HELP surveytrace_open_findings_total Open findings (resolved=0).
+# TYPE surveytrace_open_findings_total gauge
+surveytrace_open_findings_total 7
+surveytrace_open_findings_by_severity{severity="high"} 3
+# HELP surveytrace_last_scan_timestamp Unix time of latest finished scan (UTC).
+# TYPE surveytrace_last_scan_timestamp gauge
+surveytrace_last_scan_timestamp 1746134400
+surveytrace_scope_assets_total{scope_id="1"} 120
+surveytrace_scope_open_findings_total{scope_id="1"} 4
+```
+
+#### Sample JSONL event line (canonical)
+
+```
+{"schema_version":"surveytrace.reporting.event.v1","event_id":"change_alert:901","source":"change_alerts","occurred_at":"2026-05-01T12:00:01Z","event_type":"change.new_finding","severity":null,"scope":{"scope_id":null,"scope_name":null},"subject":{"job_id":55,"finding_id":102,"asset_id":12},"data_plane":"live","payload":{"detail":{},"asset_ip":"10.0.0.5","dismissed_at":null}}
+```
+
+#### Sample report summary (trimmed)
+
+```json
+{
+  "ok": true,
+  "schema_version": "surveytrace.integrations.report_summary_envelope.v1",
+  "scope_id": 1,
+  "scope_name": "HQ",
+  "scope_context": {"scope_filter": 1, "scope_id": 1, "scope_name": "HQ", "scope_kind": "named"},
+  "latest_completed_scan": {"job_id": 88, "finished_at": "2026-05-01 10:15:00", "label": "nightly", "scope_id": 1, "scope_name": "HQ"},
+  "posture": {"job_id": 88, "asset_snapshots": 120, "open_findings_total": 4, "open_findings_by_severity": {"critical": 0, "high": 1}},
+  "posture_flat": {"job_id": 88, "scope_id": 1, "scope_name": "HQ", "snapshot_asset_count": 120, "open_findings_total": 4, "critical_open": 0, "high_open": 1, "medium_open": 0, "low_open": 0},
+  "compliance_summary": {"overall_pass": true, "rules": [{"id": "no_critical_open", "pass": true, "detail": "No open critical findings in snapshot."}]},
+  "drift": {"available": true, "baseline_job_id": 70, "counts": {}, "finding_events": []}
+}
+```
+
 #### Bulk-assigning legacy `scope_id` (operators)
 
 SQLite examples (run with a backup; adjust ids):
@@ -336,11 +486,11 @@ UPDATE scan_jobs SET scope_id = 4 WHERE id IN (101, 102, 103);
 | Action | Method | Roles | Notes |
 |--------|--------|-------|-------|
 | `compare` | GET | viewer+ | `job_a`, `job_b` required, must differ (full diff rows) |
-| `compare_summary` | GET | viewer+ | Same as `compare`; response has **`diff_summary`** only (counts + events + **`scope_alignment`** + **`unscoped_pair_uncertain`**) |
+| `compare_summary` | GET | viewer+ | Same as `compare`; **`diff_summary`** (counts + events + **`scope_alignment`** incl. scope names + **`unscoped_pair_uncertain`**) + **`scope_context`** |
 | `summary` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
 | `trends` | GET | viewer+ | `limit` default 30, max 200 (legacy shape: `finished_at`, `assets`) |
-| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — `job_id`, `scope_id`, `timestamp`, `asset_count`, `open_findings_total`, `open_findings_by_severity`, `label`, **`schedule_id`**, **`batch_id`**, **`collector_id`**, **`target_cidr`** (for client-side drift compatibility); same batched queries as `trends` |
-| `compliance` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
+| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — each point: `job_id`, **`scope_id`**, **`scope_name`**, `timestamp`, counts, `label`, drift fields; envelope **`scope_context`** |
+| `compliance` | GET | viewer+ | `job_id`; optional `vs_baseline=1`; job **`scope_id`** / **`scope_name`** + **`scope_context`** |
 | `baseline` | GET | viewer+ | Current baseline config + effective id |
 | `baseline_debug` | GET | **admin** | Validation detail for baseline |
 | `compare_debug` | GET | **admin** | `job_a`, `job_b`, optional `sample_limit` |
@@ -939,7 +1089,7 @@ Roadmap **phase numbers 9–13** match the SQLite migration markers in **`api/db
 
 ### Upcoming
 - **Phase 14**: Integrations program —
-  - **14.1 Core outbound:** syslog, Splunk/HEC, Grafana-friendly exports/webhooks
+  - **14.1 Core foundation (shipped):** **`integrations`** table + admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); Prometheus / JSONL / report-summary **pull** endpoints with **per-integration** pull tokens (plus optional legacy global fallback); **Integrations** UI. Automatic scan/change export fan-out remains **future** work.
   - **14.2 Monitoring/ops:** Zabbix + alert/status mapping
   - **14.3 Infrastructure APIs:** Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting
   - **14.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)

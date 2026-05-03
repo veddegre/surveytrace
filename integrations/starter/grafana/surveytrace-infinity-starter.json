@@ -1,0 +1,212 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "columns": [
+            { "selector": "assets_total", "text": "assets_total", "type": "number" },
+            { "selector": "open_findings_total", "text": "open_findings_total", "type": "number" },
+            { "selector": "last_scan_finished_unix", "text": "last_scan_unix", "type": "number" }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "parser": "backend",
+          "refId": "A",
+          "root_selector": "live_metrics",
+          "source": "url",
+          "type": "json",
+          "url": "${surveytrace_base}/api/integrations_dashboard.php",
+          "url_options": {
+            "method": "GET",
+            "headers": [
+              { "key": "Authorization", "value": "Bearer ${surveytrace_token}" }
+            ]
+          }
+        }
+      ],
+      "title": "Live metrics (from dashboard bundle)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 5 },
+      "id": 2,
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "columns": [
+            { "selector": "job_id", "text": "job_id", "type": "number" },
+            { "selector": "scope_id", "text": "scope_id", "type": "number" },
+            { "selector": "scope_name", "text": "scope_name", "type": "string" },
+            { "selector": "timestamp", "text": "timestamp", "type": "string" },
+            { "selector": "asset_count", "text": "asset_count", "type": "number" },
+            { "selector": "open_findings_total", "text": "open_findings_total", "type": "number" }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "parser": "backend",
+          "refId": "A",
+          "root_selector": "trends_summary",
+          "source": "url",
+          "type": "json",
+          "url": "${surveytrace_base}/api/integrations_dashboard.php",
+          "url_options": {
+            "method": "GET",
+            "headers": [
+              { "key": "Authorization", "value": "Bearer ${surveytrace_token}" }
+            ]
+          }
+        }
+      ],
+      "title": "Scoped trends (trends_summary slice)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 15 },
+      "id": 3,
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "columns": [
+            { "selector": "overall_pass", "text": "overall_pass", "type": "boolean" },
+            { "selector": "scope_id", "text": "scope_id", "type": "number" },
+            { "selector": "scope_name", "text": "scope_name", "type": "string" },
+            { "selector": "job_id", "text": "job_id", "type": "number" }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "parser": "backend",
+          "refId": "A",
+          "root_selector": "compliance_snapshot",
+          "source": "url",
+          "type": "json",
+          "url": "${surveytrace_base}/api/integrations_dashboard.php",
+          "url_options": {
+            "method": "GET",
+            "headers": [
+              { "key": "Authorization", "value": "Bearer ${surveytrace_token}" }
+            ]
+          }
+        }
+      ],
+      "title": "Latest compliance snapshot (row)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 15 },
+      "id": 4,
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "columns": [
+            { "selector": "occurred_at", "text": "occurred_at", "type": "string" },
+            { "selector": "event_type", "text": "event_type", "type": "string" },
+            { "selector": "severity", "text": "severity", "type": "string" },
+            { "selector": "scope_id", "text": "scope_id", "type": "number" },
+            { "selector": "scope_name", "text": "scope_name", "type": "string" },
+            { "selector": "subject.job_id", "text": "job_id", "type": "number" }
+          ],
+          "filters": [],
+          "format": "table",
+          "global_query_id": "",
+          "parser": "backend",
+          "refId": "A",
+          "root_selector": "events",
+          "source": "url",
+          "type": "json",
+          "url": "${surveytrace_base}/api/integrations_events.php?since=${since_iso}&format=json&limit=80&flat_scope=1",
+          "url_options": {
+            "method": "GET",
+            "headers": [
+              { "key": "Authorization", "value": "Bearer ${surveytrace_token}" }
+            ]
+          }
+        }
+      ],
+      "title": "Recent events (requires since_iso variable)",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["surveytrace", "infinity"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "https://surveytrace.example", "value": "https://surveytrace.example" },
+        "hide": 0,
+        "label": "SurveyTrace base URL",
+        "name": "surveytrace_base",
+        "options": [
+          { "selected": true, "text": "https://surveytrace.example", "value": "https://surveytrace.example" }
+        ],
+        "query": "https://surveytrace.example",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": false, "text": "", "value": "" },
+        "hide": 2,
+        "label": "Integration pull token (omit if set on datasource)",
+        "name": "surveytrace_token",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": true, "text": "2026-05-01T00:00:00Z", "value": "2026-05-01T00:00:00Z" },
+        "hide": 0,
+        "label": "Events since (UTC ISO8601)",
+        "name": "since_iso",
+        "options": [
+          { "selected": true, "text": "2026-05-01T00:00:00Z", "value": "2026-05-01T00:00:00Z" }
+        ],
+        "query": "2026-05-01T00:00:00Z",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Infinity datasource",
+        "multi": false,
+        "name": "infinity",
+        "options": [],
+        "query": "yesoreyeram-infinity-datasource",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "SurveyTrace starter (Infinity JSON)",
+  "uid": "surveytrace-infinity-starter",
+  "version": 1,
+  "weekStart": ""
+}

@@ -18,6 +18,10 @@
  * POST reporting.php?action=set_baseline  JSON: {"job_id": 10} or {"job_id": 10, "scope_id": 3} for scoped baseline
  * GET  …&scope_id  — optional on trends_summary, trends, compliance, summary, baseline:
  *      omit param = all completed jobs (legacy); 0 = unscoped only; N = that scope
+ *
+ * Phase 14 base — external-friendly reporting (bounded JSON, scope-aware):
+ *   `trends_summary`, `compare_summary`, and `compliance` include `scope_context` plus per-row or
+ *   per-job `scope_id` / `scope_name` where applicable (see `api/lib_reporting_event_model.php`).
  */
 
 declare(strict_types=1);
@@ -111,10 +115,12 @@ switch ($action) {
             $scopeAlign = st_reporting_compare_scope_alignment($db, $ja, $jb);
         } catch (Throwable $e) {
             $scopeAlign = [
-                'job_a_scope_id' => null,
-                'job_b_scope_id' => null,
-                'same_scope'     => true,
-                'comparable'     => true,
+                'job_a_scope_id'   => null,
+                'job_b_scope_id'   => null,
+                'job_a_scope_name' => null,
+                'job_b_scope_name' => null,
+                'same_scope'       => true,
+                'comparable'       => true,
             ];
         }
         $unscopedUncertain = false;
@@ -123,9 +129,11 @@ switch ($action) {
         } catch (Throwable $e) {
             $unscopedUncertain = false;
         }
+        $scopeF = st_reporting_scope_filter_param();
         st_json([
-            'ok'           => true,
-            'diff_summary' => [
+            'ok'             => true,
+            'scope_context'  => st_reporting_scope_context_for_response($db, $scopeF),
+            'diff_summary'   => [
                 'job_a'                   => $diff['job_a'],
                 'job_b'                   => $diff['job_b'],
                 'semantics'               => $diff['semantics'],
@@ -181,7 +189,11 @@ switch ($action) {
         try {
             $lim = st_int('limit', 30, 1, 50);
             $scopeF = st_reporting_scope_filter_param();
-            st_json(['ok' => true, 'trends_summary' => st_reporting_trends_summary($db, $lim, $scopeF)]);
+            st_json([
+                'ok'              => true,
+                'scope_context'   => st_reporting_scope_context_for_response($db, $scopeF),
+                'trends_summary'  => st_reporting_trends_summary($db, $lim, $scopeF),
+            ]);
         } catch (Throwable $e) {
             @error_log('SurveyTrace reporting trends_summary: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
             $err = ['ok' => false, 'error' => 'Could not load scan history.', 'trends_summary' => []];
@@ -211,8 +223,9 @@ switch ($action) {
             st_json($err);
         }
         st_json([
-            'ok'         => true,
-            'compliance' => $comp,
+            'ok'            => true,
+            'scope_context' => st_reporting_scope_context_for_response($db, $scopeF),
+            'compliance'    => $comp,
         ]);
 
     case 'baseline':

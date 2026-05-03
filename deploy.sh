@@ -149,6 +149,15 @@ API_FILES=(
   health.php
   export.php
   devices.php
+  lib_reporting_event_model.php
+  lib_integrations_outbound.php
+  lib_integrations.php
+  integrations.php
+  integrations_metrics.php
+  integrations_events.php
+  integrations_report_summary.php
+  integrations_dashboard.php
+  lib_integrations_dashboard.php
   lib_reporting.php
   lib_scan_scopes.php
   scan_scopes.php
@@ -160,6 +169,15 @@ for f in "${API_FILES[@]}"; do
 done
 [ -f "$SRC/VERSION" ] && sudo cp "$SRC/VERSION" "$DEST/"
 echo "  API files deployed"
+
+# ---------------------------------------------------------------------------
+# Starter integrations (Splunk / Grafana) — optional copy for operators
+# ---------------------------------------------------------------------------
+if [[ -d "$SRC/integrations/starter" ]]; then
+  sudo mkdir -p "$DEST/integrations-starter"
+  sudo cp -R "$SRC/integrations/starter/." "$DEST/integrations-starter/"
+  echo "  integrations-starter packaged to $DEST/integrations-starter"
+fi
 
 # ---------------------------------------------------------------------------
 # Public (web UI)

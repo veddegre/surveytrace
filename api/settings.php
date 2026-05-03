@@ -17,6 +17,10 @@
  *   - ai_openwebui_base_url — http(s) origin of Open WebUI (no trailing slash required); env OPENWEBUI_BASE_URL overrides DB
  *   - ai_openwebui_api_key — Bearer token for Open WebUI API; env OPENWEBUI_API_KEY overrides DB
  *   - security_allow_private_outbound_targets: bool (default false; allow private/loopback OIDC/OpenWebUI endpoints)
+ *   - integration_webhook_enabled: bool — reserved legacy flag (Phase 14.1: no server path calls `st_integrations_outbound_emit()`; use **Integrations** push rows + test/sample instead)
+ *   - integration_webhook_url: string — HTTPS URL (http allowed only when security_allow_private_outbound_targets is on)
+ *   - integration_webhook_secret: optional HMAC secret (X-SurveyTrace-Signature: sha256=…); never returned on GET
+ *   - integration_webhook_secret_remove: truthy — clear stored secret
  *   - ai_model: string (Ollama tag, e.g. phi3:mini)
  *   - ai_timeout_ms: int (100..5000)
  *   - ai_operator_ollama_timeout_s: int (120..3600) — UI host summary / scan AI refresh Ollama wall clock
@@ -334,6 +338,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'collector_artifact_s3_prefix' => (string)st_config('collector_artifact_s3_prefix', 'surveytrace/collector-artifacts'),
         'collector_artifact_s3_path_style' => st_config('collector_artifact_s3_path_style', '1') === '1',
         'collector_artifact_s3_tls_verify' => st_config('collector_artifact_s3_tls_verify', '1') === '1',
+        'integration_webhook_enabled' => st_config('integration_webhook_enabled', '0') === '1',
+        'integration_webhook_url' => (string) st_config('integration_webhook_url', ''),
+        'integration_webhook_secret_configured' => trim((string) st_config('integration_webhook_secret', '')) !== '',
     ]);
 }
 
@@ -504,6 +511,49 @@ if (array_key_exists('security_allow_private_outbound_targets', $body)) {
     $v = !empty($body['security_allow_private_outbound_targets']);
     st_config_set('security_allow_private_outbound_targets', $v ? '1' : '0');
     $changed['security_allow_private_outbound_targets'] = $v;
+}
+if (array_key_exists('integration_webhook_enabled', $body)) {
+    $v = !empty($body['integration_webhook_enabled']);
+    st_config_set('integration_webhook_enabled', $v ? '1' : '0');
+    $changed['integration_webhook_enabled'] = $v;
+}
+if (array_key_exists('integration_webhook_url', $body)) {
+    $u = trim((string) $body['integration_webhook_url']);
+    if ($u === '') {
+        st_config_set('integration_webhook_url', '');
+        $changed['integration_webhook_url'] = '';
+    } else {
+        if (strlen($u) > 2048) {
+            st_json(['error' => 'integration_webhook_url is too long (max 2048)'], 400);
+        }
+        $p = parse_url($u);
+        if (! is_array($p) || empty($p['scheme']) || empty($p['host'])) {
+            st_json(['error' => 'integration_webhook_url must be a valid URL with scheme and host'], 400);
+        }
+        $scheme = strtolower((string) $p['scheme']);
+        $allowHttpLab = array_key_exists('security_allow_private_outbound_targets', $changed)
+            ? (bool) $changed['security_allow_private_outbound_targets']
+            : (st_config('security_allow_private_outbound_targets', '0') === '1');
+        if ($scheme !== 'https' && ! ($scheme === 'http' && $allowHttpLab)) {
+            st_json(['error' => 'integration_webhook_url must use https: (or http: only when security_allow_private_outbound_targets is enabled)'], 400);
+        }
+        st_config_set('integration_webhook_url', $u);
+        $changed['integration_webhook_url'] = $u;
+    }
+}
+if (!empty($body['integration_webhook_secret_remove'])) {
+    st_config_set('integration_webhook_secret', '');
+    $changed['integration_webhook_secret_configured'] = false;
+} elseif (array_key_exists('integration_webhook_secret', $body)) {
+    $s = trim((string) $body['integration_webhook_secret']);
+    if ($s === '') {
+        st_json(['error' => 'integration_webhook_secret is empty — use integration_webhook_secret_remove to clear'], 400);
+    }
+    if (strlen($s) > 512) {
+        st_json(['error' => 'integration_webhook_secret is too long (max 512)'], 400);
+    }
+    st_config_set('integration_webhook_secret', $s);
+    $changed['integration_webhook_secret_configured'] = true;
 }
 if (array_key_exists('collector_token_ttl_hours', $body)) {
     $v = max(1, min(24 * 365, (int)$body['collector_token_ttl_hours']));

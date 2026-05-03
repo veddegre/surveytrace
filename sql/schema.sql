@@ -308,6 +308,32 @@ CREATE INDEX IF NOT EXISTS idx_report_artifacts_created ON report_artifacts(crea
 CREATE INDEX IF NOT EXISTS idx_report_artifacts_schedule ON report_artifacts(schedule_id, id DESC);
 
 -- -------------------------------------------------------
+-- Phase 14.1 — integrations configuration (push + pull metadata rows)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS integrations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    endpoint_url   TEXT NOT NULL DEFAULT '',
+    host           TEXT NOT NULL DEFAULT '',
+    port           INTEGER,
+    auth_secret    TEXT,
+    extra_json     TEXT NOT NULL DEFAULT '{}',
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_test_at   DATETIME,
+    last_test_status TEXT,
+    last_error     TEXT,
+    token_hash         TEXT,
+    token_created_at   DATETIME,
+    token_last_used_at DATETIME,
+    token_last_used_ip TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_integrations_type ON integrations(type);
+CREATE INDEX IF NOT EXISTS idx_integrations_enabled ON integrations(enabled);
+
+-- -------------------------------------------------------
 -- Port snapshots: track port changes over time
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS port_history (

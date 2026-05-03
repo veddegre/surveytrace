@@ -123,6 +123,10 @@ if (is_readable($dbProbe)) {
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6.5" width="11" height="6" rx="1.2"/><path d="M4.5 6V4.8A2.5 2.5 0 0 1 7 2.3a2.5 2.5 0 0 1 2.5 2.5V6"/><circle cx="7" cy="9.5" r="0.8"/></svg>
     Access control
   </div>
+  <div class="ni" id="nintegrations" onclick="goTab('integrations');hiNav('nintegrations')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h8M3 7h8M3 9.5h5"/><rect x="1.5" y="2" width="11" height="10" rx="1.2"/></svg>
+    Integrations
+  </div>
   <div class="ni" id="nsettings" onclick="goTab('settings');hiNav('nsettings')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
     Settings
@@ -1178,6 +1182,64 @@ if (is_readable($dbProbe)) {
         </table>
       </div>
     </details>
+  </div>
+</div>
+
+<!-- ================================================================ INTEGRATIONS (admin) -->
+<div class="tab" id="t-integrations">
+  <div class="card">
+    <div class="ct">Integrations (Phase 14.1)</div>
+    <p class="help-line mb10">
+      Configure outbound push targets (manual <strong>Test</strong> / <strong>Sample</strong> only for now) and
+      <strong>per-integration pull tokens</strong> for Prometheus, JSON/JSONL events, and report-summary HTTP endpoints
+      (one row per external consumer is recommended). A <strong>legacy global</strong> token remains optional as a fallback.
+      Secrets are stored on the server and are <strong>never</strong> returned in list responses.
+    </p>
+    <div class="row-wrap gap6 mb10">
+      <button type="button" class="btnp btn-xs" onclick="stIntegrationsRotateLegacyPullToken()">Rotate legacy global pull token</button>
+      <span class="text-dim text-micro" id="st-int-pull-hint">Pull token status loads with the list.</span>
+    </div>
+    <div class="hint-micro mb10" id="st-int-pull-reveal" style="display:none"></div>
+    <div class="flbl">Add integration</div>
+    <div class="row-wrap gap6 mb6 flex-wrap">
+      <input class="finp" id="st-int-new-name" placeholder="Name" style="min-width:140px">
+      <select class="finp" id="st-int-new-type" style="min-width:180px">
+        <option value="webhook">webhook (HTTPS JSON)</option>
+        <option value="splunk_hec">splunk_hec</option>
+        <option value="loki">loki (push)</option>
+        <option value="syslog">syslog (UDP/TCP)</option>
+        <option value="prometheus_pull">prometheus_pull (marker)</option>
+        <option value="json_events_pull">json_events_pull (marker)</option>
+        <option value="report_summary_pull">report_summary_pull (marker)</option>
+      </select>
+      <label class="text-micro" style="align-self:center"><input type="checkbox" id="st-int-new-enabled" checked> Enabled</label>
+      <button type="button" class="tbtn btn-xs" onclick="stIntegrationsCreate()">Create</button>
+    </div>
+    <div class="row-wrap gap6 mb10 flex-wrap">
+      <input class="finp" id="st-int-new-endpoint" placeholder="endpoint_url (webhook / HEC / Loki push URL)" style="min-width:280px;flex:1">
+    </div>
+    <div class="row-wrap gap6 mb10 flex-wrap">
+      <input class="finp" id="st-int-new-host" placeholder="syslog host" style="min-width:160px">
+      <input class="finp" id="st-int-new-port" placeholder="syslog port" style="width:100px" type="number">
+      <input class="finp" id="st-int-new-secret" type="password" autocomplete="new-password" placeholder="auth secret (HEC token, HMAC secret, …)" style="min-width:220px;flex:1">
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>ID</th><th>Name</th><th>Type</th><th>On</th><th>Target</th><th>Auth</th><th>Pull access</th><th>Last test</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="st-int-tbody"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="help-line text-dim mt10 text-micro">
+      Pull URLs (Bearer or <code class="code-accent">?token=</code>): <code class="code-accent">/api/integrations_metrics.php</code> (add <code class="code-accent">?format=json</code> for Grafana Infinity),
+      <code class="code-accent">/api/integrations_dashboard.php</code> (single JSON bundle),
+      <code class="code-accent">/api/integrations_events.php?since=…&amp;format=jsonl</code>,
+      <code class="code-accent">/api/integrations_report_summary.php?scope_id=…</code>.
+      Starter Splunk / Grafana files: <code class="code-accent">integrations/starter/</code> on the server repo (see README).
+    </p>
   </div>
 </div>
 
@@ -2470,6 +2532,10 @@ function goTab(name) {
         toast('Collector management is available to admin users only.', 'err');
         name = 'dash';
     }
+    if (name === 'integrations' && !stRoleIsAdmin()) {
+        toast('Integrations are available to admin users only.', 'err');
+        name = 'dash';
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
@@ -2504,6 +2570,9 @@ function goTab(name) {
             await hydrateFeedSyncFromServer();
             await hydrateFeedSyncLastOutputFromServer();
         })();
+    }
+    if (name === 'integrations') {
+        void loadIntegrationsTab();
     }
 }
 
@@ -6338,6 +6407,230 @@ function syncNvdKeyFormVisibility(configured) {
         setRow.classList.add('hide');
         emptyRow.classList.remove('hide');
         if (inp) inp.value = '';
+    }
+}
+
+function stIntegrationIsPullType(t) {
+    return t === 'prometheus_pull' || t === 'json_events_pull' || t === 'report_summary_pull';
+}
+
+async function loadIntegrationsTab() {
+    if (!stRoleIsAdmin()) return;
+    const tb = document.getElementById('st-int-tbody');
+    const hint = document.getElementById('st-int-pull-hint');
+    if (tb) tb.innerHTML = '<tr><td colspan="9" class="loading">Loading…</td></tr>';
+    const d = await api('/api/integrations.php');
+    if (!d || !d.ok) {
+        if (tb) tb.innerHTML = '<tr><td colspan="9">Could not load integrations.</td></tr>';
+        return;
+    }
+    if (hint) {
+        const parts = [];
+        if (d.per_integration_pull_token_configured) {
+            parts.push('Per-integration pull tokens active — rotate per row without affecting other consumers.');
+        } else {
+            parts.push('Add a pull marker row (prometheus_pull / json_events_pull / report_summary_pull) and use Rotate token on that row.');
+        }
+        if (d.legacy_pull_token_configured) {
+            parts.push('Legacy global token is configured (fallback for all pull routes).');
+        }
+        hint.textContent = parts.join(' ');
+    }
+    const rows = d.integrations || [];
+    if (!tb) return;
+    if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="9" class="text-dim">No integrations configured.</td></tr>';
+        return;
+    }
+    tb.innerHTML = rows.map((r) => {
+        const tgt = r.type === 'syslog'
+            ? esc(r.host || '') + (r.port ? ':' + esc(String(r.port)) : '')
+            : esc(r.endpoint_url || '');
+        const auth = r.auth_configured ? '<span class="text-strong">set</span>' : '<span class="text-dim">—</span>';
+        const lt = r.last_test_at ? esc(r.last_test_at) : '—';
+        const st = r.last_test_status ? esc(r.last_test_status) : '—';
+        const on = r.enabled ? 'yes' : 'no';
+        let pullCell = '<span class="text-dim">—</span>';
+        if (stIntegrationIsPullType(r.type)) {
+            const tc = r.token_configured ? '<span class="text-strong">token configured</span>' : '<span class="text-dim">no token</span>';
+            const created = r.token_created_at ? `<div class="text-dim text-micro">created ${esc(r.token_created_at)}</div>` : '';
+            const used = r.token_last_used_at
+                ? `<div class="text-dim text-micro">last use ${esc(r.token_last_used_at)}${r.token_last_used_ip ? ' · ' + esc(r.token_last_used_ip) : ''}</div>`
+                : '';
+            pullCell = `<div class="text-micro">${tc}</div>${created}${used}
+            <button type="button" class="tbtn btn-xxs mt4" onclick="stIntegrationRotateToken(${r.id})">Generate / Rotate token</button>`;
+        }
+        return `<tr>
+          <td class="mono">${r.id}</td>
+          <td>${esc(r.name)}</td>
+          <td class="mono-sm">${esc(r.type)}</td>
+          <td>${on}</td>
+          <td class="mono-sm" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${tgt}">${tgt || '—'}</td>
+          <td>${auth}</td>
+          <td class="text-micro" style="min-width:140px;vertical-align:top">${pullCell}</td>
+          <td class="text-micro">${lt}<br><span class="text-dim">${st}</span></td>
+          <td class="text-nowrap">
+            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationEdit(${r.id})">Edit</button>
+            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationTest(${r.id})">Test</button>
+            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationSample(${r.id})">Sample</button>
+            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationToggle(${r.id}, ${r.enabled ? 0 : 1})">${r.enabled ? 'Disable' : 'Enable'}</button>
+            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationDelete(${r.id})">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
+}
+
+async function stIntegrationsCreate() {
+    if (!stRoleIsAdmin()) return;
+    const name = (document.getElementById('st-int-new-name') || {}).value || '';
+    const type = (document.getElementById('st-int-new-type') || {}).value || 'webhook';
+    const enabled = !!(document.getElementById('st-int-new-enabled') || {}).checked;
+    const endpoint_url = (document.getElementById('st-int-new-endpoint') || {}).value || '';
+    const host = (document.getElementById('st-int-new-host') || {}).value || '';
+    const portRaw = (document.getElementById('st-int-new-port') || {}).value;
+    const port = portRaw === '' || portRaw === undefined ? null : parseInt(String(portRaw), 10);
+    const auth_secret = (document.getElementById('st-int-new-secret') || {}).value || '';
+    const r = await apiPost('/api/integrations.php', {
+        action: 'create',
+        name: name.trim(),
+        type,
+        enabled,
+        endpoint_url: endpoint_url.trim(),
+        host: host.trim(),
+        port: Number.isFinite(port) ? port : null,
+        auth_secret: auth_secret.trim(),
+    });
+    if (r && r.ok) {
+        toast('Integration created', 'ok');
+        ['st-int-new-name', 'st-int-new-endpoint', 'st-int-new-host', 'st-int-new-port', 'st-int-new-secret'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Create failed', 'err');
+    }
+}
+
+async function stIntegrationsRotateLegacyPullToken() {
+    if (!stRoleIsAdmin()) return;
+    if (!confirm('Generate a new legacy global pull token? This affects all pull endpoints until each client is updated. Prefer per-row tokens when possible.')) return;
+    const r = await apiPost('/api/integrations.php', { action: 'rotate_pull_token' });
+    const box = document.getElementById('st-int-pull-reveal');
+    if (r && r.ok && r.pull_token) {
+        toast('Legacy token generated — copy from the box below', 'ok');
+        if (box) {
+            box.style.display = 'block';
+            box.innerHTML = '<strong>Copy this token now. It will not be shown again.</strong> <code class="mono">' + esc(r.pull_token) + '</code>';
+        }
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Rotate failed', 'err');
+    }
+}
+
+async function stIntegrationRotateToken(id) {
+    if (!stRoleIsAdmin()) return;
+    if (!confirm('Generate a new pull token for this integration? The previous token stops working immediately.')) return;
+    const r = await apiPost('/api/integrations.php', { action: 'rotate_token', integration_id: id });
+    const box = document.getElementById('st-int-pull-reveal');
+    if (r && r.ok && r.token) {
+        toast('Token generated — copy below', 'ok');
+        if (box) {
+            box.style.display = 'block';
+            box.innerHTML = '<strong>Copy this token now. It will not be shown again.</strong> <code class="mono">' + esc(r.token) + '</code>';
+        }
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Rotate failed', 'err');
+    }
+}
+
+async function stIntegrationTest(id) {
+    const r = await apiPost('/api/integrations.php', { action: 'test', id });
+    if (r && r.ok) toast('Test send OK (HTTP ' + (r.http_code != null ? r.http_code : 'n/a') + ')', 'ok');
+    else toast((r && r.detail) ? r.detail : (r && r.error) ? r.error : 'Test failed', 'err');
+    await loadIntegrationsTab();
+}
+
+async function stIntegrationSample(id) {
+    const r = await apiPost('/api/integrations.php', { action: 'sample', id });
+    if (r && r.ok) toast('Sample payload sent', 'ok');
+    else toast((r && r.detail) ? r.detail : (r && r.error) ? r.error : 'Sample failed', 'err');
+    await loadIntegrationsTab();
+}
+
+async function stIntegrationToggle(id, enabled) {
+    const cur = await api('/api/integrations.php');
+    const row = (cur.integrations || []).find((x) => x.id === id);
+    if (!row) return;
+    const r = await apiPost('/api/integrations.php', {
+        action: 'update',
+        id,
+        name: row.name,
+        type: row.type,
+        enabled: !!enabled,
+        endpoint_url: row.endpoint_url || '',
+        host: row.host || '',
+        port: row.port,
+        extra_json: row.extra_json || '{}',
+    });
+    if (r && r.ok) {
+        toast(enabled ? 'Enabled' : 'Disabled', 'ok');
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Update failed', 'err');
+    }
+}
+
+async function stIntegrationEdit(id) {
+    const cur = await api('/api/integrations.php');
+    const row = (cur.integrations || []).find((x) => x.id === id);
+    if (!row) return;
+    const name = prompt('Integration name', row.name);
+    if (name === null) return;
+    const endpoint_url = prompt('endpoint_url (webhook / HEC / Loki)', row.endpoint_url || '');
+    if (endpoint_url === null) return;
+    const host = prompt('syslog host (optional)', row.host || '');
+    if (host === null) return;
+    const portStr = prompt('syslog port (optional, blank = null)', row.port != null ? String(row.port) : '');
+    if (portStr === null) return;
+    const port = portStr.trim() === '' ? null : parseInt(portStr, 10);
+    const secret = prompt('New auth secret (blank = keep unchanged; type CLEAR to remove)');
+    if (secret === null) return;
+    const body = {
+        action: 'update',
+        id,
+        name: name.trim(),
+        type: row.type,
+        enabled: !!row.enabled,
+        endpoint_url: endpoint_url.trim(),
+        host: host.trim(),
+        port: Number.isFinite(port) ? port : null,
+        extra_json: row.extra_json || '{}',
+    };
+    if (secret === 'CLEAR') {
+        body.auth_secret_clear = true;
+    } else if (secret.trim() !== '') {
+        body.auth_secret = secret.trim();
+    }
+    const r = await apiPost('/api/integrations.php', body);
+    if (r && r.ok) {
+        toast('Updated', 'ok');
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Update failed', 'err');
+    }
+}
+
+async function stIntegrationDelete(id) {
+    if (!confirm('Delete integration #' + id + '?')) return;
+    const r = await apiPost('/api/integrations.php', { action: 'delete', id });
+    if (r && r.ok) {
+        toast('Deleted', 'ok');
+        await loadIntegrationsTab();
+    } else {
+        toast((r && r.error) ? r.error : 'Delete failed', 'err');
     }
 }
 

@@ -136,3 +136,36 @@ function st_scan_scopes_json_list_normalize(mixed $raw, string $fallbackJson): s
 
     return $fallbackJson;
 }
+
+/**
+ * Cached id → display name map for Phase 14 payloads (reporting scope labels).
+ *
+ * @return array<int, string>
+ */
+function st_scan_scopes_id_to_name_map(PDO $db): array
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $cache = [];
+    foreach (st_scan_scopes_list($db) as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        if ($id > 0) {
+            $cache[$id] = (string) ($row['name'] ?? '');
+        }
+    }
+
+    return $cache;
+}
+
+function st_scan_scopes_resolve_name(PDO $db, int $scopeId): ?string
+{
+    if ($scopeId <= 0) {
+        return null;
+    }
+    $m = st_scan_scopes_id_to_name_map($db);
+    $n = $m[$scopeId] ?? '';
+
+    return $n !== '' ? $n : null;
+}
