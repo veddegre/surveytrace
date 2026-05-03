@@ -254,51 +254,58 @@ if (is_readable($dbProbe)) {
       <option value="stale">Stale</option>
       <option value="retired">Retired</option>
     </select>
-    <span id="af-zbx-wrap" class="row-wrap gap6 flex-wrap" style="display:none;align-items:center" title="Zabbix filters (after migrations + sync)">
-      <select class="finp narrow" id="af-zbx-monitored" onchange="loadAssets(1)" title="Zabbix monitoring">
-        <option value="">Zbx: all</option>
-        <option value="0">Zbx: not monitored</option>
-        <option value="1">Zbx: monitored</option>
-      </select>
-      <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
-        <input type="checkbox" id="af-zbx-unavail" onchange="loadAssets(1)"> unavailable
-      </label>
-      <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
-        <input type="checkbox" id="af-zbx-problems" onchange="loadAssets(1)"> problems
-      </label>
-      <input class="finp narrow" id="af-zbx-group" placeholder="Zbx group" style="min-width:100px;max-width:140px" oninput="debounceAssets()">
-      <input class="finp narrow" id="af-zbx-tag" placeholder="Zbx tag or Tag=val" style="min-width:120px;max-width:160px" oninput="debounceAssets()">
-    </span>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
       <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
       <option value="hostname">Hostname</option>
       <option value="category">Type</option><option value="top_cvss">CVSS</option>
       <option value="last_seen">Last seen</option><option value="open_findings">CVEs</option>
-      <option value="zabbix_problem_count">Zbx problems</option>
-      <option value="scope_name">Scope name</option>
+      <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
+      <option value="scope_name">Sort: Scope</option>
     </select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" id="af-zbx-col" onchange="stToggleAssetZbxColumn()">
-      Zbx column
-    </label>
     <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
       <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
       AI review
     </label>
-    <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
-    <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
+    <span class="row-wrap gap4" style="display:inline-flex;align-items:center;flex-wrap:wrap">
+      <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
+      <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
+    </span>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, and device filter">Clear filters</button>
   </div>
-  <div id="af-scope-bulk-wrap" class="row-wrap gap8 mb8" style="display:none;align-items:center;flex-wrap:wrap">
-    <span class="text-micro text-dim" id="af-scope-bulk-hint">Select hosts on this page, then set <strong>inventory</strong> scope (<code class="code-accent">assets.scope_id</code>) for grouping. This does not retag past <code class="code-accent">scan_jobs</code> rows.</span>
-    <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
-      <span>Scope</span>
-      <select class="finp narrow" id="af-bulk-scope-sel" style="min-width:200px">
-        <option value="">— choose scope —</option>
-      </select>
-    </label>
-    <button type="button" class="btnp btn-xs" id="af-bulk-scope-apply" onclick="void stAssetsBulkSetScope(false)">Set scope</button>
-    <button type="button" class="tbtn btn-xs" id="af-bulk-scope-clear" onclick="void stAssetsBulkSetScope(true)">Clear scope</button>
+  <div id="af-zbx-section" class="mb8" style="display:none">
+    <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
+      <button type="button" id="af-zbx-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-zbx-panel" onclick="stAssetsZbxDisclosureToggle()">Zabbix filters</button>
+      <span id="af-zbx-active-pill" class="text-micro text-dim" style="display:none" aria-live="polite"></span>
+    </div>
+    <div id="af-zbx-panel" class="hide" role="region" aria-labelledby="af-zbx-disclosure-btn">
+      <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+        <select class="finp narrow" id="af-zbx-monitored" onchange="stAssetsOnZbxFilterDirty()" title="Zabbix monitoring">
+          <option value="">All monitored states</option>
+          <option value="0">Not monitored</option>
+          <option value="1">Monitored</option>
+        </select>
+        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+          <input type="checkbox" id="af-zbx-unavail" onchange="stAssetsOnZbxFilterDirty()"> unavailable
+        </label>
+        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+          <input type="checkbox" id="af-zbx-problems" onchange="stAssetsOnZbxFilterDirty()"> problems
+        </label>
+        <input class="finp narrow" id="af-zbx-group" placeholder="Zbx group" style="min-width:100px;max-width:140px" oninput="debounceAssetsZbxAware()">
+        <input class="finp narrow" id="af-zbx-tag" placeholder="Zbx tag or Tag=val" style="min-width:120px;max-width:160px" oninput="debounceAssetsZbxAware()">
+        <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+          <input type="checkbox" id="af-zbx-col" onchange="stToggleAssetZbxColumn()"> Zbx column
+        </label>
+      </div>
+    </div>
+  </div>
+  <div id="af-bulk-actions-bar" class="mb8" style="display:none">
+    <div class="row-between gap10 flex-wrap" style="align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+      <span class="text-secondary mono-sm" id="af-bulk-selected-label">0 selected</span>
+      <div class="row-wrap gap6">
+        <button type="button" class="btnp btn-xs" onclick="void stAssetsOpenBulkSetScopeModal()">Set scope</button>
+        <button type="button" class="tbtn btn-xs" onclick="void stAssetsBulkClearScopeFromBar()">Clear scope</button>
+      </div>
+    </div>
   </div>
   <div id="af-device-banner" class="device-filter-banner hide">
     <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
@@ -317,7 +324,7 @@ if (is_readable($dbProbe)) {
         <th onclick="sortAssets('open_findings')">CVEs</th>
         <th onclick="sortAssets('top_cvss')">CVSS</th>
         <th id="af-th-zbx" class="hide" onclick="sortAssets('zabbix_problem_count')" title="Zabbix denormalized trust fields">Zbx</th>
-        <th onclick="sortAssets('scope_name')">Scope</th>
+        <th onclick="sortAssets('scope_name')" title="Inventory scope; reporting uses scan job scope for historical snapshots.">Scope</th>
         <th onclick="sortAssets('last_seen')">Last seen</th>
         <th>Edit</th>
       </tr></thead>
@@ -1916,22 +1923,57 @@ if (is_readable($dbProbe)) {
 <div id="st-asset-scope-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-asset-scope-title" onclick="if(event.target===this)closeStAssetScopeModal()">
   <div class="modal-card modal-w440" onclick="event.stopPropagation()">
     <div class="row-between mb10">
-      <div class="modal-title" id="st-asset-scope-title">Change scope</div>
+      <div class="modal-title" id="st-asset-scope-title">Change inventory scope</div>
       <button type="button" class="modal-close-x" onclick="closeStAssetScopeModal()" title="Close" aria-label="Close">×</button>
     </div>
     <p class="hint-micro mb6 mono-sm" id="st-asset-scope-ip"></p>
     <div class="hint-micro mb10 text-dim" id="st-asset-scope-summary" style="line-height:1.45"></div>
-    <label class="flbl" for="st-asset-scope-sel">Target inventory scope (<code class="code-accent">assets.scope_id</code>)</label>
+    <label class="flbl" for="st-asset-scope-sel" title="Inventory tag on this host. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
     <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
       <option value="0">— none (clear scope) —</option>
     </select>
     <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" id="st-asset-scope-confirm"> I confirm updating scope for this asset.
+      <input type="checkbox" id="st-asset-scope-confirm"> I confirm applying this scope change.
     </label>
     <div id="st-asset-scope-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
       <button type="button" class="tbtn" onclick="closeStAssetScopeModal()">Cancel</button>
       <button type="button" class="btnp" onclick="void submitStAssetScopeModal()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk set inventory scope (Assets tab; opens when Set scope from bulk bar) -->
+<div id="st-bulk-asset-scope-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-bulk-scope-title" onclick="if(event.target===this)closeStBulkAssetScopeModal()">
+  <div class="modal-card modal-w440" onclick="event.stopPropagation()">
+    <div class="row-between mb10">
+      <div class="modal-title" id="st-bulk-scope-title">Set scope for selection</div>
+      <button type="button" class="modal-close-x" onclick="closeStBulkAssetScopeModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="hint-micro mb8 mono-sm" id="st-bulk-scope-count"></p>
+    <label class="flbl" for="st-bulk-scope-sel" title="Inventory tag. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
+    <select class="finp w100 mb10" id="st-bulk-scope-sel"></select>
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" id="st-bulk-scope-confirm"> I confirm applying this scope to the selected assets.
+    </label>
+    <div id="st-bulk-scope-err" class="help-mono mb8" style="display:none"></div>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="closeStBulkAssetScopeModal()">Cancel</button>
+      <button type="button" class="btnp" onclick="void submitStBulkAssetScopeModal()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div id="st-bulk-scope-empty-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" onclick="if(event.target===this)closeStBulkScopeEmptyModal()">
+  <div class="modal-card modal-w400" onclick="event.stopPropagation()">
+    <div class="row-between mb10">
+      <div class="modal-title">No scopes yet</div>
+      <button type="button" class="modal-close-x" onclick="closeStBulkScopeEmptyModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="hint-micro mb10">Create a scope first, then assign it from Assets.</p>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="closeStBulkScopeEmptyModal()">Close</button>
+      <button type="button" class="btnp" onclick="stBulkScopeGoToScopesTab()">Open Scopes</button>
     </div>
   </div>
 </div>
@@ -2395,6 +2437,8 @@ var assetSort    = 'ip';
 var assetOrder   = 'asc';
 /** When > 0, assets list is limited to this logical device (from Devices tab). */
 var assetDeviceFilter = 0;
+/** Set from GET /api/assets.php zabbix_filters_available after each list load. */
+window.__stAssetsZabbixFiltersAvailable = false;
 var devicePage   = 1;
 var vulnPage     = 1;
 var activeJobId  = null;
@@ -2529,7 +2573,10 @@ function applyRoleAwareUi() {
     disableByOnclick('stScopesOpenCreateModal(', !canScanManage);
     disableByOnclick('stScopesRename(', !canScanManage);
     disableByOnclick('stScopesDelete(', !canScanManage);
-    disableByOnclick('stAssetsBulkSetScope(', !canScanManage);
+    disableByOnclick('stAssetsOpenBulkSetScopeModal(', !canScanManage);
+    disableByOnclick('stAssetsBulkClearScopeFromBar(', !canScanManage);
+    disableByOnclick('submitStBulkAssetScopeModal(', !canScanManage);
+    disableByOnclick('stBulkScopeGoToScopesTab(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
@@ -3863,6 +3910,156 @@ function debounceAssets() {
     assetDebounce = setTimeout(() => loadAssets(1), 350);
 }
 
+function debounceAssetsZbxAware() {
+    stAssetsUpdateZabbixFilterPill();
+    stAssetsZbxEnsurePanelOpenForActiveFilters();
+    debounceAssets();
+}
+
+function stAssetsZabbixFilterActiveDims() {
+    let n = 0;
+    const zm = document.getElementById('af-zbx-monitored');
+    const v = zm && zm.value ? String(zm.value) : '';
+    if (v === '0' || v === '1') {
+        n++;
+    }
+    if (document.getElementById('af-zbx-unavail')?.checked) {
+        n++;
+    }
+    if (document.getElementById('af-zbx-problems')?.checked) {
+        n++;
+    }
+    if ((document.getElementById('af-zbx-group')?.value || '').trim()) {
+        n++;
+    }
+    if ((document.getElementById('af-zbx-tag')?.value || '').trim()) {
+        n++;
+    }
+    return n;
+}
+
+function stAssetsUpdateZabbixFilterPill() {
+    const pill = document.getElementById('af-zbx-active-pill');
+    if (!pill) {
+        return;
+    }
+    if (!window.__stAssetsZabbixFiltersAvailable) {
+        pill.style.display = 'none';
+        pill.textContent = '';
+        return;
+    }
+    const n = stAssetsZabbixFilterActiveDims();
+    if (n === 0) {
+        pill.style.display = 'none';
+        pill.textContent = '';
+        return;
+    }
+    pill.style.display = '';
+    pill.textContent = n === 1 ? 'Zabbix filters (1 active)' : `Zabbix filters (${n} active)`;
+}
+
+function stAssetsZbxEnsurePanelOpenForActiveFilters() {
+    if (!window.__stAssetsZabbixFiltersAvailable) {
+        return;
+    }
+    if (stAssetsZabbixFilterActiveDims() <= 0) {
+        return;
+    }
+    const panel = document.getElementById('af-zbx-panel');
+    const btn = document.getElementById('af-zbx-disclosure-btn');
+    if (!panel || !btn) {
+        return;
+    }
+    panel.classList.remove('hide');
+    btn.setAttribute('aria-expanded', 'true');
+}
+
+function stAssetsOnZbxFilterDirty() {
+    stAssetsUpdateZabbixFilterPill();
+    stAssetsZbxEnsurePanelOpenForActiveFilters();
+    loadAssets(1);
+}
+
+function stAssetsSyncZabbixDisclosureState() {
+    const panel = document.getElementById('af-zbx-panel');
+    const btn = document.getElementById('af-zbx-disclosure-btn');
+    if (!panel || !btn || !window.__stAssetsZabbixFiltersAvailable) {
+        return;
+    }
+    let open = stAssetsZabbixFilterActiveDims() > 0;
+    if (!open) {
+        try {
+            open = localStorage.getItem('st_assets_zbx_filters_open') === '1';
+        } catch (_e) {
+            open = false;
+        }
+    }
+    panel.classList.toggle('hide', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function stAssetsZbxDisclosureToggle() {
+    const panel = document.getElementById('af-zbx-panel');
+    const btn = document.getElementById('af-zbx-disclosure-btn');
+    if (!panel || !btn || !window.__stAssetsZabbixFiltersAvailable) {
+        return;
+    }
+    const willOpen = panel.classList.contains('hide');
+    panel.classList.toggle('hide', !willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    try {
+        localStorage.setItem('st_assets_zbx_filters_open', willOpen ? '1' : '0');
+    } catch (_e) {}
+}
+
+function stAssetsApplyZabbixFromServer(avail) {
+    window.__stAssetsZabbixFiltersAvailable = !!avail;
+    const sec = document.getElementById('af-zbx-section');
+    const opt = document.getElementById('af-sort-opt-zbx');
+    if (opt) {
+        if (avail) {
+            opt.removeAttribute('hidden');
+        } else {
+            opt.setAttribute('hidden', 'hidden');
+        }
+    }
+    if (sec) {
+        sec.style.display = avail ? '' : 'none';
+    }
+    if (!avail) {
+        const zm = document.getElementById('af-zbx-monitored');
+        const zu = document.getElementById('af-zbx-unavail');
+        const zp = document.getElementById('af-zbx-problems');
+        const zg = document.getElementById('af-zbx-group');
+        const zt = document.getElementById('af-zbx-tag');
+        const zc = document.getElementById('af-zbx-col');
+        if (zm) zm.value = '';
+        if (zu) zu.checked = false;
+        if (zp) zp.checked = false;
+        if (zg) zg.value = '';
+        if (zt) zt.value = '';
+        if (zc) zc.checked = false;
+        const thZbx = document.getElementById('af-th-zbx');
+        if (thZbx) thZbx.classList.add('hide');
+        const srt = document.getElementById('af-sort');
+        if (srt && srt.value === 'zabbix_problem_count') {
+            srt.value = 'ip';
+            assetSort = 'ip';
+        }
+        const panel = document.getElementById('af-zbx-panel');
+        const btn = document.getElementById('af-zbx-disclosure-btn');
+        if (panel) panel.classList.add('hide');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+        try {
+            localStorage.setItem('st_assets_zbx_filters_open', '0');
+        } catch (_e) {}
+    }
+    stAssetsUpdateZabbixFilterPill();
+    if (avail) {
+        stAssetsSyncZabbixDisclosureState();
+    }
+}
+
 function sortAssets(col) {
     if (assetSort === col) assetOrder = assetOrder === 'asc' ? 'desc' : 'asc';
     else { assetSort = col; assetOrder = 'asc'; }
@@ -3920,6 +4117,18 @@ function clearAllAssetFilters() {
     if (zp) zp.checked = false;
     if (zg) zg.value = '';
     if (zt) zt.value = '';
+    const zc = document.getElementById('af-zbx-col');
+    if (zc) zc.checked = false;
+    const thZbx = document.getElementById('af-th-zbx');
+    if (thZbx) thZbx.classList.add('hide');
+    const panel = document.getElementById('af-zbx-panel');
+    const zbtn = document.getElementById('af-zbx-disclosure-btn');
+    if (panel) panel.classList.add('hide');
+    if (zbtn) zbtn.setAttribute('aria-expanded', 'false');
+    try {
+        localStorage.setItem('st_assets_zbx_filters_open', '0');
+    } catch (_e) {}
+    stAssetsUpdateZabbixFilterPill();
     assetSort = 'ip';
     assetOrder = 'asc';
     assetDeviceFilter = 0;
@@ -4009,6 +4218,11 @@ function lifecycleBadgeHtml(asset) {
 }
 
 function stToggleAssetZbxColumn() {
+    if (!window.__stAssetsZabbixFiltersAvailable) {
+        const c = document.getElementById('af-zbx-col');
+        if (c) c.checked = false;
+        return;
+    }
     const th = document.getElementById('af-th-zbx');
     const on = !!document.getElementById('af-zbx-col')?.checked;
     if (th) th.classList.toggle('hide', !on);
@@ -4026,20 +4240,25 @@ function stAssetZabbixCellHtml(a) {
     return `<span class="mono-sm" title="${tip}">${dot} ${avs} · ${prs}</span>`;
 }
 
-function stFillAfBulkScopeSelect() {
-    const sel = document.getElementById('af-bulk-scope-sel');
+function stAssetPopulateScopeSelect(sel, opts) {
+    opts = opts || {};
+    const chooseLabel = opts.chooseLabel != null ? opts.chooseLabel : '— choose scope —';
     if (!sel) {
         return;
     }
     const prev = sel.value;
-    sel.innerHTML = '<option value="">— choose scope —</option>';
+    sel.innerHTML = '';
+    const o0 = document.createElement('option');
+    o0.value = '0';
+    o0.textContent = chooseLabel;
+    sel.appendChild(o0);
     (stScopesForFormsCache || []).forEach((sc) => {
         const o = document.createElement('option');
         o.value = String(sc.id);
         o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
         sel.appendChild(o);
     });
-    if ([...sel.options].some((o) => o.value === prev)) {
+    if ([...sel.options].some((opt) => opt.value === prev)) {
         sel.value = prev;
     }
 }
@@ -4057,6 +4276,7 @@ function stAssetsToggleSelectAll(checked) {
         head.checked = !!checked;
         head.indeterminate = false;
     }
+    stAssetsUpdateBulkBarVisibility();
 }
 
 function stAssetsSyncSelectAllCheckbox() {
@@ -4074,6 +4294,7 @@ function stAssetsSyncSelectAllCheckbox() {
     }
     head.checked = n > 0 && c === n;
     head.indeterminate = c > 0 && c < n;
+    stAssetsUpdateBulkBarVisibility();
 }
 
 function stAssetsSelectedIds() {
@@ -4087,36 +4308,133 @@ function stAssetsSelectedIds() {
     return ids;
 }
 
-async function stAssetsBulkSetScope(isClear) {
-    if (!stRoleCanManageScans()) {
-        toast('Scan editor or admin role required.', 'err');
+function stAssetsUpdateBulkBarVisibility() {
+    const bar = document.getElementById('af-bulk-actions-bar');
+    const lbl = document.getElementById('af-bulk-selected-label');
+    if (!bar || !lbl) {
+        return;
+    }
+    const n = stAssetsSelectedIds().length;
+    const can = stRoleCanManageScans() && !!window.__stAssetsScopeColumn;
+    if (!can || n === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = '';
+    lbl.textContent = n === 1 ? '1 selected' : n + ' selected';
+}
+
+function closeStBulkAssetScopeModal() {
+    const bg = document.getElementById('st-bulk-asset-scope-bg');
+    if (bg) {
+        bg.style.display = 'none';
+    }
+    const ck = document.getElementById('st-bulk-scope-confirm');
+    if (ck) {
+        ck.checked = false;
+    }
+    const errEl = document.getElementById('st-bulk-scope-err');
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+    }
+}
+
+function closeStBulkScopeEmptyModal() {
+    const bg = document.getElementById('st-bulk-scope-empty-bg');
+    if (bg) {
+        bg.style.display = 'none';
+    }
+}
+
+function stBulkScopeGoToScopesTab() {
+    closeStBulkScopeEmptyModal();
+    goTab('scopes');
+    hiNav('nscopes');
+    void loadScopesTab();
+}
+
+async function stAssetsOpenBulkSetScopeModal() {
+    if (!stRoleCanManageScans() || !window.__stAssetsScopeColumn) {
         return;
     }
     const ids = stAssetsSelectedIds();
     if (!ids.length) {
-        toast('Select at least one asset on this page.', 'err');
         return;
     }
-    const sel = document.getElementById('af-bulk-scope-sel');
-    let scopeId = 0;
-    if (!isClear) {
-        scopeId = parseInt(String(sel && sel.value ? sel.value : '0'), 10) || 0;
-        if (scopeId <= 0) {
-            toast('Choose a target scope, or use Clear scope.', 'err');
-            return;
+    await ensureStScopeSelects(false);
+    if (!(stScopesForFormsCache || []).length) {
+        const emptyBg = document.getElementById('st-bulk-scope-empty-bg');
+        if (emptyBg) {
+            emptyBg.style.display = 'flex';
         }
-    }
-    const verb = isClear ? 'clear scope for' : 'assign scope to';
-    const ok = await showConfirmModal(
-        `Confirm ${verb} ${ids.length} selected asset(s)?\n\nThe server validates each id and target scope. Zabbix rules are not applied automatically.`,
-        { title: 'Confirm bulk scope change', okText: 'Apply' }
-    );
-    if (!ok) {
         return;
     }
-    const body = { confirm: true, asset_ids: ids };
-    body.scope_id = isClear ? null : scopeId;
-    const r = await apiPost('/api/assets.php?action=set_scope_bulk', body);
+    const modal = document.getElementById('st-bulk-asset-scope-bg');
+    const cnt = document.getElementById('st-bulk-scope-count');
+    const sel = document.getElementById('st-bulk-scope-sel');
+    const errEl = document.getElementById('st-bulk-scope-err');
+    const ck = document.getElementById('st-bulk-scope-confirm');
+    if (!modal || !sel) {
+        return;
+    }
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+    }
+    if (ck) {
+        ck.checked = false;
+    }
+    modal.dataset.idsJson = JSON.stringify(ids);
+    if (cnt) {
+        cnt.textContent = String(ids.length) + ' asset(s) selected.';
+    }
+    stAssetPopulateScopeSelect(sel, { chooseLabel: '— choose scope —' });
+    modal.style.display = 'flex';
+}
+
+async function submitStBulkAssetScopeModal() {
+    const modal = document.getElementById('st-bulk-asset-scope-bg');
+    const sel = document.getElementById('st-bulk-scope-sel');
+    const errEl = document.getElementById('st-bulk-scope-err');
+    const ck = document.getElementById('st-bulk-scope-confirm');
+    if (!modal || !sel) {
+        return;
+    }
+    if (!ck || !ck.checked) {
+        if (errEl) {
+            errEl.textContent = 'Confirm the checkbox to apply.';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    if (errEl) {
+        errEl.style.display = 'none';
+        errEl.textContent = '';
+    }
+    let ids = [];
+    try {
+        ids = JSON.parse(modal.dataset.idsJson || '[]');
+    } catch (_e) {
+        ids = [];
+    }
+    if (!Array.isArray(ids) || !ids.length) {
+        toast('No assets selected.', 'err');
+        return;
+    }
+    const scopePick = parseInt(String(sel.value || '0'), 10) || 0;
+    if (scopePick <= 0) {
+        if (errEl) {
+            errEl.textContent = 'Choose a target scope.';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    const r = await apiPost('/api/assets.php?action=set_scope_bulk', {
+        confirm: true,
+        asset_ids: ids,
+        scope_id: scopePick,
+    });
     if (r && r.ok) {
         const u = r.updated != null ? r.updated : 0;
         const unc = r.unchanged != null ? r.unchanged : 0;
@@ -4129,14 +4447,65 @@ async function stAssetsBulkSetScope(isClear) {
             msg += ` Not found: ${m}.`;
         }
         toast(msg, m && !u && !unc ? 'err' : 'ok');
+        closeStBulkAssetScopeModal();
         stScopesForFormsCache = null;
         await ensureStScopeSelects(true);
+        stAssetsToggleSelectAll(false);
         loadAssets(typeof assetPage === 'number' ? assetPage : 1);
         if (stRoleIsAdmin()) {
             void loadZabbixEnrichmentPanel();
         }
     } else {
-        toast((r && r.error) || 'Bulk scope update failed', 'err');
+        if (errEl) {
+            errEl.textContent = (r && r.error) ? r.error : 'Bulk scope update failed';
+            errEl.style.display = '';
+        } else {
+            toast((r && r.error) || 'Bulk scope update failed', 'err');
+        }
+    }
+}
+
+async function stAssetsBulkClearScopeFromBar() {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required.', 'err');
+        return;
+    }
+    if (!window.__stAssetsScopeColumn) {
+        return;
+    }
+    const ids = stAssetsSelectedIds();
+    if (!ids.length) {
+        return;
+    }
+    const ok = await showConfirmModal(`Clear scope for ${ids.length} selected asset(s)?`, {
+        title: 'Clear scope',
+        okText: 'Clear',
+    });
+    if (!ok) {
+        return;
+    }
+    const r = await apiPost('/api/assets.php?action=set_scope_bulk', { confirm: true, asset_ids: ids, scope_id: null });
+    if (r && r.ok) {
+        const u = r.updated != null ? r.updated : 0;
+        const unc = r.unchanged != null ? r.unchanged : 0;
+        const m = r.missing != null ? r.missing : 0;
+        let msg = `Applied: ${u} asset(s).`;
+        if (unc) {
+            msg += ` Unchanged (already unscoped): ${unc}.`;
+        }
+        if (m) {
+            msg += ` Not found: ${m}.`;
+        }
+        toast(msg, m && !u && !unc ? 'err' : 'ok');
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        stAssetsToggleSelectAll(false);
+        loadAssets(typeof assetPage === 'number' ? assetPage : 1);
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
+        }
+    } else {
+        toast((r && r.error) || 'Bulk scope clear failed', 'err');
     }
 }
 
@@ -4175,7 +4544,7 @@ function stAssetScopeModalSyncLabels() {
     const pick = parseInt(String(sel.value || '0'), 10) || 0;
     const tgt = stAssetScopeLabelForId(pick);
     sum.innerHTML =
-        '<strong>Current:</strong> ' + esc(curL) + '<br><strong>Target:</strong> ' + esc(tgt);
+        '<strong>Current scope:</strong> ' + esc(curL) + '<br><strong>Target scope:</strong> ' + esc(tgt);
 }
 
 async function openStAssetScopeModal(assetId, ip, currentScopeId) {
@@ -4200,13 +4569,7 @@ async function openStAssetScopeModal(assetId, ip, currentScopeId) {
     }
     bg.dataset.assetId = String(assetId);
     bg.dataset.ip = String(ip || '');
-    sel.innerHTML = '<option value="0">— none (clear scope) —</option>';
-    (stScopesForFormsCache || []).forEach((sc) => {
-        const o = document.createElement('option');
-        o.value = String(sc.id);
-        o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
-        sel.appendChild(o);
-    });
+    stAssetPopulateScopeSelect(sel, { chooseLabel: '— none (clear scope) —' });
     const cur = parseInt(String(currentScopeId != null ? currentScopeId : 0), 10) || 0;
     sel.value = cur > 0 && [...sel.options].some((o) => o.value === String(cur)) ? String(cur) : '0';
     bg.dataset.currentScopeLabel = stAssetScopeLabelForId(cur);
@@ -4411,25 +4774,29 @@ async function loadAssets(page) {
     const sev  = document.getElementById('af-sev')?.value  || '';
     const sort = document.getElementById('af-sort')?.value || assetSort;
     const aiReview = !!document.getElementById('af-ai-review')?.checked;
-    const zbxCol = !!document.getElementById('af-zbx-col')?.checked;
+    const zbxOkForQuery = !!window.__stAssetsZabbixFiltersAvailable;
+    const zbxColBefore = zbxOkForQuery && !!document.getElementById('af-zbx-col')?.checked;
     const thZbx = document.getElementById('af-th-zbx');
-    if (thZbx) thZbx.classList.toggle('hide', !zbxCol);
-    const listCols = zbxCol ? 14 : 13;
-    const zMon = document.getElementById('af-zbx-monitored')?.value || '';
-    const zUn = document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
-    const zPr = document.getElementById('af-zbx-problems')?.checked ? '1' : '';
-    const zGr = (document.getElementById('af-zbx-group')?.value || '').trim();
-    const zTg = (document.getElementById('af-zbx-tag')?.value || '').trim();
+    if (thZbx) thZbx.classList.toggle('hide', !zbxColBefore);
+    const listColsLoading = zbxColBefore ? 14 : 13;
+    const zMon = zbxOkForQuery ? (document.getElementById('af-zbx-monitored')?.value || '') : '';
+    const zUn = zbxOkForQuery && document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
+    const zPr = zbxOkForQuery && document.getElementById('af-zbx-problems')?.checked ? '1' : '';
+    const zGr = zbxOkForQuery ? (document.getElementById('af-zbx-group')?.value || '').trim() : '';
+    const zTg = zbxOkForQuery ? (document.getElementById('af-zbx-tag')?.value || '').trim() : '';
     let zbxQ = '';
-    if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
-    if (zUn) zbxQ += '&zabbix_unavailable=1';
-    if (zPr) zbxQ += '&zabbix_has_problems=1';
-    if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
-    if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
+    if (zbxOkForQuery) {
+        if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
+        if (zUn) zbxQ += '&zabbix_unavailable=1';
+        if (zPr) zbxQ += '&zabbix_has_problems=1';
+        if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
+        if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
+    }
 
     // Show loading state immediately
     document.getElementById('asset-tbody').innerHTML =
-        `<tr><td colspan="${listCols}" class="loading">Loading assets…</td></tr>`;
+        `<tr><td colspan="${listColsLoading}" class="loading">Loading assets…</td></tr>`;
+    stAssetsUpdateBulkBarVisibility();
 
     const b = document.getElementById('af-device-banner');
     const idEl = document.getElementById('af-device-banner-id');
@@ -4449,30 +4816,24 @@ async function loadAssets(page) {
     const d   = await api(url);
     if (!d) return;
 
+    stAssetsApplyZabbixFromServer(!!d.zabbix_filters_available);
+
     try {
         window.__stAssetsScopeColumn = !!d.assets_scope_column;
     } catch (_e) {}
-    const bulk = document.getElementById('af-scope-bulk-wrap');
-    const canBulk = stRoleCanManageScans() && !!d.assets_scope_column;
-    if (bulk) {
-        bulk.style.display = canBulk ? 'flex' : 'none';
-    }
-    if (canBulk) {
-        await ensureStScopeSelects(false);
-        stFillAfBulkScopeSelect();
-    }
     const headChk = document.getElementById('af-select-all');
     if (headChk) {
         headChk.checked = false;
         headChk.indeterminate = false;
     }
 
-    const zbxWrap = document.getElementById('af-zbx-wrap');
-    if (zbxWrap) zbxWrap.style.display = d.zabbix_filters_available ? 'flex' : 'none';
-
-    const zbxTd = (a) => (zbxCol ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
+    const zbxColRender = !!window.__stAssetsZabbixFiltersAvailable && !!document.getElementById('af-zbx-col')?.checked;
+    if (thZbx) thZbx.classList.toggle('hide', !zbxColRender);
+    const listCols = zbxColRender ? 14 : 13;
+    const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
+    const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
-        `<td class="mono-sm text-dim" title="Inventory / reporting tag">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
+        `<td class="mono-sm text-dim" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
     document.getElementById('asset-tbody').innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
@@ -4512,6 +4873,7 @@ async function loadAssets(page) {
             : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
     document.getElementById('aprev').disabled = page <= 1;
     document.getElementById('anext').disabled = page >= d.pages;
+    stAssetsUpdateBulkBarVisibility();
 }
 
 // --------------------------------------------------------------------------
@@ -10285,7 +10647,9 @@ async function ensureStScopeSelects(force) {
     const anyEl =
         document.getElementById('sc-scope-id') ||
         document.getElementById('sched-scope-id') ||
-        document.getElementById('report-scope-select');
+        document.getElementById('report-scope-select') ||
+        document.getElementById('st-bulk-scope-sel') ||
+        document.getElementById('st-asset-scope-sel');
     if (!anyEl) {
         return;
     }
@@ -14520,17 +14884,20 @@ function exportAssets(format) {
     const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
     const incf = document.getElementById('af-findings')?.checked ? '1' : '0';
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
-    const zMon = document.getElementById('af-zbx-monitored')?.value || '';
-    const zUn = document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
-    const zPr = document.getElementById('af-zbx-problems')?.checked ? '1' : '';
-    const zGr = (document.getElementById('af-zbx-group')?.value || '').trim();
-    const zTg = (document.getElementById('af-zbx-tag')?.value || '').trim();
+    const zbxOk = !!window.__stAssetsZabbixFiltersAvailable;
+    const zMon = zbxOk ? (document.getElementById('af-zbx-monitored')?.value || '') : '';
+    const zUn = zbxOk && document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
+    const zPr = zbxOk && document.getElementById('af-zbx-problems')?.checked ? '1' : '';
+    const zGr = zbxOk ? (document.getElementById('af-zbx-group')?.value || '').trim() : '';
+    const zTg = zbxOk ? (document.getElementById('af-zbx-tag')?.value || '').trim() : '';
     let zbxQ = '';
-    if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
-    if (zUn) zbxQ += '&zabbix_unavailable=1';
-    if (zPr) zbxQ += '&zabbix_has_problems=1';
-    if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
-    if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
+    if (zbxOk) {
+        if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
+        if (zUn) zbxQ += '&zabbix_unavailable=1';
+        if (zPr) zbxQ += '&zabbix_has_problems=1';
+        if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
+        if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
+    }
     const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${zbxQ}`;
     // Trigger download
     const a = document.createElement('a');

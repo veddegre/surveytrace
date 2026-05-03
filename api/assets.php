@@ -18,7 +18,7 @@
  *   new_only   — "1" = only assets first seen in last 24h
  *   device_id  — if > 0, only assets for this logical device
  *   lifecycle_status — active|stale|retired (optional)
- *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings (default: ip)
+ *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings|zabbix_problem_count|scope_name (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
  *   per_page   — 1–200 (default: 50)
@@ -694,7 +694,7 @@ if ($lifecycle_status !== '') {
     $params[':lfs']  = $lifecycle_status;
 }
 
-$zbxFilters = st_zabbix_table_ready($db) && st_zabbix_asset_workflow_columns_ready($db);
+$zbxFilters = st_zabbix_filters_available_for_assets($db);
 $zabbix_monitored = st_str('zabbix_monitored', '', ['', '0', '1']);
 $zabbix_unavailable = st_str('zabbix_unavailable') === '1';
 $zabbix_has_problems = st_str('zabbix_has_problems') === '1';
@@ -779,14 +779,15 @@ $sort_col    = st_str('sort', 'ip', $valid_sorts);
 if ($sort_col === 'scope_name' && $scopeJoinSql === '') {
     $sort_col = 'ip';
 }
+if ($sort_col === 'zabbix_problem_count' && ! $zbxFilters) {
+    $sort_col = 'ip';
+}
 
 $order_expr = match ($sort_col) {
     'ip'            => $ip_sort,
     'top_cvss'      => "a.top_cvss $sort_order NULLS LAST",
     'open_findings' => "$findings_subq $sort_order",
-    'zabbix_problem_count' => $zbxFilters
-        ? "COALESCE(a.zabbix_problem_count, 0) $sort_order"
-        : "a.id $sort_order",
+    'zabbix_problem_count' => "COALESCE(a.zabbix_problem_count, 0) $sort_order",
     'scope_name'    => "LOWER(COALESCE(sc.name, '')) $sort_order, a.id ASC",
     default         => "a.$sort_col $sort_order",
 };

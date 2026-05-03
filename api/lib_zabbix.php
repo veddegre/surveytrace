@@ -1788,6 +1788,70 @@ function st_zabbix_asset_workflow_columns_ready(PDO $pdo): bool
     return $cache;
 }
 
+/**
+ * True when all SQLite tables referenced by Assets Zabbix filter EXISTS clauses exist.
+ */
+function st_zabbix_asset_filter_tables_ready(PDO $pdo): bool
+{
+    try {
+        $st = $pdo->query(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name IN (
+                'zabbix_hosts','zabbix_asset_links','zabbix_host_groups','zabbix_host_tags'
+            )"
+        );
+
+        return $st && (int) $st->fetchColumn() === 4;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function st_zabbix_connector_api_url_configured(PDO $pdo): bool
+{
+    try {
+        if (! st_zabbix_table_ready($pdo)) {
+            return false;
+        }
+        $c = st_zabbix_connector_get($pdo);
+        $url = st_zabbix_normalize_api_url((string) ($c['api_url'] ?? ''));
+
+        return $url !== '';
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function st_zabbix_cache_has_host_or_link_rows(PDO $pdo): bool
+{
+    try {
+        if (! st_zabbix_asset_filter_tables_ready($pdo)) {
+            return false;
+        }
+        $h = (int) $pdo->query('SELECT COUNT(1) FROM zabbix_hosts')->fetchColumn();
+        if ($h > 0) {
+            return true;
+        }
+        $l = (int) $pdo->query('SELECT COUNT(1) FROM zabbix_asset_links')->fetchColumn();
+
+        return $l > 0;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Gate for Assets list / export Zabbix filters: denorm columns + link tables,
+ * and (API URL configured OR local Zabbix cache rows).
+ */
+function st_zabbix_filters_available_for_assets(PDO $pdo): bool
+{
+    if (! st_zabbix_asset_workflow_columns_ready($pdo) || ! st_zabbix_asset_filter_tables_ready($pdo)) {
+        return false;
+    }
+
+    return st_zabbix_connector_api_url_configured($pdo) || st_zabbix_cache_has_host_or_link_rows($pdo);
+}
+
 function st_zabbix_scan_scopes_table_exists(PDO $pdo): bool
 {
     $n = (int) $pdo->query(

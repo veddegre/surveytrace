@@ -82,7 +82,7 @@ if ($lifecycle_status !== '') {
     $params[':lfs']   = $lifecycle_status;
 }
 
-$zbxFilters = st_zabbix_table_ready($db) && st_zabbix_asset_workflow_columns_ready($db);
+$zbxFilters = st_zabbix_filters_available_for_assets($db);
 $zabbix_monitored = st_str('zabbix_monitored', '', ['', '0', '1']);
 $zabbix_unavailable = st_str('zabbix_unavailable') === '1';
 $zabbix_has_problems = st_str('zabbix_has_problems') === '1';
