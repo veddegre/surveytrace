@@ -44,6 +44,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_zabbix.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -473,6 +474,17 @@ if ($single_id > 0) {
     }
     $asset['scan_history'] = array_slice($scanHistory, 0, 20);
 
+    if (st_zabbix_table_ready($db)) {
+        try {
+            $zbx = st_zabbix_enrichment_for_asset($db, $single_id);
+            if (is_array($zbx)) {
+                $asset['zabbix'] = $zbx;
+            }
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets.php zabbix: ' . st_zabbix_redact_secrets($e->getMessage()));
+        }
+    }
+
     st_json(['asset' => $asset]);
 }
 
@@ -490,8 +502,6 @@ $page       = st_int('page',     1,  1);
 $per_page   = st_int('per_page', 50, 1, 200);
 $offset     = ($page - 1) * $per_page;
 
-$valid_sorts = ['ip','device_id','hostname','category','top_cvss','last_seen','first_seen','vendor','open_findings'];
-$sort_col    = st_str('sort', 'ip', $valid_sorts);
 $sort_order  = st_str('order', 'asc', ['asc','desc']) === 'desc' ? 'DESC' : 'ASC';
 
 // Severity → CVSS range map
@@ -556,6 +566,64 @@ if ($lifecycle_status !== '') {
     $params[':lfs']  = $lifecycle_status;
 }
 
+$zbxFilters = st_zabbix_table_ready($db) && st_zabbix_asset_workflow_columns_ready($db);
+$zabbix_monitored = st_str('zabbix_monitored', '', ['', '0', '1']);
+$zabbix_unavailable = st_str('zabbix_unavailable') === '1';
+$zabbix_has_problems = st_str('zabbix_has_problems') === '1';
+$zabbix_group = trim(st_str('zabbix_group'));
+$zabbix_tag = trim(st_str('zabbix_tag'));
+if ($zbxFilters) {
+    if ($zabbix_monitored === '1') {
+        $where[] = 'EXISTS (SELECT 1 FROM zabbix_asset_links lz1 WHERE lz1.asset_id = a.id)
+            AND COALESCE(a.monitored_by_zabbix, 0) = 1';
+    } elseif ($zabbix_monitored === '0') {
+        $where[] = '(NOT EXISTS (SELECT 1 FROM zabbix_asset_links lz0 WHERE lz0.asset_id = a.id)
+            OR (EXISTS (SELECT 1 FROM zabbix_asset_links lz0b WHERE lz0b.asset_id = a.id)
+                AND COALESCE(a.monitored_by_zabbix, 0) = 0))';
+    }
+    if ($zabbix_unavailable) {
+        $where[] = 'EXISTS (SELECT 1 FROM zabbix_asset_links lzu WHERE lzu.asset_id = a.id)
+            AND COALESCE(a.monitored_by_zabbix, 0) = 1
+            AND TRIM(COALESCE(a.zabbix_availability, \'\')) != \'\'
+            AND LOWER(TRIM(COALESCE(a.zabbix_availability, \'\'))) != \'available\'';
+    }
+    if ($zabbix_has_problems) {
+        $where[] = 'EXISTS (SELECT 1 FROM zabbix_asset_links lzp WHERE lzp.asset_id = a.id)
+            AND COALESCE(a.zabbix_problem_count, 0) > 0';
+    }
+    if ($zabbix_group !== '') {
+        $where[] = 'EXISTS (
+            SELECT 1 FROM zabbix_asset_links lgg
+            JOIN zabbix_host_groups gg ON gg.hostid = lgg.zabbix_hostid
+            WHERE lgg.asset_id = a.id AND LOWER(gg.group_name) = LOWER(:zabbix_group)
+        )';
+        $params[':zabbix_group'] = $zabbix_group;
+    }
+    if ($zabbix_tag !== '') {
+        if (str_contains($zabbix_tag, '=')) {
+            [$tk, $tv] = array_map('trim', explode('=', $zabbix_tag, 2));
+            if ($tk !== '') {
+                $where[] = 'EXISTS (
+                    SELECT 1 FROM zabbix_asset_links ltt
+                    JOIN zabbix_host_tags tg ON tg.hostid = ltt.zabbix_hostid
+                    WHERE ltt.asset_id = a.id
+                      AND LOWER(tg.tag) = LOWER(:zabbix_tag_k)
+                      AND LOWER(tg.value) = LOWER(:zabbix_tag_v)
+                )';
+                $params[':zabbix_tag_k'] = $tk;
+                $params[':zabbix_tag_v'] = $tv;
+            }
+        } else {
+            $where[] = 'EXISTS (
+                SELECT 1 FROM zabbix_asset_links ltn
+                JOIN zabbix_host_tags tn ON tn.hostid = ltn.zabbix_hostid
+                WHERE ltn.asset_id = a.id AND LOWER(tn.tag) = LOWER(:zabbix_tag_name)
+            )';
+            $params[':zabbix_tag_name'] = $zabbix_tag;
+        }
+    }
+}
+
 $where_sql = implode(' AND ', $where);
 
 // For open_findings sort, we need the subquery in ORDER BY
@@ -571,10 +639,16 @@ $o3 = "CAST(substr($s3, 1, instr($s3,'.')-1) AS INTEGER)";
 $o4 = "CAST(substr($s3, instr($s3,'.')+1) AS INTEGER)";
 $ip_sort = "$o1 $sort_order, $o2 $sort_order, $o3 $sort_order, $o4 $sort_order";
 
+$valid_sorts = ['ip','device_id','hostname','category','top_cvss','last_seen','first_seen','vendor','open_findings','zabbix_problem_count'];
+$sort_col    = st_str('sort', 'ip', $valid_sorts);
+
 $order_expr = match($sort_col) {
     'ip'            => $ip_sort,
     'top_cvss'      => "a.top_cvss $sort_order NULLS LAST",
     'open_findings' => "$findings_subq $sort_order",
+    'zabbix_problem_count' => $zbxFilters
+        ? "COALESCE(a.zabbix_problem_count, 0) $sort_order"
+        : "a.id $sort_order",
     default         => "a.$sort_col $sort_order",
 };
 
@@ -619,6 +693,7 @@ st_json([
     'pages'      => (int)ceil(max(1, $total) / $per_page),
     'cat_counts' => $cat_counts,
     'assets'     => $rows,
+    'zabbix_filters_available' => $zbxFilters,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -673,5 +748,18 @@ function decode_asset(array $a): array {
     $a['ai_host_explain'] = is_string($exRaw) && $exRaw !== ''
         ? (json_decode($exRaw, true) ?: null)
         : null;
+    if (array_key_exists('monitored_by_zabbix', $a)) {
+        $a['monitored_by_zabbix'] = ((int) ($a['monitored_by_zabbix'] ?? 0)) === 1;
+    }
+    if (array_key_exists('zabbix_availability', $a)) {
+        $a['zabbix_availability'] = (string) ($a['zabbix_availability'] ?? '');
+    }
+    if (array_key_exists('zabbix_problem_count', $a)) {
+        $a['zabbix_problem_count'] = (int) ($a['zabbix_problem_count'] ?? 0);
+    }
+    if (array_key_exists('scope_id', $a)) {
+        $sv = $a['scope_id'];
+        $a['scope_id'] = ($sv !== null && $sv !== '') ? (int) $sv : null;
+    }
     return $a;
 }

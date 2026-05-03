@@ -1157,15 +1157,124 @@ Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changel
 - **Phase 14 — Scan scopes & reporting filters** — **`scan_jobs.scope_id`**, **`scan_scopes`**, **`scan_scope_baselines`**, cross-scope reporting; named-scope baselines; cautious auto-drift rules for unscoped job pairs (**`st_reporting_unscoped_jobs_compatible`**). Migration: **`migration_phase14_scan_scopes_v1`**.
 - **Phase 15 — Integrations (push + pull)** — **`integrations`** table; admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); read-only **pull** HTTP APIs (**metrics**, **events**, **report summary**, **dashboard** bundle) with **per-integration** bearer tokens; starter Splunk/Grafana under **`integrations/starter/`**; **Integrations** UI. Migrations: **`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**. *Deferred:* automatic scan/change/report fan-out to integration rows.
 - **SemVer 0.16.0 (still Phase 15 — Integrations)** — Admin **Integrations** UI refresh (Push vs Pull/API, type-aware forms, Splunk scripted-input starter); removal of unused legacy global pull config (**`migration_phase16_remove_legacy_integrations_pull_token_v1`**). See the **0.16.0** bullets under [Changelog](#changelog).
+- **Phase 16.1 — Zabbix source connector (MVP)** — Admin **`/api/zabbix.php`** + **`api/lib_zabbix.php`** + CLI **`api/zabbix_sync_worker.php`**; tables **`zabbix_connector`**, **`zabbix_hosts`**, **`zabbix_host_interfaces`**, **`zabbix_host_groups`**, **`zabbix_host_tags`**, **`zabbix_host_problems_summary`**, **`zabbix_asset_links`**, **`zabbix_scope_map_rules`**; migration **`migration_phase16_zabbix_source_v1`**. Bounded JSON-RPC pull (hosts/interfaces/groups/tags/templates/inventory/availability + capped **`problem.get`**); asset matching by IP, DNS/hostname, visible name, MAC; read-only **`zabbix`** block on **`GET /api/assets.php?id=`** and the asset edit modal; optional **group/tag → `scan_scopes`** rules with **preview/save only** (no automatic scope writes). **Integrations** tab panel for configure/test/sync. **Not in this slice:** Zabbix as a push/alert sink, auto-overwriting operator asset fields.
+- **Phase 16.2 — Zabbix operator workflow** — **`assets.scope_id`** + denorm trust columns; migration **`migration_phase16_2_zabbix_workflow_v1`**; explicit **preview → confirm → apply** scope updates (**`preview_scope_apply`**, **`apply_scope_map`** + audit **`zabbix.scope_map_applied`**); **match review** UI + manual **`link_manual`** / **`unlink_asset`** (audited); **`zabbix_asset_links.is_manual`** preserved across rematch; **`GET /api/assets.php`** Zabbix filters + optional list column. See **[Using Zabbix data in SurveyTrace](#using-zabbix-data-in-surveytrace-phase-162)**.
 
 ### Upcoming
-- **Phase 16** — Monitoring / ops (e.g. Zabbix) + alert and status mapping.
+- **Phase 16 (remainder)** — Zabbix as a SurveyTrace **output** target (health/status signals), deeper alert mapping, and related ops automation — after the **16.1** source connector baseline above.
+- **Planned — TeamDynamix + Microsoft Defender enrichment** — Normalized ownership, device/user, and source-attributed vulnerability context in SurveyTrace (see **[Planned: enrichment connectors](#planned-ownership-user-context-and-vulnerability-enrichment-connectors)**). Intended to **complement** [Phase 19 — Data fusion + enrichment](#upcoming); may ship as phased slices under that umbrella or as dedicated connector releases.
 - **Phase 17** — Infrastructure APIs: Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting.
 - **Phase 18** — Source connector completion: stubbed vendors (e.g. Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) behind a shared connector contract (auth, paging, retry, health, field mapping).
 - **Phase 19** — Data fusion + enrichment: normalize multi-source vulnerability/advisory data (dedupe, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
 - **Phase 20** — **UI polish:** asset timeline, bulk operations, fingerprint pattern editor. **Scan history UX:** pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links, **CSV export** of the filtered history list. **Navigation cleanup:** trim duplicate top-bar shortcuts where the sidebar already links the page. **Frontend modularization (possible):** split **`public/index.php`** into maintainable modules or bundles to reduce merge friction. **Modal consistency:** replace remaining browser-native **`alert` / `confirm` / `prompt`** flows with app-styled dialogs (including **delete integration** and other destructive or credential-related actions).
 - **Phase 21** — Credentialed collection + checks engine: authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, remediation guidance metadata.
 - **Phase 22** — Risk operations + governance: composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, stronger audit/report controls.
+
+### Zabbix source connector — operator notes (Phase 16.1)
+
+**Zabbix API token permissions (typical)** — Create an API token for a Zabbix user or service account that is allowed to call at least: **`apiinfo.version`** (optional), **`host.get`** (with interfaces, groups, parent templates, tags, inventory), and **`problem.get`** (recent problems; SurveyTrace aggregates counts per host, capped server-side). Deny destructive methods; SurveyTrace only reads.
+
+**HTTP behavior** — Each JSON-RPC call uses a **short cURL timeout** (~12s connect capped). Sync pulls at most **500** hosts and **4000** problem rows per run; counts may be incomplete if the server exceeds those caps.
+
+**Matching rules** — After each sync, SurveyTrace proposes links between Zabbix hosts and **`assets`** using, in order of intrinsic signal: **interface IP** (confidence **1.0**), **MAC** from interface or inventory (**0.97–0.98**), **technical host name** vs asset hostname (**0.95**), **interface DNS** vs asset hostname (**0.93**), **visible name** vs asset hostname (**0.88**). Pairs scoring **below 0.75** are ignored. If two signals tie on confidence, **IP beats MAC beats DNS beats hostname beats visible name**. **Greedy assignment** sorts candidate pairs by confidence and assigns each asset and each Zabbix host **at most once** so one-to-one links dominate when multiple hosts could match the same asset.
+
+**Stored vs displayed** — **Stored** in SQLite: full connector row (token on disk), normalized **`zabbix_*`** tables plus JSON blobs on **`zabbix_hosts`** (`inventory_json`, `groups_json`, `tags_json`, `templates_json`, `interfaces_json`, `status_raw_json`) for audit/re-sync. **`zabbix_asset_links`** stores **`match_method`**, **`confidence`**, **`last_matched_at`**. The asset API and UI show a **trimmed** `zabbix` object (monitored, availability, groups, templates, tags, inventory owner/location/environment, problem count, match metadata) — not the full raw Zabbix JSON. List sizes in the API response are **capped** (e.g. groups/tags/templates) to keep payloads bounded; the UI truncates long joined strings in the asset modal.
+
+**Scope mapping** — Rules in **`zabbix_scope_map_rules`** map either a **host group name** (exact, case-insensitive) or a **host tag** (`TagName` matches any value, or `Name=value` for an exact pair) to a **`scan_scopes.id`**. Rules default to **disabled** until you tick **enabled** per row. **`POST`** **`preview_scope_map`** evaluates **only enabled** rules (from the posted payload) and returns suggested scope IDs for **already-linked** assets; it performs **no database writes** and SurveyTrace **never** applies scope changes from Zabbix automatically in this release.
+
+### Using Zabbix data in SurveyTrace (Phase 16.2)
+
+**Trust fields on assets** — After sync, each asset row can carry **`monitored_by_zabbix`**, **`zabbix_availability`**, and **`zabbix_problem_count`** (denormalized from the linked Zabbix host and problem summary). These are refreshed when links change; they are **not** a hidden write path for hostname, category, or vendor.
+
+**Matching confidence** — Auto links store **`confidence`** and **`match_method`** on **`zabbix_asset_links`**. High scores (e.g. IP match ≈ 1.0) are strong; scores in the **0.75–0.9** band are “near threshold” and deserve review in the Integrations **Match review** panel. **`is_manual = 1`** marks operator overrides; rematch only replaces **non-manual** links.
+
+**When to trust auto vs manual** — Prefer **auto** when several independent signals agree and confidence is high. Use **manual link** when inventory is incomplete, names collide, or you need to pin a specific Zabbix **`hostid`** to an asset; manual links are **audited** (`zabbix.link_manual` / `zabbix.unlink_asset`).
+
+**Scope mapping workflow** — 1) Save rules (each row **disabled** until you enable it). 2) Sync so hosts and links exist. 3) **Preview mapping** (form rules) or **Build apply plan** (saved **enabled** rules only) to see **current scope → new scope**. 4) Check the explicit confirmation box and **Apply selected rows** — the server rejects stale or mismatched rows; **`zabbix.scope_map_applied`** is written to the audit log when anything is applied.
+
+**Asset list filters** — When workflow migrations are applied, the Assets tab can filter by Zabbix monitoring, unavailable (linked but not “available”), open problems, and by **host group** or **tag** (same semantics as rules). Optional **Zbx column** shows a compact trust summary.
+
+**Manual / CLI sync** — `php api/zabbix_sync_worker.php` from the install root (same as the Integrations **Sync now** worker). Logs append to **`data/zabbix_sync_worker.log`** when spawned via `nohup`.
+
+### Planned: ownership, user context, and vulnerability enrichment connectors
+
+This section is **design intent** for future work. **Zabbix (Phase 16.x)** is the first concrete **source connector** in code; TeamDynamix and Microsoft Defender should follow the same principles: **bounded sync**, **background workers**, **redacted secrets**, **explicit operator actions** for anything that changes ownership or scope, and **normalized rows** in SQLite rather than “Splunk-only” enrichment.
+
+#### Architecture principle
+
+| Responsibility | SurveyTrace | Splunk (or similar SIEM) |
+| --- | --- | --- |
+| Store normalized enrichment | Yes — durable context per asset/finding | Optional copy for search |
+| Asset/finding UI and reports | Yes | No (unless rebuilt there) |
+| Complex multi-source time-window correlation | No — avoid rebuilding SIEM logic | Yes |
+| Alert routing / escalation | Push **events** only; not primary alert brain | Yes |
+| Manual review before ownership/scope apply | Yes | N/A |
+
+**Recommended flow:** TeamDynamix → SurveyTrace **ownership/business** enrichment → optional **Splunk** HEC/event export with the same normalized fields. Defender → SurveyTrace **device / user / CVE evidence** → Splunk correlates Defender timelines with firewall, VPN, IdP, and SurveyTrace scan events.
+
+#### 1. TeamDynamix connector (ownership / business)
+
+**Ingest (examples):** asset owner, responsible department, support group, ticket references, CI/asset record IDs, service/application association, business criticality, location/site — as returned by the TeamDynamix API for configured asset/CI types.
+
+**Normalized storage (conceptual):**
+
+- Connector config row (API base URL, auth, `last_sync_at`, `last_sync_status`, `last_error` — token never returned from API).
+- **`enrichment_asset_links`** (generic) or **`teamdynamix_asset_links`**: `asset_id`, `source` = `teamdynamix`, `source_object_id`, `match_method`, `confidence`, `last_matched_at`, `is_manual`, `evidence_json`.
+- **`teamdynamix_asset_context`** (or generic **`asset_enrichment_snapshots`**): `source`, `source_object_id`, `last_synced_at`, `confidence`, `payload_json` / normalized columns for owner, department, support group, tickets, CI refs, service, criticality, site.
+
+**Rules:** Do **not** automatically overwrite **`assets.owner`**, **`business_unit`**, or other operator-edited fields when those are **locked** or marked manual. Expose **“suggested from TeamDynamix”** with confidence and timestamp; apply via **preview → confirm** (audited), mirroring Zabbix scope apply.
+
+#### 2. Microsoft Defender (XDR + Vulnerability Management)
+
+Treat as **three** enrichment streams merged on the same asset link:
+
+**A. Device context** — Defender device id, name, onboarding/health, exposure level, risk level, last seen, OS/platform, software inventory (as available).
+
+**B. User context** — Logged-in / recently observed / last observed users with timestamps and raw evidence references in `evidence_json`.
+
+**C. Vulnerability / CVE context** — CVEs or weaknesses, affected software, remediation text, scores, remediation status, first/last seen in Defender.
+
+**Normalized storage (conceptual):** `defender_connector`; cached device/user/vuln tables; **`defender_asset_links`** (or shared **`enrichment_asset_links`** with `source = defender`); optional **`defender_device_snapshots`**, **`defender_user_observations`**, **`defender_vulnerability_findings`** (or a unified **`external_vulnerability_evidence`** table keyed by `asset_id` + `cve_id` + `source`).
+
+#### 3. Defender CVE handling rules (source-attributed evidence)
+
+| Situation | Behavior |
+| --- | --- |
+| Defender reports CVE scanner did not | Create or enrich a **finding** (or parallel evidence row) with `provenance_source` / `detection_method` = Defender; do not delete scanner rows |
+| Scanner and Defender agree | Raise **confidence**; **merge** Defender fields into `evidence_json` |
+| Defender remediated, scanner still open | **Flag conflict** in UI/API; **do not** auto-resolve |
+| Scanner clear, Defender still reports | Keep scanner quiet; Defender evidence **stale** or active per product semantics — surface conflict |
+| Defender drops CVE, scanner still open | Scanner finding **stays active**; mark Defender slice **stale/absent** |
+
+Deduplicate by **`asset_id` + `cve_id`** (and Defender device id where relevant). Preserve **provenance** (`scanner`, `collector`, `nvd`, `defender`, `osv`, `teamdynamix` for business-only joins, etc.) in structured JSON — aligned with existing finding triage fields where possible.
+
+#### 4. Matching and confidence (all sources)
+
+Match external records to SurveyTrace **assets** using: IP, hostname, FQDN, MAC, device id, serial, and **source-native IDs** (e.g. Defender device id). Store **`match_method`**, **`confidence`**, **`last_matched_at`**, **`evidence_json`**, **`is_manual`**. **Low confidence** or **conflicting** links go to a **review queue** (same pattern as Zabbix match review).
+
+#### 5. UI expectations
+
+- Asset detail: sections for **Ownership/business**, **Monitoring** (Zabbix), **Defender device**, **Recent users**, **External vulnerability evidence**, **Conflicts**.
+- Integrations-style **review** screens: unmatched external rows, unmatched assets, low-confidence matches, owner/CVE disagreements.
+
+#### 6. Safety (non-negotiables)
+
+Do **not:** auto-overwrite locked/manual asset fields; auto-resolve findings from a single source; auto-change scope/ownership without confirmation; return API secrets; block scans on connector failure; require Splunk for enrichment to exist.
+
+Do: redact secrets; cap page sizes and sync volume; background sync; connector health columns; idempotent migrations; audit log for apply/link actions.
+
+#### 7. Planned surface area (summary)
+
+| Area | Examples (names indicative, not final) |
+| --- | --- |
+| **Tables** | `teamdynamix_connector`, `teamdynamix_*`; `defender_connector`, `defender_devices`, `defender_user_observations`, `defender_vulnerabilities` or `external_finding_evidence`; shared `enrichment_asset_links` |
+| **PHP** | `api/lib_teamdynamix.php`, `api/lib_defender.php`, `api/teamdynamix.php`, `api/defender.php`, workers `*_sync_worker.php` |
+| **API** | Admin configure/test/sync; GET enrichment on `assets.php?id=`; POST preview/apply ownership suggestions; match review endpoints |
+| **Splunk export** | Reuse or extend **HEC / push** integrations: include `asset_id`, `ip`, `enrichment.sources[]`, `defender.device_id`, `teamdynamix.ci_id`, conflict flags — **fields**, not raw SIEM searches |
+
+#### 8. Splunk export pattern
+
+Emit **structured events** (JSON) per sync or on change: asset identity, normalized enrichment blocks, CVE evidence summaries, conflict flags. Splunk runs **correlation searches** across Defender, Okta, VPN, firewall, and SurveyTrace **enriched** events. SurveyTrace remains the **system of record** for “what we know about this asset today”; Splunk is where **time joins** and **alerting** live.
 
 ## License
 

@@ -399,6 +399,8 @@ function st_db(): PDO {
     st_migrate_phase14_1_integrations_v1($pdo);
     st_migrate_phase14_1_integrations_per_pull_token_v1($pdo);
     st_migrate_phase16_remove_legacy_integrations_pull_token_v1($pdo);
+    st_migrate_phase16_zabbix_source_v1($pdo);
+    st_migrate_phase16_2_zabbix_workflow_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -893,6 +895,67 @@ function st_migrate_phase16_remove_legacy_integrations_pull_token_v1(PDO $pdo): 
     $pdo->exec("DELETE FROM config WHERE key = 'integrations_pull_token_bcrypt'");
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase16_remove_legacy_integrations_pull_token_v1', '1')"
+    );
+}
+
+/**
+ * Phase 16.1 — Zabbix source connector tables (hosts, interfaces, tags, problems summary, asset links, scope rules).
+ */
+function st_migrate_phase16_zabbix_source_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase16_zabbix_source_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    require_once __DIR__ . '/lib_zabbix.php';
+    st_zabbix_ensure_schema($pdo);
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase16_zabbix_source_v1', '1')"
+    );
+}
+
+/**
+ * Phase 16.2 — Zabbix workflow: asset scope_id + denormalized Zabbix trust fields; manual link flag on zabbix_asset_links.
+ */
+function st_migrate_phase16_2_zabbix_workflow_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase16_2_zabbix_workflow_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    require_once __DIR__ . '/lib_zabbix.php';
+    st_zabbix_ensure_schema($pdo);
+    $cols = $pdo->query('PRAGMA table_info(assets)')->fetchAll(PDO::FETCH_ASSOC);
+    $names = [];
+    foreach ($cols as $c) {
+        if (isset($c['name'])) {
+            $names[] = (string) $c['name'];
+        }
+    }
+    if (! in_array('scope_id', $names, true)) {
+        $pdo->exec('ALTER TABLE assets ADD COLUMN scope_id INTEGER');
+    }
+    if (! in_array('monitored_by_zabbix', $names, true)) {
+        $pdo->exec('ALTER TABLE assets ADD COLUMN monitored_by_zabbix INTEGER NOT NULL DEFAULT 0');
+    }
+    if (! in_array('zabbix_availability', $names, true)) {
+        $pdo->exec("ALTER TABLE assets ADD COLUMN zabbix_availability TEXT NOT NULL DEFAULT ''");
+    }
+    if (! in_array('zabbix_problem_count', $names, true)) {
+        $pdo->exec('ALTER TABLE assets ADD COLUMN zabbix_problem_count INTEGER NOT NULL DEFAULT 0');
+    }
+    $lcols = $pdo->query('PRAGMA table_info(zabbix_asset_links)')->fetchAll(PDO::FETCH_ASSOC);
+    $lnames = [];
+    foreach ($lcols as $c) {
+        if (isset($c['name'])) {
+            $lnames[] = (string) $c['name'];
+        }
+    }
+    if (! in_array('is_manual', $lnames, true)) {
+        $pdo->exec('ALTER TABLE zabbix_asset_links ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0');
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase16_2_zabbix_workflow_v1', '1')"
     );
 }
 

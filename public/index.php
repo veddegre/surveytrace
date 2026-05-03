@@ -250,12 +250,32 @@ if (is_readable($dbProbe)) {
       <option value="stale">Stale</option>
       <option value="retired">Retired</option>
     </select>
+    <span id="af-zbx-wrap" class="row-wrap gap6 flex-wrap" style="display:none;align-items:center" title="Zabbix filters (after migrations + sync)">
+      <select class="finp narrow" id="af-zbx-monitored" onchange="loadAssets(1)" title="Zabbix monitoring">
+        <option value="">Zbx: all</option>
+        <option value="0">Zbx: not monitored</option>
+        <option value="1">Zbx: monitored</option>
+      </select>
+      <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+        <input type="checkbox" id="af-zbx-unavail" onchange="loadAssets(1)"> unavailable
+      </label>
+      <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+        <input type="checkbox" id="af-zbx-problems" onchange="loadAssets(1)"> problems
+      </label>
+      <input class="finp narrow" id="af-zbx-group" placeholder="Zbx group" style="min-width:100px;max-width:140px" oninput="debounceAssets()">
+      <input class="finp narrow" id="af-zbx-tag" placeholder="Zbx tag or Tag=val" style="min-width:120px;max-width:160px" oninput="debounceAssets()">
+    </span>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
       <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
       <option value="hostname">Hostname</option>
       <option value="category">Type</option><option value="top_cvss">CVSS</option>
       <option value="last_seen">Last seen</option><option value="open_findings">CVEs</option>
+      <option value="zabbix_problem_count">Zbx problems</option>
     </select>
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" id="af-zbx-col" onchange="stToggleAssetZbxColumn()">
+      Zbx column
+    </label>
     <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
       <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
       AI review
@@ -279,10 +299,11 @@ if (is_readable($dbProbe)) {
         <th>Open ports</th>
         <th onclick="sortAssets('open_findings')">CVEs</th>
         <th onclick="sortAssets('top_cvss')">CVSS</th>
+        <th id="af-th-zbx" class="hide" onclick="sortAssets('zabbix_problem_count')" title="Zabbix denormalized trust fields">Zbx</th>
         <th onclick="sortAssets('last_seen')">Last seen</th>
         <th>Edit</th>
       </tr></thead>
-      <tbody id="asset-tbody"><tr><td colspan="11" class="loading">Loading…</td></tr></tbody>
+      <tbody id="asset-tbody"><tr><td colspan="12" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
@@ -1275,6 +1296,82 @@ if (is_readable($dbProbe)) {
       </table>
     </div>
 
+    <div class="card mt12" id="st-zabbix-card">
+      <div class="ct">Zabbix (source connector)</div>
+      <p class="hint-micro mb10">
+        Hosts and problems are cached locally; matching links Zabbix hosts to SurveyTrace assets by IP, DNS/hostname, visible name, or MAC.
+        Trust fields on each asset (<strong>monitored</strong>, <strong>availability</strong>, <strong>problem count</strong>) are refreshed after sync — never overwritten by hidden automation; manual link/unlink and scope apply are explicit and audited.
+        Sync runs in the background (CLI worker or PHP-FPM after response). API token is never returned from the server.
+      </p>
+      <div class="row-wrap gap6 mb8 flex-wrap">
+        <label class="flbl" style="min-width:80px">Name</label>
+        <input class="finp" id="zb-name" placeholder="Zabbix" style="min-width:160px;flex:1">
+        <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-enabled"> Enabled</label>
+      </div>
+      <label class="flbl">API URL</label>
+      <input class="finp w100 mb6" id="zb-url" type="url" placeholder="https://zabbix.example/zabbix">
+      <label class="flbl">API token</label>
+      <input class="finp w100 mb8" id="zb-token" type="password" autocomplete="new-password" placeholder="Leave blank to keep current token">
+      <div class="row-wrap gap6 mb10">
+        <button type="button" class="tbtn" id="zb-test" onclick="stZabbixTest()">Test API</button>
+        <button type="button" class="tbtn" onclick="stZabbixSave()">Save</button>
+        <button type="button" class="btnp" onclick="stZabbixSync()">Sync now</button>
+      </div>
+      <div id="zb-status" class="help-mono mb8">—</div>
+      <div id="zb-stats" class="hint-micro mb8">—</div>
+      <div class="flbl">Sample matched hosts</div>
+      <div class="tbl-wrap mb10">
+        <table class="tbl">
+          <thead><tr><th>Asset IP</th><th>Hostname</th><th>Zabbix</th><th>Method</th><th>Conf.</th></tr></thead>
+          <tbody id="zb-sample-tbody"><tr><td colspan="5" class="text-dim">Load the Integrations tab to refresh.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="flbl">Scope map rules (optional)</div>
+      <p class="hint-micro mb6">Rules are <strong>disabled by default</strong> when saved. <strong>Preview mapping</strong> uses the rules currently in the form (saved or not). <strong>No automatic scope writes</strong> — only the operator workflow below applies <code class="code-accent">scope_id</code> after confirmation.</p>
+      <div id="zb-rules-wrap" class="mb6"></div>
+      <button type="button" class="tbtn btn-xs mb6" onclick="stZabbixAddRuleRow()">Add rule</button>
+      <div class="row-wrap gap6 mb8">
+        <button type="button" class="tbtn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+        <button type="button" class="tbtn" onclick="stZabbixSaveRules()">Save rules</button>
+      </div>
+      <div id="zb-preview" class="help-mono" style="max-height:180px;overflow:auto">—</div>
+
+      <div id="zb-operator-blocks" class="mt10" style="display:none">
+        <div class="flbl">Match review</div>
+        <p class="hint-micro mb6">High-confidence links, near-threshold (0.75–0.9) candidates, unmatched Zabbix hosts, and assets without a link. Use manual link to set <code class="code-accent">match_method</code> / confidence (marked manual); unlink removes the link only.</p>
+        <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+        <div id="zb-match-review-body" class="help-mono text-micro" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open Integrations to load, then click Refresh.</div>
+
+        <div id="zb-scope-apply-block" class="mt12" style="display:none">
+          <div class="flbl">Apply scope map (saved + enabled rules)</div>
+          <p class="hint-micro mb6">Build a plan from rules already stored in the database with <strong>enabled</strong> checked. Each apply row must still match the server’s current suggestion (stale previews are rejected).</p>
+          <div class="row-wrap gap6 mb6">
+            <button type="button" class="tbtn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
+          </div>
+          <div id="zb-apply-plan-body" class="mb6">—</div>
+          <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <input type="checkbox" id="zb-apply-confirm">
+            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+          </label>
+          <button type="button" class="btnp" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
+        </div>
+
+        <div class="flbl mt12">Manual link / unlink</div>
+        <p class="hint-micro mb6">Link requires the Zabbix <code class="code-accent">hostid</code> from the cache (see unmatched hosts or Zabbix UI). One asset ↔ one Zabbix host; linking replaces any conflicting row.</p>
+        <div class="row-wrap gap6 mb6 flex-wrap">
+          <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
+          <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
+          <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
+          <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
+          <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
+        </div>
+        <div class="row-wrap gap6 flex-wrap">
+          <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
+          <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
+        </div>
+      </div>
+    </div>
+
     <p class="help-line text-dim mt10 text-micro">
       Pull APIs accept <code class="code-accent">Authorization: Bearer &lt;token&gt;</code> (or <code class="code-accent">?token=</code> — less ideal for logs).
       Starter files: <code class="code-accent">integrations/starter/</code> (see README).
@@ -2106,6 +2203,10 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
     </select>
     <label class="form-label">Environment</label>
     <input class="finp w100 mb10" id="modal-environment" type="text" maxlength="120" placeholder="e.g. prod, staging, lab">
+    <div id="modal-zabbix-wrap" class="help-box mb10 hide">
+      <div class="text-strong mb4">Zabbix</div>
+      <div id="modal-zabbix-body" class="hint-micro">—</div>
+    </div>
     <label class="form-label">Notes</label>
     <textarea class="finp w100 mb14" id="modal-notes" style="min-height:56px" placeholder="Optional notes about this asset"></textarea>
     <div class="row-end">
@@ -3604,12 +3705,22 @@ function clearAllAssetFilters() {
     const life = document.getElementById('af-life');
     const srt = document.getElementById('af-sort');
     const aiq = document.getElementById('af-ai-review');
+    const zm = document.getElementById('af-zbx-monitored');
+    const zu = document.getElementById('af-zbx-unavail');
+    const zp = document.getElementById('af-zbx-problems');
+    const zg = document.getElementById('af-zbx-group');
+    const zt = document.getElementById('af-zbx-tag');
     if (q) q.value = '';
     if (cat) cat.value = '';
     if (sev) sev.value = '';
     if (life) life.value = '';
     if (srt) srt.value = 'ip';
     if (aiq) aiq.checked = false;
+    if (zm) zm.value = '';
+    if (zu) zu.checked = false;
+    if (zp) zp.checked = false;
+    if (zg) zg.value = '';
+    if (zt) zt.value = '';
     assetSort = 'ip';
     assetOrder = 'asc';
     assetDeviceFilter = 0;
@@ -3698,6 +3809,24 @@ function lifecycleBadgeHtml(asset) {
     return `<span class="life-badge ${cls}" title="${tip}">${esc(lbl)}</span>`;
 }
 
+function stToggleAssetZbxColumn() {
+    const th = document.getElementById('af-th-zbx');
+    const on = !!document.getElementById('af-zbx-col')?.checked;
+    if (th) th.classList.toggle('hide', !on);
+    loadAssets(assetPage);
+}
+
+function stAssetZabbixCellHtml(a) {
+    const mon = a.monitored_by_zabbix === true;
+    const av = String(a.zabbix_availability || '').trim();
+    const pr = Number(a.zabbix_problem_count || 0);
+    const tip = esc(`monitored=${mon ? 'yes' : 'no'} · availability=${av || '—'} · open_problems=${pr}`);
+    const dot = mon ? '<span style="color:var(--green)">●</span>' : '<span class="text-dim">○</span>';
+    const avs = av ? esc(av) : '<span class="text-dim">—</span>';
+    const prs = pr > 0 ? `<span class="status-text">${pr} prb</span>` : '<span class="text-dim">0</span>';
+    return `<span class="mono-sm" title="${tip}">${dot} ${avs} · ${prs}</span>`;
+}
+
 async function loadAssets(page) {
     refreshBadges();
     assetPage = page;
@@ -3706,10 +3835,25 @@ async function loadAssets(page) {
     const sev  = document.getElementById('af-sev')?.value  || '';
     const sort = document.getElementById('af-sort')?.value || assetSort;
     const aiReview = !!document.getElementById('af-ai-review')?.checked;
+    const zbxCol = !!document.getElementById('af-zbx-col')?.checked;
+    const thZbx = document.getElementById('af-th-zbx');
+    if (thZbx) thZbx.classList.toggle('hide', !zbxCol);
+    const listCols = zbxCol ? 12 : 11;
+    const zMon = document.getElementById('af-zbx-monitored')?.value || '';
+    const zUn = document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
+    const zPr = document.getElementById('af-zbx-problems')?.checked ? '1' : '';
+    const zGr = (document.getElementById('af-zbx-group')?.value || '').trim();
+    const zTg = (document.getElementById('af-zbx-tag')?.value || '').trim();
+    let zbxQ = '';
+    if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
+    if (zUn) zbxQ += '&zabbix_unavailable=1';
+    if (zPr) zbxQ += '&zabbix_has_problems=1';
+    if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
+    if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
 
     // Show loading state immediately
     document.getElementById('asset-tbody').innerHTML =
-        '<tr><td colspan="11" class="loading">Loading assets…</td></tr>';
+        `<tr><td colspan="${listCols}" class="loading">Loading assets…</td></tr>`;
 
     const b = document.getElementById('af-device-banner');
     const idEl = document.getElementById('af-device-banner-id');
@@ -3725,10 +3869,14 @@ async function loadAssets(page) {
     const aiQ = aiReview ? '&ai_review=1' : '';
     const life = document.getElementById('af-life')?.value || '';
     const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}`;
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}${zbxQ}`;
     const d   = await api(url);
     if (!d) return;
 
+    const zbxWrap = document.getElementById('af-zbx-wrap');
+    if (zbxWrap) zbxWrap.style.display = d.zabbix_filters_available ? 'flex' : 'none';
+
+    const zbxTd = (a) => (zbxCol ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
     document.getElementById('asset-tbody').innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
@@ -3751,13 +3899,14 @@ async function loadAssets(page) {
           <td><div class="pts">${ports}${more}</div></td>
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
+          ${zbxTd(a)}
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td>
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
             <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>
           </td>
         </tr>`;
-    }).join('') || '<tr><td colspan="11" class="loading">No assets found</td></tr>';
+    }).join('') || `<tr><td colspan="${listCols}" class="loading">No assets found</td></tr>`;
 
     document.getElementById('apgn-info').textContent =
         assetDeviceFilter > 0
@@ -6699,6 +6848,371 @@ async function loadIntegrationsTab() {
             : '<tr><td colspan="8" class="text-dim">No pull / API integrations.</td></tr>';
     }
     stIntegrationsSyncCreateForm();
+    void loadZabbixConnector();
+}
+
+/** Scan scopes for Zabbix scope-rule dropdowns (Integrations tab). */
+var zbScopeOptions = [];
+
+function zbScopeLabel(sid) {
+    const id = parseInt(String(sid ?? '0'), 10);
+    if (!id) return '—';
+    const o = (zbScopeOptions || []).find((s) => parseInt(String(s.id), 10) === id);
+    const raw = o ? String(o.name || '') : '';
+    return raw ? esc(raw) : ('#' + id);
+}
+
+function zbScopeSelectHtml(selectedId) {
+    const sel = parseInt(String(selectedId || '0'), 10);
+    let o = '<select class="finp zb-r-scope" style="min-width:140px">';
+    o += '<option value="0">— scope —</option>';
+    (zbScopeOptions || []).forEach((s) => {
+        const id = parseInt(String(s.id), 10);
+        const lab = esc(s.name || ('#' + id));
+        o += `<option value="${id}"${id === sel ? ' selected' : ''}>${lab}</option>`;
+    });
+    o += '</select>';
+    return o;
+}
+
+function stZabbixAddRuleRow(rule) {
+    const wrap = document.getElementById('zb-rules-wrap');
+    if (!wrap) return;
+    const r = rule || {};
+    const rt = (r.rule_type === 'tag') ? 'tag' : 'group';
+    const pat = esc(r.pattern || '');
+    const sid = parseInt(String(r.scope_id || '0'), 10);
+    const en = r.enabled ? ' checked' : '';
+    const div = document.createElement('div');
+    div.className = 'zb-rule-row row-wrap gap6 mb6 flex-wrap';
+    div.innerHTML = `
+      <select class="finp zb-r-type" style="min-width:140px">
+        <option value="group"${rt === 'group' ? ' selected' : ''}>Host group (exact name)</option>
+        <option value="tag"${rt === 'tag' ? ' selected' : ''}>Host tag</option>
+      </select>
+      <input class="finp zb-r-pattern" style="min-width:220px;flex:1" placeholder="e.g. Linux servers or Environment=prod" value="${pat}">
+      ${zbScopeSelectHtml(sid)}
+      <label class="text-micro" style="align-self:center"><input type="checkbox" class="zb-r-en"${en}> enabled</label>
+      <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove()">Remove</button>`;
+    wrap.appendChild(div);
+}
+
+function stZabbixRulesFromDom() {
+    const out = [];
+    document.querySelectorAll('.zb-rule-row').forEach((row) => {
+        const type = (row.querySelector('.zb-r-type') || {}).value || 'group';
+        const pattern = (row.querySelector('.zb-r-pattern') || {}).value || '';
+        const scopeSel = row.querySelector('.zb-r-scope');
+        const scope_id = parseInt(String(scopeSel && scopeSel.value ? scopeSel.value : '0'), 10);
+        const enabled = !!(row.querySelector('.zb-r-en') || {}).checked;
+        if (pattern.trim() === '' || scope_id <= 0) return;
+        out.push({ rule_type: type, pattern: pattern.trim(), scope_id, enabled });
+    });
+    return out;
+}
+
+async function loadZabbixConnector() {
+    if (!stRoleIsAdmin()) return;
+    const sc = await api('/api/scan_scopes.php', { quiet: true });
+    zbScopeOptions = (sc && sc.ok && Array.isArray(sc.scopes)) ? sc.scopes : [];
+    const z = await api('/api/zabbix.php', { quiet: true });
+    const nameEl = document.getElementById('zb-name');
+    const urlEl = document.getElementById('zb-url');
+    const tokEl = document.getElementById('zb-token');
+    const enEl = document.getElementById('zb-enabled');
+    const stEl = document.getElementById('zb-status');
+    const statsEl = document.getElementById('zb-stats');
+    const sampleTb = document.getElementById('zb-sample-tbody');
+    const rulesWrap = document.getElementById('zb-rules-wrap');
+    if (!z || !z.ok) {
+        if (stEl) stEl.textContent = (z && z.error) ? z.error : 'Zabbix API unavailable (migrations or role).';
+        return;
+    }
+    const c = z.connector || {};
+    if (nameEl) nameEl.value = c.name || 'Zabbix';
+    if (urlEl) urlEl.value = c.api_url || '';
+    if (tokEl) tokEl.value = '';
+    if (enEl) enEl.checked = !!c.enabled;
+    if (stEl) {
+        const err = c.last_error ? (' · last error: ' + esc(c.last_error)) : '';
+        stEl.textContent = 'Last sync: ' + (c.last_sync_at || '—') + ' · status: ' + (c.last_sync_status || '—') + err;
+    }
+    if (statsEl) {
+        const s = z.stats || {};
+        statsEl.textContent = `Zabbix hosts: ${s.hosts || 0} · matched links: ${s.matched_pairs || 0} · unmatched Zabbix hosts: ${s.hosts_unmatched || 0} · assets without Zabbix link: ${s.assets_unmatched || 0}`;
+    }
+    if (sampleTb) {
+        const rows = z.sample_matches || [];
+        sampleTb.innerHTML = rows.length
+            ? rows.map((r) => `<tr>
+                <td class="mono-sm">${esc(r.ip || '')}</td>
+                <td>${esc(r.hostname || '')}</td>
+                <td class="text-micro">${esc(r.zabbix_visible || r.zabbix_tech || '')}</td>
+                <td>${esc(r.match_method || '')}</td>
+                <td>${r.confidence != null ? Number(r.confidence).toFixed(2) : '—'}</td>
+              </tr>`).join('')
+            : '<tr><td colspan="5" class="text-dim">No matches yet — run sync after configuring the API.</td></tr>';
+    }
+    if (rulesWrap) {
+        rulesWrap.innerHTML = '';
+        const rules = z.scope_rules || [];
+        if (rules.length) {
+            rules.forEach((r) => stZabbixAddRuleRow(r));
+        }
+    }
+    const zbOp = document.getElementById('zb-operator-blocks');
+    if (zbOp) zbOp.style.display = z.ok ? 'block' : 'none';
+    const zbSc = document.getElementById('zb-scope-apply-block');
+    if (zbSc) zbSc.style.display = (z.workflow && z.workflow.asset_scope_apply) ? 'block' : 'none';
+}
+
+async function stZabbixSave() {
+    if (!stRoleIsAdmin()) return;
+    const body = {
+        action: 'save_connector',
+        name: (document.getElementById('zb-name') || {}).value || '',
+        api_url: (document.getElementById('zb-url') || {}).value || '',
+        enabled: !!(document.getElementById('zb-enabled') || {}).checked,
+    };
+    const tok = (document.getElementById('zb-token') || {}).value || '';
+    if (tok.trim() !== '') body.api_token = tok.trim();
+    const r = await apiPost('/api/zabbix.php', body);
+    if (r && r.ok) {
+        toast('Zabbix connector saved', 'ok');
+        await loadZabbixConnector();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function stZabbixTest() {
+    if (!stRoleIsAdmin()) return;
+    const r = await apiPost('/api/zabbix.php', {
+        action: 'test',
+        api_url: (document.getElementById('zb-url') || {}).value || '',
+        api_token: (document.getElementById('zb-token') || {}).value || '',
+    });
+    if (r && r.ok) {
+        toast('Zabbix API OK' + (r.zabbix_version ? (' · ' + r.zabbix_version) : ''), 'ok');
+    } else {
+        toast((r && r.error) ? r.error : 'Test failed', 'err');
+    }
+}
+
+async function stZabbixSync() {
+    if (!stRoleIsAdmin()) return;
+    const r = await apiPost('/api/zabbix.php', { action: 'sync_now' });
+    if (r && r.ok) {
+        toast('Zabbix sync started (' + (r.mode || 'async') + ')', 'ok');
+        setTimeout(() => loadZabbixConnector(), 4000);
+    } else {
+        toast((r && r.error) ? r.error : 'Sync failed to start', 'err');
+    }
+}
+
+async function stZabbixPreviewRules() {
+    if (!stRoleIsAdmin()) return;
+    const rules = stZabbixRulesFromDom();
+    const r = await apiPost('/api/zabbix.php', { action: 'preview_scope_map', rules });
+    const el = document.getElementById('zb-preview');
+    if (!el) return;
+    if (!r || !r.ok) {
+        el.textContent = (r && r.error) ? r.error : 'Preview failed';
+        return;
+    }
+    const prev = r.preview || [];
+    if (!prev.length) {
+        el.textContent =
+            'No preview rows. Enable at least one rule (checkbox), set pattern + scope, run a Zabbix sync so hosts link to assets, and ensure a rule matches a linked host’s group or tag.';
+        return;
+    }
+    el.innerHTML = prev.map((p) => {
+        const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
+        const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
+        const curL = zbScopeLabel(cur);
+        const sugL = zbScopeLabel(sug);
+        return `<div>asset #${esc(String(p.asset_id))} ${esc(p.ip || '')} · <span class="text-dim">current</span> ${curL} → <span class="text-dim">suggested</span> ${sugL} (${esc(p.rule_type)}:${esc(p.pattern)}) <span class="text-dim">${esc(p.detail || '')}</span></div>`;
+    }).join('');
+}
+
+async function stZabbixSaveRules() {
+    if (!stRoleIsAdmin()) return;
+    const rules = stZabbixRulesFromDom();
+    const r = await apiPost('/api/zabbix.php', { action: 'save_scope_rules', rules });
+    if (r && r.ok) {
+        toast('Zabbix scope rules saved', 'ok');
+        await loadZabbixConnector();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+/** Last scope apply plan from `preview_scope_apply` (same indices as checkboxes in #zb-apply-plan-body). */
+var __stZabbixScopePlan = [];
+
+async function stZabbixLoadApplyPlan() {
+    if (!stRoleIsAdmin()) return;
+    const el = document.getElementById('zb-apply-plan-body');
+    if (!el) return;
+    el.textContent = 'Loading plan…';
+    const r = await apiPost('/api/zabbix.php', { action: 'preview_scope_apply' });
+    if (!r || !r.ok) {
+        el.textContent = (r && r.error) ? r.error : 'Plan failed';
+        return;
+    }
+    const plan = r.plan || [];
+    __stZabbixScopePlan = plan;
+    if (!plan.length) {
+        el.innerHTML = '<span class="text-dim">No rows: save rules with <strong>enabled</strong> checked, run sync, and ensure a linked host matches a rule.</span>';
+        return;
+    }
+    const rows = plan.map((p, i) => {
+        const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
+        const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
+        const chg = (cur || 0) !== (sug || 0);
+        const checked = chg ? ' checked' : '';
+        return `<tr>
+          <td><input type="checkbox" class="zb-plan-chk" data-i="${i}"${checked}></td>
+          <td class="mono-sm">${esc(String(p.asset_id))}</td>
+          <td class="mono-sm">${esc(p.ip || '')}</td>
+          <td>${zbScopeLabel(cur)}</td>
+          <td>${zbScopeLabel(sug)}</td>
+          <td class="text-micro">${esc(p.rule_type || '')}:${esc(p.pattern || '')}</td>
+        </tr>`;
+    }).join('');
+    el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th></th><th>Asset</th><th>IP</th><th>Current scope</th><th>New scope</th><th>Rule</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="hint-micro mt4">${plan.length} row(s) — only checked rows are sent on apply. Rows where current equals new are unchecked by default.</p>`;
+}
+
+async function stZabbixApplyPlanSelection() {
+    if (!stRoleIsAdmin()) return;
+    const c = document.getElementById('zb-apply-confirm');
+    if (!c || !c.checked) {
+        toast('Check the confirmation box first', 'err');
+        return;
+    }
+    const plan = __stZabbixScopePlan || [];
+    const apply = [];
+    document.querySelectorAll('.zb-plan-chk:checked').forEach((el) => {
+        const i = parseInt(el.getAttribute('data-i') || '-1', 10);
+        const p = plan[i];
+        if (!p) return;
+        const curRaw = p.current_scope_id;
+        const oldScope = (curRaw !== null && curRaw !== undefined && String(curRaw) !== '')
+            ? parseInt(String(curRaw), 10)
+            : null;
+        apply.push({
+            asset_id: parseInt(String(p.asset_id), 10),
+            old_scope_id: oldScope,
+            new_scope_id: parseInt(String(p.suggested_scope_id), 10),
+        });
+    });
+    if (!apply.length) {
+        toast('Select at least one row to apply', 'err');
+        return;
+    }
+    if (!confirm(`Apply scan scope updates to ${apply.length} asset(s)? Logged in the audit trail.`)) return;
+    const r = await apiPost('/api/zabbix.php', { action: 'apply_scope_map', confirm: true, apply });
+    if (r && r.ok) {
+        const msg = `Applied ${r.applied != null ? r.applied : 0}, skipped ${r.skipped != null ? r.skipped : 0}` +
+            ((r.errors && r.errors.length) ? (' · errors: ' + r.errors.join('; ')) : '');
+        toast(msg, (r.applied > 0) ? 'ok' : 'err');
+        document.getElementById('zb-apply-confirm').checked = false;
+        await stZabbixLoadApplyPlan();
+        await loadZabbixConnector();
+    } else {
+        toast((r && r.error) ? r.error : 'Apply failed', 'err');
+    }
+}
+
+function stZabbixMatchReviewTable(title, rows, cols) {
+    if (!rows || !rows.length) return `<div class="mb8"><strong>${esc(title)}</strong> <span class="text-dim">(none)</span></div>`;
+    const hdr = cols.map((c) => `<th class="text-micro">${esc(c.label)}</th>`).join('');
+    const body = rows.map((row) => '<tr>' + cols.map((c) => `<td class="mono-sm">${esc(String(row[c.key] != null ? row[c.key] : ''))}</td>`).join('') + '</tr>').join('');
+    return `<div class="mb10"><strong>${esc(title)}</strong> (${rows.length})</div>
+      <div class="tbl-wrap mb8"><table class="tbl"><thead><tr>${hdr}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+async function stZabbixMatchReviewRefresh() {
+    if (!stRoleIsAdmin()) return;
+    const el = document.getElementById('zb-match-review-body');
+    if (!el) return;
+    el.textContent = 'Loading…';
+    const z = await api('/api/zabbix.php?match_review=1', { quiet: true });
+    if (!z || !z.ok) {
+        el.textContent = (z && z.error) ? z.error : 'Could not load match review';
+        return;
+    }
+    const mr = z.match_review || {};
+    const hi = mr.high_confidence || [];
+    const near = mr.near_threshold || [];
+    const uh = mr.unmatched_zabbix_hosts || [];
+    const ua = mr.unmatched_assets || [];
+    let h = '';
+    h += stZabbixMatchReviewTable('High confidence (≥ 0.9)', hi, [
+        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
+        { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
+        { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
+    ]);
+    h += stZabbixMatchReviewTable('Near threshold (confidence 0.75–0.9)', near, [
+        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
+        { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
+        { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
+    ]);
+    h += stZabbixMatchReviewTable('Unmatched Zabbix hosts', uh, [
+        { key: 'hostid', label: 'hostid' }, { key: 'visible_name', label: 'Visible' }, { key: 'tech_name', label: 'Technical' },
+        { key: 'monitored', label: 'Mon.' }, { key: 'available', label: 'Avail' },
+    ]);
+    h += stZabbixMatchReviewTable('Assets without Zabbix link', ua, [
+        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
+    ]);
+    el.innerHTML = h;
+}
+
+async function stZabbixManualLink() {
+    if (!stRoleIsAdmin()) return;
+    const asset_id = parseInt(String((document.getElementById('zb-link-aid') || {}).value || '0'), 10);
+    const zabbix_hostid = String((document.getElementById('zb-link-hid') || {}).value || '').trim();
+    const match_method = String((document.getElementById('zb-link-method') || {}).value || 'manual').trim() || 'manual';
+    const confidence = parseFloat(String((document.getElementById('zb-link-conf') || {}).value || '1'));
+    if (asset_id <= 0 || !zabbix_hostid) {
+        toast('Asset id and Zabbix hostid required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/zabbix.php', {
+        action: 'link_manual',
+        asset_id,
+        zabbix_hostid,
+        match_method,
+        confidence: Number.isFinite(confidence) ? confidence : 1.0,
+    });
+    if (r && r.ok) {
+        toast('Manual link saved', 'ok');
+        await loadZabbixConnector();
+        await stZabbixMatchReviewRefresh();
+    } else {
+        toast((r && r.error) ? r.error : 'Link failed', 'err');
+    }
+}
+
+async function stZabbixManualUnlink() {
+    if (!stRoleIsAdmin()) return;
+    const asset_id = parseInt(String((document.getElementById('zb-unlink-aid') || {}).value || '0'), 10);
+    if (asset_id <= 0) {
+        toast('Asset id required', 'err');
+        return;
+    }
+    if (!confirm(`Remove Zabbix link for asset #${asset_id}? Denormalized Zabbix fields on the asset are refreshed.`)) return;
+    const r = await apiPost('/api/zabbix.php', { action: 'unlink_asset', asset_id });
+    if (r && r.ok) {
+        toast('Unlinked', 'ok');
+        await loadZabbixConnector();
+        await stZabbixMatchReviewRefresh();
+    } else {
+        toast((r && r.error) ? r.error : 'Unlink failed', 'err');
+    }
 }
 
 async function stIntegrationsCreate() {
@@ -11061,6 +11575,52 @@ function openReclassify(id, ip, hostname, category, vendor, notes, owner, busine
     bg.style.display = 'flex';
     modalRefreshLockUi();
     document.getElementById('modal-hostname').focus();
+    void hydrateAssetModalZabbix(id);
+}
+
+function stZabbixUiTruncate(str, maxLen) {
+    const s = String(str || '');
+    if (s.length <= maxLen) return s;
+    return s.slice(0, Math.max(0, maxLen - 16)) + '… (truncated)';
+}
+
+async function hydrateAssetModalZabbix(assetId) {
+    const wrap = document.getElementById('modal-zabbix-wrap');
+    const body = document.getElementById('modal-zabbix-body');
+    if (!wrap || !body) return;
+    wrap.classList.add('hide');
+    body.textContent = '';
+    const r = await api('/api/assets.php?id=' + encodeURIComponent(String(assetId)), { quiet: true });
+    if (!r || !r.asset || !('zabbix' in r.asset)) return;
+    const z = r.asset.zabbix;
+    wrap.classList.remove('hide');
+    if (!z || !z.linked) {
+        body.innerHTML = '<span class="text-dim">No Zabbix host linked (sync the Zabbix connector under Integrations).</span>';
+        return;
+    }
+    const inv = z.inventory || {};
+    const tags = stZabbixUiTruncate((z.tags || []).map((t) => esc((t.tag || '') + (t.value !== '' && t.value !== undefined ? '=' + t.value : ''))).filter(Boolean).join(', '), 2400);
+    const gr = stZabbixUiTruncate((z.host_groups || []).map((g) => esc(g)).join(', '), 2400);
+    const tm = stZabbixUiTruncate((z.templates || []).map((t) => esc(t)).join(', '), 2400);
+    const ra = r.asset || {};
+    const den = (ra.monitored_by_zabbix === true || ra.monitored_by_zabbix === false)
+        ? `<div class="mt4 text-micro text-dim">Asset denorm: monitored_by_zabbix=${ra.monitored_by_zabbix ? 'yes' : 'no'} · zabbix_availability=${esc(String(ra.zabbix_availability || '—'))} · zabbix_problem_count=${esc(String(ra.zabbix_problem_count != null ? ra.zabbix_problem_count : '—'))}</div>`
+        : '';
+    const man = (z.match && z.match.manual) ? ' <span class="text-dim">(manual)</span>' : '';
+    body.innerHTML =
+        '<div><strong>Monitored</strong>: ' + (z.monitored ? 'yes' : 'no') +
+        ' · <strong>Availability</strong>: ' + esc(z.availability || '—') +
+        ' · <strong>Open problems</strong>: ' + esc(String(z.open_problem_count != null ? z.open_problem_count : '—')) + '</div>' +
+        den +
+        '<div class="mt4"><strong>Match</strong>: ' + esc((z.match && z.match.method) || '') + ' (confidence ' +
+        (z.match && z.match.confidence != null ? Number(z.match.confidence).toFixed(2) : '—') + ')' + man + '</div>' +
+        (gr ? '<div class="mt4"><strong>Groups</strong>: ' + gr + '</div>' : '') +
+        (tm ? '<div class="mt4"><strong>Templates</strong>: ' + tm + '</div>' : '') +
+        (tags ? '<div class="mt4"><strong>Tags</strong>: ' + tags + '</div>' : '') +
+        '<div class="mt4"><strong>Inventory</strong>: owner ' + esc(inv.owner || '—') +
+        ' · location ' + esc(inv.location || '—') +
+        ' · environment ' + esc(inv.environment || '—') + '</div>' +
+        '<p class="hint-micro mt4 text-dim">Zabbix does not silently overwrite hostname, category, or vendor. Operators can assign <strong>scan scope</strong> from enabled rules under Integrations after preview + confirmation (audited).</p>';
 }
 
 function modalRefreshLockUi() {
@@ -11722,6 +12282,67 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
 // ==========================================================================
 // Host detail panel
 // ==========================================================================
+/** Read-only Zabbix summary for the host Details side panel (no actions). */
+function renderHostPanelZabbixBlock(a) {
+    const z = a && a.zabbix;
+    if (!z || typeof z !== 'object') {
+        return '';
+    }
+    const linked = !!z.linked;
+    let monLabel = '—';
+    if (linked) {
+        monLabel = z.monitored === true ? 'yes' : z.monitored === false ? 'no' : '—';
+    } else if (a.monitored_by_zabbix === true || a.monitored_by_zabbix === false) {
+        monLabel = a.monitored_by_zabbix ? 'yes' : 'no';
+    } else {
+        monLabel = 'no';
+    }
+    const avail = linked
+        ? esc(String(z.availability != null && z.availability !== '' ? z.availability : '—'))
+        : esc(String(a.zabbix_availability != null && a.zabbix_availability !== '' ? a.zabbix_availability : '—'));
+    let prob = '—';
+    if (linked && z.open_problem_count != null) {
+        prob = esc(String(z.open_problem_count));
+    } else if (a.zabbix_problem_count != null) {
+        prob = esc(String(a.zabbix_problem_count));
+    }
+    const tagsJoined = stZabbixUiTruncate((z.tags || []).map((t) => {
+        const tag = t.tag || '';
+        const v = t.value;
+        return esc(tag + (v !== '' && v !== undefined ? '=' + v : ''));
+    }).filter(Boolean).join(', '), 1200);
+    const gr = stZabbixUiTruncate((z.host_groups || []).map((g) => esc(g)).join(', '), 1200);
+    const tm = stZabbixUiTruncate((z.templates || []).map((t) => esc(t)).join(', '), 1200);
+    const m = z.match;
+    let matchHtml = '<span class="text-dim">—</span>';
+    if (m && linked) {
+        const conf = m.confidence != null ? Number(m.confidence).toFixed(2) : '—';
+        const man = m.manual ? ' · <span class="text-dim">manual link</span>' : ' · <span class="text-dim">automatic</span>';
+        matchHtml = `${esc(m.method || '—')} · confidence ${esc(conf)}${man}`;
+    }
+    const unlinkNote = linked
+        ? ''
+        : '<p class="hint-micro text-dim mt6" style="margin-bottom:0">No Zabbix host linked. After the connector syncs, matching links hosts by IP, hostname, MAC, or visible name.</p>';
+    return `
+      <div class="hp-head">
+        Zabbix
+        <span class="text-dim mono-sm" style="font-weight:normal;margin-left:6px">enrichment (read-only)</span>
+        <div class="hp-head-line"></div>
+      </div>
+      <div class="hp-block mb14" style="padding-bottom:4px">
+        <table class="hp-meta-table">
+          <tr><td class="hp-meta-key">Monitored</td><td class="hp-meta-val-dim">${esc(monLabel)}</td></tr>
+          <tr><td class="hp-meta-key">Availability</td><td class="hp-meta-val-dim">${avail}</td></tr>
+          <tr><td class="hp-meta-key">Open problems</td><td class="hp-meta-val-dim">${prob}</td></tr>
+          <tr><td class="hp-meta-key">Groups</td><td class="hp-meta-val-dim cpe-break">${gr || '<span class="text-dim">—</span>'}</td></tr>
+          <tr><td class="hp-meta-key">Tags</td><td class="hp-meta-val-dim cpe-break">${tagsJoined || '<span class="text-dim">—</span>'}</td></tr>
+          <tr><td class="hp-meta-key">Templates</td><td class="hp-meta-val-dim cpe-break">${tm || '<span class="text-dim">—</span>'}</td></tr>
+          <tr><td class="hp-meta-key">Match</td><td class="hp-meta-val-dim">${matchHtml}</td></tr>
+        </table>
+        ${unlinkNote}
+      </div>`;
+}
+
 async function openHostPanel(id, ip) {
     closeDevicePanel();
     const hpEl = document.getElementById('host-panel');
@@ -11871,6 +12492,8 @@ async function openHostPanel(id, ip) {
           ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
       </div>
+
+      ${renderHostPanelZabbixBlock(a)}
 
       <div class="hp-head">
         Detected services
@@ -12127,7 +12750,18 @@ function exportAssets(format) {
     const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
     const incf = document.getElementById('af-findings')?.checked ? '1' : '0';
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
-    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}`;
+    const zMon = document.getElementById('af-zbx-monitored')?.value || '';
+    const zUn = document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
+    const zPr = document.getElementById('af-zbx-problems')?.checked ? '1' : '';
+    const zGr = (document.getElementById('af-zbx-group')?.value || '').trim();
+    const zTg = (document.getElementById('af-zbx-tag')?.value || '').trim();
+    let zbxQ = '';
+    if (zMon === '0' || zMon === '1') zbxQ += `&zabbix_monitored=${enc(zMon)}`;
+    if (zUn) zbxQ += '&zabbix_unavailable=1';
+    if (zPr) zbxQ += '&zabbix_has_problems=1';
+    if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
+    if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
+    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${zbxQ}`;
     // Trigger download
     const a = document.createElement('a');
     a.href = url;

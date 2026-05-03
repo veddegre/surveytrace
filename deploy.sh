@@ -160,6 +160,9 @@ API_FILES=(
   lib_integrations_dashboard.php
   lib_reporting.php
   lib_scan_scopes.php
+  lib_zabbix.php
+  zabbix.php
+  zabbix_sync_worker.php
   scan_scopes.php
   reporting.php
   reporting_cli.php
