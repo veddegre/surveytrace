@@ -7,7 +7,7 @@ This folder contains a **starter dashboard JSON** for the community [**Infinity*
 1. Install the **Infinity** plugin on your Grafana stack.
 2. Create an **Infinity** datasource (e.g. name `SurveyTrace`, access **Server** so Grafana backend calls SurveyTrace).
 3. In the datasource **Allowed hosts / URLs**, add your SurveyTrace origin (scheme + host, no path), e.g. `https://surveytrace.example`.
-4. **Recommended:** set a static header on the datasource: **`Authorization`** = **`Bearer <token>`**. Use a **`report_summary_pull`** integration row’s token for **`integrations_dashboard.php`** / **`integrations_report_summary.php`**, and a **`json_events_pull`** row’s token for **`integrations_events.php`** (rotate each row independently under **Integrations**). A legacy global token still works as a fallback for all routes if configured. Do not embed the token in dashboard JSON if you can avoid it.
+4. **Recommended:** set a static header on the datasource: **`Authorization`** = **`Bearer <token>`**. Use a **`report_summary_pull`** integration row’s token for **`integrations_dashboard.php`** / **`integrations_report_summary.php`**, and a **`json_events_pull`** row’s token for **`integrations_events.php`** (rotate each row independently under **Integrations**). Pull APIs accept **only** per-integration tokens of the correct type. Do not embed the token in dashboard JSON if you can avoid it.
 
 ## Import
 

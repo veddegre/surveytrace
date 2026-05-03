@@ -2,7 +2,7 @@
 /**
  * SurveyTrace — /api/integrations.php
  *
- * Admin-only: list integrations, CRUD, manual test/sample push, per-row pull token rotation, legacy global pull token.
+ * Admin-only: list integrations, CRUD, manual test/sample push, per-row pull token rotation.
  * Secrets are never returned; use auth_configured and rotate flows.
  */
 
@@ -19,12 +19,9 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
     st_json([
-        'ok'                                    => true,
-        'integrations'                        => st_integrations_list($db),
-        'legacy_pull_token_configured'          => st_integrations_legacy_pull_token_configured(),
+        'ok'                                      => true,
+        'integrations'                          => st_integrations_list($db),
         'per_integration_pull_token_configured' => st_integrations_any_row_pull_token_configured($db),
-        'pull_token_configured'                 => st_integrations_legacy_pull_token_configured()
-            || st_integrations_any_row_pull_token_configured($db),
     ]);
 }
 
@@ -33,22 +30,6 @@ st_require_csrf();
 
 $body = st_input();
 $action = strtolower(trim((string) ($body['action'] ?? '')));
-
-if ($action === 'rotate_pull_token') {
-    $r = st_integrations_pull_token_rotate();
-    if (! $r['ok']) {
-        st_json(['ok' => false, 'error' => $r['error'] ?? 'rotate_failed'], 500);
-    }
-    @error_log('SurveyTrace.integrations ' . json_encode([
-        '_event' => 'integrations.legacy_pull_token_rotated',
-    ], JSON_UNESCAPED_SLASHES));
-    st_json([
-        'ok'                     => true,
-        'pull_token'             => $r['token'],
-        'pull_token_reveal_once' => true,
-        'message'                => 'Legacy global token — store now; it will not be shown again. Prefer per-integration tokens.',
-    ]);
-}
 
 if ($action === 'rotate_token') {
     $id = (int) ($body['integration_id'] ?? 0);
@@ -90,6 +71,13 @@ if ($action === 'create') {
         : null;
     $auth = trim((string) ($body['auth_secret'] ?? ''));
     $extra = trim((string) ($body['extra_json'] ?? '{}'));
+    if (st_integrations_is_pull_type($type)) {
+        $endpoint = '';
+        $host = '';
+        $port = null;
+        $auth = '';
+        $extra = '{}';
+    }
     if ($extra === '') {
         $extra = '{}';
     }
@@ -137,6 +125,13 @@ if ($action === 'update') {
         $authVal = '';
     } elseif ($authNew !== null && $authNew !== '') {
         $authVal = $authNew;
+    }
+    if (st_integrations_is_pull_type($type)) {
+        $endpoint = '';
+        $host = '';
+        $port = null;
+        $authVal = '';
+        $extra = '{}';
     }
     $clearPullTok = st_integrations_is_pull_type((string) ($row['type'] ?? ''))
         && ! st_integrations_is_pull_type($type);

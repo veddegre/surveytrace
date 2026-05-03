@@ -1188,58 +1188,141 @@ if (is_readable($dbProbe)) {
 <!-- ================================================================ INTEGRATIONS (admin) -->
 <div class="tab" id="t-integrations">
   <div class="card">
-    <div class="ct">Integrations (Phase 14.1)</div>
+    <div class="ct">Integrations</div>
     <p class="help-line mb10">
-      Configure outbound push targets (manual <strong>Test</strong> / <strong>Sample</strong> only for now) and
-      <strong>per-integration pull tokens</strong> for Prometheus, JSON/JSONL events, and report-summary HTTP endpoints
-      (one row per external consumer is recommended). A <strong>legacy global</strong> token remains optional as a fallback.
-      Secrets are stored on the server and are <strong>never</strong> returned in list responses.
+      Configure <strong>push</strong> destinations (manual <strong>Test</strong> / <strong>Sample</strong> only; no automatic fan-out yet)
+      and <strong>pull / API</strong> consumers with <strong>per-integration bearer tokens</strong>.
+      Secrets and token hashes stay on the server and are <strong>never</strong> returned in list responses.
     </p>
-    <div class="row-wrap gap6 mb10">
-      <button type="button" class="btnp btn-xs" onclick="stIntegrationsRotateLegacyPullToken()">Rotate legacy global pull token</button>
-      <span class="text-dim text-micro" id="st-int-pull-hint">Pull token status loads with the list.</span>
-    </div>
-    <div class="hint-micro mb10" id="st-int-pull-reveal" style="display:none"></div>
+    <p class="hint-micro mb10">
+      Create one pull integration per external consumer so tokens can be rotated independently.
+    </p>
+    <div class="hint-micro mb10 text-dim" id="st-int-pull-hint">Loading pull token status…</div>
+    <div class="help-box mb10" id="st-int-token-reveal" style="display:none"></div>
+
+    <details class="mb10">
+      <summary class="flbl" style="display:inline-block;cursor:pointer">Quick start (Grafana, Prometheus / Alloy, Splunk)</summary>
+      <div class="row-wrap gap10 mt8" style="align-items:stretch">
+        <div class="help-box" style="flex:1;min-width:220px">
+          <div class="text-strong mb4">Grafana Infinity</div>
+          <div class="hint-micro">Choose <strong>Grafana Infinity / report summary pull</strong>. Endpoint: <code class="code-accent">/api/integrations_dashboard.php</code> (or <code class="code-accent">/api/integrations_report_summary.php</code>). Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>.</div>
+        </div>
+        <div class="help-box" style="flex:1;min-width:220px">
+          <div class="text-strong mb4">Grafana / Prometheus / Alloy</div>
+          <div class="hint-micro">Choose <strong>Prometheus / Grafana metrics pull</strong>. Endpoint: <code class="code-accent">/api/integrations_metrics.php</code>. Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>.</div>
+        </div>
+        <div class="help-box" style="flex:1;min-width:220px">
+          <div class="text-strong mb4">Splunk HEC</div>
+          <div class="hint-micro">Choose <strong>Splunk HEC push</strong>. Set HEC URL and token in the form. Use <strong>Test</strong> / <strong>Sample</strong> to validate.</div>
+        </div>
+        <div class="help-box" style="flex:1;min-width:220px">
+          <div class="text-strong mb4">Splunk scripted / modular input</div>
+          <div class="hint-micro">Choose <strong>Splunk scripted input / JSON events pull</strong>. Endpoint: <code class="code-accent">/api/integrations_events.php?since=…&amp;format=jsonl</code>. Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>. See <code class="code-accent">integrations/starter/splunk_surveytrace/</code>.</div>
+        </div>
+      </div>
+    </details>
+
     <div class="flbl">Add integration</div>
     <div class="row-wrap gap6 mb6 flex-wrap">
-      <input class="finp" id="st-int-new-name" placeholder="Name" style="min-width:140px">
-      <select class="finp" id="st-int-new-type" style="min-width:180px">
-        <option value="webhook">webhook (HTTPS JSON)</option>
-        <option value="splunk_hec">splunk_hec</option>
-        <option value="loki">loki (push)</option>
-        <option value="syslog">syslog (UDP/TCP)</option>
-        <option value="prometheus_pull">prometheus_pull (marker)</option>
-        <option value="json_events_pull">json_events_pull (marker)</option>
-        <option value="report_summary_pull">report_summary_pull (marker)</option>
+      <input class="finp" id="st-int-new-name" placeholder="Name" style="min-width:160px">
+      <select class="finp" id="st-int-new-type" style="min-width:280px" onchange="stIntegrationsSyncCreateForm()">
+        <option value="webhook">Generic webhook push</option>
+        <option value="splunk_hec">Splunk HEC push</option>
+        <option value="loki">Grafana Loki push</option>
+        <option value="syslog">Syslog push</option>
+        <option value="prometheus_pull">Prometheus / Grafana metrics pull</option>
+        <option value="json_events_pull">Splunk scripted input / JSON events pull</option>
+        <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
       </select>
       <label class="text-micro" style="align-self:center"><input type="checkbox" id="st-int-new-enabled" checked> Enabled</label>
       <button type="button" class="tbtn btn-xs" onclick="stIntegrationsCreate()">Create</button>
     </div>
-    <div class="row-wrap gap6 mb10 flex-wrap">
-      <input class="finp" id="st-int-new-endpoint" placeholder="endpoint_url (webhook / HEC / Loki push URL)" style="min-width:280px;flex:1">
+    <div class="row-wrap gap6 mb6 flex-wrap" id="st-int-new-row-endpoint">
+      <input class="finp" id="st-int-new-endpoint" placeholder="HTTPS URL (webhook, HEC, or Loki push)" style="min-width:280px;flex:1">
     </div>
-    <div class="row-wrap gap6 mb10 flex-wrap">
-      <input class="finp" id="st-int-new-host" placeholder="syslog host" style="min-width:160px">
-      <input class="finp" id="st-int-new-port" placeholder="syslog port" style="width:100px" type="number">
-      <input class="finp" id="st-int-new-secret" type="password" autocomplete="new-password" placeholder="auth secret (HEC token, HMAC secret, …)" style="min-width:220px;flex:1">
+    <div class="row-wrap gap6 mb6 flex-wrap" id="st-int-new-row-syslog" style="display:none">
+      <input class="finp" id="st-int-new-host" placeholder="Syslog host" style="min-width:160px">
+      <input class="finp" id="st-int-new-port" placeholder="Port (default 514)" style="width:120px" type="number">
     </div>
+    <div class="row-wrap gap6 mb10 flex-wrap" id="st-int-new-row-secret">
+      <input class="finp" id="st-int-new-secret" type="password" autocomplete="new-password" placeholder="Optional auth / HMAC secret" style="min-width:240px;flex:1">
+    </div>
+    <div class="help-box mb10" id="st-int-new-pull-help" style="display:none"></div>
+
+    <div class="flbl mt12">Push integrations</div>
+    <p class="hint-micro mb6">Destination URLs or syslog host:port. Use <strong>Test</strong> / <strong>Sample</strong> to send a canonical reporting event.</p>
     <div class="tbl-wrap">
       <table class="tbl">
         <thead>
           <tr>
-            <th>ID</th><th>Name</th><th>Type</th><th>On</th><th>Target</th><th>Auth</th><th>Pull access</th><th>Last test</th><th>Actions</th>
+            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>Destination</th><th>Auth</th><th>Last test</th><th>Actions</th>
           </tr>
         </thead>
-        <tbody id="st-int-tbody"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+        <tbody id="st-int-push-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
       </table>
     </div>
+
+    <div class="flbl mt12">Pull / API integrations</div>
+    <p class="hint-micro mb6">Per-row <strong>Generate / Rotate token</strong>. After rotation, copy the plaintext once — it will not be shown again.</p>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>API paths</th><th>Token</th><th>Last used</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="st-int-pull-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
     <p class="help-line text-dim mt10 text-micro">
-      Pull URLs (Bearer or <code class="code-accent">?token=</code>): <code class="code-accent">/api/integrations_metrics.php</code> (add <code class="code-accent">?format=json</code> for Grafana Infinity),
-      <code class="code-accent">/api/integrations_dashboard.php</code> (single JSON bundle),
-      <code class="code-accent">/api/integrations_events.php?since=…&amp;format=jsonl</code>,
-      <code class="code-accent">/api/integrations_report_summary.php?scope_id=…</code>.
-      Starter Splunk / Grafana files: <code class="code-accent">integrations/starter/</code> on the server repo (see README).
+      Pull APIs accept <code class="code-accent">Authorization: Bearer &lt;token&gt;</code> (or <code class="code-accent">?token=</code> — less ideal for logs).
+      Starter files: <code class="code-accent">integrations/starter/</code> (see README).
     </p>
+  </div>
+
+  <div id="st-int-edit-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-int-edit-title" onclick="if(event.target===this)stIntegrationEditClose()">
+    <div class="modal-card modal-w560" onclick="event.stopPropagation()">
+      <div class="row-between mb14" style="gap:12px;align-items:center">
+        <div class="modal-title" style="margin-bottom:0" id="st-int-edit-title">Edit integration</div>
+        <button type="button" class="modal-close-x" onclick="stIntegrationEditClose()" title="Close" aria-label="Close">×</button>
+      </div>
+      <input type="hidden" id="st-int-edit-id" value="">
+      <input type="hidden" id="st-int-edit-extra-json" value="{}">
+      <label class="flbl">Name</label>
+      <input class="finp w100 mb10" id="st-int-edit-name" placeholder="Name">
+      <label class="flbl">Integration type</label>
+      <select class="finp w100 mb10" id="st-int-edit-type" onchange="stIntegrationsSyncEditForm()">
+        <option value="webhook">Generic webhook push</option>
+        <option value="splunk_hec">Splunk HEC push</option>
+        <option value="loki">Grafana Loki push</option>
+        <option value="syslog">Syslog push</option>
+        <option value="prometheus_pull">Prometheus / Grafana metrics pull</option>
+        <option value="json_events_pull">Splunk scripted input / JSON events pull</option>
+        <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
+      </select>
+      <label class="text-micro mb10" style="display:block"><input type="checkbox" id="st-int-edit-enabled"> Enabled</label>
+      <div id="st-int-edit-row-endpoint">
+        <label class="flbl">Endpoint URL</label>
+        <input class="finp w100 mb10" id="st-int-edit-endpoint" placeholder="HTTPS URL">
+      </div>
+      <div id="st-int-edit-row-syslog" style="display:none">
+        <label class="flbl">Syslog host</label>
+        <input class="finp w100 mb6" id="st-int-edit-host" placeholder="Host">
+        <label class="flbl">Port</label>
+        <input class="finp w100 mb10" id="st-int-edit-port" type="number" placeholder="514">
+      </div>
+      <div id="st-int-edit-row-secret">
+        <label class="flbl">New secret (optional)</label>
+        <input class="finp w100 mb6" id="st-int-edit-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
+        <label class="text-micro"><input type="checkbox" id="st-int-edit-secret-clear"> Clear stored push secret</label>
+      </div>
+      <div class="help-box mb10" id="st-int-edit-pull-help" style="display:none"></div>
+      <div class="row-wrap gap6" style="justify-content:flex-end">
+        <button type="button" class="tbtn" onclick="stIntegrationEditClose()">Cancel</button>
+        <button type="button" class="btnp" onclick="stIntegrationEditSave()">Save</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -6414,70 +6497,161 @@ function stIntegrationIsPullType(t) {
     return t === 'prometheus_pull' || t === 'json_events_pull' || t === 'report_summary_pull';
 }
 
+function stIntegrationPullHelpHtml(type) {
+    if (type === 'prometheus_pull') {
+        return 'Use this token with <code class="code-accent">/api/integrations_metrics.php</code>.';
+    }
+    if (type === 'json_events_pull') {
+        return 'Use this token with <code class="code-accent">/api/integrations_events.php</code>. Good for Splunk scripted or modular inputs.';
+    }
+    if (type === 'report_summary_pull') {
+        return 'Use this token with <code class="code-accent">/api/integrations_dashboard.php</code> or <code class="code-accent">/api/integrations_report_summary.php</code>. Good for Grafana Infinity.';
+    }
+    return '';
+}
+
+function stIntegrationsSyncCreateForm() {
+    const sel = document.getElementById('st-int-new-type');
+    const type = sel ? sel.value : 'webhook';
+    const isPull = stIntegrationIsPullType(type);
+    const rowEp = document.getElementById('st-int-new-row-endpoint');
+    const rowSl = document.getElementById('st-int-new-row-syslog');
+    const rowSec = document.getElementById('st-int-new-row-secret');
+    const pullHelp = document.getElementById('st-int-new-pull-help');
+    const sec = document.getElementById('st-int-new-secret');
+    if (rowEp) rowEp.style.display = !isPull && type !== 'syslog' ? '' : 'none';
+    if (rowSl) rowSl.style.display = !isPull && type === 'syslog' ? '' : 'none';
+    if (rowSec) {
+        const showSec = !isPull && (type === 'webhook' || type === 'splunk_hec' || type === 'loki');
+        rowSec.style.display = showSec ? '' : 'none';
+        if (sec) {
+            if (type === 'splunk_hec') sec.placeholder = 'HEC token';
+            else if (type === 'loki') sec.placeholder = 'Optional Bearer token for Loki';
+            else sec.placeholder = 'Optional HMAC secret';
+        }
+    }
+    if (pullHelp) {
+        if (isPull) {
+            pullHelp.style.display = '';
+            pullHelp.innerHTML = stIntegrationPullHelpHtml(type);
+        } else {
+            pullHelp.style.display = 'none';
+            pullHelp.innerHTML = '';
+        }
+    }
+}
+
+function stIntegrationsSyncEditForm() {
+    const sel = document.getElementById('st-int-edit-type');
+    const type = sel ? sel.value : 'webhook';
+    const isPull = stIntegrationIsPullType(type);
+    const rowEp = document.getElementById('st-int-edit-row-endpoint');
+    const rowSl = document.getElementById('st-int-edit-row-syslog');
+    const rowSec = document.getElementById('st-int-edit-row-secret');
+    const pullHelp = document.getElementById('st-int-edit-pull-help');
+    if (rowEp) rowEp.style.display = !isPull && type !== 'syslog' ? '' : 'none';
+    if (rowSl) rowSl.style.display = !isPull && type === 'syslog' ? '' : 'none';
+    if (rowSec) rowSec.style.display = !isPull && (type === 'webhook' || type === 'splunk_hec' || type === 'loki') ? '' : 'none';
+    if (pullHelp) {
+        if (isPull) {
+            pullHelp.style.display = '';
+            pullHelp.innerHTML = stIntegrationPullHelpHtml(type);
+        } else {
+            pullHelp.style.display = 'none';
+            pullHelp.innerHTML = '';
+        }
+    }
+}
+
+function stIntegrationRowPushHtml(r) {
+    const dest = esc(r.destination_summary || '—');
+    const typ = esc(r.type_label || r.type);
+    const typTitle = esc(r.type || '');
+    const on = r.enabled ? 'yes' : 'no';
+    const auth = r.auth_configured ? '<span class="text-strong">configured</span>' : '<span class="text-dim">—</span>';
+    const lt = r.last_test_at ? esc(r.last_test_at) : '—';
+    const st = r.last_test_status ? esc(r.last_test_status) : '—';
+    return `<tr>
+      <td>${esc(r.name)}</td>
+      <td title="${typTitle}">${typ}</td>
+      <td>Push</td>
+      <td>${on}</td>
+      <td class="mono-sm" style="max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${dest}">${dest}</td>
+      <td class="text-micro">${auth}</td>
+      <td class="text-micro">${lt}<br><span class="text-dim">${st}</span></td>
+      <td class="text-nowrap">
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationEditOpen(${r.id})">Edit</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationTest(${r.id})">Test</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationSample(${r.id})">Sample</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationToggle(${r.id}, ${r.enabled ? 0 : 1})">${r.enabled ? 'Disable' : 'Enable'}</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationDelete(${r.id})">Delete</button>
+      </td>
+    </tr>`;
+}
+
+function stIntegrationRowPullHtml(r) {
+    const dest = esc(r.destination_summary || '—');
+    const typ = esc(r.type_label || r.type);
+    const typTitle = esc(r.type || '');
+    const on = r.enabled ? 'yes' : 'no';
+    const tc = r.token_configured ? '<span class="text-strong">configured</span>' : '<span class="text-dim">not set</span>';
+    const created = r.token_created_at ? `<div class="text-dim text-micro">created ${esc(r.token_created_at)}</div>` : '';
+    const tokCell = `<div class="text-micro">${tc}</div>${created}
+      <button type="button" class="tbtn btn-xxs mt4" onclick="stIntegrationRotateToken(${r.id})">Generate / Rotate token</button>`;
+    const used = r.token_last_used_at
+        ? esc(r.token_last_used_at) + (r.token_last_used_ip ? ' · ' + esc(r.token_last_used_ip) : '')
+        : '—';
+    return `<tr>
+      <td>${esc(r.name)}</td>
+      <td title="${typTitle}">${typ}</td>
+      <td>Pull</td>
+      <td>${on}</td>
+      <td class="mono-sm text-micro" style="max-width:280px">${dest}</td>
+      <td style="vertical-align:top" class="text-micro">${tokCell}</td>
+      <td class="text-micro">${used}</td>
+      <td class="text-nowrap">
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationEditOpen(${r.id})">Edit</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationToggle(${r.id}, ${r.enabled ? 0 : 1})">${r.enabled ? 'Disable' : 'Enable'}</button>
+        <button type="button" class="tbtn btn-xxs" onclick="stIntegrationDelete(${r.id})">Delete</button>
+      </td>
+    </tr>`;
+}
+
 async function loadIntegrationsTab() {
     if (!stRoleIsAdmin()) return;
-    const tb = document.getElementById('st-int-tbody');
+    const tbPush = document.getElementById('st-int-push-tbody');
+    const tbPull = document.getElementById('st-int-pull-tbody');
     const hint = document.getElementById('st-int-pull-hint');
-    if (tb) tb.innerHTML = '<tr><td colspan="9" class="loading">Loading…</td></tr>';
+    const loading = '<tr><td colspan="8" class="loading">Loading…</td></tr>';
+    if (tbPush) tbPush.innerHTML = loading;
+    if (tbPull) tbPull.innerHTML = loading;
     const d = await api('/api/integrations.php');
     if (!d || !d.ok) {
-        if (tb) tb.innerHTML = '<tr><td colspan="9">Could not load integrations.</td></tr>';
+        const err = '<tr><td colspan="8">Could not load integrations.</td></tr>';
+        if (tbPush) tbPush.innerHTML = err;
+        if (tbPull) tbPull.innerHTML = err;
         return;
     }
     if (hint) {
-        const parts = [];
-        if (d.per_integration_pull_token_configured) {
-            parts.push('Per-integration pull tokens active — rotate per row without affecting other consumers.');
-        } else {
-            parts.push('Add a pull marker row (prometheus_pull / json_events_pull / report_summary_pull) and use Rotate token on that row.');
-        }
-        if (d.legacy_pull_token_configured) {
-            parts.push('Legacy global token is configured (fallback for all pull routes).');
-        }
-        hint.textContent = parts.join(' ');
+        hint.textContent = d.per_integration_pull_token_configured
+            ? 'At least one enabled pull integration has a token — each consumer can rotate independently.'
+            : 'Add a Pull / API integration and use Generate / Rotate token before calling pull endpoints.';
     }
-    const rows = d.integrations || [];
-    if (!tb) return;
-    if (!rows.length) {
-        tb.innerHTML = '<tr><td colspan="9" class="text-dim">No integrations configured.</td></tr>';
-        return;
+    window.__stIntegrationsCache = d.integrations || [];
+    const rows = window.__stIntegrationsCache;
+    const pushRows = rows.filter((r) => !stIntegrationIsPullType(r.type));
+    const pullRows = rows.filter((r) => stIntegrationIsPullType(r.type));
+    if (tbPush) {
+        tbPush.innerHTML = pushRows.length
+            ? pushRows.map((r) => stIntegrationRowPushHtml(r)).join('')
+            : '<tr><td colspan="8" class="text-dim">No push integrations.</td></tr>';
     }
-    tb.innerHTML = rows.map((r) => {
-        const tgt = r.type === 'syslog'
-            ? esc(r.host || '') + (r.port ? ':' + esc(String(r.port)) : '')
-            : esc(r.endpoint_url || '');
-        const auth = r.auth_configured ? '<span class="text-strong">set</span>' : '<span class="text-dim">—</span>';
-        const lt = r.last_test_at ? esc(r.last_test_at) : '—';
-        const st = r.last_test_status ? esc(r.last_test_status) : '—';
-        const on = r.enabled ? 'yes' : 'no';
-        let pullCell = '<span class="text-dim">—</span>';
-        if (stIntegrationIsPullType(r.type)) {
-            const tc = r.token_configured ? '<span class="text-strong">token configured</span>' : '<span class="text-dim">no token</span>';
-            const created = r.token_created_at ? `<div class="text-dim text-micro">created ${esc(r.token_created_at)}</div>` : '';
-            const used = r.token_last_used_at
-                ? `<div class="text-dim text-micro">last use ${esc(r.token_last_used_at)}${r.token_last_used_ip ? ' · ' + esc(r.token_last_used_ip) : ''}</div>`
-                : '';
-            pullCell = `<div class="text-micro">${tc}</div>${created}${used}
-            <button type="button" class="tbtn btn-xxs mt4" onclick="stIntegrationRotateToken(${r.id})">Generate / Rotate token</button>`;
-        }
-        return `<tr>
-          <td class="mono">${r.id}</td>
-          <td>${esc(r.name)}</td>
-          <td class="mono-sm">${esc(r.type)}</td>
-          <td>${on}</td>
-          <td class="mono-sm" style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${tgt}">${tgt || '—'}</td>
-          <td>${auth}</td>
-          <td class="text-micro" style="min-width:140px;vertical-align:top">${pullCell}</td>
-          <td class="text-micro">${lt}<br><span class="text-dim">${st}</span></td>
-          <td class="text-nowrap">
-            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationEdit(${r.id})">Edit</button>
-            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationTest(${r.id})">Test</button>
-            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationSample(${r.id})">Sample</button>
-            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationToggle(${r.id}, ${r.enabled ? 0 : 1})">${r.enabled ? 'Disable' : 'Enable'}</button>
-            <button type="button" class="tbtn btn-xxs" onclick="stIntegrationDelete(${r.id})">Delete</button>
-          </td>
-        </tr>`;
-    }).join('');
+    if (tbPull) {
+        tbPull.innerHTML = pullRows.length
+            ? pullRows.map((r) => stIntegrationRowPullHtml(r)).join('')
+            : '<tr><td colspan="8" class="text-dim">No pull / API integrations.</td></tr>';
+    }
+    stIntegrationsSyncCreateForm();
 }
 
 async function stIntegrationsCreate() {
@@ -6512,33 +6686,20 @@ async function stIntegrationsCreate() {
     }
 }
 
-async function stIntegrationsRotateLegacyPullToken() {
-    if (!stRoleIsAdmin()) return;
-    if (!confirm('Generate a new legacy global pull token? This affects all pull endpoints until each client is updated. Prefer per-row tokens when possible.')) return;
-    const r = await apiPost('/api/integrations.php', { action: 'rotate_pull_token' });
-    const box = document.getElementById('st-int-pull-reveal');
-    if (r && r.ok && r.pull_token) {
-        toast('Legacy token generated — copy from the box below', 'ok');
-        if (box) {
-            box.style.display = 'block';
-            box.innerHTML = '<strong>Copy this token now. It will not be shown again.</strong> <code class="mono">' + esc(r.pull_token) + '</code>';
-        }
-        await loadIntegrationsTab();
-    } else {
-        toast((r && r.error) ? r.error : 'Rotate failed', 'err');
-    }
-}
-
 async function stIntegrationRotateToken(id) {
     if (!stRoleIsAdmin()) return;
     if (!confirm('Generate a new pull token for this integration? The previous token stops working immediately.')) return;
     const r = await apiPost('/api/integrations.php', { action: 'rotate_token', integration_id: id });
-    const box = document.getElementById('st-int-pull-reveal');
+    const box = document.getElementById('st-int-token-reveal');
     if (r && r.ok && r.token) {
         toast('Token generated — copy below', 'ok');
         if (box) {
             box.style.display = 'block';
-            box.innerHTML = '<strong>Copy this token now. It will not be shown again.</strong> <code class="mono">' + esc(r.token) + '</code>';
+            box.innerHTML =
+                '<div class="text-strong mb6">Copy this token now. It will not be shown again.</div>' +
+                '<code class="mono">' +
+                esc(r.token) +
+                '</code>';
         }
         await loadIntegrationsTab();
     } else {
@@ -6583,40 +6744,67 @@ async function stIntegrationToggle(id, enabled) {
     }
 }
 
-async function stIntegrationEdit(id) {
-    const cur = await api('/api/integrations.php');
-    const row = (cur.integrations || []).find((x) => x.id === id);
+function stIntegrationEditClose() {
+    const bg = document.getElementById('st-int-edit-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function stIntegrationEditOpen(id) {
+    const row = (window.__stIntegrationsCache || []).find((x) => x.id === id);
     if (!row) return;
-    const name = prompt('Integration name', row.name);
-    if (name === null) return;
-    const endpoint_url = prompt('endpoint_url (webhook / HEC / Loki)', row.endpoint_url || '');
-    if (endpoint_url === null) return;
-    const host = prompt('syslog host (optional)', row.host || '');
-    if (host === null) return;
-    const portStr = prompt('syslog port (optional, blank = null)', row.port != null ? String(row.port) : '');
-    if (portStr === null) return;
-    const port = portStr.trim() === '' ? null : parseInt(portStr, 10);
-    const secret = prompt('New auth secret (blank = keep unchanged; type CLEAR to remove)');
-    if (secret === null) return;
+    const hid = document.getElementById('st-int-edit-id');
+    const nm = document.getElementById('st-int-edit-name');
+    const ty = document.getElementById('st-int-edit-type');
+    const en = document.getElementById('st-int-edit-enabled');
+    const ep = document.getElementById('st-int-edit-endpoint');
+    const ho = document.getElementById('st-int-edit-host');
+    const po = document.getElementById('st-int-edit-port');
+    const sc = document.getElementById('st-int-edit-secret');
+    const cl = document.getElementById('st-int-edit-secret-clear');
+    const ex = document.getElementById('st-int-edit-extra-json');
+    if (hid) hid.value = String(row.id);
+    if (nm) nm.value = row.name || '';
+    if (ty) ty.value = row.type;
+    if (en) en.checked = !!row.enabled;
+    if (ep) ep.value = row.endpoint_url || '';
+    if (ho) ho.value = row.host || '';
+    if (po) po.value = row.port != null && row.port !== '' ? String(row.port) : '';
+    if (sc) sc.value = '';
+    if (cl) cl.checked = false;
+    if (ex) ex.value = row.extra_json || '{}';
+    stIntegrationsSyncEditForm();
+    const bg = document.getElementById('st-int-edit-bg');
+    if (bg) bg.style.display = '';
+}
+
+async function stIntegrationEditSave() {
+    if (!stRoleIsAdmin()) return;
+    const id = parseInt(String((document.getElementById('st-int-edit-id') || {}).value || ''), 10);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const type = (document.getElementById('st-int-edit-type') || {}).value || 'webhook';
+    const portRaw = (document.getElementById('st-int-edit-port') || {}).value;
+    const port = portRaw === '' || portRaw === undefined ? null : parseInt(String(portRaw), 10);
     const body = {
         action: 'update',
         id,
-        name: name.trim(),
-        type: row.type,
-        enabled: !!row.enabled,
-        endpoint_url: endpoint_url.trim(),
-        host: host.trim(),
+        name: ((document.getElementById('st-int-edit-name') || {}).value || '').trim(),
+        type,
+        enabled: !!(document.getElementById('st-int-edit-enabled') || {}).checked,
+        endpoint_url: ((document.getElementById('st-int-edit-endpoint') || {}).value || '').trim(),
+        host: ((document.getElementById('st-int-edit-host') || {}).value || '').trim(),
         port: Number.isFinite(port) ? port : null,
-        extra_json: row.extra_json || '{}',
+        extra_json: ((document.getElementById('st-int-edit-extra-json') || {}).value || '').trim() || '{}',
     };
-    if (secret === 'CLEAR') {
+    if ((document.getElementById('st-int-edit-secret-clear') || {}).checked) {
         body.auth_secret_clear = true;
-    } else if (secret.trim() !== '') {
-        body.auth_secret = secret.trim();
+    } else {
+        const s = ((document.getElementById('st-int-edit-secret') || {}).value || '').trim();
+        if (s !== '') body.auth_secret = s;
     }
     const r = await apiPost('/api/integrations.php', body);
     if (r && r.ok) {
         toast('Updated', 'ok');
+        stIntegrationEditClose();
         await loadIntegrationsTab();
     } else {
         toast((r && r.error) ? r.error : 'Update failed', 'err');

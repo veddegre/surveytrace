@@ -175,7 +175,11 @@ echo "  API files deployed"
 # ---------------------------------------------------------------------------
 if [[ -d "$SRC/integrations/starter" ]]; then
   sudo mkdir -p "$DEST/integrations-starter"
-  sudo cp -R "$SRC/integrations/starter/." "$DEST/integrations-starter/"
+  # -a preserves modes (e.g. +x on bin/surveytrace_events.py) where the filesystem allows.
+  sudo cp -a "$SRC/integrations/starter/." "$DEST/integrations-starter/"
+  if [[ -f "$DEST/integrations-starter/splunk_surveytrace/bin/surveytrace_events.py" ]]; then
+    sudo chmod +x "$DEST/integrations-starter/splunk_surveytrace/bin/surveytrace_events.py"
+  fi
   echo "  integrations-starter packaged to $DEST/integrations-starter"
 fi
 

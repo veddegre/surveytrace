@@ -125,7 +125,7 @@ Survey refers to systematically examining an area to map what exists within it, 
 
 Together, the name describes exactly what the tool does: it surveys your network to discover what is there, then traces those assets over time so you can understand how your environment changes.
 
-**Current release (see `VERSION` and `RELEASE_NOTES.md`):** SurveyTrace ships **snapshot reporting** (compare, trends, compliance, scheduled report artifacts), **named scan scopes** with scoped baselines and safer auto-drift rules, **change detection and CVE triage**, **asset lifecycle** (stale/retired from coverage misses), and **Integrations** (admin-configured push targets with manual test/sample, read-only **pull** APIs with **per-integration bearer tokens**, optional legacy global fallback, and starter Splunk/Grafana assets). Automatic outbound fan-out of scan or report events to integrations is **not** enabled yet—that remains on the [roadmap](#roadmap).
+**Current release (see `VERSION` and `RELEASE_NOTES.md`):** SurveyTrace ships **snapshot reporting** (compare, trends, compliance, scheduled report artifacts), **named scan scopes** with scoped baselines and safer auto-drift rules, **change detection and CVE triage**, **asset lifecycle** (stale/retired from coverage misses), and **Integrations** (admin-configured push targets with manual test/sample, read-only **pull** APIs with **per-integration bearer tokens** only, and starter Splunk/Grafana assets). Automatic outbound fan-out of scan or report events to integrations is **not** enabled yet—that remains on the [roadmap](#roadmap).
 
 ## Features
 
@@ -339,25 +339,33 @@ Canonical event payloads and producer mapping live in **`api/lib_reporting_event
 
 ### Integrations (push and pull)
 
-**Goal:** one place to store outbound targets and **per-integration pull tokens** (Grafana, Splunk, scripts, etc.) so each consumer can be rotated or disabled independently — without wiring broad automatic exports yet. A **legacy global** pull token in **`config`** remains a temporary fallback.
+**Goal:** one place to store **push** destinations and **pull / API** consumers. **Pull authentication is always per-integration:** create one **`integrations`** row per external consumer (Grafana, Prometheus, Splunk scripted input, etc.), generate a token on that row, and rotate or disable it independently — without wiring broad automatic exports yet.
 
 #### Storage and admin API
 
-- **Migrations:** `migration_phase14_1_integrations_v1` creates **`integrations`**. `migration_phase14_1_integrations_per_pull_token_v1` adds **`token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** (bcrypt hash only; never plaintext). Fresh **`sql/schema.sql`** includes the same columns.
-- **Types:** `splunk_hec`, `syslog`, `webhook`, `loki`, `prometheus_pull`, `json_events_pull`, `report_summary_pull`. The three **`*_pull`** types are **pull auth rows**: each enabled row with a rotated token may access only the routes mapped to that type (see table below).
-- **Admin HTTP:** **`GET /api/integrations.php`** — list rows plus **`legacy_pull_token_configured`**, **`per_integration_pull_token_configured`**, and **`pull_token_configured`** (true if either legacy or any per-row token exists — convenience for “is anything configured?”). Never returns **`token_hash`** or raw secrets. **`POST /api/integrations.php`** (CSRF, admin): `action` = `create` \| `update` \| `delete` \| `test` \| `sample` \| **`rotate_token`** (body: **`integration_id`**) \| **`rotate_pull_token`** (legacy global only). List rows expose **`token_configured`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** for pull types only. **`auth_secret_clear`** on update clears stored push secrets. Changing **`type`** away from a pull type clears that row’s pull token fields.
+- **Migrations:** `migration_phase14_1_integrations_v1` creates **`integrations`**. `migration_phase14_1_integrations_per_pull_token_v1` adds **`token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** (bcrypt hash only; never plaintext). **`migration_phase16_remove_legacy_integrations_pull_token_v1`** removes any unused **`config.integrations_pull_token_bcrypt`** row from older installs. Fresh **`sql/schema.sql`** includes the same integration columns.
+- **Types (internal):** `splunk_hec`, `syslog`, `webhook`, `loki`, `prometheus_pull`, `json_events_pull`, `report_summary_pull`. The UI maps these to friendly labels (e.g. **Grafana Infinity / report summary pull**). The three **`*_pull`** types are **pull/API rows** only: each **enabled** row whose bearer verifies for a route may access only the endpoints mapped to that type (see table below). Push types never accept pull bearer auth on those URLs.
+- **Admin HTTP:** **`GET /api/integrations.php`** — list rows plus **`per_integration_pull_token_configured`** (whether any **enabled** pull row has a bcrypt **`token_hash`** for the pull types). Never returns **`token_hash`** or raw secrets. **`POST /api/integrations.php`** (CSRF, admin): `action` = `create` \| `update` \| `delete` \| `test` \| `sample` \| **`rotate_token`** (body: **`integration_id`**, pull types only). List rows include **`type_label`**, **`mode`** (`push` \| `pull`), **`destination_summary`** (push destination or pull API paths), and for pull types only **`token_configured`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`auth_secret_clear`** on update clears stored push secrets. Changing **`type`** away from a pull type clears that row’s pull token fields. Saving a pull type clears **`endpoint_url`**, **`host`**, **`port`**, and **`auth_secret`** on the server.
 
-#### Per-integration pull tokens vs legacy global
+#### Per-integration pull tokens
 
-- **Recommended:** one **`integrations`** row per external consumer (e.g. one **`report_summary_pull`** named “Grafana dashboard”, one **`json_events_pull`** named “Splunk HEC poller”). Use **Generate / Rotate token** on that row; rotating Grafana’s row does not change Splunk’s hash.
+- **Recommended:** one **`integrations`** row per external consumer (e.g. one **`report_summary_pull`** for Grafana Infinity, one **`json_events_pull`** for a Splunk scripted input). Use **Generate / Rotate token** on that row; rotating one consumer does not change another’s hash.
 - **Per-row storage:** **`password_hash`** in **`integrations.token_hash`**. **`POST … rotate_token`** with **`integration_id`** returns **`token`** once; afterward only **`token_configured`** and timestamps appear in lists.
-- **Legacy fallback:** **`config.integrations_pull_token_bcrypt`** — **`rotate_pull_token`** still sets this global hash. Pull endpoints try **per-integration** matches first (only types allowed for that route, **`enabled = 1`**); if none verify, they try the **legacy** hash. **That legacy secret is broad:** the same plaintext is accepted on **all** pull URLs (metrics, events, report summary, dashboard) until you rotate or clear it — prefer per-row tokens to limit blast radius. Plan to remove legacy once all clients use row tokens.
-- **Auth header / query:** **`Authorization: Bearer <token>`** or **`?token=`** (same as before). Disabled integrations do not appear in the candidate set (token rejected). Deleted rows remove the hash with the row.
+- **Auth header / query:** **`Authorization: Bearer <token>`** or **`?token=`** (Bearer is preferred for logs). Only **enabled** integrations whose **type** matches the route are candidates; wrong type, disabled row, or bad token → **401**. If **no** enabled pull row for that route has a usable token hash, the route returns **503** with a short plain-text hint. Deleted rows remove the hash with the row.
+
+#### Choosing a type (quick reference)
+
+| You are integrating… | Choose (UI label) | Internal `type` |
+|------------------------|-------------------|-----------------|
+| Grafana Infinity / JSON panels | **Grafana Infinity / report summary pull** | **`report_summary_pull`** |
+| Prometheus scrape, Grafana / Alloy metrics | **Prometheus / Grafana metrics pull** | **`prometheus_pull`** |
+| Splunk HEC receiver | **Splunk HEC push** | **`splunk_hec`** |
+| Splunk scripted or modular input polling JSONL | **Splunk scripted input / JSON events pull** | **`json_events_pull`** |
 
 #### Push (manual only)
 
 - **`api/lib_integrations.php`** — `st_integrations_push_send_test()` posts canonical **`surveytrace.reporting.event.v1`** JSON for **`webhook`** (optional HMAC `X-SurveyTrace-Signature: sha256=…` when `auth_secret` is set), **`splunk_hec`** (wrapped HEC envelope; `Authorization: Splunk <hec_token>`), **`loki`** (Grafana Loki push JSON; optional Bearer), **`syslog`** (RFC5424 single line over UDP by default; set `extra_json` to `{"syslog_transport":"tcp"}` for TCP). Short curl timeouts (≈4s connect / 10s total).
-- **UI:** **Integrations** sidebar (admin): list, create, prompt-based edit, test, sample, enable/disable, delete, per-row pull token status + **Generate / Rotate token** on pull rows, optional **Rotate legacy global pull token**.
+- **UI:** **Integrations** sidebar (admin): **Push** and **Pull / API** sections, type-aware add/edit, per-row **Generate / Rotate token** on pull rows, **Test** / **Sample** on push rows only.
 
 #### Pull (token required)
 
@@ -392,19 +400,13 @@ curl -fsS -H 'Authorization: Bearer st_int_YOUR_PROMETHEUS_PULL_TOKEN' \
   'https://surveytrace.example.com/api/integrations_metrics.php'
 ```
 
-Legacy global token (same value for all routes until you migrate):
-
-```bash
-curl -fsS 'https://surveytrace.example.com/api/integrations_metrics.php?token=st_int_LEGACY_GLOBAL'
-```
-
 #### Starter visualization packages (Splunk + Grafana Infinity)
 
 Shipped under **`integrations/starter/`** (also copied to **`/opt/surveytrace/integrations-starter/`** on master **`deploy.sh`**):
 
 | Path | Purpose |
 |------|---------|
-| **`integrations/starter/splunk_surveytrace/`** | Minimal Splunk app: **`app.conf`**, **`macros.conf`** (`surveytrace_index` — override locally), **`props.conf`** for sourcetype **`surveytrace:reporting:event`** (`KV_MODE=json`), starter **saved searches**, Simple XML **dashboards** (posture, severity, scope trends, reporting events). See **`README.md`** in that folder for HEC sourcetype + macro setup. |
+| **`integrations/starter/splunk_surveytrace/`** | Splunk app: **`app.conf`**, **`macros.conf`**, **`props.conf`** (**`surveytrace:reporting:event`**), **`default/inputs.conf`** + **`bin/surveytrace_events.py`** for optional JSONL pull, starter **saved searches** and Simple XML **dashboards**. See **`README.md`** in that folder. |
 | **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** (importable dashboard) + **`README.md`** for Infinity datasource install, **Bearer** header on the datasource (preferred), and variable **`surveytrace_base`**. Panels use **JSON** URLs against **`integrations_dashboard.php`** and **`integrations_events.php`** — **no Prometheus required**. |
 
 Canonical HEC / JSON lines should remain **`surveytrace.reporting.event.v1`** (see **`api/lib_reporting_event_model.php`**). Dashboard-friendly scope fields: top-level **`scope_id`** / **`scope_name`** on envelopes and (for JSON events, default) on each event via **`st_reporting_event_envelope_scope_fields()`**.
@@ -769,17 +771,26 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 - (no entries yet)
 
+### 0.16.0
+
+- **Roadmap note** — **`VERSION` 0.16.0** is a **Phase 15 (Integrations)** follow-up (UI + legacy config cleanup), not the same as **Roadmap Phase 16** in [Upcoming](#upcoming) (monitoring / ops). **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is a SQLite migration **name** for ordering after the Phase 14.1 integration migrations; it does **not** mean roadmap Phase 16 is delivered.
+- **Integrations UX** — Admin **Integrations** tab: **Push** vs **Pull / API** sections, friendly type labels, type-aware add/edit (modal), quick-start guidance (Grafana Infinity, Prometheus/Alloy, Splunk HEC, Splunk scripted input), per-row token reveal messaging.
+- **Pull auth** — Removed unused **legacy global** pull token (`config.integrations_pull_token_bcrypt`); pull endpoints accept **only** per-integration bearer tokens of the correct enabled type (**401** / **503** semantics unchanged intent). Migration **`migration_phase16_remove_legacy_integrations_pull_token_v1`** deletes the old config key if present.
+- **API** — **`GET /api/integrations.php`** drops legacy global status fields; list rows add **`type_label`**, **`mode`**, **`destination_summary`**. **`POST rotate_pull_token`** removed.
+- **Splunk starter** — **`integrations/starter/splunk_surveytrace/`**: **`bin/surveytrace_events.py`**, **`default/inputs.conf`**, **`default/surveytrace_pull.ini.example`**, nav + overview dashboard XML; README for **`local/surveytrace_pull.ini`** and checkpointing.
+- **Fallbacks** — **`api/st_version.php`** and **`daemon/surveytrace_version.py`** default to **`0.16.0`** when **`VERSION`** is missing.
+
 ### 0.15.0
 
-- **Version alignment** — **`VERSION` 0.15.0** matches the roadmap’s completed **Phase 15** (integrations) milestone, with **Phase 14** (scan scopes) documented in the same release window. README **Changelog** and **`RELEASE_NOTES.md`** are aligned through this minor bump.
+- **Version alignment** — **`VERSION` 0.15.0** was the SemVer line where **Phase 14** (scan scopes) and the **first Phase 15** (integrations) ship landed together. README **Changelog** and **`RELEASE_NOTES.md`** stay aligned per release; **0.16.0** above is the next Integrations-focused patch (still **Phase 15** roadmap scope — see that entry’s roadmap note).
 - **Scan scopes & reporting filters (Phase 14)** — **`scan_scopes`**, **`scan_jobs.scope_id`**, **`scan_scope_baselines`**; **`api/scan_scopes.php`**; **`lib_scan_scopes.php`**; reporting and **Reports & Analysis** support **named** / **unscoped** / **all** filters, **`scope_context`**, cross-scope compare cautions (**`st_reporting_unscoped_jobs_compatible`**). Migration **`migration_phase14_scan_scopes_v1`**.
-- **Integrations push + pull (Phase 15)** — **`integrations`** table; **`api/integrations.php`**, **`lib_integrations.php`**, **`lib_integrations_dashboard.php`**, **`lib_integrations_outbound.php`**; manual push **test/sample**; read-only pull APIs (**`integrations_metrics.php`**, **`integrations_events.php`**, **`integrations_report_summary.php`**, **`integrations_dashboard.php`**); **per-integration** pull tokens + optional legacy global (**`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**); starter **`integrations/starter/`** (Splunk + Grafana); admin **Integrations** UI; **`deploy.sh`** ships integration PHP and copies starters to **`/opt/surveytrace/integrations-starter/`**.
-- **Documentation** — README roadmap renumbering (completed **14–15**, upcoming **16–22**); descriptive section titles outside the roadmap; starter readmes cross-linked to **Integrations (push and pull)**.
+- **Integrations push + pull (Phase 15)** — **`integrations`** table; **`api/integrations.php`**, **`lib_integrations.php`**, **`lib_integrations_dashboard.php`**, **`lib_integrations_outbound.php`**; manual push **test/sample**; read-only pull APIs (**`integrations_metrics.php`**, **`integrations_events.php`**, **`integrations_report_summary.php`**, **`integrations_dashboard.php`**); **per-integration** pull tokens (**`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**); starter **`integrations/starter/`** (Splunk + Grafana); admin **Integrations** UI; **`deploy.sh`** ships integration PHP and copies starters to **`/opt/surveytrace/integrations-starter/`**.
+- **Documentation** — README roadmap (completed **14–15**, upcoming **16–22**); descriptive section titles outside the roadmap; starter readmes cross-linked to **Integrations (push and pull)**.
 - **Fallbacks** — **`api/st_version.php`** and **`daemon/surveytrace_version.py`** use **`0.15.0`** when **`VERSION`** is missing or unreadable.
 
 ### 0.14.3
 
-- **Per-integration pull tokens** — Route-specific bearer verification; **`pull_client`** on JSON pull responses; usage timestamps; UI per-row rotate + legacy global control. See **`RELEASE_NOTES.md`**.
+- **Per-integration pull tokens** — Route-specific bearer verification; **`pull_client`** on JSON pull responses; usage timestamps; UI per-row rotate. See **`RELEASE_NOTES.md`**.
 
 ### 0.14.2
 
@@ -1092,7 +1103,11 @@ surveytrace/
 
 ## Roadmap
 
-Roadmap **phase numbers** are a planning index. Shipped milestones often have matching **`migration_*`** keys in **`api/db.php`** (for example **`migration_phase9_change_detection_v1`** through **`migration_phase14_1_integrations_per_pull_token_v1`**). Numbers **16+** are forward-looking until **`RELEASE_NOTES.md`** records a release.
+**Roadmap phase numbers** (Phase 1, Phase 2, … below) are a **planning index**. They are **not** the same as **`VERSION`** / SemVer: e.g. **`VERSION` 0.16.0** can ship while **Phase 16** in [Upcoming](#upcoming) is still future work.
+
+**`migration_phaseN_*`** keys in **`api/db.php`** use integers for **ordering and grouping**; they often align with roadmap phases (e.g. **`migration_phase14_scan_scopes_v1`**) but not always — **`migration_phase16_remove_legacy_integrations_pull_token_v1`** is still **Integrations (Phase 15 scope)** cleanup, not “Roadmap Phase 16 — monitoring.”
+
+Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changelog) above.
 
 ### Completed (summary)
 - **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
@@ -1109,7 +1124,8 @@ Roadmap **phase numbers** are a planning index. Shipped milestones often have ma
 - **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle](#asset-lifecycle)**.
 - **Phase 13 — Baselines & reporting** — snapshot **`compare`** / **`compare_summary`**, **`summary`**, **`trends`**, **`compliance`**; global baseline (**`phase13_baseline_job_id`**, **`scan_jobs.is_baseline`**); **`report_artifacts`** and **`schedule_action`** **`report`** (**`reporting_cli.php`**); **Reports & Analysis** UI (report-style snapshot drift, **`trends_summary`** line charts, baseline, manual compare, artifacts + slim detail, compliance). See **[Reporting API](#reporting-api)**. *Follow-ons:* CSV export, richer compliance rules.
 - **Phase 14 — Scan scopes & reporting filters** — **`scan_jobs.scope_id`**, **`scan_scopes`**, **`scan_scope_baselines`**, cross-scope reporting; named-scope baselines; cautious auto-drift rules for unscoped job pairs (**`st_reporting_unscoped_jobs_compatible`**). Migration: **`migration_phase14_scan_scopes_v1`**.
-- **Phase 15 — Integrations (push + pull)** — **`integrations`** table; admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); read-only **pull** HTTP APIs (**metrics**, **events**, **report summary**, **dashboard** bundle) with **per-integration** bearer tokens plus optional **legacy global** fallback; starter Splunk/Grafana under **`integrations/starter/`**; **Integrations** UI. Migrations: **`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**. *Deferred:* automatic scan/change/report fan-out to integration rows.
+- **Phase 15 — Integrations (push + pull)** — **`integrations`** table; admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); read-only **pull** HTTP APIs (**metrics**, **events**, **report summary**, **dashboard** bundle) with **per-integration** bearer tokens; starter Splunk/Grafana under **`integrations/starter/`**; **Integrations** UI. Migrations: **`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**. *Deferred:* automatic scan/change/report fan-out to integration rows.
+- **SemVer 0.16.0 (still Phase 15 — Integrations)** — Admin **Integrations** UI refresh (Push vs Pull/API, type-aware forms, Splunk scripted-input starter); removal of unused legacy global pull config (**`migration_phase16_remove_legacy_integrations_pull_token_v1`**). See the **0.16.0** bullets under [Changelog](#changelog).
 
 ### Upcoming
 - **Phase 16** — Monitoring / ops (e.g. Zabbix) + alert and status mapping.

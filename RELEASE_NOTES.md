@@ -3,6 +3,14 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.16.0 (2026-05-01)
+
+- **Integrations admin UI** — Push vs Pull/API sections, friendly type labels, type-aware create/edit (modal), quick-start guidance, per-row token reveal copy (“will not be shown again”). Removed **Rotate legacy global pull token**.
+- **Pull authentication** — **`config.integrations_pull_token_bcrypt`** and **`POST … rotate_pull_token`** removed. Pull routes verify **only** enabled per-integration **`token_hash`** rows of the matching pull type (**401** invalid/missing token; **503** when no enabled row for that route has a usable token). Migration **`migration_phase16_remove_legacy_integrations_pull_token_v1`** deletes the legacy config key if present.
+- **Admin API** — **`GET /api/integrations.php`**: removed **`legacy_pull_token_configured`** and **`pull_token_configured`**; list rows add **`type_label`**, **`mode`**, **`destination_summary`**. Create/update strip push-only fields when **`type`** is a pull integration.
+- **Splunk starter app** — **`bin/surveytrace_events.py`** (JSONL pull + checkpoint), **`default/inputs.conf`**, **`default/surveytrace_pull.ini.example`**, **`default/data/ui/nav/default.xml`**, **`default/data/ui/views/surveytrace_overview.xml`**; README documents **`local/surveytrace_pull.ini`**.
+- **Docs** — README Integrations section and Grafana starter README updated for per-integration tokens only; **`VERSION` 0.16.0** with **`api/st_version.php`** / **`daemon/surveytrace_version.py`** fallbacks aligned.
+
 ## 0.15.0 (2026-05-03)
 
 - **Version / changelog alignment** — **`VERSION` 0.15.0** aligns semver with completed roadmap **Phase 15** (integrations) and **Phase 14** (scan scopes). README **Changelog** now lists **0.14.1–0.14.3** and **0.15.0**; patch detail for **0.14.x** remains in the sections below.
@@ -13,9 +21,9 @@ For roadmap and deep technical context, see `README.md`.
 
 ## 0.14.3 (2026-05-01)
 
-- **Integrations — per-integration pull tokens** — Migration **`migration_phase14_1_integrations_per_pull_token_v1`**: **`integrations.token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`POST /api/integrations.php`** **`rotate_token`** + **`integration_id`** returns **`token`** once per row. **`prometheus_pull`** / **`json_events_pull`** / **`report_summary_pull`** map to metrics / events / (report summary + dashboard) pull routes only. **`config.integrations_pull_token_bcrypt`** remains an optional **legacy** fallback after per-row verification fails.
+- **Integrations — per-integration pull tokens** — Migration **`migration_phase14_1_integrations_per_pull_token_v1`**: **`integrations.token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`POST /api/integrations.php`** **`rotate_token`** + **`integration_id`** returns **`token`** once per row. **`prometheus_pull`** / **`json_events_pull`** / **`report_summary_pull`** map to metrics / events / (report summary + dashboard) pull routes only. *(Superseded in **0.16.0**: legacy global **`config.integrations_pull_token_bcrypt`** and **`rotate_pull_token`** removed.)*
 - **Pull responses** — JSON pull endpoints may include **`pull_client`** (`integration_id`, `integration_name`, `integration_type`).
-- **UI** — Per-row pull token status, **Generate / Rotate token** on pull types; **Rotate legacy global pull token** for the config fallback.
+- **UI** — Per-row pull token status, **Generate / Rotate token** on pull types.
 - **Documentation** — **`README.md`** and **`integrations/starter/**`** readmes: roadmap-only phase numbering, descriptive body headings, current-ship summary; **`RELEASE_NOTES.md`** bullets use feature titles (migration keys unchanged). **`sql/schema.sql`** aligned with per-row pull token columns.
 
 ## 0.14.2 (2026-05-01)

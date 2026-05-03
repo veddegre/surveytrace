@@ -1,0 +1,12 @@
+# Copy to local/surveytrace_pull.ini and set permissions so only Splunk can read it.
+#
+# [pull]
+# base_url = https://surveytrace.example.com
+# bearer_token = st_int_...   # from a json_events_pull integration (Integrations UI)
+# initial_lookback_hours = 24
+# checkpoint_dir =            # optional; default: $SPLUNK_HOME/var/lib/splunk/modinputs/surveytrace/
+
+[pull]
+base_url = https://surveytrace.example.com
+bearer_token = REPLACE_ME
+initial_lookback_hours = 24

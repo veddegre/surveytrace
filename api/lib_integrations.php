@@ -1,6 +1,6 @@
 <?php
 /**
- * Phase 14.1 — integrations foundation (admin CRUD, per-integration pull auth + legacy global fallback, metrics/events/summary helpers).
+ * Phase 14.1 — integrations foundation (admin CRUD, per-integration pull auth, metrics/events/summary helpers).
  *
  * Canonical payloads use **`api/lib_reporting_event_model.php`** (`surveytrace.reporting.event.v1`).
  * Do not rename that contract here.
@@ -12,9 +12,6 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reporting_event_model.php';
 require_once __DIR__ . '/lib_integrations_outbound.php';
-
-/** Bcrypt hash of the legacy global integration pull token (fallback when no per-row token matches). */
-const ST_INTEGRATIONS_PULL_TOKEN_HASH_KEY = 'integrations_pull_token_bcrypt';
 
 /** @return list<string> */
 function st_integrations_types_all(): array
@@ -46,6 +43,53 @@ function st_integrations_is_pull_type(string $t): bool
     return in_array($t, st_integrations_list_types_pull(), true);
 }
 
+/** User-facing label for Integrations UI (internal `type` unchanged). */
+function st_integrations_type_display_label(string $t): string
+{
+    return match ($t) {
+        'webhook'             => 'Generic webhook push',
+        'splunk_hec'          => 'Splunk HEC push',
+        'syslog'              => 'Syslog push',
+        'loki'                => 'Grafana Loki push',
+        'prometheus_pull'     => 'Prometheus / Grafana metrics pull',
+        'json_events_pull'    => 'Splunk scripted input / JSON events pull',
+        'report_summary_pull' => 'Grafana Infinity / report summary pull',
+        default               => $t,
+    };
+}
+
+/** API paths shown for pull rows (Bearer must match integration type for the route). */
+function st_integrations_pull_endpoint_display(string $type): string
+{
+    return match ($type) {
+        'prometheus_pull'     => '/api/integrations_metrics.php',
+        'json_events_pull'    => '/api/integrations_events.php',
+        'report_summary_pull' => '/api/integrations_dashboard.php and /api/integrations_report_summary.php',
+        default                 => '',
+    };
+}
+
+/**
+ * Destination or API path summary for list UI (no secrets).
+ */
+function st_integrations_row_destination_summary(array $row): string
+{
+    $type = (string) ($row['type'] ?? '');
+    if (st_integrations_is_pull_type($type)) {
+        return st_integrations_pull_endpoint_display($type);
+    }
+    if ($type === 'syslog') {
+        $h = trim((string) ($row['host'] ?? ''));
+        $p = isset($row['port']) && $row['port'] !== null && $row['port'] !== ''
+            ? (int) $row['port']
+            : 514;
+
+        return $h !== '' ? ($h . ':' . $p) : '';
+    }
+
+    return trim((string) ($row['endpoint_url'] ?? ''));
+}
+
 /**
  * Pull route keys: metrics | events | report_summary | dashboard (dashboard uses report_summary_pull rows).
  *
@@ -59,21 +103,6 @@ function st_integrations_pull_route_types(string $route): array
         'report_summary', 'dashboard' => ['report_summary_pull'],
         default => [],
     };
-}
-
-function st_integrations_legacy_pull_token_configured(): bool
-{
-    $h = trim(st_config(ST_INTEGRATIONS_PULL_TOKEN_HASH_KEY, ''));
-
-    return $h !== '' && str_starts_with($h, '$');
-}
-
-/**
- * True when legacy global pull token is configured (deprecated; fallback only).
- */
-function st_integrations_pull_token_configured(): bool
-{
-    return st_integrations_legacy_pull_token_configured();
 }
 
 function st_integrations_any_row_pull_token_configured(PDO $db): bool
@@ -110,16 +139,6 @@ function st_integrations_pull_token_from_request(): string
     return '';
 }
 
-function st_integrations_legacy_pull_token_verify(string $plain): bool
-{
-    $h = trim(st_config(ST_INTEGRATIONS_PULL_TOKEN_HASH_KEY, ''));
-    if ($h === '' || $plain === '') {
-        return false;
-    }
-
-    return password_verify($plain, $h);
-}
-
 function st_integrations_pull_client_ip(): string
 {
     $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
@@ -135,9 +154,6 @@ function st_integrations_pull_client_ip(): string
  */
 function st_integrations_pull_auth_available(PDO $db, array $types): bool
 {
-    if (st_integrations_legacy_pull_token_configured()) {
-        return true;
-    }
     if (! st_sqlite_table_exists($db, 'integrations') || $types === []) {
         return false;
     }
@@ -174,7 +190,7 @@ function st_integrations_pull_candidate_rows(PDO $db, array $types): array
 }
 
 /**
- * @return array{legacy_global:bool, integration_id:int|null, integration_name:string, integration_type:string}|null
+ * @return array{integration_id:int, integration_name:string, integration_type:string}|null
  */
 function st_integrations_pull_resolve_context(PDO $db, string $route, string $plain): ?array
 {
@@ -189,18 +205,9 @@ function st_integrations_pull_resolve_context(PDO $db, string $route, string $pl
         }
 
         return [
-            'legacy_global'    => false,
             'integration_id'   => (int) ($r['id'] ?? 0),
             'integration_name' => (string) ($r['name'] ?? ''),
             'integration_type' => (string) ($r['type'] ?? ''),
-        ];
-    }
-    if (st_integrations_legacy_pull_token_verify($plain)) {
-        return [
-            'legacy_global'    => true,
-            'integration_id'   => null,
-            'integration_name' => 'legacy_global_pull_token',
-            'integration_type' => 'legacy_global_pull',
         ];
     }
 
@@ -228,7 +235,7 @@ function st_integrations_pull_touch_used(PDO $db, int $integrationId, string $cl
 /**
  * Authenticate pull request; exits with 401/503 on failure.
  *
- * @return array{legacy_global:bool, integration_id:int|null, integration_name:string, integration_type:string}
+ * @return array{integration_id:int, integration_name:string, integration_type:string}
  */
 function st_integrations_pull_require_token_for(PDO $db, string $route): array
 {
@@ -242,7 +249,7 @@ function st_integrations_pull_require_token_for(PDO $db, string $route): array
     if (! st_integrations_pull_auth_available($db, $types)) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
-        echo "# surveytrace integrations: pull auth not configured (rotate token on a pull integration row, or legacy POST rotate_pull_token)\n";
+        echo "# surveytrace integrations: pull auth not configured (create an enabled pull integration for this route and generate a token)\n";
         exit;
     }
     $plain = st_integrations_pull_token_from_request();
@@ -259,7 +266,7 @@ function st_integrations_pull_require_token_for(PDO $db, string $route): array
         echo "# unauthorized\n";
         exit;
     }
-    if (! ($ctx['legacy_global'] ?? false) && ($ctx['integration_id'] ?? 0) > 0) {
+    if (($ctx['integration_id'] ?? 0) > 0) {
         st_integrations_pull_touch_used($db, (int) $ctx['integration_id'], st_integrations_pull_client_ip());
     }
 
@@ -269,34 +276,17 @@ function st_integrations_pull_require_token_for(PDO $db, string $route): array
 /**
  * Safe metadata for JSON pull responses.
  *
- * @param array{legacy_global:bool, integration_id:int|null, integration_name:string, integration_type:string} $ctx
+ * @param array{integration_id:int, integration_name:string, integration_type:string} $ctx
  *
  * @return array{integration_id:int|null, integration_name:string, integration_type:string}
  */
 function st_integrations_pull_client_public(array $ctx): array
 {
     return [
-        'integration_id'   => ($ctx['legacy_global'] ?? false) ? null : ($ctx['integration_id'] ?? null),
+        'integration_id'   => (int) ($ctx['integration_id'] ?? 0) > 0 ? (int) $ctx['integration_id'] : null,
         'integration_name' => (string) ($ctx['integration_name'] ?? ''),
         'integration_type' => (string) ($ctx['integration_type'] ?? ''),
     ];
-}
-
-/**
- * Legacy global token rotation (fallback for all pull routes).
- *
- * @return array{ok:bool, token?:string, error?:string}
- */
-function st_integrations_pull_token_rotate(): array
-{
-    $raw = 'st_int_' . bin2hex(random_bytes(24));
-    $hash = password_hash($raw, PASSWORD_DEFAULT);
-    if ($hash === false) {
-        return ['ok' => false, 'error' => 'hash_failed'];
-    }
-    st_config_set(ST_INTEGRATIONS_PULL_TOKEN_HASH_KEY, $hash);
-
-    return ['ok' => true, 'token' => $raw];
 }
 
 /**
@@ -346,10 +336,15 @@ function st_integrations_redact_string(string $s): string
 function st_integrations_row_for_api(array $row): array
 {
     unset($row['auth_secret']);
+    $type = (string) ($row['type'] ?? '');
+    $row['type_label'] = st_integrations_type_display_label($type);
+    $row['mode'] = st_integrations_is_pull_type($type) ? 'pull' : 'push';
+    $row['destination_summary'] = st_integrations_row_destination_summary($row);
+
     $row['auth_configured'] = ! empty($row['auth_configured_flag']);
     unset($row['auth_configured_flag']);
     unset($row['token_hash']);
-    $isPull = st_integrations_is_pull_type((string) ($row['type'] ?? ''));
+    $isPull = st_integrations_is_pull_type($type);
     $row['token_configured'] = ! empty($row['pull_token_flag']);
     unset($row['pull_token_flag']);
     if (! $isPull) {

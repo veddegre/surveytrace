@@ -398,6 +398,7 @@ function st_db(): PDO {
     st_migrate_phase14_scan_scopes_v1($pdo);
     st_migrate_phase14_1_integrations_v1($pdo);
     st_migrate_phase14_1_integrations_per_pull_token_v1($pdo);
+    st_migrate_phase16_remove_legacy_integrations_pull_token_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -845,6 +846,21 @@ function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
     $addCol('token_last_used_ip', 'ALTER TABLE integrations ADD COLUMN token_last_used_ip TEXT');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
+    );
+}
+
+/**
+ * Remove unused legacy global pull token hash from config (pull APIs use per-integration tokens only).
+ */
+function st_migrate_phase16_remove_legacy_integrations_pull_token_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase16_remove_legacy_integrations_pull_token_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $pdo->exec("DELETE FROM config WHERE key = 'integrations_pull_token_bcrypt'");
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase16_remove_legacy_integrations_pull_token_v1', '1')"
     );
 }
 
