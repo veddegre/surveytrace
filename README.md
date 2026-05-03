@@ -10,7 +10,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Features](#features)
 - [Requirements](#requirements)
 - [Settings - AI Enrichment (Optional)](#settings---ai-enrichment-optional)
-- [Reporting API (Phase 13)](#reporting-api-phase-13)
+- [Reporting API](#reporting-api)
 - [SQLite locking and concurrency](#sqlite-locking-and-concurrency)
 - [Asset lifecycle](#asset-lifecycle)
 - [Quick Start](#quick-start)
@@ -125,6 +125,8 @@ Survey refers to systematically examining an area to map what exists within it, 
 
 Together, the name describes exactly what the tool does: it surveys your network to discover what is there, then traces those assets over time so you can understand how your environment changes.
 
+**Current release (see `VERSION` and `RELEASE_NOTES.md`):** SurveyTrace ships **snapshot reporting** (compare, trends, compliance, scheduled report artifacts), **named scan scopes** with scoped baselines and safer auto-drift rules, **change detection and CVE triage**, **asset lifecycle** (stale/retired from coverage misses), and **Integrations** (admin-configured push targets with manual test/sample, read-only **pull** APIs with **per-integration bearer tokens**, optional legacy global fallback, and starter Splunk/Grafana assets). Automatic outbound fan-out of scan or report events to integrations is **not** enabled yet—that remains on the [roadmap](#roadmap).
+
 ## Features
 
 - **Active scanning** — ARP sweep, ICMP ping, TCP SYN discovery, nmap banner/service detection
@@ -146,11 +148,11 @@ Together, the name describes exactly what the tool does: it surveys your network
 - **On-demand DB snapshot** — admin button in **Settings** can run `backup_db.sh` immediately before risky maintenance (e.g., bulk scan cleanup)
 - **Enrichment** — optional metadata from controllers, SNMP, DHCP/DNS/firewall log imports, and other pluggable sources during scans; per-scan source selection on the Scan tab (omit = all enabled sources)
 - **Collector architecture (MVP + parity runner)** — remote collectors run assigned scans from the same schedule system, upload chunked results to master, and use centralized CVE/AI enrichment.
-- **Change detection (Phase 9)** — in-app **Change alerts** for new hosts, material port deltas, and CVE lifecycle (new / active / mitigated / accepted / reopened); **`GET/POST /api/change_alerts.php`** and lifecycle-aware **`findings.php`** actions.
-- **Explainable CVE triage (Phase 10)** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** (scanner + collector); surfaced on **Vulnerabilities** and host detail; export columns on **`findings_export.php`**.
-- **CVE intelligence (Phase 11)** — **`cve_intel`** table (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystem hints); **`daemon/sync_cve_intel.py`** and Settings **Sync CVE intel** / full **Sync all feeds**; joined on **`findings.php`** as structured **`intel`** (useful across Linux, Windows, **macOS**, **Hyper-V**, containers, and mobile platforms where OSV/NVD overlap).
-- **Asset lifecycle (Phase 12)** — **`assets.lifecycle_status`** (**`active`**, **`stale`**, **`retired`**) driven by **expected scan coverage** (IP in job **`target_cidr`** vs presence in **`scan_asset_snapshots`** for that job), not idle time since **`last_seen`**. **`change_alerts`** for stale/retired/reactivated; optional **owner / business_unit / criticality / environment** tagging; **`identity_confidence`** fields reserved for provenance scoring. See **[Asset lifecycle (Phase 12)](#asset-lifecycle-phase-12)**.
-- **Baselines & reporting (Phase 13)** — Reuses existing **`scan_asset_snapshots`** / **`scan_finding_snapshots`** (no duplicate snapshot tables). **`GET /api/reporting.php`** (`compare`, **`compare_summary`**, `summary`, `trends`, **`trends_summary`**, `compliance`, `baseline`, `artifacts`, **`artifact_summary`**, admin **`artifact_payload_preview`**, **`compare_debug`** / **`baseline_debug`**) plus **`POST …?action=set_baseline`**; global baseline in **`config.phase13_baseline_job_id`** and **`scan_jobs.is_baseline`**. **`scan_schedules.schedule_action`**: **`scan`** (default) or **`report`**; report schedules run **`api/reporting_cli.php`** in a **subprocess** (separate DB connection, no scan **`queued`/`running`** row). Invalid baseline config is ignored safely for diffs. Structured **`SurveyTrace.reporting`** JSON lines in **`error_log`** for compares, baseline resolution, materialize, and report payloads. The **Reports & Analysis** sidebar tab uses **slim summary actions** by default (no full stored payloads in the list path); **Scan history** adds bounded inline **SVG line charts** from **`trends_summary`** plus tables. See **[Reporting API (Phase 13)](#reporting-api-phase-13)** and **`RELEASE_NOTES.md`** (0.13.0). CSV export remains a follow-up.
+- **Change detection** — in-app **Change alerts** for new hosts, material port deltas, and CVE lifecycle (new / active / mitigated / accepted / reopened); **`GET/POST /api/change_alerts.php`** and lifecycle-aware **`findings.php`** actions.
+- **Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** (scanner + collector); surfaced on **Vulnerabilities** and host detail; export columns on **`findings_export.php`**.
+- **CVE intelligence** — **`cve_intel`** table (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystem hints); **`daemon/sync_cve_intel.py`** and Settings **Sync CVE intel** / full **Sync all feeds**; joined on **`findings.php`** as structured **`intel`** (useful across Linux, Windows, **macOS**, **Hyper-V**, containers, and mobile platforms where OSV/NVD overlap).
+- **Asset lifecycle** — **`assets.lifecycle_status`** (**`active`**, **`stale`**, **`retired`**) driven by **expected scan coverage** (IP in job **`target_cidr`** vs presence in **`scan_asset_snapshots`** for that job), not idle time since **`last_seen`**. **`change_alerts`** for stale/retired/reactivated; optional **owner / business_unit / criticality / environment** tagging; **`identity_confidence`** fields reserved for provenance scoring. See **[Asset lifecycle](#asset-lifecycle)**.
+- **Baselines & reporting** — Reuses existing **`scan_asset_snapshots`** / **`scan_finding_snapshots`** (no duplicate snapshot tables). **`GET /api/reporting.php`** (`compare`, **`compare_summary`**, `summary`, `trends`, **`trends_summary`**, `compliance`, `baseline`, `artifacts`, **`artifact_summary`**, admin **`artifact_payload_preview`**, **`compare_debug`** / **`baseline_debug`**) plus **`POST …?action=set_baseline`**; global baseline in **`config.phase13_baseline_job_id`** and **`scan_jobs.is_baseline`**. **`scan_schedules.schedule_action`**: **`scan`** (default) or **`report`**; report schedules run **`api/reporting_cli.php`** in a **subprocess** (separate DB connection, no scan **`queued`/`running`** row). Invalid baseline config is ignored safely for diffs. Structured **`SurveyTrace.reporting`** JSON lines in **`error_log`** for compares, baseline resolution, materialize, and report payloads. The **Reports & Analysis** sidebar tab uses **slim summary actions** by default (no full stored payloads in the list path); **Scan history** adds bounded inline **SVG line charts** from **`trends_summary`** plus tables. See **[Reporting API](#reporting-api)** and **`RELEASE_NOTES.md`** (0.13.0). CSV export remains a follow-up.
 - **Asset fingerprinting** — OUI lookup, hostname patterns, port profiles, banner and HTTP-title analysis; **Proxmox VE** node-name extraction; **VMware ESXi / vSphere / vCenter** and **Microsoft Hyper-V** signals; mDNS hints for **Apple** mobile/desktop classes where visible
 - **AI enrichment (optional)** — When **Enable AI enrichment** is on and the provider is reachable, the **scanner** may call the model for **ambiguous** hosts (`unk` / borderline `net` vs `srv`, subject to thresholds); the **daemon** can generate a **per-run scan summary**; the **UI** exposes **operator AI** (cached CVE triage, explain host, **Refresh AI summary** on completed jobs). All use the configured provider with conservative apply rules (`ai_conflict_only`, confidence thresholds). See **Settings → AI enrichment** below for every knob.
 - **Vulnerability tracking** — CVSS scoring, severity filtering, CSV/JSON export
@@ -274,9 +276,9 @@ Editable via **`PUT /api/assets.php`** (and the **Edit asset** modal): **`owner`
 ### UI and export
 
 - **Assets** list: filter by **`lifecycle_status`**, lifecycle badge column.
-- **`GET /api/export.php`**: CSV and JSON include the Phase 12 columns (see **`api/export.php`** header order).
+- **`GET /api/export.php`**: CSV and JSON include lifecycle and operator columns (see **`api/export.php`** header order).
 
-## Reporting API (Phase 13)
+## Reporting API
 
 All reporting compares **per-job snapshot tables** only (`scan_asset_snapshots`, `scan_finding_snapshots`). It does **not** diff live `assets` / `findings` rows. Semantics: **job A = reference / baseline**, **job B = current** (newer run).
 
@@ -298,7 +300,7 @@ The **Reports & Analysis** tab extends the Executive View: **At a glance** (live
 - **`baseline_config_job_id`** — value stored in `config` under **`phase13_baseline_job_id`** (what an operator set).
 - **`baseline_job_id` (effective)** — id actually used for diffs: same job only if it **exists**, **`status=done`**, not trashed, and has **at least one** `scan_asset_snapshots` row. Otherwise **`null`** and **`baseline_unavailable`** is true when a config id was set but could not be resolved.
 
-### Phase 14 — Scopes and baselines (Reports & Analysis)
+### Scan scopes and reporting filters
 
 SurveyTrace can tag each **`scan_jobs`** row with an optional **`scope_id`** (see **`scan_scopes`** and **`scan_scope_baselines`**). Reporting behavior:
 
@@ -310,7 +312,7 @@ Cross-scope manual compare remains allowed but uses cautious wording when **`sco
 
 ### External reporting event model (canonical contract)
 
-Canonical event payloads and producer mapping live in **`api/lib_reporting_event_model.php`** (PHP helpers + file docblock). Any HTTPS delivery must emit payloads that match this contract unchanged. Phase 14.1 adds row-based push targets in **`integrations`** (see **`api/lib_integrations.php`**) and shared HTTPS helpers in **`api/lib_integrations_outbound.php`** (reserved **`integration_webhook_*`** settings are not wired to automatic emits in 14.1).
+Canonical event payloads and producer mapping live in **`api/lib_reporting_event_model.php`** (PHP helpers + file docblock). Any HTTPS delivery must emit payloads that match this contract unchanged. Row-based push targets live in **`integrations`** (see **`api/lib_integrations.php`**) with shared HTTPS helpers in **`api/lib_integrations_outbound.php`** (reserved **`integration_webhook_*`** settings are not wired to automatic emits today).
 
 **Event producers (map into canonical shape; outbound webhook on artifact insert when configured):**
 
@@ -318,7 +320,7 @@ Canonical event payloads and producer mapping live in **`api/lib_reporting_event
 |----------|-------------|---------------------|
 | Change detection | **`GET /api/change_alerts.php`** | `st_reporting_event_from_change_alert_row()` — `data_plane`: **live** (alerts are not snapshot rows). |
 | Compliance evaluation | **`GET /api/reporting.php?action=compliance`** | `st_reporting_event_from_compliance_summary()` — **snapshot** job findings. |
-| Report artifact creation | **`report_artifacts`** (insert from **`reporting_cli.php`** materialize; list via **`GET …?action=artifacts`**) | `st_reporting_event_from_report_artifact_row()` — **snapshot**; outbound delivery is **manual** (Integrations test/sample) or optional legacy Settings webhook — **no automatic fan-out** in Phase 14.1. |
+| Report artifact creation | **`report_artifacts`** (insert from **`reporting_cli.php`** materialize; list via **`GET …?action=artifacts`**) | `st_reporting_event_from_report_artifact_row()` — **snapshot**; outbound delivery is **manual** (Integrations test/sample) or optional legacy Settings webhook — **no automatic fan-out** today. |
 | Findings lifecycle | **`findings.php`**, lifecycle columns on **`findings`** | Same canonical `subject.finding_id` + `payload` pattern; map at integration boundary from existing API shapes (no new endpoint here). |
 
 **Canonical event skeleton** (see `st_reporting_event_canonical_skeleton()`): `schema_version`, `event_id`, `source`, `occurred_at`, `event_type`, `severity`, `scope` (`scope_id`, `scope_name`), `subject` (`job_id`, `finding_id`, `asset_id`), `data_plane` (`snapshot` \| `live`), `payload` (opaque structured body).
@@ -335,7 +337,7 @@ Canonical event payloads and producer mapping live in **`api/lib_reporting_event
 
 **Snapshot vs live:** Reporting **`trends_summary`**, **`compare_summary`**, and **`compliance`** operate on **frozen per-job snapshot tables** and completed **`scan_jobs`**. **`dashboard.php`** and **`change_alerts`** reflect **live** or **operational** state — downstream systems must not treat them interchangeably without labeling `data_plane`.
 
-### Phase 14.1 — Integrations foundation (push + pull)
+### Integrations (push and pull)
 
 **Goal:** one place to store outbound targets and **per-integration pull tokens** (Grafana, Splunk, scripts, etc.) so each consumer can be rotated or disabled independently — without wiring broad automatic exports yet. A **legacy global** pull token in **`config`** remains a temporary fallback.
 
@@ -416,7 +418,7 @@ Canonical HEC / JSON lines should remain **`surveytrace.reporting.event.v1`** (s
 
 #### Legacy Settings webhook (unchanged)
 
-- **`integration_webhook_*`** keys on **`POST /api/settings.php`** persist legacy URL/HMAC settings, but **Phase 14.1 does not call** **`st_integrations_outbound_emit()`** from any scheduler/reporting path (materialize hook removed; **no automatic fan-out**). Use **Integrations** push targets with **Test** / **Sample** for outbound checks; optional future release may reattach the settings webhook to selected events.
+- **`integration_webhook_*`** keys on **`POST /api/settings.php`** persist legacy URL/HMAC settings, but the server **does not call** **`st_integrations_outbound_emit()`** from any scheduler or reporting path (materialize hook removed; **no automatic fan-out**). Use **Integrations** push targets with **Test** / **Sample** for outbound checks; a future release may reattach the settings webhook to selected events.
 
 #### Sample Prometheus excerpt
 
@@ -580,9 +582,9 @@ On success, prints one JSON line to stdout, for example:
 
 PHP **`error_log`** receives lines prefixed with **`SurveyTrace.reporting`** and a JSON object including **`_event`** (e.g. `reporting.compare`, `reporting.baseline_resolve`, `reporting.materialize_start` / `materialize_end`, `reporting.report_payload`, `reporting.baseline_set`) and **`_ts_ms`**. Use for debugging without exposing debug payloads to non-admin users.
 
-### Phase 13 validation checklist
+### Reporting validation checklist
 
-Use after deploy / migration **`migration_phase13_reporting_v1`** with at least one **`done`** job that has snapshot rows. Snapshot semantics: counts and diffs are from **`scan_asset_snapshots`** / **`scan_finding_snapshots`** only, not live inventory tables.
+Use after deploy once migration **`migration_phase13_reporting_v1`** has run and you have at least one **`done`** job that has snapshot rows. Snapshot semantics: counts and diffs are from **`scan_asset_snapshots`** / **`scan_finding_snapshots`** only, not live inventory tables.
 
 1. **Baseline** — Open **Reports & Analysis** → baseline card loads without waiting on job pickers; config and effective ids match expectations. **Viewer:** can read baseline; **Set baseline** hidden. **Scan editor / admin:** set baseline via UI or **`POST …?action=set_baseline`** (CSRF).
 2. **Compare summary** — Two distinct completed jobs → **`compare_summary`** response includes **`diff_summary`** only (counts, **`finding_events`**, warnings); verify DevTools response has **no** full `assets_new_in_b` / `findings_new_in_b` arrays at the top level.
@@ -685,7 +687,7 @@ bash deploy.sh
 On a **master**, `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
 - **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, etc.
-- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`asset_lifecycle.py`** (Phase 12), **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
+- **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`asset_lifecycle.py`**, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
 
@@ -785,8 +787,8 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.11.0
 
-- **Phase 10 — Explainable CVE triage** — SQLite migration `migration_phase10_finding_triage_v1`: **`findings`** columns for lifecycle-adjacent triage (**`confidence`**, **`risk_score`**, **`detection_method`**, **`provenance_source`**, **`evidence_json`**); **`daemon/finding_triage.py`** + scanner/collector wiring; **`GET /api/findings.php`** sort/filter on triage fields; **Vulnerabilities** + host panel + CSV/JSON export.
-- **Phase 11 — CVE intelligence** — migration `migration_phase11_cve_intel_v1`: **`cve_intel`** (KEV metadata, EPSS, OSV ecosystems JSON); **`daemon/sync_cve_intel.py`** (CISA KEV JSON, EPSS file/API, OSV per-CVE); **`api/feed_sync_lib.php`** / **`feeds.php`** target **`cve_intel`**; dashboard + Settings status; **`findings`** / export expose **`intel`**.
+- **Explainable CVE triage** — SQLite migration `migration_phase10_finding_triage_v1`: **`findings`** columns for lifecycle-adjacent triage (**`confidence`**, **`risk_score`**, **`detection_method`**, **`provenance_source`**, **`evidence_json`**); **`daemon/finding_triage.py`** + scanner/collector wiring; **`GET /api/findings.php`** sort/filter on triage fields; **Vulnerabilities** + host panel + CSV/JSON export.
+- **CVE intelligence** — migration `migration_phase11_cve_intel_v1`: **`cve_intel`** (KEV metadata, EPSS, OSV ecosystems JSON); **`daemon/sync_cve_intel.py`** (CISA KEV JSON, EPSS file/API, OSV per-CVE); **`api/feed_sync_lib.php`** / **`feeds.php`** target **`cve_intel`**; dashboard + Settings status; **`findings`** / export expose **`intel`**.
 - **Fingerprint / WebFP** — stronger **VMware** and **Proxmox** classification (titles, banners, vCenter VAMI **5480**, Wappalyzer-derived rules mapped to **`hv`** where the tech name implies a hypervisor); see **`daemon/fingerprint.py`**, **`daemon/scanner_daemon.py`**, **`daemon/sync_webfp.py`**.
 - **SQLite locking** — shared **`daemon/sqlite_pragmas.py`** + **`api/db.php`** `st_sqlite_runtime_pragmas()` (**60s** busy wait, optional **mmap**, **`temp_store=MEMORY`**); README section **SQLite locking and concurrency** documents ops and **`SURVEYTRACE_SQLITE_*`** env vars.
 - **Version tracking** — root **`VERSION`** file + **`api/st_version.php`** / **`daemon/surveytrace_version.py`**; **`deploy.sh`** copies **`VERSION`** to **`/opt/surveytrace/`**.
@@ -794,7 +796,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.9.0
 
-- **Phase 9 — Change detection** — SQLite **`change_alerts`** table and **`findings`** lifecycle fields (migration `migration_phase9_change_detection_v1`); **`daemon/change_detection.py`** drives alerts and CVE state transitions from **`scanner_daemon.py`** and **`collector_ingest_worker.py`**; **`GET/POST /api/change_alerts.php`**; findings API adds **`accept_risk`** and lifecycle-aware **resolve** / **unresolve** / **`GET ?lifecycle=`**; **Change alerts** sidebar tab with dismiss controls (scan editors+). **Deploy:** copy **`change_detection.py`** and **`change_alerts.php`**; restart **Apache/php-fpm** once so migrations run.
+- **Change detection** — SQLite **`change_alerts`** table and **`findings`** lifecycle fields (migration `migration_phase9_change_detection_v1`); **`daemon/change_detection.py`** drives alerts and CVE state transitions from **`scanner_daemon.py`** and **`collector_ingest_worker.py`**; **`GET/POST /api/change_alerts.php`**; findings API adds **`accept_risk`** and lifecycle-aware **resolve** / **unresolve** / **`GET ?lifecycle=`**; **Change alerts** sidebar tab with dismiss controls (scan editors+). **Deploy:** copy **`change_detection.py`** and **`change_alerts.php`**; restart **Apache/php-fpm** once so migrations run.
 
 ### 0.8.2
 
@@ -832,7 +834,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.6.1
 
-- **Phase 7 delivered — scan delete hardening**: scan delete now uses a trash lifecycle (**move to trash**, **restore**, **admin-only permanent delete**) with retention-based automatic purge.
+- **Scan delete hardening** — trash lifecycle (**move to trash**, **restore**, **admin-only permanent delete**) with retention-based automatic purge.
 - **Trash retention controls** — configurable retention (`scan_trash_retention_days`) is exposed in **Settings** and enforced by scheduler-side purge logic.
 - **Scan history trash views + RBAC** — Scan History now supports **Active/Trash/All** semantics with role enforcement: viewers are active-only, scan editors/admins can manage trash actions, and admin is required for permanent purge and retention changes.
 - **Audit attribution for trash lifecycle** — added audit events for `scan.job_trashed`, `scan.job_restored`, `scan.job_purged`, and `scan.trash_retention_updated`.
@@ -844,7 +846,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### 0.5.0
 
-- **Device identity (Phase 5)** — **`devices`** table and **`assets.device_id`** (FK); idempotent migration (`migration_device_identity_v1` in `config`) in **`api/db.php`** and **`daemon/scanner_daemon.py`**; 1:1 backfill for legacy rows.
+- **Device identity** — **`devices`** table and **`assets.device_id`** (FK); idempotent migration (`migration_device_identity_v1` in `config`) in **`api/db.php`** and **`daemon/scanner_daemon.py`**; 1:1 backfill for legacy rows.
 - **Scanner** assigns / preserves `device_id` on asset upsert; optional fill of **`devices.primary_mac_norm`** when a MAC is learned.
 - **API:** `GET/POST /api/devices.php` (list, detail, **merge**), `GET /api/assets.php?device_id=`, `GET /api/export.php?device_id=`, dashboard includes `device_id` in top-vulnerable query.
 - **UI:** Devices tab, device detail side panel (with merge), Assets integration (filter, sort, single search + numeric device id + Enter, clear filters); **`deploy.sh`** copies **`api/devices.php`** (required for the Devices tab).
@@ -854,8 +856,8 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ### 0.4.0
 
 - **NVD API key** — optional key in **Settings** (stored in SQLite, not echoed on read) or `NVD_API_KEY` in the environment (env wins). Improves NVD feed sync rate limits for `sync_nvd.py`, cron, and in-app sync.
-- **Per-scan enrichment** — `POST /api/scan_start.php` accepts optional `enrichment_source_ids` (omit = all enabled, `[]` = skip Phase 3b, `[id,…]` = subset). Stored on `scan_jobs` and honored by `scanner_daemon.py`.
-- **Scanner** — Phase 3b no longer holds a SQLite write transaction during slow external enrichment calls (avoids UI/API stalls during UniFi or SNMP timeouts).
+- **Per-scan enrichment** — `POST /api/scan_start.php` accepts optional `enrichment_source_ids` (omit = all enabled, `[]` = skip external enrichment for that run, `[id,…]` = subset). Stored on `scan_jobs` and honored by `scanner_daemon.py`.
+- **Scanner** — external enrichment no longer holds a SQLite write transaction during slow calls (avoids UI/API stalls during UniFi or SNMP timeouts).
 - **Schedules** — `scan_schedules` gains `enrichment_source_ids`; schedule UI and `POST /api/schedules.php` align with manual scan options (phases, `rate_pps` / `inter_delay`, priority, enrichment subset, profile confirmation for high-impact profiles). Scheduler enqueues jobs with the same fields.
 - **Schema** — `sql/schema.sql` `scan_jobs` expanded to match migrated production columns; `dashboard.php` / `schedules.php` migrations cover any straggler columns on first request.
 
@@ -1070,7 +1072,7 @@ surveytrace/
 
 ## Roadmap
 
-Roadmap **phase numbers 9–13** match the SQLite migration markers in **`api/db.php`** (`migration_phase9_change_detection_v1` … `migration_phase13_reporting_v1`). Later phases are planning-only until shipped.
+Roadmap **phase numbers** are a planning index. Shipped milestones often have matching **`migration_*`** keys in **`api/db.php`** (for example **`migration_phase9_change_detection_v1`** through **`migration_phase14_1_integrations_per_pull_token_v1`**). Numbers **16+** are forward-looking until **`RELEASE_NOTES.md`** records a release.
 
 ### Completed (summary)
 - **Phase 1 — Safer defaults + scan profiles** — profile-driven scanning shipped with profile selection in UI, per-profile daemon guardrails (rate/delay/phase/ports), profile persistence on jobs, and high-impact confirmation prompts.
@@ -1084,19 +1086,19 @@ Roadmap **phase numbers 9–13** match the SQLite migration markers in **`api/db
 - **Phase 9 — Change detection** — `change_alerts` feed (new asset, port change, new CVE, finding mitigated/reopened); **`findings`** lifecycle columns (`new` → `active`, scanner-driven `mitigated` when absent from correlated results, `accepted` via API, `reopened` after regression); **`GET/POST /api/change_alerts.php`** and **Change alerts** UI; scanner + collector ingest share **`daemon/change_detection.py`**.
 - **Phase 10 — Explainable CVE triage** — per-finding **confidence**, **risk score**, **detection method**, **provenance**, and **evidence** JSON; scanner + **`daemon/finding_triage.py`** + collector parity; **Vulnerabilities** / host UI, **`findings.php`** filters/sorts, **`findings_export.php`**.
 - **Phase 11 — CVE intelligence** — **`cve_intel`** sidecar (CISA **KEV**, **FIRST EPSS**, **OSV** ecosystems); **`daemon/sync_cve_intel.py`** + feed sync wiring; **`intel`** on finding payloads and exports (complements NVD for mixed fleets: Linux, Windows, **macOS**, **Hyper-V**, containers, and **iOS / iPadOS / Android**-relevant shared components where data exists).
-- **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle (Phase 12)](#asset-lifecycle)**.
-- **Phase 13 — Baselines & reporting** — snapshot **`compare`** / **`compare_summary`**, **`summary`**, **`trends`**, **`compliance`**; global baseline (**`phase13_baseline_job_id`**, **`scan_jobs.is_baseline`**); **`report_artifacts`** and **`schedule_action`** **`report`** (**`reporting_cli.php`**); **Reports & Analysis** UI (report-style snapshot drift, **`trends_summary`** line charts, baseline, manual compare, artifacts + slim detail, compliance). See **[Reporting API (Phase 13)](#reporting-api-phase-13)**. *Follow-ons:* CSV export, richer compliance rules.
+- **Phase 12 — Asset lifecycle** — coverage-based **`active` / `stale` / `retired`** vs scan scope (**`target_cidr`** + **`scan_asset_snapshots`**); **`daemon/asset_lifecycle.py`**; **`change_alerts`** (**`asset_stale`**, **`asset_retired`**, **`asset_reactivated`**); operator fields (**`owner`**, **`business_unit`**, **`criticality`**, **`environment`**, **`identity_confidence`**, **`identity_confidence_reason`**); **`export.php`** / **`assets.php`**. See **[Asset lifecycle](#asset-lifecycle)**.
+- **Phase 13 — Baselines & reporting** — snapshot **`compare`** / **`compare_summary`**, **`summary`**, **`trends`**, **`compliance`**; global baseline (**`phase13_baseline_job_id`**, **`scan_jobs.is_baseline`**); **`report_artifacts`** and **`schedule_action`** **`report`** (**`reporting_cli.php`**); **Reports & Analysis** UI (report-style snapshot drift, **`trends_summary`** line charts, baseline, manual compare, artifacts + slim detail, compliance). See **[Reporting API](#reporting-api)**. *Follow-ons:* CSV export, richer compliance rules.
+- **Phase 14 — Scan scopes & reporting filters** — **`scan_jobs.scope_id`**, **`scan_scopes`**, **`scan_scope_baselines`**, cross-scope reporting; named-scope baselines; cautious auto-drift rules for unscoped job pairs (**`st_reporting_unscoped_jobs_compatible`**). Migration: **`migration_phase14_scan_scopes_v1`**.
+- **Phase 15 — Integrations (push + pull)** — **`integrations`** table; admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); read-only **pull** HTTP APIs (**metrics**, **events**, **report summary**, **dashboard** bundle) with **per-integration** bearer tokens plus optional **legacy global** fallback; starter Splunk/Grafana under **`integrations/starter/`**; **Integrations** UI. Migrations: **`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**. *Deferred:* automatic scan/change/report fan-out to integration rows.
 
 ### Upcoming
-- **Phase 14**: Integrations program —
-  - **14.1 Core foundation (shipped):** **`integrations`** table + admin **`/api/integrations.php`**; manual push test/sample (**webhook**, **Splunk HEC**, **Loki**, **syslog**); Prometheus / JSONL / report-summary **pull** endpoints with **per-integration** pull tokens (plus optional legacy global fallback); **Integrations** UI. Automatic scan/change export fan-out remains **future** work.
-  - **14.2 Monitoring/ops:** Zabbix + alert/status mapping
-  - **14.3 Infrastructure APIs:** Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting
-  - **14.4 Source connector completion:** build out currently stubbed integrations (e.g., Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) with a shared connector contract (auth, paging, retry, health, field mapping)
-  - **14.5 Data fusion + enrichment:** normalize multi-source vulnerability/advisory data (deduplication, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
-- **Phase 15**: UI polish — asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links to filtered results, and **CSV export** of the filtered history list; **navigation cleanup** — remove duplicate top-bar shortcuts for pages already present in sidebar navigation (e.g., **Access control** and **Settings**) to reduce clutter; **frontend modularization (possible)** — split the growing `public/index.php` into maintainable modules (or build-step bundles) to reduce merge conflicts and make feature phases safer to ship.
-- **Phase 16**: Credentialed collection + checks engine — authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, and remediation guidance metadata.
-- **Phase 17**: Risk operations + governance — composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, and stronger audit/report controls.
+- **Phase 16** — Monitoring / ops (e.g. Zabbix) + alert and status mapping.
+- **Phase 17** — Infrastructure APIs: Proxmox / VMware / TrueNAS (and similar) as **first-class connectors** beyond passive fingerprinting.
+- **Phase 18** — Source connector completion: stubbed vendors (e.g. Cisco DNA/Meraki, Juniper Mist, Infoblox, Palo Alto) behind a shared connector contract (auth, paging, retry, health, field mapping).
+- **Phase 19** — Data fusion + enrichment: normalize multi-source vulnerability/advisory data (dedupe, alias mapping, conflict resolution, source weighting) and expand package/software advisory coverage.
+- **Phase 20** — UI polish: asset timeline, bulk operations, fingerprint pattern editor; **scan history UX** — pagination or cursor search beyond the current **200**-row cap, **date** and **status** filters, **persisted query** (URL or session) for deep links, **CSV export** of the filtered history list; **navigation cleanup** — trim duplicate top-bar shortcuts where the sidebar already links the page; **frontend modularization (possible)** — split **`public/index.php`** into maintainable modules or bundles to reduce merge friction.
+- **Phase 21** — Credentialed collection + checks engine: authenticated collection (SSH/WinRM/SNMPv3/API where appropriate), plugin/check framework, richer version/package evidence, remediation guidance metadata.
+- **Phase 22** — Risk operations + governance: composite risk scoring (severity, exploitability, exposure, criticality), time-bound suppressions/exceptions, SLA tracking, stronger audit/report controls.
 
 ## License
 

@@ -1,4 +1,4 @@
-# SurveyTrace Splunk starter app (Phase 14.1)
+# SurveyTrace Splunk starter app
 
 Minimal Splunk Technology Add-On style layout for HEC / JSON events that match **`surveytrace.reporting.event.v1`**.
 

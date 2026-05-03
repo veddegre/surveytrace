@@ -15,7 +15,7 @@ This folder contains a **starter dashboard JSON** for the community [**Infinity*
 2. Map the **`infinity`** template variable to your Infinity datasource.
 3. Set dashboard variables **`surveytrace_base`** (origin only, e.g. `https://surveytrace.example` — **no trailing slash**, or URLs become `https://host//api/...` and may fail) and, if you did **not** configure the Bearer header on the datasource, **`surveytrace_token`**.
 
-## SurveyTrace JSON endpoints (Bearer must match the integration **type** for that URL — see main **`README.md`** Phase 14.1 routing table)
+## SurveyTrace JSON endpoints (Bearer must match the integration **type** for that URL — see main **`README.md`** → *Integrations (push and pull)*, route table)
 
 | Use | URL (relative to base) |
 |-----|-------------------------|
