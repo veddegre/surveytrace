@@ -105,3 +105,7 @@ Other types stay isolated: **`report_summary_pull`** → dashboard + report summ
 4. **Wrong token type** (e.g. `report_summary_pull` vs `grafana_infinity_pull`) still returns **401** JSON — rotate the correct integration row.
 
 SurveyTrace **always** requires a valid pull token for these URLs; there is no anonymous read path.
+
+### `?token=` vs `Authorization: Bearer`
+
+If a request includes **both** a non-empty Bearer token and **`?token=`**, SurveyTrace uses **Bearer first**. Previously **query `token` won**, which could make Grafana look “authenticated” in the datasource while SurveyTrace still saw an old or empty **`?token=`** on the URL and returned **401** — fix URLs or rely on Bearer only.

@@ -67,6 +67,10 @@ if ($action === 'debug_pull_token') {
         st_json(['ok' => false, 'error' => 'integration_id required'], 400);
     }
     $route = trim((string) ($body['route'] ?? 'dashboard'));
+    $viewHint = strtolower(trim((string) ($body['view'] ?? '')));
+    if (in_array($viewHint, ['metrics', 'trends', 'events', 'compliance'], true)) {
+        $route = 'dashboard';
+    }
     if ($route === '') {
         $route = 'dashboard';
     }

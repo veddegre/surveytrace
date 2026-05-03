@@ -192,16 +192,16 @@ function st_integrations_pull_authorization_header_raw(): string
  */
 function st_integrations_pull_token_from_request_meta(): array
 {
-    $q = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
-    if ($q !== '') {
-        return ['plain' => $q, 'source' => 'query_token'];
-    }
     $auth = st_integrations_pull_authorization_header_raw();
     if ($auth !== '' && stripos($auth, 'Bearer ') === 0) {
         $plain = trim(substr($auth, 7));
         if ($plain !== '') {
             return ['plain' => $plain, 'source' => 'bearer_header'];
         }
+    }
+    $q = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+    if ($q !== '') {
+        return ['plain' => $q, 'source' => 'query_token'];
     }
 
     return ['plain' => '', 'source' => 'none'];
@@ -399,6 +399,7 @@ function st_integrations_debug_pull_token_payload(
     string $auth_source_detected,
     array $routeOpts = []
 ): array {
+    $schemaReady = st_integrations_pull_token_schema_ready($db);
     $row = st_integrations_get_by_id($db, $integrationId);
     $exists = $row !== null;
     $type = $exists ? strtolower(trim((string) ($row['type'] ?? ''))) : '';
@@ -407,26 +408,48 @@ function st_integrations_debug_pull_token_payload(
     $hashLooksStored = $hash !== '' && str_starts_with($hash, '$');
     $allowed = st_integrations_pull_route_types($route, $routeOpts);
     $routeAllowed = $exists && in_array($type, $allowed, true);
-    $hashPrefix = 'none';
+    $tokenHashPrefix = 'none';
     if ($hashLooksStored) {
-        $hashPrefix = strlen($hash) <= 16 ? $hash : substr($hash, 0, 16);
+        $tokenHashPrefix = strlen($hash) <= 16 ? $hash : substr($hash, 0, 16);
     }
     $pv = null;
     if ($plainToken !== '') {
         $pv = $hashLooksStored && password_verify($plainToken, $hash);
     }
 
+    $debugFailure = null;
+    if (! $schemaReady) {
+        $debugFailure = 'schema_incomplete';
+    } elseif (! $exists) {
+        $debugFailure = 'integration_not_found';
+    } elseif ($enabled !== 1) {
+        $debugFailure = 'integration_disabled';
+    } elseif (! $hashLooksStored) {
+        $debugFailure = 'no_token_hash';
+    } elseif (! $routeAllowed) {
+        $debugFailure = 'wrong_type_for_route';
+    } elseif ($plainToken === '') {
+        $debugFailure = 'no_token_provided';
+    } elseif ($pv === false) {
+        $debugFailure = 'password_verify_failed';
+    }
+
     return [
-        'integration_exists'      => $exists,
-        'integration_id'          => $integrationId,
-        'type'                    => $type,
-        'enabled'                 => $enabled,
-        'token_configured'        => $hashLooksStored,
-        'route'                   => $route,
-        'route_allowed_for_type'  => $routeAllowed,
-        'hash_prefix'             => $hashPrefix,
-        'password_verify_result'  => $pv,
-        'auth_source_detected'    => $auth_source_detected,
+        'integration_exists'       => $exists,
+        'integration_id'           => $integrationId,
+        'type'                     => $type,
+        'enabled'                  => $enabled,
+        'token_configured'         => $hashLooksStored,
+        'route'                    => $route,
+        'route_allowed_for_type'   => $routeAllowed,
+        'allowed_types'            => $allowed,
+        'token_hash_prefix'        => $tokenHashPrefix,
+        'token_created_at'         => $exists ? ($row['token_created_at'] ?? null) : null,
+        'token_last_used_at'       => $exists ? ($row['token_last_used_at'] ?? null) : null,
+        'schema_ready'             => $schemaReady,
+        'password_verify_result'   => $pv,
+        'auth_source_detected'     => $auth_source_detected,
+        'debug_failure_reason'     => $debugFailure,
     ];
 }
 

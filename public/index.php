@@ -6549,7 +6549,7 @@ function stIntegrationPullHelpHtml(type) {
         return 'Use this token with <code class="code-accent">/api/integrations_events.php</code>. Good for Splunk scripted or modular inputs.';
     }
     if (type === 'report_summary_pull') {
-        return 'Use this token with <code class="code-accent">/api/integrations_dashboard.php</code> or <code class="code-accent">/api/integrations_report_summary.php</code>. Good for Grafana Infinity when you only need those two routes.';
+        return 'Use this token with <code class="code-accent">/api/integrations_dashboard.php</code> (full bundle or <code class="code-accent">?view=…</code> slices) and <code class="code-accent">/api/integrations_report_summary.php</code> only. For Grafana with <code class="code-accent">?view=metrics</code>, JSON metrics/events, or the starter dashboard, create <strong>Grafana Infinity dashboard pull</strong> (<code class="code-accent">grafana_infinity_pull</code>) instead — <code class="code-accent">report_summary_pull</code> tokens are not accepted on <code class="code-accent">/api/integrations_metrics.php?format=json</code> or <code class="code-accent">/api/integrations_events.php?format=json</code>.';
     }
     if (type === 'grafana_infinity_pull') {
         return 'Use this token on the Grafana Infinity datasource (<code class="code-accent">Authorization: Bearer …</code>). Allowed: dashboard (<code class="code-accent">?view=…</code> slices), report summary, <code class="code-accent">/api/integrations_events.php?format=json</code>, <code class="code-accent">/api/integrations_metrics.php?format=json</code>. Not Prometheus text scrape.';
