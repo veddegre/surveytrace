@@ -669,9 +669,11 @@ if (is_readable($dbProbe)) {
       </div>
     </div>
     <div id="report-baseline-debug-wrap" class="mt10" style="display:none">
-      <div class="hint-micro mb6">Admin-only: server validation detail (not shown to viewers).</div>
+      <div class="hint-micro mb6 hstate-warn" style="line-height:1.45">
+        <strong>Admin debug</strong> — the <span class="mono-sm">baseline_debug</span> JSON below is raw diagnostic output only. It is <em>not</em> the operator baseline summary shown above.
+      </div>
       <button type="button" class="tbtn btn-xs" onclick="loadReportingBaselineDebug()">Load baseline_debug</button>
-      <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap"></pre>
+      <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px" title="Raw baseline_debug JSON (admin diagnostic)"></pre>
     </div>
   </div>
 
@@ -7982,7 +7984,13 @@ function reportingCompareAttentionCalloutsHtml(nc, deltaHc, hasTrendPair) {
     );
 }
 
-function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendPair) {
+/**
+ * @param {object} [narrativeOpts]
+ * @param {boolean} [narrativeOpts.softReferenceHostWording] softer snapshot phrasing for reference-only hosts (unscoped-compatible drift)
+ */
+function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendPair, narrativeOpts) {
+    narrativeOpts = narrativeOpts || {};
+    const softHost = !!narrativeOpts.softReferenceHostWording;
     const r = parseInt(String(refId), 10);
     const c = parseInt(String(curId), 10);
     const sig = reportingCompareIsSignificant(nc);
@@ -8019,9 +8027,17 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
     parts.push(' ' + tone + '.');
     const detail = [];
     if (nc.assets_only_in_a === 1) {
-        detail.push('One host is no longer detected');
+        detail.push(
+            softHost
+                ? '1 host from the reference scan was not seen in the current scan.'
+                : 'One host is no longer detected'
+        );
     } else if (nc.assets_only_in_a > 1) {
-        detail.push(nc.assets_only_in_a + ' hosts are no longer detected');
+        detail.push(
+            softHost
+                ? nc.assets_only_in_a + ' hosts from the reference scan were not seen in the current scan.'
+                : nc.assets_only_in_a + ' hosts are no longer detected'
+        );
     }
     if (nc.assets_only_in_b === 1) {
         detail.push('One new asset appears in the current scan');
@@ -8029,9 +8045,9 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
         detail.push(nc.assets_only_in_b + ' new assets appear in the current scan');
     }
     if (nc.marked_resolved_in_b === 1) {
-        detail.push('One finding appears resolved');
+        detail.push('One finding was not detected in the current scan');
     } else if (nc.marked_resolved_in_b > 1) {
-        detail.push(nc.marked_resolved_in_b + ' findings appear resolved');
+        detail.push(nc.marked_resolved_in_b + ' findings were not detected in the current scan');
     }
     if (nc.reopened_in_b > 0) {
         detail.push(
@@ -8061,7 +8077,7 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
         );
     }
     if (detail.length) {
-        parts.push(' ' + detail.slice(0, 6).join('; ') + '.');
+        parts.push(' ' + detail.slice(0, 6).join('. ') + '.');
     }
     const tail = [];
     if (nc.new_findings_rows === 0 && nc.reopened_in_b === 0 && !(hasTrendPair && dh > 0)) {
@@ -8305,7 +8321,9 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
         return head + narrative + badgeRow + cards + warns + adv;
     }
     const risk = reportingCompareRiskClassification(nc, deltaHc, hasTrendPair);
-    const narrative = reportingCompareNarrativeParagraph(jobRef, jobCur, nc, deltaHc, hasTrendPair);
+    const narrative = reportingCompareNarrativeParagraph(jobRef, jobCur, nc, deltaHc, hasTrendPair, {
+        softReferenceHostWording: !!opts.softReferenceHostWording,
+    });
     const callouts = reportingCompareAttentionCalloutsHtml(nc, deltaHc, hasTrendPair);
     const head =
         '<div class="hint-micro mb8">' +
@@ -8853,6 +8871,8 @@ async function loadReportingChangeSince() {
     const align = ds.scope_alignment;
     const crossScope = !!(align && align.comparable === false);
     const unscopedPairUncertain = !!ds.unscoped_pair_uncertain;
+    const softRefHost =
+        labelMode === 'unscoped_compatible_prior_all' || labelMode === 'unscoped_compatible_prior_filter';
     out.innerHTML =
         hint +
         reportingRenderCompareExecutiveSummary(ds, {
@@ -8861,6 +8881,7 @@ async function loadReportingChangeSince() {
             trendHasPair: trendHasPair,
             crossScope: crossScope,
             unscopedPairUncertain: unscopedPairUncertain,
+            softReferenceHostWording: softRefHost,
         });
 }
 
