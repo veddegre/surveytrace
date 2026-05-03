@@ -4,6 +4,10 @@
  *
  * Admin-only: list integrations, CRUD, manual test/sample push, per-row pull token rotation.
  * Secrets are never returned; use auth_configured and rotate flows.
+ *
+ * `debug_pull_token` compares the body `token` to one integration row; it does **not** authenticate
+ * this HTTP request. Callers must be **admin** (session or Basic per `auth_mode`) and send
+ * `X-CSRF-Token` + same-origin `Origin`/`Referer` like any other `POST` here.
  */
 
 declare(strict_types=1);
