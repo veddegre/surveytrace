@@ -9,6 +9,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_zabbix.php';
 
 st_auth();
@@ -22,12 +23,15 @@ if ($method === 'GET') {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
     $row = st_zabbix_connector_get($db);
+    $scopes = st_zabbix_scan_scopes_table_exists($db) ? st_scan_scopes_list($db) : [];
     $out = [
         'ok' => true,
         'connector' => st_zabbix_connector_public($row),
         'stats' => st_zabbix_stats($db),
         'sample_matches' => st_zabbix_sample_matches($db, 8),
         'scope_rules' => st_zabbix_scope_rules_all($db),
+        'scopes' => $scopes,
+        'scope_catalog_count' => count($scopes),
         'workflow' => [
             'asset_scope_apply' => st_zabbix_scan_scopes_table_exists($db) && st_zabbix_asset_workflow_columns_ready($db),
         ],
@@ -128,8 +132,19 @@ if ($action === 'preview_scope_map') {
     if (! is_array($rules)) {
         st_json(['ok' => false, 'error' => 'rules array required'], 400);
     }
-    $preview = st_zabbix_preview_scope_map($db, $rules);
-    st_json(['ok' => true, 'preview' => $preview, 'note' => 'Preview only — asset scopes are not modified.']);
+    try {
+        $preview = st_zabbix_preview_scope_map($db, $rules);
+    } catch (InvalidArgumentException $e) {
+        $msg = st_zabbix_redact_secrets($e->getMessage());
+        @error_log('SurveyTrace zabbix preview_scope_map validation failed: ' . $msg);
+        st_json(['ok' => false, 'error' => $msg, 'validation_failed' => true], 400);
+    }
+    $note = $rules === []
+        ? 'No rules to evaluate — add at least one complete rule (type, pattern, scope).'
+        : ($preview === []
+            ? 'No assets matched — enable rules, run sync so hosts link to assets, and ensure a linked host’s group/tag matches a rule.'
+            : 'Preview only — asset scopes are not modified.');
+    st_json(['ok' => true, 'preview' => $preview, 'note' => $note]);
 }
 
 if ($action === 'save_scope_rules') {
@@ -140,22 +155,66 @@ if ($action === 'save_scope_rules') {
     if (! is_array($rules)) {
         st_json(['ok' => false, 'error' => 'rules array required'], 400);
     }
-    st_zabbix_scope_rules_replace($db, $rules);
-    st_json(['ok' => true, 'scope_rules' => st_zabbix_scope_rules_all($db)]);
+    try {
+        st_zabbix_scope_rules_replace($db, $rules);
+    } catch (InvalidArgumentException $e) {
+        $msg = st_zabbix_redact_secrets($e->getMessage());
+        $pre = st_zabbix_scope_rules_validate($db, $rules);
+        @error_log(
+            'SurveyTrace zabbix save_scope_rules rejected: errors=' . count($pre['errors'])
+            . ' valid_rows=' . $pre['valid_count']
+        );
+        st_json([
+            'ok' => false,
+            'error' => $msg,
+            'validation_errors' => $pre['errors'],
+            'validation_failed' => true,
+        ], 400);
+    }
+    st_json(['ok' => true, 'scope_rules' => st_zabbix_scope_rules_all($db), 'saved_count' => count($rules)]);
 }
 
 if ($action === 'preview_scope_apply') {
     if (! st_zabbix_table_ready($db)) {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
+    try {
+        st_zabbix_assert_no_enabled_stale_scope_rules($db);
+    } catch (InvalidArgumentException $e) {
+        $msg = st_zabbix_redact_secrets($e->getMessage());
+        @error_log('SurveyTrace zabbix preview_scope_apply blocked: ' . $msg);
+        st_json(['ok' => false, 'error' => $msg, 'stale_scope_rules' => true], 400);
+    }
     $dbRules = $db->query(
-        'SELECT rule_type, pattern, scope_id, 1 AS enabled FROM zabbix_scope_map_rules WHERE enabled = 1 ORDER BY id'
+        'SELECT r.rule_type, r.pattern, r.scope_id, 1 AS enabled
+         FROM zabbix_scope_map_rules r
+         INNER JOIN scan_scopes s ON s.id = r.scope_id
+         WHERE r.enabled = 1 ORDER BY r.id'
     )->fetchAll(PDO::FETCH_ASSOC);
-    $plan = st_zabbix_preview_scope_map($db, is_array($dbRules) ? $dbRules : []);
+    $dbRules = is_array($dbRules) ? $dbRules : [];
+    if ($dbRules === []) {
+        st_json([
+            'ok' => true,
+            'plan' => [],
+            'note' => 'No enabled rules with valid scopes — save at least one enabled rule under Enrichment → Zabbix, or create scan scopes first.',
+            'enabled_valid_rule_count' => 0,
+        ]);
+    }
+    try {
+        $plan = st_zabbix_preview_scope_map($db, $dbRules);
+    } catch (InvalidArgumentException $e) {
+        $msg = st_zabbix_redact_secrets($e->getMessage());
+        @error_log('SurveyTrace zabbix preview_scope_apply failed: ' . $msg);
+        st_json(['ok' => false, 'error' => $msg, 'validation_failed' => true], 400);
+    }
+    $note = $plan === []
+        ? 'No assets matched enabled rules — run sync and ensure linked hosts match a rule’s group or tag.'
+        : 'Plan only — call apply_scope_map with confirm and the same rows to write scope_id.';
     st_json([
         'ok' => true,
         'plan' => $plan,
-        'note' => 'Plan only — call apply_scope_map with confirm and the same rows to write scope_id.',
+        'note' => $note,
+        'enabled_valid_rule_count' => count($dbRules),
     ]);
 }
 
@@ -169,6 +228,13 @@ if ($action === 'apply_scope_map') {
     $apply = $body['apply'] ?? null;
     if (! is_array($apply)) {
         st_json(['ok' => false, 'error' => 'apply array required: [{asset_id, old_scope_id, new_scope_id}, ...]'], 400);
+    }
+    try {
+        st_zabbix_assert_no_enabled_stale_scope_rules($db);
+    } catch (InvalidArgumentException $e) {
+        $msg = st_zabbix_redact_secrets($e->getMessage());
+        @error_log('SurveyTrace zabbix apply_scope_map blocked: ' . $msg);
+        st_json(['ok' => false, 'error' => $msg, 'stale_scope_rules' => true], 400);
     }
     try {
         $res = st_zabbix_apply_scope_map($db, true, $apply);

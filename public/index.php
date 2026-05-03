@@ -1016,6 +1016,61 @@ if (is_readable($dbProbe)) {
 
 <!-- ================================================================ ENRICHMENT -->
 <div class="tab" id="t-enrich">
+  <div class="card mb14" id="st-zabbix-enrich-card">
+    <div class="ct">Zabbix (enrichment)</div>
+    <p class="hint-micro mb10">
+      Uses data from the Zabbix integration: review matches, map host groups/tags to <strong>scan scopes</strong>, and manually link assets. Read-only Zabbix context also appears on host <strong>Details</strong>.
+      Connector URL/token and sync are under <strong>Integrations → Zabbix</strong>.
+    </p>
+    <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
+      <strong>No scan scopes in the catalog.</strong> Create at least one scope (e.g. under <strong>Reports &amp; Analysis</strong>) before scope mapping works.
+      <button type="button" class="tbtn btn-xs mt6" onclick="goTab('report');hiNav('nreport')">Open Reports &amp; Analysis</button>
+    </div>
+    <div class="flbl">Match review</div>
+    <p class="hint-micro mb6">High-confidence links, near-threshold candidates, unmatched Zabbix hosts, and assets without a link. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+    <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+    <div id="zb-match-review-body" class="help-mono text-micro mb12" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open this tab to load, then click Refresh.</div>
+
+    <div class="flbl">Scope map rules</div>
+    <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+    <div id="zb-rules-wrap" class="mb6"></div>
+    <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
+    <div class="row-wrap gap6 mb8">
+      <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+      <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+    </div>
+    <div id="zb-preview" class="help-mono mb12" style="max-height:180px;overflow:auto">—</div>
+
+    <div id="zb-operator-blocks">
+      <div id="zb-scope-apply-block" style="display:none">
+        <div class="flbl">Apply scope map (saved + enabled rules)</div>
+        <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
+        <div class="row-wrap gap6 mb6">
+          <button type="button" class="tbtn" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
+        </div>
+        <div id="zb-apply-plan-body" class="mb6">—</div>
+        <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <input type="checkbox" id="zb-apply-confirm">
+          I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+        </label>
+        <button type="button" class="btnp" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
+      </div>
+
+      <div class="flbl mt12">Manual link / unlink</div>
+      <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
+      <div class="row-wrap gap6 mb6 flex-wrap">
+        <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
+        <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
+        <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
+        <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
+        <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
+      </div>
+      <div class="row-wrap gap6 flex-wrap">
+        <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
+        <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
+      </div>
+    </div>
+  </div>
   <div class="scgrid">
     <div>
       <div class="card">
@@ -1297,11 +1352,10 @@ if (is_readable($dbProbe)) {
     </div>
 
     <div class="card mt12" id="st-zabbix-card">
-      <div class="ct">Zabbix (source connector)</div>
+      <div class="ct">Zabbix (integration)</div>
       <p class="hint-micro mb10">
-        Hosts and problems are cached locally; matching links Zabbix hosts to SurveyTrace assets by IP, DNS/hostname, visible name, or MAC.
-        Trust fields on each asset (<strong>monitored</strong>, <strong>availability</strong>, <strong>problem count</strong>) are refreshed after sync — never overwritten by hidden automation; manual link/unlink and scope apply are explicit and audited.
-        Sync runs in the background (CLI worker or PHP-FPM after response). API token is never returned from the server.
+        <strong>Transport only</strong> — pulls hosts, interfaces, groups, tags, and problems into local tables. Sync runs in the background; the API token is never returned from the server.
+        Match review, scope mapping, manual link/unlink, and apply workflows are under <strong>Enrichment → Zabbix</strong>.
       </p>
       <div class="row-wrap gap6 mb8 flex-wrap">
         <label class="flbl" style="min-width:80px">Name</label>
@@ -1319,57 +1373,6 @@ if (is_readable($dbProbe)) {
       </div>
       <div id="zb-status" class="help-mono mb8">—</div>
       <div id="zb-stats" class="hint-micro mb8">—</div>
-      <div class="flbl">Sample matched hosts</div>
-      <div class="tbl-wrap mb10">
-        <table class="tbl">
-          <thead><tr><th>Asset IP</th><th>Hostname</th><th>Zabbix</th><th>Method</th><th>Conf.</th></tr></thead>
-          <tbody id="zb-sample-tbody"><tr><td colspan="5" class="text-dim">Load the Integrations tab to refresh.</td></tr></tbody>
-        </table>
-      </div>
-      <div class="flbl">Scope map rules (optional)</div>
-      <p class="hint-micro mb6">Rules are <strong>disabled by default</strong> when saved. <strong>Preview mapping</strong> uses the rules currently in the form (saved or not). <strong>No automatic scope writes</strong> — only the operator workflow below applies <code class="code-accent">scope_id</code> after confirmation.</p>
-      <div id="zb-rules-wrap" class="mb6"></div>
-      <button type="button" class="tbtn btn-xs mb6" onclick="stZabbixAddRuleRow()">Add rule</button>
-      <div class="row-wrap gap6 mb8">
-        <button type="button" class="tbtn" onclick="stZabbixPreviewRules()">Preview mapping</button>
-        <button type="button" class="tbtn" onclick="stZabbixSaveRules()">Save rules</button>
-      </div>
-      <div id="zb-preview" class="help-mono" style="max-height:180px;overflow:auto">—</div>
-
-      <div id="zb-operator-blocks" class="mt10" style="display:none">
-        <div class="flbl">Match review</div>
-        <p class="hint-micro mb6">High-confidence links, near-threshold (0.75–0.9) candidates, unmatched Zabbix hosts, and assets without a link. Use manual link to set <code class="code-accent">match_method</code> / confidence (marked manual); unlink removes the link only.</p>
-        <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-        <div id="zb-match-review-body" class="help-mono text-micro" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open Integrations to load, then click Refresh.</div>
-
-        <div id="zb-scope-apply-block" class="mt12" style="display:none">
-          <div class="flbl">Apply scope map (saved + enabled rules)</div>
-          <p class="hint-micro mb6">Build a plan from rules already stored in the database with <strong>enabled</strong> checked. Each apply row must still match the server’s current suggestion (stale previews are rejected).</p>
-          <div class="row-wrap gap6 mb6">
-            <button type="button" class="tbtn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
-          </div>
-          <div id="zb-apply-plan-body" class="mb6">—</div>
-          <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <input type="checkbox" id="zb-apply-confirm">
-            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
-          </label>
-          <button type="button" class="btnp" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
-        </div>
-
-        <div class="flbl mt12">Manual link / unlink</div>
-        <p class="hint-micro mb6">Link requires the Zabbix <code class="code-accent">hostid</code> from the cache (see unmatched hosts or Zabbix UI). One asset ↔ one Zabbix host; linking replaces any conflicting row.</p>
-        <div class="row-wrap gap6 mb6 flex-wrap">
-          <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
-          <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
-          <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
-          <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
-          <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
-        </div>
-        <div class="row-wrap gap6 flex-wrap">
-          <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
-          <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
-        </div>
-      </div>
     </div>
 
     <p class="help-line text-dim mt10 text-micro">
@@ -6848,10 +6851,10 @@ async function loadIntegrationsTab() {
             : '<tr><td colspan="8" class="text-dim">No pull / API integrations.</td></tr>';
     }
     stIntegrationsSyncCreateForm();
-    void loadZabbixConnector();
+    void loadZabbixIntegrationOnly();
 }
 
-/** Scan scopes for Zabbix scope-rule dropdowns (Integrations tab). */
+/** Scan scopes for Zabbix rule dropdowns (Enrichment → Zabbix); mirrored on GET /api/zabbix.php as `scopes`. */
 var zbScopeOptions = [];
 
 function zbScopeLabel(sid) {
@@ -6862,10 +6865,15 @@ function zbScopeLabel(sid) {
     return raw ? esc(raw) : ('#' + id);
 }
 
-function zbScopeSelectHtml(selectedId) {
+function zbScopeSelectHtml(selectedId, rule) {
     const sel = parseInt(String(selectedId || '0'), 10);
-    let o = '<select class="finp zb-r-scope" style="min-width:140px">';
+    const r = rule || {};
+    const missing = !!(r.scope_missing === 1 || r.scope_missing === true || r.scope_missing === '1');
+    let o = '<select class="finp zb-r-scope" style="min-width:140px" onchange="stZabbixRefreshScopeRuleButtons()">';
     o += '<option value="0">— scope —</option>';
+    if (missing && sel > 0) {
+        o += `<option value="${sel}" selected>${esc('(deleted scope) #' + sel)}</option>`;
+    }
     (zbScopeOptions || []).forEach((s) => {
         const id = parseInt(String(s.id), 10);
         const lab = esc(s.name || ('#' + id));
@@ -6875,7 +6883,7 @@ function zbScopeSelectHtml(selectedId) {
     return o;
 }
 
-function stZabbixAddRuleRow(rule) {
+function stZabbixAddRuleRow(rule, skipRefresh) {
     const wrap = document.getElementById('zb-rules-wrap');
     if (!wrap) return;
     const r = rule || {};
@@ -6891,44 +6899,83 @@ function stZabbixAddRuleRow(rule) {
         <option value="tag"${rt === 'tag' ? ' selected' : ''}>Host tag</option>
       </select>
       <input class="finp zb-r-pattern" style="min-width:220px;flex:1" placeholder="e.g. Linux servers or Environment=prod" value="${pat}">
-      ${zbScopeSelectHtml(sid)}
+      ${zbScopeSelectHtml(sid, r)}
       <label class="text-micro" style="align-self:center"><input type="checkbox" class="zb-r-en"${en}> enabled</label>
-      <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove()">Remove</button>`;
+      <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove();stZabbixRefreshScopeRuleButtons();">Remove</button>`;
     wrap.appendChild(div);
+    if (!skipRefresh) stZabbixRefreshScopeRuleButtons();
 }
 
-function stZabbixRulesFromDom() {
+function stZabbixRowReferencesDeletedScope(row) {
+    const sel = row.querySelector('.zb-r-scope');
+    if (!sel) return false;
+    const opt = sel.options[sel.selectedIndex];
+    return !!(opt && String(opt.textContent || '').indexOf('(deleted scope)') !== -1);
+}
+
+/** Every rule row is sent to the server (no silent drops). */
+function stZabbixRulesFromDomForSave() {
     const out = [];
+    let rowNum = 0;
     document.querySelectorAll('.zb-rule-row').forEach((row) => {
+        ++rowNum;
         const type = (row.querySelector('.zb-r-type') || {}).value || 'group';
         const pattern = (row.querySelector('.zb-r-pattern') || {}).value || '';
         const scopeSel = row.querySelector('.zb-r-scope');
         const scope_id = parseInt(String(scopeSel && scopeSel.value ? scopeSel.value : '0'), 10);
         const enabled = !!(row.querySelector('.zb-r-en') || {}).checked;
-        if (pattern.trim() === '' || scope_id <= 0) return;
-        out.push({ rule_type: type, pattern: pattern.trim(), scope_id, enabled });
+        out.push({ rule_type: type, pattern: pattern.trim(), scope_id, enabled, _row: rowNum });
     });
     return out;
 }
 
-async function loadZabbixConnector() {
+function stZabbixRefreshScopeRuleButtons() {
+    const n = (zbScopeOptions || []).length;
+    let hasStaleRule = false;
+    document.querySelectorAll('.zb-rule-row').forEach((row) => {
+        if (stZabbixRowReferencesDeletedScope(row)) hasStaleRule = true;
+    });
+    const dis = n === 0 || hasStaleRule;
+    ['zb-save-rules-btn', 'zb-preview-rules-btn', 'zb-apply-plan-btn', 'zb-apply-exec-btn', 'zb-add-rule-btn'].forEach((id) => {
+        const b = document.getElementById(id);
+        if (b) {
+            b.disabled = dis;
+            b.classList.toggle('is-disabled', dis);
+        }
+    });
+    const ban = document.getElementById('zb-scope-prereq-banner');
+    if (!ban) return;
+    if (n === 0) {
+        ban.style.display = '';
+        ban.innerHTML = '<strong>No scan scopes in the catalog.</strong> Create at least one scope (e.g. under <strong>Reports &amp; Analysis</strong>) before scope mapping works. '
+            + '<button type="button" class="tbtn btn-xs mt6" onclick="goTab(\'report\');hiNav(\'nreport\')">Open Reports &amp; Analysis</button>';
+    } else if (hasStaleRule) {
+        ban.style.display = '';
+        ban.innerHTML = '<strong>Stale rule:</strong> at least one row references a deleted scan scope. Fix or remove it before saving, previewing, or applying. '
+            + '<button type="button" class="tbtn btn-xs mt6" onclick="goTab(\'report\');hiNav(\'nreport\')">Open Reports &amp; Analysis</button>';
+    } else {
+        ban.style.display = 'none';
+    }
+}
+
+async function loadZabbixFromApi() {
+    return api('/api/zabbix.php', { quiet: true });
+}
+
+function stZabbixApplyIntegrationPanel(z) {
     if (!stRoleIsAdmin()) return;
-    const sc = await api('/api/scan_scopes.php', { quiet: true });
-    zbScopeOptions = (sc && sc.ok && Array.isArray(sc.scopes)) ? sc.scopes : [];
-    const z = await api('/api/zabbix.php', { quiet: true });
     const nameEl = document.getElementById('zb-name');
-    const urlEl = document.getElementById('zb-url');
-    const tokEl = document.getElementById('zb-token');
-    const enEl = document.getElementById('zb-enabled');
+    if (!nameEl) return;
     const stEl = document.getElementById('zb-status');
-    const statsEl = document.getElementById('zb-stats');
-    const sampleTb = document.getElementById('zb-sample-tbody');
-    const rulesWrap = document.getElementById('zb-rules-wrap');
     if (!z || !z.ok) {
         if (stEl) stEl.textContent = (z && z.error) ? z.error : 'Zabbix API unavailable (migrations or role).';
         return;
     }
     const c = z.connector || {};
+    const urlEl = document.getElementById('zb-url');
+    const tokEl = document.getElementById('zb-token');
+    const enEl = document.getElementById('zb-enabled');
+    const statsEl = document.getElementById('zb-stats');
     if (nameEl) nameEl.value = c.name || 'Zabbix';
     if (urlEl) urlEl.value = c.api_url || '';
     if (tokEl) tokEl.value = '';
@@ -6939,31 +6986,49 @@ async function loadZabbixConnector() {
     }
     if (statsEl) {
         const s = z.stats || {};
-        statsEl.textContent = `Zabbix hosts: ${s.hosts || 0} · matched links: ${s.matched_pairs || 0} · unmatched Zabbix hosts: ${s.hosts_unmatched || 0} · assets without Zabbix link: ${s.assets_unmatched || 0}`;
+        statsEl.textContent = `Hosts synced: ${s.hosts || 0} · matched links: ${s.matched_pairs || 0} · unmatched Zabbix hosts: ${s.hosts_unmatched || 0}`;
     }
-    if (sampleTb) {
-        const rows = z.sample_matches || [];
-        sampleTb.innerHTML = rows.length
-            ? rows.map((r) => `<tr>
-                <td class="mono-sm">${esc(r.ip || '')}</td>
-                <td>${esc(r.hostname || '')}</td>
-                <td class="text-micro">${esc(r.zabbix_visible || r.zabbix_tech || '')}</td>
-                <td>${esc(r.match_method || '')}</td>
-                <td>${r.confidence != null ? Number(r.confidence).toFixed(2) : '—'}</td>
-              </tr>`).join('')
-            : '<tr><td colspan="5" class="text-dim">No matches yet — run sync after configuring the API.</td></tr>';
+}
+
+function stZabbixApplyEnrichmentPanel(z) {
+    if (!stRoleIsAdmin()) return;
+    const rulesWrap = document.getElementById('zb-rules-wrap');
+    if (!rulesWrap) return;
+    if (!z || !z.ok) return;
+    zbScopeOptions = Array.isArray(z.scopes) && z.scopes.length
+        ? z.scopes
+        : zbScopeOptions;
+    if (!zbScopeOptions.length) {
+        void api('/api/scan_scopes.php', { quiet: true }).then((sc) => {
+            if (sc && sc.ok && Array.isArray(sc.scopes)) zbScopeOptions = sc.scopes;
+            stZabbixRefreshScopeRuleButtons();
+        });
     }
-    if (rulesWrap) {
-        rulesWrap.innerHTML = '';
-        const rules = z.scope_rules || [];
-        if (rules.length) {
-            rules.forEach((r) => stZabbixAddRuleRow(r));
-        }
+    rulesWrap.innerHTML = '';
+    const rules = z.scope_rules || [];
+    if (rules.length) {
+        rules.forEach((r) => stZabbixAddRuleRow(r, true));
     }
-    const zbOp = document.getElementById('zb-operator-blocks');
-    if (zbOp) zbOp.style.display = z.ok ? 'block' : 'none';
     const zbSc = document.getElementById('zb-scope-apply-block');
     if (zbSc) zbSc.style.display = (z.workflow && z.workflow.asset_scope_apply) ? 'block' : 'none';
+    stZabbixRefreshScopeRuleButtons();
+}
+
+async function loadZabbixIntegrationOnly() {
+    if (!stRoleIsAdmin()) return;
+    const z = await loadZabbixFromApi();
+    stZabbixApplyIntegrationPanel(z);
+}
+
+async function loadZabbixEnrichmentPanel() {
+    if (!stRoleIsAdmin()) return;
+    const z = await loadZabbixFromApi();
+    stZabbixApplyIntegrationPanel(z);
+    stZabbixApplyEnrichmentPanel(z);
+}
+
+async function loadZabbixConnector() {
+    await loadZabbixEnrichmentPanel();
 }
 
 async function stZabbixSave() {
@@ -6979,7 +7044,8 @@ async function stZabbixSave() {
     const r = await apiPost('/api/zabbix.php', body);
     if (r && r.ok) {
         toast('Zabbix connector saved', 'ok');
-        await loadZabbixConnector();
+        await loadZabbixIntegrationOnly();
+        await loadZabbixEnrichmentPanel();
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
     }
@@ -7004,7 +7070,7 @@ async function stZabbixSync() {
     const r = await apiPost('/api/zabbix.php', { action: 'sync_now' });
     if (r && r.ok) {
         toast('Zabbix sync started (' + (r.mode || 'async') + ')', 'ok');
-        setTimeout(() => loadZabbixConnector(), 4000);
+        setTimeout(() => { void loadZabbixIntegrationOnly(); void loadZabbixEnrichmentPanel(); }, 4000);
     } else {
         toast((r && r.error) ? r.error : 'Sync failed to start', 'err');
     }
@@ -7012,18 +7078,17 @@ async function stZabbixSync() {
 
 async function stZabbixPreviewRules() {
     if (!stRoleIsAdmin()) return;
-    const rules = stZabbixRulesFromDom();
+    const rules = stZabbixRulesFromDomForSave();
     const r = await apiPost('/api/zabbix.php', { action: 'preview_scope_map', rules });
     const el = document.getElementById('zb-preview');
     if (!el) return;
     if (!r || !r.ok) {
-        el.textContent = (r && r.error) ? r.error : 'Preview failed';
+        el.innerHTML = '<span class="status-text">' + esc((r && r.error) ? r.error : 'Preview failed') + '</span>';
         return;
     }
     const prev = r.preview || [];
     if (!prev.length) {
-        el.textContent =
-            'No preview rows. Enable at least one rule (checkbox), set pattern + scope, run a Zabbix sync so hosts link to assets, and ensure a rule matches a linked host’s group or tag.';
+        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No matching assets for the current rules.') + '</span>';
         return;
     }
     el.innerHTML = prev.map((p) => {
@@ -7037,11 +7102,11 @@ async function stZabbixPreviewRules() {
 
 async function stZabbixSaveRules() {
     if (!stRoleIsAdmin()) return;
-    const rules = stZabbixRulesFromDom();
+    const rules = stZabbixRulesFromDomForSave();
     const r = await apiPost('/api/zabbix.php', { action: 'save_scope_rules', rules });
     if (r && r.ok) {
         toast('Zabbix scope rules saved', 'ok');
-        await loadZabbixConnector();
+        await loadZabbixEnrichmentPanel();
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
     }
@@ -7063,7 +7128,7 @@ async function stZabbixLoadApplyPlan() {
     const plan = r.plan || [];
     __stZabbixScopePlan = plan;
     if (!plan.length) {
-        el.innerHTML = '<span class="text-dim">No rows: save rules with <strong>enabled</strong> checked, run sync, and ensure a linked host matches a rule.</span>';
+        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No plan rows.') + '</span>';
         return;
     }
     const rows = plan.map((p, i) => {
@@ -7121,7 +7186,7 @@ async function stZabbixApplyPlanSelection() {
         toast(msg, (r.applied > 0) ? 'ok' : 'err');
         document.getElementById('zb-apply-confirm').checked = false;
         await stZabbixLoadApplyPlan();
-        await loadZabbixConnector();
+        await loadZabbixEnrichmentPanel();
     } else {
         toast((r && r.error) ? r.error : 'Apply failed', 'err');
     }
@@ -7190,7 +7255,7 @@ async function stZabbixManualLink() {
     });
     if (r && r.ok) {
         toast('Manual link saved', 'ok');
-        await loadZabbixConnector();
+        await loadZabbixEnrichmentPanel();
         await stZabbixMatchReviewRefresh();
     } else {
         toast((r && r.error) ? r.error : 'Link failed', 'err');
@@ -7208,7 +7273,7 @@ async function stZabbixManualUnlink() {
     const r = await apiPost('/api/zabbix.php', { action: 'unlink_asset', asset_id });
     if (r && r.ok) {
         toast('Unlinked', 'ok');
-        await loadZabbixConnector();
+        await loadZabbixEnrichmentPanel();
         await stZabbixMatchReviewRefresh();
     } else {
         toast((r && r.error) ? r.error : 'Unlink failed', 'err');
@@ -7972,6 +8037,7 @@ async function clearNvdApiKey() {
 async function loadEnrichment() {
     const d = await api('/api/enrichment.php');
     if (!d) return;
+    void loadZabbixEnrichmentPanel();
 
     // Active sources list
     const list = d.sources || [];

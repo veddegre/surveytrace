@@ -930,40 +930,156 @@ function st_zabbix_scope_rules_all(PDO $pdo): array
     if (! st_zabbix_table_ready($pdo)) {
         return [];
     }
+    if (! st_zabbix_scan_scopes_table_exists($pdo)) {
+        return $pdo->query('SELECT id, rule_type, pattern, scope_id, enabled, created_at, 1 AS scope_missing, NULL AS scope_name FROM zabbix_scope_map_rules ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
+            ?: [];
+    }
 
-    return $pdo->query('SELECT id, rule_type, pattern, scope_id, enabled, created_at FROM zabbix_scope_map_rules ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
-        ?: [];
+    $sql = 'SELECT r.id, r.rule_type, r.pattern, r.scope_id, r.enabled, r.created_at,
+                   s.name AS scope_name,
+                   CASE WHEN s.id IS NULL THEN 1 ELSE 0 END AS scope_missing
+            FROM zabbix_scope_map_rules r
+            LEFT JOIN scan_scopes s ON s.id = r.scope_id
+            ORDER BY r.id';
+
+    return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 /**
- * Replace all scope map rules with the given set.
+ * Valid scan_scopes.id values, or empty set if table missing.
  *
- * @param array<int,array<string,mixed>> $rules
+ * @return array<int, true>
  */
-function st_zabbix_scope_rules_replace(PDO $pdo, array $rules): void
+function st_zabbix_scope_id_set(PDO $pdo): array
 {
-    $pdo->exec('DELETE FROM zabbix_scope_map_rules');
-    $ins = $pdo->prepare(
-        'INSERT INTO zabbix_scope_map_rules (rule_type, pattern, scope_id, enabled) VALUES (?,?,?,?)'
-    );
+    if (! st_zabbix_scan_scopes_table_exists($pdo)) {
+        return [];
+    }
+    $st = $pdo->query('SELECT id FROM scan_scopes');
+    $out = [];
+    foreach ($st ? $st->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $id = (int) ($row['id'] ?? 0);
+        if ($id > 0) {
+            $out[$id] = true;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Validate Zabbix scope-map rules from API/UI. Empty array clears all rules (allowed).
+ *
+ * @param array<int, array<string, mixed>> $rules
+ * @return array{ok: bool, errors: array<int, string>, valid_count: int}
+ */
+function st_zabbix_scope_rules_validate(PDO $pdo, array $rules): array
+{
+    $errors = [];
+    $valid = 0;
+    if ($rules === []) {
+        return ['ok' => true, 'errors' => [], 'valid_count' => 0];
+    }
+    if (! st_zabbix_scan_scopes_table_exists($pdo)) {
+        return ['ok' => false, 'errors' => ['scan_scopes table is missing — run migrations'], 'valid_count' => 0];
+    }
+    $scopeSet = st_zabbix_scope_id_set($pdo);
+    if ($scopeSet === []) {
+        return ['ok' => false, 'errors' => ['No scan scopes exist — create a scope before saving Zabbix mapping rules'], 'valid_count' => 0];
+    }
+    $rowNum = 0;
     foreach ($rules as $r) {
+        ++$rowNum;
         if (! is_array($r)) {
+            $errors[] = 'Row ' . $rowNum . ': invalid rule object';
             continue;
         }
         $type = strtolower(trim((string) ($r['rule_type'] ?? '')));
-        if (! in_array($type, ['group', 'tag'], true)) {
-            continue;
-        }
         $pattern = trim((string) ($r['pattern'] ?? ''));
-        if ($pattern === '') {
-            continue;
-        }
         $sid = (int) ($r['scope_id'] ?? 0);
-        if ($sid <= 0) {
+        $label = isset($r['_row']) ? ('Row ' . (int) $r['_row']) : ('Rule ' . $rowNum);
+        if ($type === '' && $pattern === '' && $sid <= 0) {
+            $errors[] = $label . ': empty rule — remove the row or complete type, pattern, and scope';
             continue;
         }
-        $en = ! empty($r['enabled']) ? 1 : 0;
-        $ins->execute([$type, $pattern, $sid, $en]);
+        if (! in_array($type, ['group', 'tag'], true)) {
+            $errors[] = $label . ': rule_type must be group or tag';
+            continue;
+        }
+        if ($pattern === '') {
+            $errors[] = $label . ': pattern is required';
+            continue;
+        }
+        if ($sid <= 0) {
+            $errors[] = $label . ': scope is required (select a scan scope)';
+            continue;
+        }
+        if (! isset($scopeSet[$sid])) {
+            $errors[] = $label . ': scope_id ' . $sid . ' does not exist in scan_scopes';
+            continue;
+        }
+        ++$valid;
+    }
+
+    return ['ok' => $errors === [], 'errors' => $errors, 'valid_count' => $valid];
+}
+
+/**
+ * Replace all scope map rules with the given set (transactional). Validates first — does not silently drop rows.
+ *
+ * @param array<int, array<string, mixed>> $rules
+ *
+ * @throws InvalidArgumentException on validation failure
+ */
+function st_zabbix_scope_rules_replace(PDO $pdo, array $rules): void
+{
+    $v = st_zabbix_scope_rules_validate($pdo, $rules);
+    if (! $v['ok']) {
+        throw new InvalidArgumentException(implode(' ', $v['errors']));
+    }
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $pdo->exec('DELETE FROM zabbix_scope_map_rules');
+        $ins = $pdo->prepare(
+            'INSERT INTO zabbix_scope_map_rules (rule_type, pattern, scope_id, enabled) VALUES (?,?,?,?)'
+        );
+        foreach ($rules as $r) {
+            if (! is_array($r)) {
+                continue;
+            }
+            $type = strtolower(trim((string) ($r['rule_type'] ?? '')));
+            $pattern = trim((string) ($r['pattern'] ?? ''));
+            $sid = (int) ($r['scope_id'] ?? 0);
+            $en = ! empty($r['enabled']) ? 1 : 0;
+            $ins->execute([$type, $pattern, $sid, $en]);
+        }
+        $pdo->exec('COMMIT');
+    } catch (Throwable $e) {
+        $pdo->exec('ROLLBACK');
+        throw $e;
+    }
+}
+
+/**
+ * @throws InvalidArgumentException when enabled rules reference a missing scan_scopes row
+ */
+function st_zabbix_assert_no_enabled_stale_scope_rules(PDO $pdo): void
+{
+    if (! st_zabbix_table_ready($pdo) || ! st_zabbix_scan_scopes_table_exists($pdo)) {
+        return;
+    }
+    $n = (int) $pdo->query(
+        'SELECT COUNT(1) FROM zabbix_scope_map_rules r
+         LEFT JOIN scan_scopes s ON s.id = r.scope_id
+         WHERE r.enabled = 1 AND s.id IS NULL'
+    )->fetchColumn();
+    if ($n > 0) {
+        throw new InvalidArgumentException(
+            'Enabled rules reference a deleted scan scope. Edit or remove those rules under Enrichment → Zabbix before previewing or applying.'
+        );
     }
 }
 
@@ -975,6 +1091,10 @@ function st_zabbix_scope_rules_replace(PDO $pdo, array $rules): void
  */
 function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
 {
+    $v = st_zabbix_scope_rules_validate($pdo, $rules);
+    if (! $v['ok']) {
+        throw new InvalidArgumentException(implode(' ', $v['errors']));
+    }
     if ($rules === []) {
         return [];
     }
@@ -1311,7 +1431,10 @@ function st_zabbix_suggest_scope_for_asset(PDO $pdo, int $assetId): ?int
         return null;
     }
     $rules = $pdo->query(
-        'SELECT rule_type, pattern, scope_id FROM zabbix_scope_map_rules WHERE enabled = 1 ORDER BY id'
+        'SELECT r.rule_type, r.pattern, r.scope_id
+         FROM zabbix_scope_map_rules r
+         INNER JOIN scan_scopes s ON s.id = r.scope_id
+         WHERE r.enabled = 1 ORDER BY r.id'
     )->fetchAll(PDO::FETCH_ASSOC);
     if (! is_array($rules) || $rules === []) {
         return null;
