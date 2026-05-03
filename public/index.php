@@ -7359,10 +7359,11 @@ var stScopesForFormsCache = null;
 var stScopesMeta = { default_scope_id: 0, scoping_enabled: false, scope_catalog_unavailable: false };
 
 function reportingScopeQuery() {
-    if (reportingScopeApiFilter === null) {
+    const f = reportingScopeApiFilter;
+    if (f === null || f === undefined) {
         return '';
     }
-    return '&scope_id=' + encodeURIComponent(String(reportingScopeApiFilter));
+    return '&scope_id=' + encodeURIComponent(String(f));
 }
 
 function reportingScopePersistWrite() {
@@ -7657,7 +7658,9 @@ function reportingJobSelectScopeTag(h) {
     if (!Number.isFinite(sid) || sid <= 0) {
         return ' [unscoped]';
     }
-    return ' [scope #' + sid + ']';
+    const sc = (reportingScopesList || []).find((x) => parseInt(String(x.id), 10) === sid);
+    const nm = sc && sc.name ? String(sc.name).trim().slice(0, 48) : '';
+    return nm ? ' [' + nm + ']' : ' [scope #' + sid + ']';
 }
 
 function reportingFillJobSelect(selectId, rows) {
@@ -7679,28 +7682,78 @@ function reportingFillJobSelect(selectId, rows) {
     }
 }
 
+function reportingMergeJobRowsForPickers(histResp, trendsResp) {
+    const byId = new Map();
+    const add = (row) => {
+        if (!row || row.id == null) {
+            return;
+        }
+        const id = parseInt(String(row.id), 10);
+        if (!Number.isFinite(id) || id <= 0) {
+            return;
+        }
+        if (byId.has(id)) {
+            return;
+        }
+        const st = String(row.status != null ? row.status : '').toLowerCase();
+        if (st !== 'done') {
+            return;
+        }
+        byId.set(id, {
+            id,
+            status: 'done',
+            label: row.label != null ? String(row.label) : '',
+            target_cidr: row.target_cidr != null ? String(row.target_cidr) : '',
+            scope_id: row.scope_id,
+        });
+    };
+    if (histResp && histResp.ok && Array.isArray(histResp.history)) {
+        histResp.history.forEach(add);
+    }
+    if (trendsResp && trendsResp.ok && Array.isArray(trendsResp.trends_summary)) {
+        trendsResp.trends_summary.forEach((r) => {
+            const jid = parseInt(String(r.job_id != null ? r.job_id : 0), 10);
+            if (!Number.isFinite(jid) || jid <= 0) {
+                return;
+            }
+            add({
+                id: jid,
+                status: 'done',
+                label: r.label,
+                target_cidr: r.target_cidr,
+                scope_id: r.scope_id,
+            });
+        });
+    }
+    return Array.from(byId.values()).sort((a, b) => b.id - a.id);
+}
+
 async function populateReportingJobSelects() {
-    const d = await api(
-        '/api/scan_history.php?limit=200&view=active' + reportingScopeQuery(),
-        {quiet: true}
-    );
+    const q = reportingScopeQuery();
+    const histUrl = '/api/scan_history.php?limit=200&view=active' + q;
+    const trendUrl = '/api/reporting.php?action=trends_summary&limit=50' + q;
+    const [d, tr] = await Promise.all([api(histUrl, {quiet: true}), api(trendUrl, {quiet: true})]);
     const ids = ['report-baseline-job', 'report-cmp-a', 'report-cmp-b', 'report-compliance-job'];
-    if (!d || !d.ok || !Array.isArray(d.history)) {
+    const histOk = !!(d && d.ok && Array.isArray(d.history));
+    const trendsOk = !!(tr && tr.ok && Array.isArray(tr.trends_summary));
+    if (!histOk && !trendsOk) {
         ids.forEach((id) => {
             const el = document.getElementById(id);
-            if (!el) return;
+            if (!el) {
+                return;
+            }
             el.innerHTML = '';
             const o0 = document.createElement('option');
             o0.value = '';
-            o0.textContent = reportingUserErrorMessage(d, '— could not load job list —');
+            o0.textContent = reportingUserErrorMessage(d || tr, '— could not load job list —');
             el.appendChild(o0);
         });
         if (currentTab === 'report') {
-            reportingToastApiError('Reports & Analysis', d, 'Could not load completed scans for pickers.');
+            reportingToastApiError('Reports & Analysis', d || tr, 'Could not load completed scans for pickers.');
         }
         return;
     }
-    const done = d.history.filter((h) => String(h.status) === 'done');
+    const done = reportingMergeJobRowsForPickers(d, tr);
     reportingFillJobSelect('report-baseline-job', done);
     reportingFillJobSelect('report-cmp-a', done);
     reportingFillJobSelect('report-cmp-b', done);
@@ -7966,42 +8019,42 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
     parts.push(' ' + tone + '.');
     const detail = [];
     if (nc.assets_only_in_a === 1) {
-        detail.push('one host is no longer detected');
+        detail.push('One host is no longer detected');
     } else if (nc.assets_only_in_a > 1) {
         detail.push(nc.assets_only_in_a + ' hosts are no longer detected');
     }
     if (nc.assets_only_in_b === 1) {
-        detail.push('one new asset appears in the current scan');
+        detail.push('One new asset appears in the current scan');
     } else if (nc.assets_only_in_b > 1) {
         detail.push(nc.assets_only_in_b + ' new assets appear in the current scan');
     }
     if (nc.marked_resolved_in_b === 1) {
-        detail.push('one finding appears resolved');
+        detail.push('One finding appears resolved');
     } else if (nc.marked_resolved_in_b > 1) {
         detail.push(nc.marked_resolved_in_b + ' findings appear resolved');
     }
     if (nc.reopened_in_b > 0) {
         detail.push(
             nc.reopened_in_b === 1
-                ? 'one finding reopened'
+                ? 'One finding reopened'
                 : nc.reopened_in_b + ' findings reopened'
         );
     }
     if (nc.new_findings_rows > 0) {
         detail.push(
             nc.new_findings_rows === 1
-                ? 'one new finding row appears in the current snapshot'
+                ? 'One new finding row appears in the current snapshot'
                 : nc.new_findings_rows + ' new finding rows appear in the current snapshot'
         );
     }
     if (hasTrendPair && dh > 0) {
-        detail.push('open high or critical findings increased by ' + dh);
+        detail.push('Open high or critical findings increased by ' + dh);
     } else if (hasTrendPair && dh < 0) {
-        detail.push('open high or critical findings decreased by ' + Math.abs(dh));
+        detail.push('Open high or critical findings decreased by ' + Math.abs(dh));
     }
     if (nc.hosts_with_port_delta > 0) {
         detail.push(
-            'open ports changed on ' +
+            'Open ports changed on ' +
                 nc.hosts_with_port_delta +
                 ' host' +
                 (nc.hosts_with_port_delta === 1 ? '' : 's')
@@ -8716,7 +8769,7 @@ async function loadReportingChangeSince() {
     let hintText = '';
     if (labelMode === 'same_scope_prior_all') {
         hintText =
-            'All scopes — reference: most recent prior completed scan in the <strong>same named scope</strong> (scan #' +
+            'All scopes — reference: most recent prior completed scan in the same named scope (scan #' +
             jobA +
             ') vs latest scan #' +
             newest +
@@ -8727,17 +8780,17 @@ async function loadReportingChangeSince() {
             jobA +
             ' vs latest #' +
             newest +
-            ' — chosen only because they share a <strong>compatibility signal</strong> (same schedule, batch, target CIDR, or label prefix); snapshots only.';
+            ' — chosen only because they share a compatibility signal (same schedule, batch, target CIDR, or label prefix); snapshots only.';
     } else if (labelMode === 'scope_baseline_latest_network') {
         hintText =
-            'All scopes — reference: <strong>baseline for the latest scan’s network</strong> (scan #' +
+            'All scopes — reference: baseline for the latest scan’s network (scan #' +
             jobA +
             ') vs latest scan #' +
             newest +
             ' — snapshots only.';
     } else if (labelMode === 'legacy_unscoped_global_all') {
         hintText =
-            'All scopes — reference: <strong>legacy global baseline</strong> (operator-chosen unscoped job, scan #' +
+            'All scopes — reference: legacy global baseline (operator-chosen unscoped job, scan #' +
             jobA +
             ') vs latest unscoped scan #' +
             newest +
@@ -9088,7 +9141,13 @@ async function loadReportingTrendsSummary(silentFail) {
             out.innerHTML = why;
             out.className = 'report-trends-out text-dim';
         } else {
-            out.innerHTML = reportingRenderTrendsSummaryHtml(chrono);
+            let trendBody = reportingRenderTrendsSummaryHtml(chrono);
+            if (reportingScopeApiFilter === null) {
+                trendBody =
+                    '<div class="hint-micro mb8 text-dim">All scopes trend includes mixed scan scopes. For cleaner per-network trends, select a named scope.</div>' +
+                    trendBody;
+            }
+            out.innerHTML = trendBody;
             out.className = 'report-trends-out';
         }
     }
