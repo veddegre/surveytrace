@@ -22,6 +22,7 @@
       },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [{ "selector": "assets_total", "text": "Value", "type": "number" }],
           "filters": [],
           "format": "table",
@@ -30,8 +31,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
         }
       ],
       "title": "Total assets",
@@ -52,6 +52,7 @@
       },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [{ "selector": "open_findings_total", "text": "Value", "type": "number" }],
           "filters": [],
           "format": "table",
@@ -60,8 +61,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
         }
       ],
       "title": "Open findings (total)",
@@ -82,6 +82,7 @@
       },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [{ "selector": "open_findings_by_severity.critical", "text": "Value", "type": "number" }],
           "filters": [],
           "format": "table",
@@ -90,8 +91,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
         }
       ],
       "title": "Open critical findings",
@@ -112,6 +112,7 @@
       },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [{ "selector": "open_findings_by_severity.high", "text": "Value", "type": "number" }],
           "filters": [],
           "format": "table",
@@ -120,8 +121,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
         }
       ],
       "title": "Open high findings",
@@ -135,6 +135,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
             { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
             { "selector": "asset_count", "text": "asset_count", "type": "number" }
@@ -146,8 +147,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30"
         }
       ],
       "title": "Asset count by completed job (trends)",
@@ -161,6 +161,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
             { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
             { "selector": "open_findings_total", "text": "open_findings_total", "type": "number" }
@@ -172,8 +173,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30"
         }
       ],
       "title": "Open findings total by completed job (trends)",
@@ -187,6 +187,7 @@
       "options": { "showHeader": true },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
             { "selector": "event_type", "text": "event_type", "type": "string" },
             { "selector": "occurred_at", "text": "occurred_at", "type": "string" },
@@ -200,8 +201,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=events&event_hours=24&event_limit=40",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=events&event_hours=24&event_limit=40"
         }
       ],
       "title": "Recent events (bounded)",
@@ -215,6 +215,7 @@
       "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }, "showUnfilled": true },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
             { "selector": "open_findings_by_severity.critical", "text": "critical", "type": "number" },
             { "selector": "open_findings_by_severity.high", "text": "high", "type": "number" },
@@ -228,8 +229,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
         }
       ],
       "title": "Open findings by severity (live)",
@@ -243,6 +243,7 @@
       "options": { "showHeader": true },
       "targets": [
         {
+          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
             { "selector": "available", "text": "available", "type": "boolean" },
             { "selector": "overall_pass", "text": "overall_pass", "type": "boolean" },
@@ -256,8 +257,7 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=compliance",
-          "url_options": { "method": "GET" }
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=compliance"
         }
       ],
       "title": "Compliance snapshot",
@@ -302,6 +302,6 @@
   "timezone": "browser",
   "title": "SurveyTrace starter (Infinity JSON)",
   "uid": "surveytrace-infinity-starter",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }

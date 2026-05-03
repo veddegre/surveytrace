@@ -18,10 +18,11 @@ This folder contains an importable **Grafana dashboard** (`surveytrace-infinity-
 
 3. Import **`surveytrace-infinity-starter.json`**, set dashboard variable **`infinity`** to that datasource, and set **`surveytrace_base`** to the same origin string.
 
-### Dashboard JSON and datasource inheritance
+### Dashboard JSON and datasource binding
 
-- Each panel sets **`datasource`** once at the **panel** level (`uid: "${infinity}"`). **Query targets do not repeat the datasource** and **do not** set `url_options.headers` — so Grafana applies the **selected Infinity datasource’s** auth and allowed-host rules to every panel URL without per-query overrides that could drop headers.
-- **`url_options`** in the starter only contains **`"method": "GET"`** (no empty header maps).
+- **Every panel** and **every Infinity query target** use the same datasource reference: **`{ "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" }`**. After import, **`${infinity}`** must resolve to the **same** Infinity instance you configured with **Bearer** (not an unconfigured “default” Infinity datasource).
+- Targets include **only** `type` + `uid` (variable) — **no** `url_options`, **no** `headers`, **no** `Authorization` in JSON, so Grafana never merges an empty `headers: []` that overrides secure datasource auth.
+- Panel URLs stay **absolute** using **`${surveytrace_base}`** (full `https://host/...`). That matches typical Infinity “allowed host + full URL” setups. If your Infinity build supports a **pinned base URL** on the datasource and you prefer **relative** paths (e.g. `/api/integrations_dashboard.php?view=metrics`), you may change panel URLs after import — auth must still come **only** from the datasource, not the dashboard.
 
 If Infinity still returns **401** from SurveyTrace, Grafana is often **not** attaching the datasource header to backend URL requests — use the section below before changing SurveyTrace.
 
@@ -70,8 +71,9 @@ Other types stay isolated: **`report_summary_pull`** → dashboard + report summ
 ## Import
 
 1. **Dashboards → Import → Upload JSON** → `surveytrace-infinity-starter.json`.
-2. Choose the **Infinity** datasource for template variable **`infinity`** (this is the only datasource selection the panels rely on).
-3. Set **`surveytrace_base`** to your origin (e.g. `https://surveytrace.example` — **no trailing slash**).
+2. **Critical:** for template variable **`infinity`**, pick the **Infinity datasource that already has** `Authorization: Bearer …` (and allowed host) saved — not a second generic Infinity datasource with no auth.
+3. Set **`surveytrace_base`** to the **same** origin you allowlisted on that datasource (e.g. `https://surveytrace.example` — **no trailing slash**).
+4. If you previously imported an older starter, **re-import** or **save** the dashboard after mapping **`infinity`**, so panels and targets pick up the variable resolution Grafana expects.
 
 ## Raw `?view=` responses
 
@@ -90,19 +92,31 @@ Other types stay isolated: **`report_summary_pull`** → dashboard + report summ
 | Severity | Bar gauge | `…/integrations_dashboard.php?view=metrics` |
 | Compliance | Table | `…/integrations_dashboard.php?view=compliance` |
 
-## Troubleshooting **401** from SurveyTrace
+## Troubleshooting **401** from SurveyTrace (curl works, Grafana does not)
 
-1. **Query Inspector** (panel → **Inspect** → **Query**): open the request Grafana sent.  
-   - **Headers:** you should see **`Authorization`** present and **redacted** (or masked) when Grafana is attaching it.  
-   - If you see **`headers: []`** or no **`Authorization`** at all, Grafana’s Infinity datasource is **not** sending auth on that request — **fix the Infinity datasource / access mode / allowed URL** first. SurveyTrace is correctly rejecting an unauthenticated call.
+**Symptom:** `curl -H 'Authorization: Bearer …' 'https://host/api/integrations_dashboard.php?view=metrics'` returns **200**, but Grafana panels return **401** and **Query Inspector** shows **`headers: []`** (or no `Authorization`).
 
-2. **Explore** with the **same** Infinity datasource and a simple URL:  
-   `${surveytrace_base}/api/integrations_dashboard.php?view=metrics`  
-   If Explore works but the dashboard does not, the dashboard variable **`infinity`** may point at a **different** datasource instance (one without headers).
+**Meaning:** SurveyTrace is fine; **Grafana is not applying the Infinity datasource’s secure headers** on that query. Do **not** change SurveyTrace auth; fix Grafana / datasource binding.
 
-3. **HTTPS / host** mismatch: `surveytrace_base` must match the host allowlisted on the datasource (scheme + host, no path).
+1. **Confirm the panel datasource**  
+   In the panel editor → **Query** tab, the datasource dropdown must be the **authenticated** Infinity datasource (the one where you set Bearer). If it shows **“Infinity”** but a **different UID** than the one you configured, the dashboard is hitting an unauthenticated datasource.
 
-4. **Wrong token type** (e.g. `report_summary_pull` vs `grafana_infinity_pull`) still returns **401** JSON — rotate the correct integration row.
+2. **Confirm the `infinity` variable**  
+   Dashboard **Settings → Variables → `infinity`**: value must be that same datasource. **Re-import** the dashboard or **re-select** the variable after creating the datasource so `${infinity}` resolves correctly.
+
+3. **Query Inspector** (panel → **Inspect** → **Query**)  
+   - When auth is applied, request metadata usually shows **`Authorization`** (often **redacted** / masked).  
+   - **`headers: []`** means the backend request was built **without** merging datasource auth — revisit Infinity datasource **Server** access, **Allowed URLs**, and **secure** custom headers; check for a second default Infinity datasource with no headers.
+
+4. **Explore sanity check**  
+   Open **Explore**, select the **same** Infinity datasource, run a URL query to  
+   `${surveytrace_base}/api/integrations_dashboard.php?view=metrics`.  
+   If Explore shows headers/auth but the dashboard does not, the dashboard was almost certainly using a **different** datasource before you fixed the variable — **save** the dashboard after correcting **`infinity`**.
+
+5. **HTTPS / host**  
+   `surveytrace_base` must match the host allowlisted on the datasource (scheme + host, no path).
+
+6. **Wrong pull token type** (e.g. wrong integration row) still yields **401** JSON from SurveyTrace — use a **`grafana_infinity_pull`** token for this starter.
 
 SurveyTrace **always** requires a valid pull token for these URLs; there is no anonymous read path.
 
