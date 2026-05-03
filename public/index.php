@@ -1198,7 +1198,6 @@ if (is_readable($dbProbe)) {
       Create one pull integration per external consumer so tokens can be rotated independently.
     </p>
     <div class="hint-micro mb10 text-dim" id="st-int-pull-hint">Loading pull token status…</div>
-    <div class="help-box mb10" id="st-int-token-reveal" style="display:none"></div>
 
     <details class="mb10">
       <summary class="flbl" style="display:inline-block;cursor:pointer">Quick start (Grafana, Prometheus / Alloy, Splunk)</summary>
@@ -1770,6 +1769,27 @@ if (is_readable($dbProbe)) {
     <div class="row-end">
       <button type="button" class="tbtn" onclick="copyCollectorInstallTokenReveal()">Copy to clipboard</button>
       <button type="button" class="btnp" onclick="closeCollectorInstallTokenRevealModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- One-time pull integration token after Generate / Rotate (same pattern as collector install token reveal) -->
+<div id="st-int-pull-token-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-int-pull-token-title" onclick="if(event.target===this)stIntegrationPullTokenModalClose()">
+  <div class="modal-card modal-w560" style="padding:16px" onclick="event.stopPropagation()">
+    <div class="row-between mb14" style="gap:12px;align-items:center">
+      <div class="modal-title" style="margin-bottom:0" id="st-int-pull-token-title">Copy integration token</div>
+      <button type="button" class="modal-close-x" onclick="stIntegrationPullTokenModalClose()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="mb6"><strong id="st-int-pull-token-name"></strong></p>
+    <p class="hint-micro mb10" id="st-int-pull-token-type-line"></p>
+    <div id="st-int-pull-token-api-extra" class="hint-micro mb10" style="display:none"></div>
+    <label class="flbl" for="st-int-pull-token-value">Token</label>
+    <textarea id="st-int-pull-token-value" class="finp w100 mb8" readonly rows="3" autocomplete="off" style="min-height:4.5em;resize:vertical;font-family:var(--mf);font-size:12px;word-break:break-all"></textarea>
+    <p class="help-box mb8" style="margin:0">Copy this token now. It will not be shown again.</p>
+    <p id="st-int-pull-token-copy-fallback" class="hint-micro mb10" style="display:none"></p>
+    <div class="row-wrap gap6" style="justify-content:flex-end">
+      <button type="button" class="tbtn" id="st-int-pull-token-copy-btn" onclick="stIntegrationPullTokenModalCopy()">Copy token</button>
+      <button type="button" class="btnp" onclick="stIntegrationPullTokenModalClose()">Close</button>
     </div>
   </div>
 </div>
@@ -6686,25 +6706,133 @@ async function stIntegrationsCreate() {
     }
 }
 
+function stRedactIntegrationTokenInMessage(msg) {
+    let s = String(msg || '');
+    s = s.replace(/st_int_[a-f0-9]{20,}/gi, 'st_int_[REDACTED]');
+    s = s.replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
+    return s;
+}
+
+function stIntegrationPullTokenModalClose() {
+    const bg = document.getElementById('st-int-pull-token-bg');
+    const ta = document.getElementById('st-int-pull-token-value');
+    const fb = document.getElementById('st-int-pull-token-copy-fallback');
+    const extra = document.getElementById('st-int-pull-token-api-extra');
+    if (ta) ta.value = '';
+    if (fb) {
+        fb.style.display = 'none';
+        fb.textContent = '';
+    }
+    if (extra) {
+        extra.style.display = 'none';
+        extra.textContent = '';
+    }
+    if (bg) bg.style.display = 'none';
+}
+
+/**
+ * @param {{name?:string,typeLabel?:string,typeInternal?:string,token?:string,message?:string,tokenRevealOnce?:boolean}} o
+ */
+function stIntegrationPullTokenModalOpen(o) {
+    const opts = o || {};
+    const bg = document.getElementById('st-int-pull-token-bg');
+    const ta = document.getElementById('st-int-pull-token-value');
+    const nameEl = document.getElementById('st-int-pull-token-name');
+    const typeLine = document.getElementById('st-int-pull-token-type-line');
+    const extra = document.getElementById('st-int-pull-token-api-extra');
+    const fb = document.getElementById('st-int-pull-token-copy-fallback');
+    if (!bg || !ta) return;
+    if (fb) {
+        fb.style.display = 'none';
+        fb.textContent = '';
+    }
+    if (nameEl) nameEl.textContent = opts.name || '';
+    if (typeLine) {
+        const friendly = String(opts.typeLabel || '').trim();
+        const internal = String(opts.typeInternal || '').trim();
+        typeLine.textContent =
+            friendly && internal && internal !== friendly
+                ? friendly + ' (' + internal + ')'
+                : friendly || internal || '';
+    }
+    ta.value = String(opts.token || '');
+    const staticWarn = 'Copy this token now. It will not be shown again.';
+    const apiMsg = String(opts.message || '').trim();
+    if (extra) {
+        if (apiMsg && apiMsg !== staticWarn) {
+            extra.style.display = '';
+            extra.textContent = apiMsg;
+        } else if (opts.tokenRevealOnce) {
+            extra.style.display = '';
+            extra.textContent = 'This response includes the plaintext token only once — save it before you close this dialog.';
+        } else {
+            extra.style.display = 'none';
+            extra.textContent = '';
+        }
+    }
+    bg.style.display = 'flex';
+    requestAnimationFrame(() => {
+        ta.focus();
+        try {
+            ta.setSelectionRange(0, ta.value.length);
+        } catch (err) { /* ignore */ }
+    });
+}
+
+async function stIntegrationPullTokenModalCopy() {
+    const ta = document.getElementById('st-int-pull-token-value');
+    const fb = document.getElementById('st-int-pull-token-copy-fallback');
+    const token = String(ta && ta.value ? ta.value : '').trim();
+    if (!token) {
+        toast('Nothing to copy', 'err');
+        return;
+    }
+    const ok = await stCopyTextToClipboard(token);
+    if (ok) {
+        if (fb) {
+            fb.style.display = 'none';
+            fb.textContent = '';
+        }
+        toast('Copied to clipboard', 'ok');
+        return;
+    }
+    try {
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, token.length);
+    } catch (err) { /* ignore */ }
+    if (fb) {
+        fb.style.display = '';
+        fb.textContent =
+            'Automatic copy did not succeed. The token is selected above — press Ctrl+C (Windows/Linux) or Command+C (macOS) to copy, then paste where you need it.';
+    }
+    toast('Copy manually: token is selected (Ctrl+C / Command+C)', 'err');
+}
+
 async function stIntegrationRotateToken(id) {
     if (!stRoleIsAdmin()) return;
     if (!confirm('Generate a new pull token for this integration? The previous token stops working immediately.')) return;
+    const rowBefore = (window.__stIntegrationsCache || []).find((x) => x.id === id);
     const r = await apiPost('/api/integrations.php', { action: 'rotate_token', integration_id: id });
-    const box = document.getElementById('st-int-token-reveal');
-    if (r && r.ok && r.token) {
-        toast('Token generated — copy below', 'ok');
-        if (box) {
-            box.style.display = 'block';
-            box.innerHTML =
-                '<div class="text-strong mb6">Copy this token now. It will not be shown again.</div>' +
-                '<code class="mono">' +
-                esc(r.token) +
-                '</code>';
-        }
-        await loadIntegrationsTab();
-    } else {
-        toast((r && r.error) ? r.error : 'Rotate failed', 'err');
+    if (!r || !r.ok) {
+        toast(stRedactIntegrationTokenInMessage((r && r.error) ? r.error : 'Rotate failed'), 'err');
+        return;
     }
+    const tok = typeof r.token === 'string' ? r.token.trim() : '';
+    if (!tok) {
+        toast('The server did not return a token. Refresh the list and try again.', 'err');
+        await loadIntegrationsTab();
+        return;
+    }
+    stIntegrationPullTokenModalOpen({
+        name: (rowBefore && rowBefore.name) ? String(rowBefore.name) : 'Integration #' + id,
+        typeLabel: (rowBefore && rowBefore.type_label) ? String(rowBefore.type_label) : '',
+        typeInternal: (rowBefore && rowBefore.type) ? String(rowBefore.type) : '',
+        token: tok,
+        message: r.message ? String(r.message) : '',
+        tokenRevealOnce: !!r.token_reveal_once,
+    });
+    await loadIntegrationsTab();
 }
 
 async function stIntegrationTest(id) {
@@ -11909,6 +12037,11 @@ async function requestDeviceMerge(survivorId) {
 // close on Escape key
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const intTokBg = document.getElementById('st-int-pull-token-bg');
+    if (intTokBg && intTokBg.style.display === 'flex') {
+        stIntegrationPullTokenModalClose();
+        return;
+    }
     closeDevicePanel();
     closeHostPanel();
     closeProfileModal();
