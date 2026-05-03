@@ -1794,6 +1794,28 @@ if (is_readable($dbProbe)) {
   </div>
 </div>
 
+<!-- Confirm pull integration token rotation (replaces window.confirm) -->
+<div id="st-int-rotate-confirm-bg" class="modal-bg z103" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-int-rotate-confirm-title" onclick="if(event.target===this)stIntegrationRotateConfirmClose()">
+  <div class="modal-card modal-w560" style="padding:16px" onclick="event.stopPropagation()">
+    <div class="row-between mb14" style="gap:12px;align-items:center">
+      <div class="modal-title" style="margin-bottom:0" id="st-int-rotate-confirm-title">Rotate integration token</div>
+      <button type="button" class="modal-close-x" onclick="stIntegrationRotateConfirmClose()" title="Cancel" aria-label="Cancel">×</button>
+    </div>
+    <p class="mb6"><strong id="st-int-rotate-confirm-name"></strong></p>
+    <p class="hint-micro mb10" id="st-int-rotate-confirm-type"></p>
+    <ul class="hint-micro mb12" style="margin:0;padding-left:1.25em;line-height:1.55">
+      <li>This will generate a new token.</li>
+      <li>The old token will stop working immediately.</li>
+      <li>The new token will only be shown once.</li>
+    </ul>
+    <input type="hidden" id="st-int-rotate-confirm-id" value="">
+    <div class="row-wrap gap6" style="justify-content:flex-end">
+      <button type="button" class="tbtn" onclick="stIntegrationRotateConfirmClose()">Cancel</button>
+      <button type="button" class="btnp" onclick="stIntegrationRotateConfirmSubmit()">Generate / Rotate token</button>
+    </div>
+  </div>
+</div>
+
 <!-- Rescan single host — profile + scan options (matches Scan tab: rates, discovery, phases, exclusions, enrichment) -->
 <div id="host-rescan-bg" class="modal-bg z220" style="display:none" role="dialog" aria-labelledby="host-rescan-title">
   <div class="modal-card modal-w600" onclick="event.stopPropagation()">
@@ -6809,10 +6831,44 @@ async function stIntegrationPullTokenModalCopy() {
     toast('Copy manually: token is selected (Ctrl+C / Command+C)', 'err');
 }
 
-async function stIntegrationRotateToken(id) {
+function stIntegrationRotateConfirmClose() {
+    const bg = document.getElementById('st-int-rotate-confirm-bg');
+    const hid = document.getElementById('st-int-rotate-confirm-id');
+    if (hid) hid.value = '';
+    if (bg) bg.style.display = 'none';
+}
+
+function stIntegrationRotateToken(id) {
     if (!stRoleIsAdmin()) return;
-    if (!confirm('Generate a new pull token for this integration? The previous token stops working immediately.')) return;
+    const row = (window.__stIntegrationsCache || []).find((x) => x.id === id);
+    const bg = document.getElementById('st-int-rotate-confirm-bg');
+    const nameEl = document.getElementById('st-int-rotate-confirm-name');
+    const typeEl = document.getElementById('st-int-rotate-confirm-type');
+    const hid = document.getElementById('st-int-rotate-confirm-id');
+    if (!bg || !hid) return;
+    hid.value = String(id);
+    if (nameEl) nameEl.textContent = row ? String(row.name || '') : 'Integration #' + id;
+    if (typeEl) {
+        const friendly = row ? String(row.type_label || '').trim() : '';
+        const internal = row ? String(row.type || '').trim() : '';
+        typeEl.textContent =
+            friendly && internal && internal !== friendly
+                ? friendly + ' (' + internal + ')'
+                : friendly || internal || '';
+    }
+    bg.style.display = 'flex';
+}
+
+async function stIntegrationRotateConfirmSubmit() {
+    if (!stRoleIsAdmin()) return;
+    const hid = document.getElementById('st-int-rotate-confirm-id');
+    const id = parseInt(String(hid && hid.value ? hid.value : ''), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        stIntegrationRotateConfirmClose();
+        return;
+    }
     const rowBefore = (window.__stIntegrationsCache || []).find((x) => x.id === id);
+    stIntegrationRotateConfirmClose();
     const r = await apiPost('/api/integrations.php', { action: 'rotate_token', integration_id: id });
     if (!r || !r.ok) {
         toast(stRedactIntegrationTokenInMessage((r && r.error) ? r.error : 'Rotate failed'), 'err');
@@ -12037,6 +12093,11 @@ async function requestDeviceMerge(survivorId) {
 // close on Escape key
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    const rotBg = document.getElementById('st-int-rotate-confirm-bg');
+    if (rotBg && rotBg.style.display === 'flex') {
+        stIntegrationRotateConfirmClose();
+        return;
+    }
     const intTokBg = document.getElementById('st-int-pull-token-bg');
     if (intTokBg && intTokBg.style.display === 'flex') {
         stIntegrationPullTokenModalClose();
