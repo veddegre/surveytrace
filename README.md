@@ -769,6 +769,26 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 - (no entries yet)
 
+### 0.15.0
+
+- **Version alignment** — **`VERSION` 0.15.0** matches the roadmap’s completed **Phase 15** (integrations) milestone, with **Phase 14** (scan scopes) documented in the same release window. README **Changelog** and **`RELEASE_NOTES.md`** are aligned through this minor bump.
+- **Scan scopes & reporting filters (Phase 14)** — **`scan_scopes`**, **`scan_jobs.scope_id`**, **`scan_scope_baselines`**; **`api/scan_scopes.php`**; **`lib_scan_scopes.php`**; reporting and **Reports & Analysis** support **named** / **unscoped** / **all** filters, **`scope_context`**, cross-scope compare cautions (**`st_reporting_unscoped_jobs_compatible`**). Migration **`migration_phase14_scan_scopes_v1`**.
+- **Integrations push + pull (Phase 15)** — **`integrations`** table; **`api/integrations.php`**, **`lib_integrations.php`**, **`lib_integrations_dashboard.php`**, **`lib_integrations_outbound.php`**; manual push **test/sample**; read-only pull APIs (**`integrations_metrics.php`**, **`integrations_events.php`**, **`integrations_report_summary.php`**, **`integrations_dashboard.php`**); **per-integration** pull tokens + optional legacy global (**`migration_phase14_1_integrations_v1`**, **`migration_phase14_1_integrations_per_pull_token_v1`**); starter **`integrations/starter/`** (Splunk + Grafana); admin **Integrations** UI; **`deploy.sh`** ships integration PHP and copies starters to **`/opt/surveytrace/integrations-starter/`**.
+- **Documentation** — README roadmap renumbering (completed **14–15**, upcoming **16–22**); descriptive section titles outside the roadmap; starter readmes cross-linked to **Integrations (push and pull)**.
+- **Fallbacks** — **`api/st_version.php`** and **`daemon/surveytrace_version.py`** use **`0.15.0`** when **`VERSION`** is missing or unreadable.
+
+### 0.14.3
+
+- **Per-integration pull tokens** — Route-specific bearer verification; **`pull_client`** on JSON pull responses; usage timestamps; UI per-row rotate + legacy global control. See **`RELEASE_NOTES.md`**.
+
+### 0.14.2
+
+- **Integrations hardening** — **`integrations_metrics.php`** rejects invalid **`format=`**; packaging/docs validation for pull APIs and legacy webhook behavior. See **`RELEASE_NOTES.md`**.
+
+### 0.14.1
+
+- **Integrations foundation** — First ship of **`integrations`**, global pull token, push helpers, four pull endpoints, Integrations UI, starter packages, scope fields on integration event envelopes where applicable. See **`RELEASE_NOTES.md`**.
+
 ### 0.13.0
 
 - **Reporting foundation** — **`api/lib_reporting.php`**, **`api/reporting.php`**, **`api/reporting_cli.php`**; migration **`migration_phase13_reporting_v1`**; **`report_artifacts`**; schedule action **`report`**; baseline config **`phase13_baseline_job_id`**.

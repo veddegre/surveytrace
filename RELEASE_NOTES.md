@@ -3,6 +3,14 @@
 Release notes for shipped app versions.  
 For roadmap and deep technical context, see `README.md`.
 
+## 0.15.0 (2026-05-03)
+
+- **Version / changelog alignment** — **`VERSION` 0.15.0** aligns semver with completed roadmap **Phase 15** (integrations) and **Phase 14** (scan scopes). README **Changelog** now lists **0.14.1–0.14.3** and **0.15.0**; patch detail for **0.14.x** remains in the sections below.
+- **Scan scopes & reporting (Phase 14)** — **`scan_scopes`**, **`scan_jobs.scope_id`**, **`scan_scope_baselines`**; scoped baselines and reporting filters; **`migration_phase14_scan_scopes_v1`**.
+- **Integrations (Phase 15)** — Push/pull integration surface shipped across **0.14.1–0.14.3** (table, endpoints, per-row tokens, starters, UI); migrations **`migration_phase14_1_integrations_v1`** and **`migration_phase14_1_integrations_per_pull_token_v1`**.
+- **Documentation** — README roadmap and section naming; starter **`integrations/starter/**`** readmes.
+- **Version fallbacks** — **`api/st_version.php`** and **`daemon/surveytrace_version.py`** default to **`0.15.0`** when **`VERSION`** cannot be read.
+
 ## 0.14.3 (2026-05-01)
 
 - **Integrations — per-integration pull tokens** — Migration **`migration_phase14_1_integrations_per_pull_token_v1`**: **`integrations.token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`POST /api/integrations.php`** **`rotate_token`** + **`integration_id`** returns **`token`** once per row. **`prometheus_pull`** / **`json_events_pull`** / **`report_summary_pull`** map to metrics / events / (report summary + dashboard) pull routes only. **`config.integrations_pull_token_bcrypt`** remains an optional **legacy** fallback after per-row verification fails.
