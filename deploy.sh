@@ -164,6 +164,7 @@ API_FILES=(
   zabbix.php
   zabbix_sync_worker.php
   scan_scopes.php
+  scopes.php
   reporting.php
   reporting_cli.php
 )
@@ -391,6 +392,7 @@ check_file "$DEST/api/collectors.php" "collectors API"
 check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/api/lib_scan_scopes.php" "lib_scan_scopes (Phase 14 reporting)"
 check_file "$DEST/api/scan_scopes.php" "scan_scopes API"
+check_file "$DEST/api/scopes.php" "scopes API (catalog + CRUD + asset counts)"
 check_file "$DEST/api/change_alerts.php" "change_alerts API"
 check_file "$DEST/api/scan_priority.php" "scan priority API"
 check_file "$DEST/api/devices.php" "devices API"

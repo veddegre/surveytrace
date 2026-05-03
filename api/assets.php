@@ -45,6 +45,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
+require_once __DIR__ . '/lib_scan_scopes.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -280,6 +281,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
     st_json(['ok' => true, 'asset' => decode_asset($asset)]);
 }
 
+// ---------------------------------------------------------------------------
+// POST — bulk set inventory scope_id (manual; server validates ids + scope)
+// ---------------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    st_require_csrf();
+    st_require_role(['scan_editor', 'admin']);
+    $dbPost = st_db();
+    $bodyPost = st_input();
+    $postAction = strtolower(trim((string) ($_GET['action'] ?? ($bodyPost['action'] ?? ''))));
+    if ($postAction !== 'set_scope_bulk') {
+        st_json(['ok' => false, 'error' => 'Unsupported POST action'], 400);
+    }
+    $confirm = $bodyPost['confirm'] ?? false;
+    if (! ($confirm === true || $confirm === 1 || $confirm === '1')) {
+        st_json(['ok' => false, 'error' => 'confirm must be true to apply bulk scope changes'], 400);
+    }
+    if (! st_assets_has_scope_id($dbPost)) {
+        st_json(['ok' => false, 'error' => 'assets.scope_id is not available (run migrations)'], 400);
+    }
+    $scopeRaw = $bodyPost['scope_id'] ?? null;
+    $clearScope = ($scopeRaw === null || $scopeRaw === '' || $scopeRaw === false);
+    $newScopeId = $clearScope ? 0 : (int) $scopeRaw;
+    if (! $clearScope && $newScopeId <= 0) {
+        st_json(['ok' => false, 'error' => 'scope_id must be a positive catalog id, or omit/null to clear scope'], 400);
+    }
+    if (! $clearScope) {
+        $chkScope = $dbPost->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
+        $chkScope->execute([$newScopeId]);
+        if ((int) $chkScope->fetchColumn() !== 1) {
+            st_json(['ok' => false, 'error' => 'scope does not exist'], 400);
+        }
+    }
+    $idsRaw = $bodyPost['asset_ids'] ?? null;
+    if (! is_array($idsRaw) || $idsRaw === []) {
+        st_json(['ok' => false, 'error' => 'asset_ids must be a non-empty array'], 400);
+    }
+    $assetIds = [];
+    foreach ($idsRaw as $raw) {
+        $aid = (int) $raw;
+        if ($aid > 0) {
+            $assetIds[] = $aid;
+        }
+    }
+    $assetIds = array_values(array_unique($assetIds));
+    if ($assetIds === []) {
+        st_json(['ok' => false, 'error' => 'no valid asset_ids'], 400);
+    }
+    if (count($assetIds) > 500) {
+        st_json(['ok' => false, 'error' => 'too many asset_ids (max 500 per request)'], 400);
+    }
+    $selPost = $dbPost->prepare('SELECT 1 FROM assets WHERE id = ? LIMIT 1');
+    $selCur = $dbPost->prepare('SELECT COALESCE(scope_id, 0) AS sid FROM assets WHERE id = ? LIMIT 1');
+    if ($clearScope) {
+        $updPost = $dbPost->prepare('UPDATE assets SET scope_id = NULL WHERE id = ?');
+    } else {
+        $updPost = $dbPost->prepare('UPDATE assets SET scope_id = ? WHERE id = ?');
+    }
+    $updated = 0;
+    $missing = 0;
+    $unchanged = 0;
+    foreach ($assetIds as $aid) {
+        $selPost->execute([$aid]);
+        if ((int) $selPost->fetchColumn() !== 1) {
+            ++$missing;
+
+            continue;
+        }
+        $selCur->execute([$aid]);
+        $curSid = (int) $selCur->fetchColumn();
+        if ($clearScope) {
+            if ($curSid === 0) {
+                ++$unchanged;
+
+                continue;
+            }
+            $updPost->execute([$aid]);
+        } else {
+            if ($curSid === $newScopeId) {
+                ++$unchanged;
+
+                continue;
+            }
+            $updPost->execute([$newScopeId, $aid]);
+        }
+        ++$updated;
+    }
+    $actor = st_current_user();
+    $aidActor = (int) ($actor['id'] ?? 0);
+    $anActor = (string) ($actor['username'] ?? '');
+    if ($updated > 0) {
+        if ($clearScope) {
+            st_audit_log('scope.assets_cleared', $aidActor, $anActor !== '' ? $anActor : null, null, null, [
+                'asset_count' => $updated,
+                'requested'   => count($assetIds),
+                'missing'     => $missing,
+                'unchanged'   => $unchanged,
+            ]);
+        } else {
+            $sn = st_scan_scopes_resolve_name($dbPost, $newScopeId) ?? '';
+            st_audit_log('scope.assets_assigned', $aidActor, $anActor !== '' ? $anActor : null, null, null, [
+                'scope_id'    => $newScopeId,
+                'scope_name'  => substr($sn, 0, 200),
+                'asset_count' => $updated,
+                'requested'   => count($assetIds),
+                'missing'     => $missing,
+                'unchanged'   => $unchanged,
+            ]);
+        }
+    }
+    st_json(['ok' => true, 'updated' => $updated, 'missing' => $missing, 'unchanged' => $unchanged]);
+}
+
 st_method('GET');
 
 $db = st_db();
@@ -485,7 +598,22 @@ if ($single_id > 0) {
         }
     }
 
-    st_json(['asset' => $asset]);
+    if (st_assets_has_scope_id($db)) {
+        $sid = (int) ($asset['scope_id'] ?? 0);
+        if ($sid > 0) {
+            $nm = st_scan_scopes_resolve_name($db, $sid);
+            $asset['scope_name'] = ($nm !== null && $nm !== '') ? $nm : ('Scope #' . $sid);
+        } else {
+            $asset['scope_name'] = null;
+        }
+    } else {
+        $asset['scope_name'] = null;
+    }
+
+    st_json([
+        'asset'                  => $asset,
+        'asset_scope_assignable' => st_assets_has_scope_id($db),
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -626,6 +754,13 @@ if ($zbxFilters) {
 
 $where_sql = implode(' AND ', $where);
 
+$scopeSelectSql = '';
+$scopeJoinSql = '';
+if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes')) {
+    $scopeSelectSql = ', sc.name AS scope_name';
+    $scopeJoinSql = ' LEFT JOIN scan_scopes sc ON sc.id = a.scope_id ';
+}
+
 // For open_findings sort, we need the subquery in ORDER BY
 $findings_subq = "(SELECT COUNT(*) FROM findings f WHERE f.asset_id = a.id AND f.resolved = 0)";
 
@@ -639,16 +774,20 @@ $o3 = "CAST(substr($s3, 1, instr($s3,'.')-1) AS INTEGER)";
 $o4 = "CAST(substr($s3, instr($s3,'.')+1) AS INTEGER)";
 $ip_sort = "$o1 $sort_order, $o2 $sort_order, $o3 $sort_order, $o4 $sort_order";
 
-$valid_sorts = ['ip','device_id','hostname','category','top_cvss','last_seen','first_seen','vendor','open_findings','zabbix_problem_count'];
+$valid_sorts = ['ip', 'device_id', 'hostname', 'category', 'top_cvss', 'last_seen', 'first_seen', 'vendor', 'open_findings', 'zabbix_problem_count', 'scope_name'];
 $sort_col    = st_str('sort', 'ip', $valid_sorts);
+if ($sort_col === 'scope_name' && $scopeJoinSql === '') {
+    $sort_col = 'ip';
+}
 
-$order_expr = match($sort_col) {
+$order_expr = match ($sort_col) {
     'ip'            => $ip_sort,
     'top_cvss'      => "a.top_cvss $sort_order NULLS LAST",
     'open_findings' => "$findings_subq $sort_order",
     'zabbix_problem_count' => $zbxFilters
         ? "COALESCE(a.zabbix_problem_count, 0) $sort_order"
         : "a.id $sort_order",
+    'scope_name'    => "LOWER(COALESCE(sc.name, '')) $sort_order, a.id ASC",
     default         => "a.$sort_col $sort_order",
 };
 
@@ -666,7 +805,9 @@ $sql = "
     SELECT
         a.*,
         $findings_subq AS open_findings
+        $scopeSelectSql
     FROM assets a
+    $scopeJoinSql
     WHERE $where_sql
     ORDER BY $order_expr
     LIMIT :lim OFFSET :off
@@ -694,6 +835,7 @@ st_json([
     'cat_counts' => $cat_counts,
     'assets'     => $rows,
     'zabbix_filters_available' => $zbxFilters,
+    'assets_scope_column'      => st_assets_has_scope_id($db),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -760,6 +902,10 @@ function decode_asset(array $a): array {
     if (array_key_exists('scope_id', $a)) {
         $sv = $a['scope_id'];
         $a['scope_id'] = ($sv !== null && $sv !== '') ? (int) $sv : null;
+    }
+    if (array_key_exists('scope_name', $a)) {
+        $sn = trim((string) ($a['scope_name'] ?? ''));
+        $a['scope_name'] = $sn !== '' ? $sn : null;
     }
     return $a;
 }

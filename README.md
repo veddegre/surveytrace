@@ -310,6 +310,10 @@ SurveyTrace can tag each **`scan_jobs`** row with an optional **`scope_id`** (se
 
 Cross-scope manual compare remains allowed but uses cautious wording when **`scope_alignment.comparable`** is false. When both jobs are unscoped and compatibility cannot be verified, **`diff_summary.unscoped_pair_uncertain`** is true.
 
+**Inventory scope on assets:** When the **`assets.scope_id`** column exists (Phase 16.2 workflow migration), operators can assign a **named scope** to individual hosts for grouping and operator context. Values may be **manual** (Assets bulk action, Host detail **Change scope**, or **Scopes** tab workflows), **Zabbix-driven** (explicit apply from Enrichment after preview + confirmation), or **future rule-based** automation if added later. Nothing auto-writes **`assets.scope_id`** from Zabbix rules without an explicit apply step.
+
+**Reporting filter vs inventory tag:** **Reports & Analysis** narrows completed work to **`scan_jobs.scope_id`** (and “unscoped” / “all” modes) — the tag stored on each job when it was queued. **`assets.scope_id`** is independent: it does **not** retag historical jobs or snapshot rows. The UI may show **asset counts** next to scope names as a coverage hint only.
+
 ### External reporting event model (canonical contract)
 
 Canonical event payloads and producer mapping live in **`api/lib_reporting_event_model.php`** (PHP helpers + file docblock). Any HTTPS delivery must emit payloads that match this contract unchanged. Row-based push targets live in **`integrations`** (see **`api/lib_integrations.php`**) with shared HTTPS helpers in **`api/lib_integrations_outbound.php`** (reserved **`integration_webhook_*`** settings are not wired to automatic emits today).
@@ -800,6 +804,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Unreleased
 
+- **Manual scan scopes** — **`assets.scope_id`** (after Phase 16.2 migration) can be set from the **Assets** tab (bulk **Set scope** / **Clear scope** with confirmation) and **Host detail** (**Change scope**), or managed from the **Scopes** tab (create / rename / delete catalog rows). **`GET /api/scopes.php`** lists scopes with per-scope **asset counts**, and (for scan editors+) **`job_counts`** / **`schedule_counts`** keyed by scope id so operators see how many **`scan_jobs`** / **`scan_schedules`** rows reference each catalog entry. **`GET /api/scopes.php?action=delete_impact&scope_id=N`** (scan editor+) returns the same reference counts before delete. **`POST /api/scopes.php`** supports **`action=create`**, **`rename`**, **`delete`** (delete clears **`assets`**, **`scan_jobs`**, and **`scan_schedules`** references, removes **`zabbix_scope_map_rules`** for that id, then drops the scope and cascades **`scan_scope_baselines`**). **`POST /api/assets.php?action=set_scope_bulk`** applies manual changes with **`confirm: true`** and skips rows already at the target scope (`unchanged` in the JSON). **Audit:** **`scope.created`**, **`scope.renamed`**, **`scope.deleted`** (with impact counts), **`scope.assets_assigned`**, **`scope.assets_cleared`**. **Zabbix** scope mapping and apply semantics are unchanged. Future rule-based assignment remains a separate path.
 - **Documentation** — README [Roadmap](#roadmap): clarified **Phase 16** (monitoring/ops / Zabbix), **Phase 17** (TeamDynamix + Microsoft Defender enrichment), **Phase 18** (connector completion, including infrastructure APIs), and **Phase 19** (data fusion). No implementation change.
 
 ### 0.16.0

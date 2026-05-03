@@ -74,31 +74,27 @@ if ($has !== 1) {
     st_json(['ok' => false, 'error' => 'scan_scopes table missing (run migrations or redeploy)']);
 }
 
-$dup = $db->prepare('SELECT 1 FROM scan_scopes WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1');
-$dup->execute([$name]);
-if ((int) $dup->fetchColumn() === 1) {
-    st_json(['ok' => false, 'error' => 'A scope with this name already exists'], 400);
+try {
+    $row = st_scan_scopes_insert_catalog_row(
+        $db,
+        $name,
+        $description,
+        $scopeType,
+        $cidrsJson,
+        $tagsJson,
+        $owner,
+        $environment
+    );
+} catch (InvalidArgumentException $e) {
+    $msg = $e->getMessage();
+    st_json(['ok' => false, 'error' => $msg], 400);
+} catch (Throwable $e) {
+    st_json(['ok' => false, 'error' => 'Could not create scope'], 500);
 }
-
-$db->prepare(
-    'INSERT INTO scan_scopes (name, description, scope_type, cidrs, tags, owner, environment, updated_at)
-     VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
-)->execute([
-    substr($name, 0, 200),
-    $description !== '' ? substr($description, 0, 2000) : null,
-    substr($scopeType, 0, 64),
-    $cidrsJson,
-    $tagsJson,
-    $owner !== '' ? substr($owner, 0, 200) : null,
-    substr($environment, 0, 120),
-]);
-$id = (int) $db->lastInsertId();
+$id = (int) ($row['id'] ?? 0);
 $actor = st_current_user();
-st_audit_log('scan.scope_created', (int) ($actor['id'] ?? 0), (string) ($actor['username'] ?? ''), null, null, [
+st_audit_log('scope.created', (int) ($actor['id'] ?? 0), (string) ($actor['username'] ?? ''), null, null, [
     'scope_id' => $id,
-    'name'     => $name,
+    'name'     => substr($name, 0, 200),
 ]);
-$st = $db->prepare('SELECT id, name, description, scope_type, cidrs, tags, owner, environment, created_at, updated_at FROM scan_scopes WHERE id = ?');
-$st->execute([$id]);
-$row = $st->fetch(PDO::FETCH_ASSOC);
 st_json(['ok' => true, 'scope' => $row]);

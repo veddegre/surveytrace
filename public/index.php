@@ -98,6 +98,10 @@ if (is_readable($dbProbe)) {
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
     Schedules
   </div>
+  <div class="ni" id="nscopes" onclick="goTab('scopes');hiNav('nscopes')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h10v7H2z"/><path d="M4.5 6h5M4.5 8.5h3"/></svg>
+    Scopes
+  </div>
   <div class="ni" id="ncollectors" onclick="goTab('collectors');hiNav('ncollectors')">
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.2" y="2" width="11.6" height="8.4" rx="1.2"/><path d="M3.2 5h7.6M4.2 8.5h5.6M5.5 12.2h3"/></svg>
     Collectors
@@ -271,6 +275,7 @@ if (is_readable($dbProbe)) {
       <option value="category">Type</option><option value="top_cvss">CVSS</option>
       <option value="last_seen">Last seen</option><option value="open_findings">CVEs</option>
       <option value="zabbix_problem_count">Zbx problems</option>
+      <option value="scope_name">Scope name</option>
     </select>
     <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
       <input type="checkbox" id="af-zbx-col" onchange="stToggleAssetZbxColumn()">
@@ -284,12 +289,24 @@ if (is_readable($dbProbe)) {
     <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, and device filter">Clear filters</button>
   </div>
+  <div id="af-scope-bulk-wrap" class="row-wrap gap8 mb8" style="display:none;align-items:center;flex-wrap:wrap">
+    <span class="text-micro text-dim" id="af-scope-bulk-hint">Select hosts on this page, then set <strong>inventory</strong> scope (<code class="code-accent">assets.scope_id</code>) for grouping. This does not retag past <code class="code-accent">scan_jobs</code> rows.</span>
+    <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+      <span>Scope</span>
+      <select class="finp narrow" id="af-bulk-scope-sel" style="min-width:200px">
+        <option value="">— choose scope —</option>
+      </select>
+    </label>
+    <button type="button" class="btnp btn-xs" id="af-bulk-scope-apply" onclick="void stAssetsBulkSetScope(false)">Set scope</button>
+    <button type="button" class="tbtn btn-xs" id="af-bulk-scope-clear" onclick="void stAssetsBulkSetScope(true)">Clear scope</button>
+  </div>
   <div id="af-device-banner" class="device-filter-banner hide">
     <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
   </div>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr>
+        <th style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
         <th onclick="sortAssets('ip')">IP address</th>
         <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
@@ -300,10 +317,11 @@ if (is_readable($dbProbe)) {
         <th onclick="sortAssets('open_findings')">CVEs</th>
         <th onclick="sortAssets('top_cvss')">CVSS</th>
         <th id="af-th-zbx" class="hide" onclick="sortAssets('zabbix_problem_count')" title="Zabbix denormalized trust fields">Zbx</th>
+        <th onclick="sortAssets('scope_name')">Scope</th>
         <th onclick="sortAssets('last_seen')">Last seen</th>
         <th>Edit</th>
       </tr></thead>
-      <tbody id="asset-tbody"><tr><td colspan="12" class="loading">Loading…</td></tr></tbody>
+      <tbody id="asset-tbody"><tr><td colspan="14" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
@@ -311,6 +329,30 @@ if (is_readable($dbProbe)) {
     <button id="aprev" onclick="loadAssets(assetPage-1)" disabled>&#8592; Prev</button>
     <span id="apgn-info">—</span>
     <button id="anext" onclick="loadAssets(assetPage+1)" disabled>Next &#8594;</button>
+  </div>
+</div>
+
+<!-- ================================================================ SCOPES (catalog + asset counts) -->
+<div class="tab" id="t-scopes">
+  <div class="row-between mb10" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <div class="sth section-title-reset" style="margin-bottom:4px">Scan scopes</div>
+      <p class="hint-micro mb0" style="max-width:52rem;line-height:1.45">
+        Named scopes drive <strong>Reports &amp; Analysis</strong> filters (by <strong>job</strong> <code class="code-accent">scan_jobs.scope_id</code> at queue time) and optional <strong>inventory</strong> tags on assets (<code class="code-accent">assets.scope_id</code>). Those are independent: asset tags do not change historical job rows.
+        Zabbix scope mapping still applies only when you use the Enrichment apply workflow — nothing auto-assigns from this screen.
+      </p>
+    </div>
+    <div class="row-wrap gap6" style="align-items:center">
+      <button type="button" class="btnp btn-sm" onclick="stScopesOpenCreateModal()">+ New scope</button>
+      <button type="button" class="tbtn btn-sm" onclick="void loadScopesTab()">&#8635; Refresh</button>
+    </div>
+  </div>
+  <div id="st-scopes-err" class="help-mono mb8" style="display:none"></div>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Name</th><th>Environment</th><th>Assets</th><th title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th title="Schedules defaulting to this scope">Schedules</th><th style="min-width:200px"></th></tr></thead>
+      <tbody id="st-scopes-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+    </table>
   </div>
 </div>
 
@@ -632,6 +674,9 @@ if (is_readable($dbProbe)) {
       <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
     </div>
     <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
+    <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+      <strong>How filtering works:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches (set when the job was queued). Counts in parentheses are <strong>live assets</strong> currently tagged with that catalog scope (<code class="code-accent">assets.scope_id</code>) — useful for coverage; they do not redefine which historical jobs appear in the list.
+    </div>
     <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
       <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
     </div>
@@ -1867,6 +1912,30 @@ if (is_readable($dbProbe)) {
 </div>
 <div id="host-panel-bg" class="host-panel-backdrop" onclick="closeHostPanel()"></div>
 
+<!-- Change single-asset inventory scope -->
+<div id="st-asset-scope-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-asset-scope-title" onclick="if(event.target===this)closeStAssetScopeModal()">
+  <div class="modal-card modal-w440" onclick="event.stopPropagation()">
+    <div class="row-between mb10">
+      <div class="modal-title" id="st-asset-scope-title">Change scope</div>
+      <button type="button" class="modal-close-x" onclick="closeStAssetScopeModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="hint-micro mb6 mono-sm" id="st-asset-scope-ip"></p>
+    <div class="hint-micro mb10 text-dim" id="st-asset-scope-summary" style="line-height:1.45"></div>
+    <label class="flbl" for="st-asset-scope-sel">Target inventory scope (<code class="code-accent">assets.scope_id</code>)</label>
+    <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
+      <option value="0">— none (clear scope) —</option>
+    </select>
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" id="st-asset-scope-confirm"> I confirm updating scope for this asset.
+    </label>
+    <div id="st-asset-scope-err" class="help-mono mb8" style="display:none"></div>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="closeStAssetScopeModal()">Cancel</button>
+      <button type="button" class="btnp" onclick="void submitStAssetScopeModal()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- Device detail panel (logical identity + linked addresses) -->
 <div id="device-panel" class="host-panel device-panel">
   <div class="host-panel-head">
@@ -2415,6 +2484,7 @@ function applyRoleAwareUi() {
     };
     setHidden('nscan', !canScanManage);
     setHidden('nsched', !canScanManage);
+    setHidden('nscopes', !canScanManage);
     setHidden('ncollectors', !isAdmin);
     setHidden('nenrich', !isAdmin);
     setHidden('nsettings', !isAdmin);
@@ -2456,6 +2526,10 @@ function applyRoleAwareUi() {
     disableByOnclick('acceptRiskFromChangeAlert(', !canScanManage);
     disableByOnclick('unacceptFindingRisk(', !canScanManage);
     disableByOnclick('queueHostRescan(', !canScanManage);
+    disableByOnclick('stScopesOpenCreateModal(', !canScanManage);
+    disableByOnclick('stScopesRename(', !canScanManage);
+    disableByOnclick('stScopesDelete(', !canScanManage);
+    disableByOnclick('stAssetsBulkSetScope(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
@@ -2868,6 +2942,10 @@ function goTab(name) {
         toast('Integrations are available to admin users only.', 'err');
         name = 'dash';
     }
+    if (name === 'scopes' && !stRoleCanManageScans()) {
+        toast('Scan scopes management requires scan editor or admin role.', 'err');
+        name = 'dash';
+    }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
@@ -2882,10 +2960,11 @@ function goTab(name) {
     if (name === 'report')   loadReportingTab();
     if (name === 'enrich')   loadEnrichment();
     if (name === 'sched')    loadSchedules();
+    if (name === 'scopes')   void loadScopesTab();
     if (name === 'scan' || name === 'sched' || name === 'collectors') {
         loadCollectorsOverview();
     }
-    if (name === 'scan' || name === 'sched') {
+    if (name === 'scan' || name === 'sched' || name === 'scopes') {
         void ensureStScopeSelects();
     }
     if (name === 'health')   loadHealth();
@@ -3947,6 +4026,383 @@ function stAssetZabbixCellHtml(a) {
     return `<span class="mono-sm" title="${tip}">${dot} ${avs} · ${prs}</span>`;
 }
 
+function stFillAfBulkScopeSelect() {
+    const sel = document.getElementById('af-bulk-scope-sel');
+    if (!sel) {
+        return;
+    }
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— choose scope —</option>';
+    (stScopesForFormsCache || []).forEach((sc) => {
+        const o = document.createElement('option');
+        o.value = String(sc.id);
+        o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
+        sel.appendChild(o);
+    });
+    if ([...sel.options].some((o) => o.value === prev)) {
+        sel.value = prev;
+    }
+}
+
+function stScopesOpenCreateModal() {
+    openStCreateScopeModal('scopes');
+}
+
+function stAssetsToggleSelectAll(checked) {
+    document.querySelectorAll('.af-row-chk').forEach((c) => {
+        c.checked = !!checked;
+    });
+    const head = document.getElementById('af-select-all');
+    if (head) {
+        head.checked = !!checked;
+        head.indeterminate = false;
+    }
+}
+
+function stAssetsSyncSelectAllCheckbox() {
+    const all = document.querySelectorAll('.af-row-chk');
+    const n = all.length;
+    let c = 0;
+    all.forEach((x) => {
+        if (x.checked) {
+            c++;
+        }
+    });
+    const head = document.getElementById('af-select-all');
+    if (!head) {
+        return;
+    }
+    head.checked = n > 0 && c === n;
+    head.indeterminate = c > 0 && c < n;
+}
+
+function stAssetsSelectedIds() {
+    const ids = [];
+    document.querySelectorAll('.af-row-chk:checked').forEach((c) => {
+        const id = parseInt(String(c.getAttribute('data-aid') || '0'), 10);
+        if (id > 0) {
+            ids.push(id);
+        }
+    });
+    return ids;
+}
+
+async function stAssetsBulkSetScope(isClear) {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required.', 'err');
+        return;
+    }
+    const ids = stAssetsSelectedIds();
+    if (!ids.length) {
+        toast('Select at least one asset on this page.', 'err');
+        return;
+    }
+    const sel = document.getElementById('af-bulk-scope-sel');
+    let scopeId = 0;
+    if (!isClear) {
+        scopeId = parseInt(String(sel && sel.value ? sel.value : '0'), 10) || 0;
+        if (scopeId <= 0) {
+            toast('Choose a target scope, or use Clear scope.', 'err');
+            return;
+        }
+    }
+    const verb = isClear ? 'clear scope for' : 'assign scope to';
+    const ok = await showConfirmModal(
+        `Confirm ${verb} ${ids.length} selected asset(s)?\n\nThe server validates each id and target scope. Zabbix rules are not applied automatically.`,
+        { title: 'Confirm bulk scope change', okText: 'Apply' }
+    );
+    if (!ok) {
+        return;
+    }
+    const body = { confirm: true, asset_ids: ids };
+    body.scope_id = isClear ? null : scopeId;
+    const r = await apiPost('/api/assets.php?action=set_scope_bulk', body);
+    if (r && r.ok) {
+        const u = r.updated != null ? r.updated : 0;
+        const unc = r.unchanged != null ? r.unchanged : 0;
+        const m = r.missing != null ? r.missing : 0;
+        let msg = `Applied: ${u} asset(s).`;
+        if (unc) {
+            msg += ` Unchanged (already at target): ${unc}.`;
+        }
+        if (m) {
+            msg += ` Not found: ${m}.`;
+        }
+        toast(msg, m && !u && !unc ? 'err' : 'ok');
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        loadAssets(typeof assetPage === 'number' ? assetPage : 1);
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
+        }
+    } else {
+        toast((r && r.error) || 'Bulk scope update failed', 'err');
+    }
+}
+
+function closeStAssetScopeModal() {
+    const bg = document.getElementById('st-asset-scope-bg');
+    if (bg) {
+        bg.style.display = 'none';
+    }
+    const ck = document.getElementById('st-asset-scope-confirm');
+    if (ck) {
+        ck.checked = false;
+    }
+    const sum = document.getElementById('st-asset-scope-summary');
+    if (sum) {
+        sum.textContent = '';
+    }
+}
+
+function stAssetScopeLabelForId(scopeId) {
+    const n = parseInt(String(scopeId || '0'), 10) || 0;
+    if (n <= 0) {
+        return 'None (unscoped)';
+    }
+    const sc = (stScopesForFormsCache || []).find((x) => parseInt(String(x.id), 10) === n);
+    return sc ? String(sc.name || 'Scope #' + n) : 'Scope #' + n;
+}
+
+function stAssetScopeModalSyncLabels() {
+    const bg = document.getElementById('st-asset-scope-bg');
+    const sel = document.getElementById('st-asset-scope-sel');
+    const sum = document.getElementById('st-asset-scope-summary');
+    if (!sum || !bg || !sel) {
+        return;
+    }
+    const curL = bg.dataset.currentScopeLabel ? String(bg.dataset.currentScopeLabel) : '—';
+    const pick = parseInt(String(sel.value || '0'), 10) || 0;
+    const tgt = stAssetScopeLabelForId(pick);
+    sum.innerHTML =
+        '<strong>Current:</strong> ' + esc(curL) + '<br><strong>Target:</strong> ' + esc(tgt);
+}
+
+async function openStAssetScopeModal(assetId, ip, currentScopeId) {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required.', 'err');
+        return;
+    }
+    await ensureStScopeSelects(false);
+    const bg = document.getElementById('st-asset-scope-bg');
+    const ipEl = document.getElementById('st-asset-scope-ip');
+    const sel = document.getElementById('st-asset-scope-sel');
+    const errEl = document.getElementById('st-asset-scope-err');
+    if (!bg || !sel) {
+        return;
+    }
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+    }
+    if (ipEl) {
+        ipEl.textContent = 'Asset #' + assetId + ' · ' + String(ip || '');
+    }
+    bg.dataset.assetId = String(assetId);
+    bg.dataset.ip = String(ip || '');
+    sel.innerHTML = '<option value="0">— none (clear scope) —</option>';
+    (stScopesForFormsCache || []).forEach((sc) => {
+        const o = document.createElement('option');
+        o.value = String(sc.id);
+        o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
+        sel.appendChild(o);
+    });
+    const cur = parseInt(String(currentScopeId != null ? currentScopeId : 0), 10) || 0;
+    sel.value = cur > 0 && [...sel.options].some((o) => o.value === String(cur)) ? String(cur) : '0';
+    bg.dataset.currentScopeLabel = stAssetScopeLabelForId(cur);
+    stAssetScopeModalSyncLabels();
+    const ck = document.getElementById('st-asset-scope-confirm');
+    if (ck) {
+        ck.checked = false;
+    }
+    bg.style.display = 'flex';
+}
+
+async function submitStAssetScopeModal() {
+    const bg = document.getElementById('st-asset-scope-bg');
+    const sel = document.getElementById('st-asset-scope-sel');
+    const errEl = document.getElementById('st-asset-scope-err');
+    const ck = document.getElementById('st-asset-scope-confirm');
+    if (!bg || !sel) {
+        return;
+    }
+    if (!ck || !ck.checked) {
+        if (errEl) {
+            errEl.textContent = 'Confirm the checkbox to apply.';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    if (errEl) {
+        errEl.style.display = 'none';
+    }
+    const assetId = parseInt(String(bg.dataset.assetId || '0'), 10) || 0;
+    const ip = String(bg.dataset.ip || '');
+    if (assetId <= 0) {
+        toast('Invalid asset', 'err');
+        return;
+    }
+    const scopePick = parseInt(String(sel.value || '0'), 10) || 0;
+    const body = { confirm: true, asset_ids: [assetId], scope_id: scopePick > 0 ? scopePick : null };
+    const r = await apiPost('/api/assets.php?action=set_scope_bulk', body);
+    if (r && r.ok) {
+        const u = r.updated != null ? r.updated : 0;
+        const unc = r.unchanged != null ? r.unchanged : 0;
+        const m = r.missing != null ? r.missing : 0;
+        let msg = u > 0 ? `Applied scope to ${u} asset(s).` : 'No database rows changed.';
+        if (unc) {
+            msg += ` Unchanged (already at target): ${unc}.`;
+        }
+        if (m) {
+            msg += ` Not found: ${m}.`;
+        }
+        toast(msg, m && !u && !unc ? 'err' : 'ok');
+        closeStAssetScopeModal();
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        if (currentTab === 'assets') {
+            loadAssets(typeof assetPage === 'number' ? assetPage : 1);
+        }
+        if (document.getElementById('host-panel')?.style.display === 'block') {
+            void openHostPanel(assetId, ip);
+        }
+        void loadScopesTab();
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
+        }
+    } else {
+        if (errEl) {
+            errEl.textContent = (r && r.error) ? r.error : 'Update failed';
+            errEl.style.display = '';
+        } else {
+            toast((r && r.error) || 'Update failed', 'err');
+        }
+    }
+}
+
+async function loadScopesTab() {
+    const tb = document.getElementById('st-scopes-tbody');
+    const err = document.getElementById('st-scopes-err');
+    if (!tb) {
+        return;
+    }
+    if (err) {
+        err.style.display = 'none';
+        err.textContent = '';
+    }
+    tb.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+    const d = await api('/api/scopes.php', { quiet: true });
+    if (!d || !d.ok || !Array.isArray(d.scopes)) {
+        tb.innerHTML = '<tr><td colspan="6" class="loading">Could not load scopes</td></tr>';
+        if (err) {
+            err.textContent = (d && d.error) ? d.error : 'API error';
+            err.style.display = '';
+        }
+        return;
+    }
+    stScopesForFormsCache = d.scopes;
+    stScopesMeta.asset_counts = d.asset_counts && typeof d.asset_counts === 'object' ? d.asset_counts : {};
+    stScopesMeta.job_counts = d.job_counts && typeof d.job_counts === 'object' ? d.job_counts : {};
+    stScopesMeta.schedule_counts = d.schedule_counts && typeof d.schedule_counts === 'object' ? d.schedule_counts : {};
+    const ac = stScopesMeta.asset_counts || {};
+    const jc = stScopesMeta.job_counts || {};
+    const scd = stScopesMeta.schedule_counts || {};
+    const rows = d.scopes.map((sc) => {
+        const id = parseInt(String(sc.id), 10) || 0;
+        const cnt = parseInt(String(ac[String(id)] ?? 0), 10) || 0;
+        const jn = parseInt(String(jc[String(id)] ?? 0), 10) || 0;
+        const sn = parseInt(String(scd[String(id)] ?? 0), 10) || 0;
+        const nm = esc(String(sc.name || '—'));
+        const env = esc(String(sc.environment != null && String(sc.environment).trim() ? sc.environment : 'unknown'));
+        const act = stRoleCanManageScans()
+            ? `<button type="button" class="tbtn btn-xs" onclick="void stScopesRename(${id},${JSON.stringify(String(sc.name || ''))})">Rename</button> `
+                + `<button type="button" class="tbtn btn-xs" style="color:var(--red)" onclick="void stScopesDelete(${id},${JSON.stringify(String(sc.name || ''))})">Delete</button>`
+            : '—';
+        return `<tr><td><strong>${nm}</strong> <span class="text-dim mono-sm">#${id}</span></td><td>${env}</td><td class="mono">${cnt}</td><td class="mono">${jn}</td><td class="mono">${sn}</td><td>${act}</td></tr>`;
+    });
+    tb.innerHTML = rows.length
+        ? rows.join('')
+        : '<tr><td colspan="6" class="loading">No scopes yet — create one from <strong>+ New scope</strong>.</td></tr>';
+}
+
+async function stScopesRename(scopeId, currentName) {
+    if (!stRoleCanManageScans()) {
+        return;
+    }
+    const nv = await showPromptModal('Enter a new name for this scope.', {
+        title: 'Rename scope',
+        label: 'Name',
+        defaultValue: currentName || '',
+        okText: 'Save',
+    });
+    if (nv == null) {
+        return;
+    }
+    const name = String(nv).trim();
+    if (!name) {
+        toast('Name is required', 'err');
+        return;
+    }
+    const r = await apiPost('/api/scopes.php?action=rename', { scope_id: scopeId, name });
+    if (r && r.ok) {
+        toast('Scope renamed', 'ok');
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        void loadScopesTab();
+        void loadReportingScopeSelector(true);
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
+        }
+    } else {
+        toast((r && r.error) || 'Rename failed', 'err');
+    }
+}
+
+async function stScopesDelete(scopeId, scopeName) {
+    if (!stRoleCanManageScans()) {
+        return;
+    }
+    let impactLine = '';
+    try {
+        const im = await api('/api/scopes.php?action=delete_impact&scope_id=' + encodeURIComponent(String(scopeId)), { quiet: true });
+        if (im && im.ok && im.impact) {
+            const x = im.impact;
+            impactLine =
+                '\n\nImpact if you delete:\n'
+                + `· ${x.assets != null ? x.assets : 0} asset(s) will become unscoped\n`
+                + `· ${x.jobs != null ? x.jobs : 0} scan job row(s) will have job scope cleared\n`
+                + `· ${x.schedules != null ? x.schedules : 0} schedule(s) will have default scope cleared\n`
+                + `· ${x.baselines != null ? x.baselines : 0} scope baseline row(s) removed with the scope\n`
+                + `· ${x.zabbix_rules != null ? x.zabbix_rules : 0} Zabbix scope map rule(s) removed\n\n`
+                + 'Historical scan snapshots are not rewritten; reporting still keys off each job’s scope at run time.';
+        }
+    } catch (_e) {
+        impactLine = '\n\n(Could not load exact counts — impact still applies.)\n\n';
+    }
+    const ok = await showConfirmModal(
+        `Delete scope "${scopeName}" (#${scopeId})?`
+            + impactLine
+            + 'This cannot be undone.',
+        { title: 'Delete scope', okText: 'Delete' }
+    );
+    if (!ok) {
+        return;
+    }
+    const r = await apiPost('/api/scopes.php?action=delete', { scope_id: scopeId, confirm: true });
+    if (r && r.ok) {
+        toast('Scope deleted', 'ok');
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        void loadScopesTab();
+        void loadReportingScopeSelector(true);
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
+        }
+    } else {
+        toast((r && r.error) || 'Delete failed', 'err');
+    }
+}
+
 async function loadAssets(page) {
     refreshBadges();
     assetPage = page;
@@ -3958,7 +4414,7 @@ async function loadAssets(page) {
     const zbxCol = !!document.getElementById('af-zbx-col')?.checked;
     const thZbx = document.getElementById('af-th-zbx');
     if (thZbx) thZbx.classList.toggle('hide', !zbxCol);
-    const listCols = zbxCol ? 12 : 11;
+    const listCols = zbxCol ? 14 : 13;
     const zMon = document.getElementById('af-zbx-monitored')?.value || '';
     const zUn = document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
     const zPr = document.getElementById('af-zbx-problems')?.checked ? '1' : '';
@@ -3993,10 +4449,30 @@ async function loadAssets(page) {
     const d   = await api(url);
     if (!d) return;
 
+    try {
+        window.__stAssetsScopeColumn = !!d.assets_scope_column;
+    } catch (_e) {}
+    const bulk = document.getElementById('af-scope-bulk-wrap');
+    const canBulk = stRoleCanManageScans() && !!d.assets_scope_column;
+    if (bulk) {
+        bulk.style.display = canBulk ? 'flex' : 'none';
+    }
+    if (canBulk) {
+        await ensureStScopeSelects(false);
+        stFillAfBulkScopeSelect();
+    }
+    const headChk = document.getElementById('af-select-all');
+    if (headChk) {
+        headChk.checked = false;
+        headChk.indeterminate = false;
+    }
+
     const zbxWrap = document.getElementById('af-zbx-wrap');
     if (zbxWrap) zbxWrap.style.display = d.zabbix_filters_available ? 'flex' : 'none';
 
     const zbxTd = (a) => (zbxCol ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
+    const scopeCell = (a) =>
+        `<td class="mono-sm text-dim" title="Inventory / reporting tag">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
     document.getElementById('asset-tbody').innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
@@ -4010,6 +4486,7 @@ async function loadAssets(page) {
             }
         }
         return `<tr>
+          <td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
@@ -4020,6 +4497,7 @@ async function loadAssets(page) {
           <td class="mono">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
           ${zbxTd(a)}
+          ${scopeCell(a)}
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td>
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
@@ -7760,7 +8238,7 @@ function stZabbixApplyEnrichmentPanel(z) {
             : { groups: [], tags: [] };
     stZabbixApplyCacheStatusHint(z);
     if (!zbScopeOptions.length) {
-        void api('/api/scan_scopes.php', { quiet: true }).then((sc) => {
+        void api('/api/scopes.php', { quiet: true }).then((sc) => {
             if (sc && sc.ok && Array.isArray(sc.scopes)) zbScopeOptions = sc.scopes;
             stZabbixRefreshScopeRuleButtons();
         });
@@ -9684,7 +10162,14 @@ const REPORTING_SCOPE_LS_KEY = 'st_report_scope_id';
 var reportingScopeApiFilter = null;
 var reportingScopesList = [];
 var stScopesForFormsCache = null;
-var stScopesMeta = { default_scope_id: 0, scoping_enabled: false, scope_catalog_unavailable: false };
+var stScopesMeta = {
+    default_scope_id: 0,
+    scoping_enabled: false,
+    scope_catalog_unavailable: false,
+    asset_counts: {},
+    job_counts: {},
+    schedule_counts: {},
+};
 
 function reportingScopeQuery() {
     const f = reportingScopeApiFilter;
@@ -9810,7 +10295,7 @@ async function ensureStScopeSelects(force) {
     }
     let d = null;
     try {
-        const r = await fetch('/api/scan_scopes.php', { credentials: 'same-origin' });
+        const r = await fetch('/api/scopes.php', { credentials: 'same-origin' });
         const txt = await r.text();
         if (txt && txt.trim()) {
             try {
@@ -9829,6 +10314,9 @@ async function ensureStScopeSelects(force) {
     stScopesMeta.scope_catalog_unavailable = !catalogOk;
     if (catalogOk) {
         stScopesForFormsCache = d.scopes;
+        stScopesMeta.asset_counts = d.asset_counts && typeof d.asset_counts === 'object' ? d.asset_counts : {};
+        stScopesMeta.job_counts = d.job_counts && typeof d.job_counts === 'object' ? d.job_counts : {};
+        stScopesMeta.schedule_counts = d.schedule_counts && typeof d.schedule_counts === 'object' ? d.schedule_counts : {};
         stScopesMeta.default_scope_id =
             d.default_scope_id != null && parseInt(String(d.default_scope_id), 10) > 0
                 ? parseInt(String(d.default_scope_id), 10)
@@ -9836,6 +10324,9 @@ async function ensureStScopeSelects(force) {
         stScopesMeta.scoping_enabled = !!d.scoping_enabled;
     } else {
         stScopesForFormsCache = [];
+        stScopesMeta.asset_counts = {};
+        stScopesMeta.job_counts = {};
+        stScopesMeta.schedule_counts = {};
         stScopesMeta.default_scope_id = 0;
         stScopesMeta.scoping_enabled = false;
     }
@@ -9856,7 +10347,7 @@ function updateReportingScopeDetail() {
     }
     if (stScopesMeta.scope_catalog_unavailable) {
         detailEl.innerHTML =
-            '<span class="hstate-warn">Scope support unavailable</span> — the scope list API did not return usable data (missing deploy, HTTP error, or non-JSON). Reporting stays on <strong>All scopes</strong>. Ask your admin to redeploy <span class="mono-sm">api/scan_scopes.php</span> and <span class="mono-sm">api/lib_scan_scopes.php</span>, then run <span class="mono-sm">bash deploy.sh</span> (or open the app once so migrations run).';
+            '<span class="hstate-warn">Scope support unavailable</span> — the scope list API did not return usable data (missing deploy, HTTP error, or non-JSON). Reporting stays on <strong>All scopes</strong>. Ask your admin to deploy <span class="mono-sm">api/scopes.php</span>, <span class="mono-sm">api/scan_scopes.php</span>, and <span class="mono-sm">api/lib_scan_scopes.php</span>, then run <span class="mono-sm">bash deploy.sh</span> (or open the app once so migrations run).';
         return;
     }
     if (reportingScopeApiFilter === null) {
@@ -9894,7 +10385,7 @@ function updateReportingScopeDetail() {
         '</strong>';
 }
 
-/** Where the create-scope modal was opened from (report | enrich). */
+/** Where the create-scope modal was opened from (report | enrich | scopes). */
 var stCreateScopeOpenedFrom = 'report';
 
 function openStCreateScopeModal(from) {
@@ -9902,7 +10393,7 @@ function openStCreateScopeModal(from) {
         toast('Scan editor or admin role required to create scopes.', 'err');
         return;
     }
-    stCreateScopeOpenedFrom = from === 'enrich' ? 'enrich' : 'report';
+    stCreateScopeOpenedFrom = from === 'enrich' ? 'enrich' : from === 'scopes' ? 'scopes' : 'report';
     const nm = document.getElementById('st-scope-create-name');
     const ds = document.getElementById('st-scope-create-desc');
     const en = document.getElementById('st-scope-create-env');
@@ -9946,7 +10437,7 @@ async function submitStCreateScope() {
     const cidrs = cidrBlob.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     const btn = document.getElementById('st-scope-create-submit');
     if (btn) btn.disabled = true;
-    const r = await apiPost('/api/scan_scopes.php', {
+    const r = await apiPost('/api/scopes.php?action=create', {
         name,
         description: desc,
         environment: env || 'unknown',
@@ -9983,6 +10474,10 @@ async function submitStCreateScope() {
     if (stCreateScopeOpenedFrom === 'enrich') {
         goTab('enrich');
         hiNav('nenrich');
+    } else if (stCreateScopeOpenedFrom === 'scopes') {
+        goTab('scopes');
+        hiNav('nscopes');
+        void loadScopesTab();
     }
 }
 
@@ -10002,10 +10497,13 @@ async function loadReportingScopeSelector(forceRefresh) {
     sel.innerHTML =
         '<option value="all">All scopes (default)</option>' +
         '<option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>';
+    const ac = stScopesMeta.asset_counts || {};
     scopes.forEach((sc) => {
         const o = document.createElement('option');
         o.value = String(sc.id);
-        o.textContent = (sc.name || 'Scope #' + sc.id).slice(0, 120);
+        const nm = (sc.name || 'Scope #' + sc.id).slice(0, 100);
+        const cnt = parseInt(String(ac[String(sc.id)] ?? 0), 10) || 0;
+        o.textContent = nm + ' (' + cnt + ' assets)';
         sel.appendChild(o);
     });
     if (keepVal !== null && [...sel.options].some((opt) => opt.value === keepVal)) {
@@ -10041,7 +10539,7 @@ async function loadReportingScopeSelector(forceRefresh) {
     const refBtn = document.getElementById('report-scope-refresh-btn');
     if (refBtn) {
         refBtn.title = stScopesMeta.scope_catalog_unavailable
-            ? 'Retry after redeploying api/scan_scopes.php and api/lib_scan_scopes.php'
+            ? 'Retry after redeploying api/scopes.php, api/scan_scopes.php, and api/lib_scan_scopes.php'
             : '';
     }
     syncReportingScopeApiFilterFromSelect(sel);
@@ -13613,6 +14111,12 @@ async function openHostPanel(id, ip) {
     }
 
     const a = assetData.asset;
+    const scopeAssignable = !!(assetData && assetData.asset_scope_assignable);
+    try {
+        if (typeof assetData.asset_scope_assignable === 'boolean') {
+            window.__stAssetsScopeColumn = assetData.asset_scope_assignable;
+        }
+    } catch (_e) {}
     const openFindings = openFindingsData && openFindingsData.findings ? openFindingsData.findings : [];
     const acceptedFindings = acceptedFindingsData && acceptedFindingsData.findings ? acceptedFindingsData.findings : [];
     const ports = a.open_ports || [];
@@ -13714,6 +14218,11 @@ async function openHostPanel(id, ip) {
           <tr><td class="hp-meta-key">Owner / BU</td><td class="hp-meta-val-dim">${esc([a.owner, a.business_unit].filter(Boolean).join(' · ') || '—')}</td></tr>
           <tr><td class="hp-meta-key">Criticality / env</td><td class="hp-meta-val-dim">${esc(String(a.criticality || 'medium'))} · ${esc(String(a.environment || 'unknown'))}</td></tr>
           <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Logical device overview">${esc(String(a.device_id))}</span>` : '—'}</td></tr>
+          ${scopeAssignable ? `<tr><td class="hp-meta-key">Scope</td><td class="hp-meta-val-dim">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}${
+              stRoleCanManageScans()
+                  ? ` <button type="button" class="tbtn btn-xs" onclick="void openStAssetScopeModal(${id},${JSON.stringify(String(a.ip || ''))},${(a.scope_id != null && a.scope_id !== '') ? Number(a.scope_id) : 0})">Change scope</button>`
+                  : ''
+          }</td></tr>` : ''}
           <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
             ${esc(a.mac||'—')}
             ${a.mac && parseInt(a.mac.split(':')[0],16) & 2 ?
@@ -14158,7 +14667,7 @@ function toggleDashMode() {
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
     if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
-    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
+    const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched',scopes:'nscopes'};
 
     if (on) {
         // Remember where the user was, then switch to dashboard presentation.
@@ -14185,7 +14694,7 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched'};
+        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched',scopes:'nscopes'};
     if (navMap[lastTab]) hiNav(navMap[lastTab]);
 } else {
     goTab('dash');
