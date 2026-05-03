@@ -10,6 +10,7 @@ Type=simple
 User=surveytrace
 Group=surveytrace
 WorkingDirectory=/opt/surveytrace/daemon
+Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
 ExecStart=/opt/surveytrace/venv/bin/python3 scanner_daemon.py
 Restart=on-failure
 RestartSec=10

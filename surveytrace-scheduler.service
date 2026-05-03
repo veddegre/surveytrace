@@ -9,6 +9,7 @@ Type=simple
 User=surveytrace
 Group=surveytrace
 WorkingDirectory=/opt/surveytrace/daemon
+Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
 ExecStart=/opt/surveytrace/venv/bin/python3 scheduler_daemon.py
 Restart=always
 RestartSec=10

@@ -62,6 +62,7 @@ from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PO
 import asset_lifecycle
 import change_detection
 from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_paths import data_dir, main_db_path
 from surveytrace_version import surveytrace_version
 
 # Enrichment sources — import all to trigger registration
@@ -161,8 +162,9 @@ def resolve_hostname(ip: str) -> str:
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-DB_PATH   = Path(__file__).parent.parent / "data" / "surveytrace.db"
-DATA_DIR  = Path(__file__).parent.parent / "data"
+DB_PATH   = main_db_path()
+DATA_DIR  = data_dir()
+NVD_DB_PATH = DATA_DIR / "nvd.db"
 OUI_MAP_PATH = DATA_DIR / "oui_map.json"
 WEBFP_RULES_PATH = DATA_DIR / "webfp_rules.json"
 POLL_SECS = 5          # how often to check for new jobs
@@ -206,7 +208,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent.parent / "data" / "daemon.log"),
+        logging.FileHandler(DATA_DIR / "daemon.log"),
     ],
 )
 log = logging.getLogger("surveytrace")
@@ -2072,7 +2074,7 @@ def phase_http_titles(
 # ---------------------------------------------------------------------------
 # Phase 4 — CVE correlation (SQLite NVD database)
 # ---------------------------------------------------------------------------
-NVD_DB_PATH = Path(__file__).parent.parent / "data" / "nvd.db"
+# NVD_DB_PATH set at module top with DB_PATH / DATA_DIR
 
 # Minimum CPE component depth required before we'll match CVEs.
 # vendor+product = 2 components minimum — prevents "cpe:/o:linux" matching

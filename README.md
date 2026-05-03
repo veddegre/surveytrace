@@ -722,6 +722,15 @@ sudo systemctl status surveytrace-collector-ingest --no-pager
 sudo journalctl -u surveytrace-collector-ingest -n 40 --no-pager
 ```
 
+**If logs show `sqlite3.OperationalError: unable to open database file`:** the worker resolves the DB via `SURVEYTRACE_INSTALL_DIR` (set in **`surveytrace-collector-ingest.service`**) and `data/surveytrace.db`, same as PHP’s `api/db.php`. Ensure **`/opt/surveytrace/data`** is directory **readable and writable** by user **`surveytrace`** (WAL needs write on the directory), and that **`surveytrace.db`** is owned **`surveytrace:www-data`** with mode **660** as applied by **`setup.sh` / `deploy.sh`**. After fixing permissions, restart: `sudo systemctl restart surveytrace-collector-ingest`.
+
+To **re-queue** a stuck chunk after the DB is healthy (example job **44**), mark the corresponding `collector_ingest_queue` row **`pending`** again (only if the JSON file still exists under `data/collector_ingest/`):
+
+```bash
+sqlite3 /opt/surveytrace/data/surveytrace.db "UPDATE collector_ingest_queue SET status='pending', error_msg=NULL, next_attempt_at=NULL WHERE job_id=44 AND status='failed';"
+sudo systemctl restart surveytrace-collector-ingest
+```
+
 ## Collector Deployment (Multi-System)
 
 Collectors are packaged under `collector/` and are intended for remote network sites.

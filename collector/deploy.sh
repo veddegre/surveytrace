@@ -51,7 +51,7 @@ fi
 echo "Deploying SurveyTrace collector files..."
 sudo mkdir -p "$DEST/daemon" "$DEST/sql" "$DEST/daemon/sources"
 
-for f in sqlite_pragmas.py surveytrace_version.py scanner_daemon.py change_detection.py asset_lifecycle.py finding_triage.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do
+for f in sqlite_pragmas.py surveytrace_paths.py surveytrace_version.py scanner_daemon.py change_detection.py asset_lifecycle.py finding_triage.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 [ -f "$SRC/VERSION" ] && sudo cp "$SRC/VERSION" "$DEST/"

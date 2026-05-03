@@ -196,6 +196,7 @@ echo "  Web UI deployed"
 # ---------------------------------------------------------------------------
 DAEMON_CORE=(
   sqlite_pragmas.py
+  surveytrace_paths.py
   surveytrace_version.py
   scanner_daemon.py
   change_detection.py

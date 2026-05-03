@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 import time
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "surveytrace.db"
-INGEST_DIR = Path(__file__).parent.parent / "data" / "collector_ingest"
+from surveytrace_paths import data_dir, install_root, main_db_path
+
+DB_PATH = main_db_path()
+INGEST_DIR = data_dir() / "collector_ingest"
 POLL_SECS = 3
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [collector_ingest] %(message)s")
@@ -53,11 +56,103 @@ scanner_daemon.DATA_DIR = DB_PATH.parent
 scanner_daemon.NVD_DB_PATH = DB_PATH.parent / "nvd.db"
 
 
+def _uid_gid_names() -> tuple[str, str]:
+    try:
+        import grp
+        import pwd
+
+        u = pwd.getpwuid(os.getuid()).pw_name
+        g = grp.getgrgid(os.getgid()).gr_name
+        return u, g
+    except Exception:
+        return str(os.getuid()), str(os.getgid())
+
+
+def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
+    """Log everything needed to debug sqlite3 'unable to open database file' on the master."""
+    try:
+        dbp = DB_PATH.resolve()
+    except Exception:
+        dbp = DB_PATH
+    parent = dbp.parent
+    uname, gname = _uid_gid_names()
+    parent_exists = parent.exists()
+    parent_is_dir = parent.is_dir() if parent_exists else False
+    parent_rw = os.access(parent, os.W_OK) if parent_exists and parent_is_dir else False
+    parent_r = os.access(parent, os.R_OK) if parent_exists and parent_is_dir else False
+    db_exists = dbp.exists()
+    db_rw = os.access(dbp, os.R_OK | os.W_OK) if db_exists else False
+    db_r = os.access(dbp, os.R_OK) if db_exists else False
+    try:
+        pmode = oct(parent.stat().st_mode) if parent_exists else "n/a"
+    except OSError:
+        pmode = "?"
+    try:
+        fmode = oct(dbp.stat().st_mode) if db_exists else "n/a"
+    except OSError:
+        fmode = "?"
+    err = repr(exc) if exc is not None else ""
+    log.error(
+        "SQLite open failed | resolved_db_path=%s | install_root=%s | cwd=%s | euid=%s egid=%s (%s:%s) | "
+        "parent=%s exists=%s is_dir=%s mode=%s readable=%s writable=%s | "
+        "db_file_exists=%s mode=%s db_readable=%s db_writable=%s | env_INSTALL_DIR=%r env_DB_PATH=%r | err=%s",
+        dbp,
+        install_root().resolve(),
+        os.getcwd(),
+        os.geteuid(),
+        os.getegid(),
+        uname,
+        gname,
+        parent,
+        parent_exists,
+        parent_is_dir,
+        pmode,
+        parent_r,
+        parent_rw,
+        db_exists,
+        fmode,
+        db_r,
+        db_rw,
+        os.environ.get("SURVEYTRACE_INSTALL_DIR"),
+        os.environ.get("SURVEYTRACE_DB_PATH"),
+        err,
+    )
+
+
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=60)
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=60)
+    except sqlite3.OperationalError as e:
+        _log_db_open_diagnostics(e)
+        raise
     conn.row_factory = sqlite3.Row
     apply_surveytrace_pragmas(conn)
     return conn
+
+
+def _preflight_sqlite() -> bool:
+    """Return True if data dir + DB open look usable (WAL needs writable directory)."""
+    try:
+        dbp = DB_PATH.resolve()
+    except Exception:
+        dbp = DB_PATH
+    parent = dbp.parent
+    if not parent.is_dir():
+        log.error("preflight: data directory missing or not a directory: %s", parent)
+        return False
+    if not os.access(parent, os.W_OK | os.R_OK):
+        log.error("preflight: data directory not readable/writable for this process: %s", parent)
+        _log_db_open_diagnostics()
+        return False
+    try:
+        c = sqlite3.connect(str(dbp), timeout=10)
+        c.execute("SELECT 1")
+        c.close()
+    except sqlite3.OperationalError as e:
+        log.error("preflight: SQLite connect failed: %s", e)
+        _log_db_open_diagnostics(e)
+        return False
+    return True
 
 
 def _severity(cvss: float) -> str:
@@ -626,7 +721,15 @@ def process_one(qrow: dict) -> None:
 
 
 def main() -> None:
-    log.info("collector ingest worker started")
+    log.info(
+        "collector ingest worker started | install_root=%s | db_path=%s | ingest_dir=%s",
+        install_root().resolve(),
+        DB_PATH.resolve(),
+        INGEST_DIR,
+    )
+    while not _preflight_sqlite():
+        log.error("preflight failed; fix permissions or SURVEYTRACE_INSTALL_DIR/SURVEYTRACE_DB_PATH; retry in 30s")
+        time.sleep(30)
     with db_conn() as conn:
         _ensure_asset_metadata_lock_columns(conn)
         conn.commit()
@@ -665,7 +768,10 @@ def main() -> None:
                         )
                     log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
         except Exception as outer:
-            log.exception("worker loop error: %s", outer)
+            if isinstance(outer, sqlite3.OperationalError) and "unable to open database file" in str(outer):
+                log.error("worker loop: SQLite DB unavailable (%s); retry in %ds", outer, POLL_SECS)
+            else:
+                log.exception("worker loop error: %s", outer)
         time.sleep(POLL_SECS)
 
 

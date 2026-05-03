@@ -351,7 +351,7 @@ chmod 660 "$INSTALL_ROLE_FILE"
 ok "Permissions set"
 
 # =============================================================================
-# STEP 7 — systemd services (scanner daemon + scheduler daemon)
+# STEP 7 — systemd services (scanner + scheduler + collector ingest on master)
 # =============================================================================
 
 install_service() {
@@ -388,6 +388,7 @@ install_service() {
 
 install_service "surveytrace-daemon"
 install_service "surveytrace-scheduler"
+install_service "surveytrace-collector-ingest"
 
 # =============================================================================
 # STEP 8 — Web server config
@@ -690,6 +691,7 @@ echo -e "${GRN}║${NC}  Database:    $DB_FILE               "
 echo -e "${GRN}║${NC}  Daemon log:  $DATA_DIR/daemon.log              "
 echo -e "${GRN}║${NC}  Daemon svc:  systemctl status surveytrace-daemon    "
 echo -e "${GRN}║${NC}  Scheduler:   systemctl status surveytrace-scheduler  "
+echo -e "${GRN}║${NC}  Col.ingest:  systemctl status surveytrace-collector-ingest  "
 echo -e "${GRN}║${NC}  Firewall:    ufw status numbered                     "
 echo -e "${GRN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""

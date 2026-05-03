@@ -9,6 +9,8 @@ User=surveytrace
 Group=surveytrace
 SupplementaryGroups=www-data
 WorkingDirectory=/opt/surveytrace/daemon
+# Stable DB path (matches api/db.php) even if daemon/ is symlinked or script path differs.
+Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
 ExecStart=/opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/collector_ingest_worker.py
 Restart=on-failure
 RestartSec=5

@@ -35,6 +35,7 @@ except ImportError:
 from pathlib import Path
 
 from sqlite_pragmas import apply_surveytrace_pragmas
+from surveytrace_paths import main_db_path
 
 log = logging.getLogger("scheduler")
 logging.basicConfig(
@@ -42,7 +43,7 @@ logging.basicConfig(
     format="%(asctime)s [scheduler] %(message)s",
 )
 
-DB_PATH   = Path(__file__).parent.parent / "data" / "surveytrace.db"
+DB_PATH   = main_db_path()
 BACKUP_SCRIPT = Path(__file__).parent / "backup_db.sh"
 BACKUP_DIR_DEFAULT = DB_PATH.parent / "backups"
 POLL_SECS = 30   # check every 30 seconds
