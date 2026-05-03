@@ -1204,7 +1204,7 @@ if (is_readable($dbProbe)) {
       <div class="row-wrap gap10 mt8" style="align-items:stretch">
         <div class="help-box" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Grafana Infinity</div>
-          <div class="hint-micro">Choose <strong>Grafana Infinity / report summary pull</strong>. Endpoint: <code class="code-accent">/api/integrations_dashboard.php</code> (or <code class="code-accent">/api/integrations_report_summary.php</code>). Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>.</div>
+          <div class="hint-micro">Choose <strong>Grafana Infinity dashboard pull</strong> for the starter (one token on the Infinity datasource). Endpoints include <code class="code-accent">/api/integrations_dashboard.php</code> (<code class="code-accent">?view=trends|events|metrics|compliance</code>), report summary, and optional JSON metrics/events. Or use <strong>Grafana Infinity / report summary pull</strong> for dashboard + report summary only.</div>
         </div>
         <div class="help-box" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Grafana / Prometheus / Alloy</div>
@@ -1232,6 +1232,7 @@ if (is_readable($dbProbe)) {
         <option value="prometheus_pull">Prometheus / Grafana metrics pull</option>
         <option value="json_events_pull">Splunk scripted input / JSON events pull</option>
         <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
+        <option value="grafana_infinity_pull">Grafana Infinity dashboard pull</option>
       </select>
       <label class="text-micro" style="align-self:center"><input type="checkbox" id="st-int-new-enabled" checked> Enabled</label>
       <button type="button" class="tbtn btn-xs" onclick="stIntegrationsCreate()">Create</button>
@@ -1299,6 +1300,7 @@ if (is_readable($dbProbe)) {
         <option value="prometheus_pull">Prometheus / Grafana metrics pull</option>
         <option value="json_events_pull">Splunk scripted input / JSON events pull</option>
         <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
+        <option value="grafana_infinity_pull">Grafana Infinity dashboard pull</option>
       </select>
       <label class="text-micro mb10" style="display:block"><input type="checkbox" id="st-int-edit-enabled"> Enabled</label>
       <div id="st-int-edit-row-endpoint">
@@ -6536,7 +6538,7 @@ function syncNvdKeyFormVisibility(configured) {
 }
 
 function stIntegrationIsPullType(t) {
-    return t === 'prometheus_pull' || t === 'json_events_pull' || t === 'report_summary_pull';
+    return t === 'prometheus_pull' || t === 'json_events_pull' || t === 'report_summary_pull' || t === 'grafana_infinity_pull';
 }
 
 function stIntegrationPullHelpHtml(type) {
@@ -6547,7 +6549,10 @@ function stIntegrationPullHelpHtml(type) {
         return 'Use this token with <code class="code-accent">/api/integrations_events.php</code>. Good for Splunk scripted or modular inputs.';
     }
     if (type === 'report_summary_pull') {
-        return 'Use this token with <code class="code-accent">/api/integrations_dashboard.php</code> or <code class="code-accent">/api/integrations_report_summary.php</code>. Good for Grafana Infinity.';
+        return 'Use this token with <code class="code-accent">/api/integrations_dashboard.php</code> or <code class="code-accent">/api/integrations_report_summary.php</code>. Good for Grafana Infinity when you only need those two routes.';
+    }
+    if (type === 'grafana_infinity_pull') {
+        return 'Use this token on the Grafana Infinity datasource (<code class="code-accent">Authorization: Bearer …</code>). Allowed: dashboard (<code class="code-accent">?view=…</code> slices), report summary, <code class="code-accent">/api/integrations_events.php?format=json</code>, <code class="code-accent">/api/integrations_metrics.php?format=json</code>. Not Prometheus text scrape.';
     }
     return '';
 }

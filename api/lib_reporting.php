@@ -1036,8 +1036,28 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
 }
 
 /**
+ * Convert SQLite-style scan job `finished_at` string (interpreted as UTC) to ISO-8601 with `Z` suffix
+ * (e.g. `2026-05-02T18:18:38Z`) for Grafana Infinity and other JSON consumers. Empty input → empty string.
+ */
+function st_reporting_sqlite_datetime_to_iso8601_z(string $sqlDatetime): string
+{
+    $s = trim($sqlDatetime);
+    if ($s === '') {
+        return '';
+    }
+    $t = strtotime($s . ' UTC');
+    if ($t === false) {
+        return '';
+    }
+
+    return gmdate('Y-m-d\TH:i:s\Z', $t);
+}
+
+/**
  * Trend points for UI: canonical keys, max 50 jobs per request.
  * Reuses {@see st_reporting_trends} (two batched GROUP BY queries on job_id IN (...), no per-job N+1).
+ *
+ * Each row includes `timestamp` (legacy SQLite-style, unchanged) and `timestamp_iso` (UTC ISO-8601 with `Z`).
  *
  * @return list<array<string,mixed>>
  */
@@ -1048,11 +1068,13 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter
     $out = [];
     foreach ($raw as $row) {
         $sid = (int) ($row['scope_id'] ?? 0);
+        $ts = (string) ($row['finished_at'] ?? '');
         $out[] = [
             'job_id'                     => (int) ($row['job_id'] ?? 0),
             'scope_id'                   => $sid,
             'scope_name'                 => $sid > 0 ? st_scan_scopes_resolve_name($db, $sid) : null,
-            'timestamp'                  => (string) ($row['finished_at'] ?? ''),
+            'timestamp'                  => $ts,
+            'timestamp_iso'              => st_reporting_sqlite_datetime_to_iso8601_z($ts),
             'asset_count'                => (int) ($row['assets'] ?? 0),
             'open_findings_total'        => (int) ($row['open_findings_total'] ?? 0),
             'open_findings_by_severity' => is_array($row['open_findings_by_severity'] ?? null)

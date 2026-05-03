@@ -9,8 +9,8 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_integrations.php';
 
 $db = st_db();
-$pullCtx = st_integrations_pull_require_token_for($db, 'metrics');
 $fmt = strtolower(trim((string) ($_GET['format'] ?? 'prometheus')));
+$pullCtx = st_integrations_pull_require_token_for($db, 'metrics', ['metrics_format' => $fmt]);
 header('Cache-Control: no-store');
 
 if ($fmt !== 'json' && $fmt !== 'prometheus') {

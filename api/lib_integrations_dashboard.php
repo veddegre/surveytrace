@@ -81,3 +81,27 @@ function st_integrations_build_dashboard_bundle(PDO $db, ?int $scopeFilter, int 
         'latest_done_job_id' => $latest,
     ];
 }
+
+/** Valid `?view=` values for raw JSON slices (no bundle envelope). */
+function st_integrations_dashboard_view_valid(string $view): bool
+{
+    return in_array($view, ['trends', 'events', 'metrics', 'compliance'], true);
+}
+
+/**
+ * Raw slice for Infinity (?view=) — array or associative array (object in JSON).
+ *
+ * @param array<string, mixed> $bundle Output of {@see st_integrations_build_dashboard_bundle} before `pull_client` is added
+ *
+ * @return array<int|string, mixed>
+ */
+function st_integrations_dashboard_raw_payload_for_view(string $view, array $bundle): array
+{
+    return match ($view) {
+        'trends' => is_array($bundle['trends_summary'] ?? null) ? $bundle['trends_summary'] : [],
+        'events' => is_array($bundle['recent_events'] ?? null) ? $bundle['recent_events'] : [],
+        'metrics' => is_array($bundle['live_metrics'] ?? null) ? $bundle['live_metrics'] : [],
+        'compliance' => is_array($bundle['compliance_snapshot'] ?? null) ? $bundle['compliance_snapshot'] : [],
+        default => [],
+    };
+}

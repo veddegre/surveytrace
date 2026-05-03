@@ -344,20 +344,34 @@ Canonical event payloads and producer mapping live in **`api/lib_reporting_event
 #### Storage and admin API
 
 - **Migrations:** `migration_phase14_1_integrations_v1` creates **`integrations`**. `migration_phase14_1_integrations_per_pull_token_v1` adds **`token_hash`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`** (bcrypt hash only; never plaintext). **`migration_phase16_remove_legacy_integrations_pull_token_v1`** removes any unused **`config.integrations_pull_token_bcrypt`** row from older installs. Fresh **`sql/schema.sql`** includes the same integration columns.
-- **Types (internal):** `splunk_hec`, `syslog`, `webhook`, `loki`, `prometheus_pull`, `json_events_pull`, `report_summary_pull`. The UI maps these to friendly labels (e.g. **Grafana Infinity / report summary pull**). The three **`*_pull`** types are **pull/API rows** only: each **enabled** row whose bearer verifies for a route may access only the endpoints mapped to that type (see table below). Push types never accept pull bearer auth on those URLs.
+- **Types (internal):** `splunk_hec`, `syslog`, `webhook`, `loki`, `prometheus_pull`, `json_events_pull`, `report_summary_pull`, `grafana_infinity_pull`. The UI maps these to friendly labels. The **`*_pull`** types are **pull/API rows** only: each **enabled** row whose bearer verifies for a route may access only the endpoints mapped to that type (see table below). Push types never accept pull bearer auth on those URLs.
 - **Admin HTTP:** **`GET /api/integrations.php`** — list rows plus **`per_integration_pull_token_configured`** (whether any **enabled** pull row has a bcrypt **`token_hash`** for the pull types). Never returns **`token_hash`** or raw secrets. **`POST /api/integrations.php`** (CSRF, admin): `action` = `create` \| `update` \| `delete` \| `test` \| `sample` \| **`rotate_token`** (body: **`integration_id`**, pull types only). List rows include **`type_label`**, **`mode`** (`push` \| `pull`), **`destination_summary`** (push destination or pull API paths), and for pull types only **`token_configured`**, **`token_created_at`**, **`token_last_used_at`**, **`token_last_used_ip`**. **`auth_secret_clear`** on update clears stored push secrets. Changing **`type`** away from a pull type clears that row’s pull token fields. Saving a pull type clears **`endpoint_url`**, **`host`**, **`port`**, and **`auth_secret`** on the server.
 
 #### Per-integration pull tokens
 
-- **Recommended:** one **`integrations`** row per external consumer (e.g. one **`report_summary_pull`** for Grafana Infinity, one **`json_events_pull`** for a Splunk scripted input). Use **Generate / Rotate token** on that row; rotating one consumer does not change another’s hash.
+- **Recommended:** one **`integrations`** row per external consumer (e.g. one **`grafana_infinity_pull`** for Grafana Infinity + starter dashboard, one **`report_summary_pull`** if you only need dashboard/report summary without other Grafana JSON routes, one **`json_events_pull`** for Splunk scripted input). Use **Generate / Rotate token** on that row; rotating one consumer does not change another’s hash.
 - **Per-row storage:** **`password_hash`** in **`integrations.token_hash`**. **`POST … rotate_token`** with **`integration_id`** returns **`token`** once; afterward only **`token_configured`** and timestamps appear in lists.
-- **Auth header / query:** **`Authorization: Bearer <token>`** or **`?token=`** (Bearer is preferred for logs). Only **enabled** integrations whose **type** matches the route are candidates; wrong type, disabled row, or bad token → **401**. If **no** enabled pull row for that route has a usable token hash, the route returns **503** with a short plain-text hint. Deleted rows remove the hash with the row.
+- **Auth header / query:** **`Authorization: Bearer <token>`** or **`?token=`** (Bearer is preferred for logs). Only **enabled** integrations whose **type** matches the route are candidates; wrong type, disabled row, or bad token → **401** JSON (`invalid token for this endpoint` / `token required`). If **no** enabled pull row for that route has a usable token hash, the route returns **503** JSON (`no enabled pull integration token configured for this endpoint`). Deleted rows remove the hash with the row.
+
+#### Pull endpoints vs integration types (Grafana / API clients)
+
+**Tokens are endpoint-specific.** A **`report_summary_pull`** token **will not** work on **`GET /api/integrations_events.php`**. A **`json_events_pull`** token **will not** work on **`GET /api/integrations_dashboard.php`** (or **`integrations_report_summary.php`**). A **`grafana_infinity_pull`** token works on the Grafana-oriented URLs listed below (still **not** on Prometheus **text** metrics). Use the integration **type** that matches the URL you call; rotate tokens per row under **Integrations**.
+
+| Endpoint | Use case | Required integration type(s) | Token source | Notes |
+|----------|-----------|-------------------------------|--------------|--------|
+| **`GET /api/integrations_dashboard.php`** | Full bundle **or** raw slices **`?view=trends`**, **`events`**, **`metrics`**, **`compliance`** | **`report_summary_pull`** or **`grafana_infinity_pull`** | Bearer or `?token=` | Raw **`view=`** responses are JSON only (no `{ "ok": true, … }` envelope). Full bundle unchanged without **`view`**. |
+| **`GET /api/integrations_report_summary.php`** | Slim summary JSON | **`report_summary_pull`** or **`grafana_infinity_pull`** | Bearer or `?token=` | |
+| **`GET /api/integrations_events.php`** | Events **`format=json`** or **`jsonl`** | **`json_events_pull`**; **`grafana_infinity_pull`** allowed for **`format=json`** only | Bearer or `?token=` | **`jsonl`** → **`json_events_pull`** only. |
+| **`GET /api/integrations_metrics.php`** | Prometheus text (default) or **`?format=json`** | **`prometheus_pull`**; **`grafana_infinity_pull`** allowed for **`format=json`** only | Bearer or `?token=` | Prometheus **text** scrape → **`prometheus_pull`** only. |
+
+**Grafana starter:** prefer **`grafana_infinity_pull`** + datasource **`Authorization`** (see **`integrations/starter/grafana/README.md`**). **`report_summary_pull`** remains valid for dashboard/report summary only.
 
 #### Choosing a type (quick reference)
 
 | You are integrating… | Choose (UI label) | Internal `type` |
 |------------------------|-------------------|-----------------|
-| Grafana Infinity / JSON panels | **Grafana Infinity / report summary pull** | **`report_summary_pull`** |
+| Grafana Infinity (starter dashboard; optional JSON metrics/events) | **Grafana Infinity dashboard pull** | **`grafana_infinity_pull`** |
+| Grafana Infinity / JSON panels (dashboard + report summary only) | **Grafana Infinity / report summary pull** | **`report_summary_pull`** |
 | Prometheus scrape, Grafana / Alloy metrics | **Prometheus / Grafana metrics pull** | **`prometheus_pull`** |
 | Splunk HEC receiver | **Splunk HEC push** | **`splunk_hec`** |
 | Splunk scripted or modular input polling JSONL | **Splunk scripted input / JSON events pull** | **`json_events_pull`** |
@@ -371,25 +385,30 @@ Canonical event payloads and producer mapping live in **`api/lib_reporting_event
 
 | Integration `type` | Allowed pull routes |
 |--------------------|---------------------|
-| **`prometheus_pull`** | **`GET /api/integrations_metrics.php`** only |
-| **`json_events_pull`** | **`GET /api/integrations_events.php`** only |
-| **`report_summary_pull`** | **`GET /api/integrations_report_summary.php`** and **`GET /api/integrations_dashboard.php`** |
+| **`prometheus_pull`** | **`GET /api/integrations_metrics.php`** (including default Prometheus text) |
+| **`json_events_pull`** | **`GET /api/integrations_events.php`** (including **`format=jsonl`**) |
+| **`report_summary_pull`** | **`GET /api/integrations_report_summary.php`**, **`GET /api/integrations_dashboard.php`** |
+| **`grafana_infinity_pull`** | **`GET /api/integrations_dashboard.php`**, **`GET /api/integrations_report_summary.php`**, **`GET /api/integrations_events.php?format=json`**, **`GET /api/integrations_metrics.php?format=json`** |
 
 | Endpoint | Notes |
 |----------|--------|
-| **`GET /api/integrations_metrics.php`** | Default: **Prometheus** text. **`?format=json`** returns **`surveytrace.integrations.metrics.v1`** (… **`scope_context`** …) plus optional **`pull_client`** (`integration_id`, `integration_name`, `integration_type`). |
-| **`GET /api/integrations_dashboard.php`** | **Single JSON bundle** for scripted clients / Grafana Infinity (…). Includes **`pull_client`** when authenticated. |
-| **`GET /api/integrations_events.php?since=…&limit=…&format=json\|jsonl`** | … JSON envelope includes **`pull_client`** for **`format=json`** only. |
-| **`GET /api/integrations_report_summary.php?scope_id=…`** | … includes **`pull_client`**. |
+| **`GET /api/integrations_metrics.php`** | Default: **Prometheus** text (**`prometheus_pull`** only). **`?format=json`**: **`prometheus_pull`** or **`grafana_infinity_pull`**. |
+| **`GET /api/integrations_dashboard.php`** | Full bundle: **`report_summary_pull`** or **`grafana_infinity_pull`**. Optional **`?view=trends|events|metrics|compliance`** returns **raw JSON** slice (no **`pull_client`** on that path). |
+| **`GET /api/integrations_events.php?since=…&limit=…&format=json\|jsonl`** | **`format=jsonl`**: **`json_events_pull`** only. **`format=json`**: **`json_events_pull`** or **`grafana_infinity_pull`**. |
+| **`GET /api/integrations_report_summary.php?scope_id=…`** | **`report_summary_pull`** or **`grafana_infinity_pull`**. Includes **`pull_client`**. |
 
 Successful per-integration auth updates **`token_last_used_at`** / **`token_last_used_ip`** best-effort (failure does not fail the request).
 
 #### Example `curl` (replace host and tokens)
 
 ```bash
-# Grafana / Infinity — dashboard bundle (report_summary_pull token)
-curl -fsS -H 'Authorization: Bearer st_int_YOUR_REPORT_SUMMARY_PULL_TOKEN' \
+# Grafana / Infinity — dashboard bundle (report_summary_pull or grafana_infinity_pull token)
+curl -fsS -H 'Authorization: Bearer st_int_YOUR_PULL_TOKEN' \
   'https://surveytrace.example.com/api/integrations_dashboard.php?event_limit=50'
+
+# Raw trends slice for Infinity (?view=trends)
+curl -fsS -H 'Authorization: Bearer st_int_YOUR_PULL_TOKEN' \
+  'https://surveytrace.example.com/api/integrations_dashboard.php?view=trends&trend_limit=20'
 
 # Splunk / scripts — JSON events (json_events_pull token)
 curl -fsS -H 'Authorization: Bearer st_int_YOUR_JSON_EVENTS_PULL_TOKEN' \
@@ -407,7 +426,7 @@ Shipped under **`integrations/starter/`** (also copied to **`/opt/surveytrace/in
 | Path | Purpose |
 |------|---------|
 | **`integrations/starter/splunk_surveytrace/`** | Splunk app: **`app.conf`**, **`macros.conf`**, **`props.conf`** (**`surveytrace:reporting:event`**), **`default/inputs.conf`** + **`bin/surveytrace_events.py`** for optional JSONL pull, starter **saved searches** and Simple XML **dashboards**. See **`README.md`** in that folder. |
-| **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** (importable dashboard) + **`README.md`** for Infinity datasource install, **Bearer** header on the datasource (preferred), and variable **`surveytrace_base`**. Panels use **JSON** URLs against **`integrations_dashboard.php`** and **`integrations_events.php`** — **no Prometheus required**. |
+| **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** + **`README.md`**. Panels use **`GET /api/integrations_dashboard.php?view=…`** (raw JSON slices); configure **one** **`grafana_infinity_pull`** token on the **Infinity datasource** only (**no tokens in JSON**). **No Prometheus required** for the starter. |
 
 Canonical HEC / JSON lines should remain **`surveytrace.reporting.event.v1`** (see **`api/lib_reporting_event_model.php`**). Dashboard-friendly scope fields: top-level **`scope_id`** / **`scope_name`** on envelopes and (for JSON events, default) on each event via **`st_reporting_event_envelope_scope_fields()`**.
 
@@ -493,7 +512,7 @@ UPDATE scan_jobs SET scope_id = 4 WHERE id IN (101, 102, 103);
 | `compare_summary` | GET | viewer+ | Same as `compare`; **`diff_summary`** (counts + events + **`scope_alignment`** incl. scope names + **`unscoped_pair_uncertain`**) + **`scope_context`** |
 | `summary` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
 | `trends` | GET | viewer+ | `limit` default 30, max 200 (legacy shape: `finished_at`, `assets`) |
-| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — each point: `job_id`, **`scope_id`**, **`scope_name`**, `timestamp`, counts, `label`, drift fields; envelope **`scope_context`** |
+| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — each point: `job_id`, **`scope_id`**, **`scope_name`**, `timestamp` (legacy SQLite-style), **`timestamp_iso`** (UTC ISO-8601 `…Z` for Grafana), counts, `label`, drift fields; envelope **`scope_context`** |
 | `compliance` | GET | viewer+ | `job_id`; optional `vs_baseline=1`; job **`scope_id`** / **`scope_name`** + **`scope_context`** |
 | `baseline` | GET | viewer+ | Current baseline config + effective id |
 | `baseline_debug` | GET | **admin** | Validation detail for baseline |

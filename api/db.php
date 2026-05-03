@@ -1030,6 +1030,26 @@ function st_json(mixed $data, int $status = 200): never {
     exit;
 }
 
+/**
+ * Emit JSON body only (no SurveyTrace envelope). Used for Grafana Infinity ?view= slices on pull APIs.
+ */
+function st_json_raw(mixed $data, int $status = 200): never
+{
+    if (! headers_sent()) {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: no-store');
+    }
+    $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+    $out = json_encode($data, $flags);
+    if ($out === false) {
+        $out = '{"error":"json_encode_failed"}';
+    }
+    echo $out;
+    exit;
+}
+
 // ---------------------------------------------------------------------------
 // Input helpers
 // ---------------------------------------------------------------------------

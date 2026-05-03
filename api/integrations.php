@@ -38,7 +38,7 @@ if ($action === 'rotate_token') {
         st_json(['ok' => false, 'error' => 'integration not found'], 404);
     }
     if (! st_integrations_is_pull_type((string) ($row['type'] ?? ''))) {
-        st_json(['ok' => false, 'error' => 'rotate_token applies to prometheus_pull, json_events_pull, or report_summary_pull only'], 400);
+        st_json(['ok' => false, 'error' => 'rotate_token applies to pull integration types only'], 400);
     }
     $r = st_integrations_pull_token_rotate_for_row($db, $id);
     if (! $r['ok']) {
@@ -71,7 +71,21 @@ if ($action === 'debug_pull_token') {
         $route = 'dashboard';
     }
     $token = trim((string) ($body['token'] ?? ''));
-    $payload = st_integrations_debug_pull_token_payload($db, $id, $route, $token, $token !== '' ? 'request_body' : 'none');
+    $routeOpts = [];
+    if (array_key_exists('metrics_format', $body)) {
+        $routeOpts['metrics_format'] = strtolower(trim((string) $body['metrics_format']));
+    }
+    if (array_key_exists('events_format', $body)) {
+        $routeOpts['events_format'] = strtolower(trim((string) $body['events_format']));
+    }
+    $payload = st_integrations_debug_pull_token_payload(
+        $db,
+        $id,
+        $route,
+        $token,
+        $token !== '' ? 'request_body' : 'none',
+        $routeOpts
+    );
     st_json(['ok' => true] + $payload);
 }
 

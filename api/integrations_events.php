@@ -12,7 +12,9 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_integrations.php';
 
 $db = st_db();
-$pullCtx = st_integrations_pull_require_token_for($db, 'events');
+
+$fmt = strtolower(trim((string) ($_GET['format'] ?? 'json')));
+$pullCtx = st_integrations_pull_require_token_for($db, 'events', ['events_format' => $fmt]);
 
 $since = trim((string) ($_GET['since'] ?? ''));
 if ($since === '') {
@@ -34,7 +36,6 @@ $sinceSql = $dt->format('Y-m-d H:i:s');
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 200;
 $limit = max(1, min(500, $limit));
 
-$fmt = strtolower(trim((string) ($_GET['format'] ?? 'json')));
 if ($fmt !== 'json' && $fmt !== 'jsonl') {
     http_response_code(400);
     header('Content-Type: text/plain; charset=UTF-8');

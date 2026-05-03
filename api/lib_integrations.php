@@ -24,6 +24,7 @@ function st_integrations_types_all(): array
         'prometheus_pull',
         'json_events_pull',
         'report_summary_pull',
+        'grafana_infinity_pull',
     ];
 }
 
@@ -35,7 +36,7 @@ function st_integrations_type_valid(string $t): bool
 /** @return list<string> */
 function st_integrations_list_types_pull(): array
 {
-    return ['prometheus_pull', 'json_events_pull', 'report_summary_pull'];
+    return ['prometheus_pull', 'json_events_pull', 'report_summary_pull', 'grafana_infinity_pull'];
 }
 
 function st_integrations_is_pull_type(string $t): bool
@@ -53,8 +54,9 @@ function st_integrations_type_display_label(string $t): string
         'loki'                => 'Grafana Loki push',
         'prometheus_pull'     => 'Prometheus / Grafana metrics pull',
         'json_events_pull'    => 'Splunk scripted input / JSON events pull',
-        'report_summary_pull' => 'Grafana Infinity / report summary pull',
-        default               => $t,
+        'report_summary_pull'     => 'Grafana Infinity / report summary pull',
+        'grafana_infinity_pull'   => 'Grafana Infinity dashboard pull',
+        default                   => $t,
     };
 }
 
@@ -62,9 +64,10 @@ function st_integrations_type_display_label(string $t): string
 function st_integrations_pull_endpoint_display(string $type): string
 {
     return match ($type) {
-        'prometheus_pull'     => '/api/integrations_metrics.php',
-        'json_events_pull'    => '/api/integrations_events.php',
-        'report_summary_pull' => '/api/integrations_dashboard.php and /api/integrations_report_summary.php',
+        'prometheus_pull'       => '/api/integrations_metrics.php',
+        'json_events_pull'      => '/api/integrations_events.php',
+        'report_summary_pull'   => '/api/integrations_dashboard.php and /api/integrations_report_summary.php',
+        'grafana_infinity_pull' => '/api/integrations_dashboard.php (?view=…), /api/integrations_report_summary.php, /api/integrations_events.php?format=json, /api/integrations_metrics.php?format=json',
         default                 => '',
     };
 }
@@ -91,16 +94,29 @@ function st_integrations_row_destination_summary(array $row): string
 }
 
 /**
- * Pull route keys: metrics | events | report_summary | dashboard (dashboard uses report_summary_pull rows).
+ * Pull route keys: metrics | events | report_summary | dashboard.
+ *
+ * Options (route-dependent):
+ * - `metrics_format`: `prometheus` (default) or `json` — `grafana_infinity_pull` is allowed only for `json`.
+ * - `events_format`: `json` (default) or `jsonl` — `grafana_infinity_pull` is allowed only for `json`.
+ *
+ * @param array{metrics_format?:string, events_format?:string} $opts
  *
  * @return list<string>
  */
-function st_integrations_pull_route_types(string $route): array
+function st_integrations_pull_route_types(string $route, array $opts = []): array
 {
+    $mf = strtolower(trim((string) ($opts['metrics_format'] ?? 'prometheus')));
+    $ef = strtolower(trim((string) ($opts['events_format'] ?? 'json')));
+
     return match ($route) {
-        'metrics' => ['prometheus_pull'],
-        'events' => ['json_events_pull'],
-        'report_summary', 'dashboard' => ['report_summary_pull'],
+        'metrics' => $mf === 'json'
+            ? ['prometheus_pull', 'grafana_infinity_pull']
+            : ['prometheus_pull'],
+        'events' => $ef === 'jsonl'
+            ? ['json_events_pull']
+            : ['json_events_pull', 'grafana_infinity_pull'],
+        'report_summary', 'dashboard' => ['report_summary_pull', 'grafana_infinity_pull'],
         default => [],
     };
 }
@@ -253,13 +269,13 @@ function st_integrations_pull_candidate_rows(PDO $db, array $types): array
 /**
  * @return array{integration_id:int, integration_name:string, integration_type:string}|null
  */
-function st_integrations_pull_resolve_context(PDO $db, string $route, string $plain): ?array
+function st_integrations_pull_resolve_context(PDO $db, string $route, string $plain, array $routeOpts = []): ?array
 {
     $plain = trim($plain);
     if ($plain === '') {
         return null;
     }
-    $types = st_integrations_pull_route_types($route);
+    $types = st_integrations_pull_route_types($route, $routeOpts);
     foreach (st_integrations_pull_candidate_rows($db, $types) as $r) {
         $hash = (string) ($r['token_hash'] ?? '');
         if ($hash === '' || ! password_verify($plain, $hash)) {
@@ -314,11 +330,13 @@ function st_integrations_pull_auth_failure_log(
 /**
  * Authenticate pull request; exits with JSON 401/503/500 on failure.
  *
+ * @param array{metrics_format?:string, events_format?:string} $routeOpts
+ *
  * @return array{integration_id:int, integration_name:string, integration_type:string}
  */
-function st_integrations_pull_require_token_for(PDO $db, string $route): array
+function st_integrations_pull_require_token_for(PDO $db, string $route, array $routeOpts = []): array
 {
-    $types = st_integrations_pull_route_types($route);
+    $types = st_integrations_pull_route_types($route, $routeOpts);
     if ($types === []) {
         st_integrations_pull_auth_failure_log($route, 'invalid_token', 'none', 0, []);
         st_json(['ok' => false, 'error' => 'invalid pull route'], 500);
@@ -339,7 +357,7 @@ function st_integrations_pull_require_token_for(PDO $db, string $route): array
         st_integrations_pull_auth_failure_log($route, 'missing_token', $source, count($candidates), $types);
         st_json(['ok' => false, 'error' => 'token required'], 401);
     }
-    $ctx = st_integrations_pull_resolve_context($db, $route, $plain);
+    $ctx = st_integrations_pull_resolve_context($db, $route, $plain, $routeOpts);
     if ($ctx === null) {
         $candidates = st_integrations_pull_candidate_rows($db, $types);
         st_integrations_pull_auth_failure_log($route, 'invalid_token', $source, count($candidates), $types);
@@ -378,7 +396,8 @@ function st_integrations_debug_pull_token_payload(
     int $integrationId,
     string $route,
     string $plainToken,
-    string $auth_source_detected
+    string $auth_source_detected,
+    array $routeOpts = []
 ): array {
     $row = st_integrations_get_by_id($db, $integrationId);
     $exists = $row !== null;
@@ -386,7 +405,7 @@ function st_integrations_debug_pull_token_payload(
     $enabled = $exists ? (int) ($row['enabled'] ?? 0) : 0;
     $hash = $exists ? trim((string) ($row['token_hash'] ?? '')) : '';
     $hashLooksStored = $hash !== '' && str_starts_with($hash, '$');
-    $allowed = st_integrations_pull_route_types($route);
+    $allowed = st_integrations_pull_route_types($route, $routeOpts);
     $routeAllowed = $exists && in_array($type, $allowed, true);
     $hashPrefix = 'none';
     if ($hashLooksStored) {
