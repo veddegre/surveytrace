@@ -92,6 +92,28 @@ Other types stay isolated: **`report_summary_pull`** → dashboard + report summ
 | Severity | Bar gauge | `…/integrations_dashboard.php?view=metrics` |
 | Compliance | Table | `…/integrations_dashboard.php?view=compliance` |
 
+## No data (empty panels) when Bearer is already configured
+
+Bearer on the Infinity datasource only applies to requests Grafana actually sends. The starter still needs the **right URL** and the **right datasource variable**; otherwise panels stay empty even though curl to your real host works.
+
+1. **Set `surveytrace_base` on the dashboard** (dropdown at the top after import).  
+   It ships with the placeholder **`https://surveytrace.example`**. Every panel URL is `${surveytrace_base}/api/…`. If you do not change it, Grafana requests **surveytrace.example**, not your instance (e.g. **`https://st.vedders.xyz`**). Infinity may block that host, or you get a non-SurveyTrace body — Stat/Table panels then show **No data**.  
+   **Fix:** set **`surveytrace_base`** to the **same** origin string as **Allowed hosts** on the datasource (scheme + host, **no** trailing slash, **no** path).
+
+2. **Query Inspector → Query**  
+   Check **HTTP status** and the **response body** (or error):  
+   - **401** with a small JSON error from SurveyTrace → auth or token type still wrong for that URL (see the **401** section below).  
+   - **200** with a normal metrics/trends JSON body but the panel is empty → rare; note the **Executed URL / request URL** and confirm it is your host.
+
+3. **`infinity` variable**  
+   Must point at the **same** Infinity datasource where Bearer and allowed hosts are configured (see variable description in the imported JSON).
+
+4. **Integration type**  
+   The Bearer value must be a **`grafana_infinity_pull`** token. Other pull types can return **401**, which often surfaces as empty panels rather than a friendly error.
+
+5. **Datasource access mode**  
+   Prefer **Server** (default for backend queries). **Browser** access can behave differently with headers and CORS; if you use Browser, confirm in the inspector that requests still succeed.
+
 ## Troubleshooting **401** from SurveyTrace (curl works, Grafana does not)
 
 **Symptom:** `curl -H 'Authorization: Bearer …' 'https://host/api/integrations_dashboard.php?view=metrics'` returns **200**, but Grafana panels return **401** and **Query Inspector** shows **`headers: []`** (or no `Authorization`).
@@ -114,7 +136,7 @@ Other types stay isolated: **`report_summary_pull`** → dashboard + report summ
    If Explore shows headers/auth but the dashboard does not, the dashboard was almost certainly using a **different** datasource before you fixed the variable — **save** the dashboard after correcting **`infinity`**.
 
 5. **HTTPS / host**  
-   `surveytrace_base` must match the host allowlisted on the datasource (scheme + host, no path).
+   `surveytrace_base` must match the host allowlisted on the datasource (scheme + host, no path). If you still have the import placeholder **`https://surveytrace.example`**, curl can succeed against your real host while Grafana does not — see **No data** above.
 
 6. **Wrong pull token type** (e.g. wrong integration row) still yields **401** JSON from SurveyTrace — use a **`grafana_infinity_pull`** token for this starter.
 

@@ -271,6 +271,7 @@
     "list": [
       {
         "current": { "selected": true, "text": "https://surveytrace.example", "value": "https://surveytrace.example" },
+        "description": "Replace with your real SurveyTrace origin. Must match Infinity \"Allowed hosts\" exactly (scheme + host, no path, no trailing slash). The import default is a placeholder — leaving it causes requests to the wrong host and panels show no data even when Bearer is set.",
         "hide": 0,
         "label": "SurveyTrace base URL",
         "name": "surveytrace_base",
@@ -283,6 +284,7 @@
       },
       {
         "current": { "selected": false, "text": "", "value": "" },
+        "description": "Choose the Infinity datasource where you configured Bearer and allowed hosts — not a second unauthenticated Infinity instance.",
         "hide": 0,
         "includeAll": false,
         "label": "Infinity datasource",
@@ -302,6 +304,6 @@
   "timezone": "browser",
   "title": "SurveyTrace starter (Infinity JSON)",
   "uid": "surveytrace-infinity-starter",
-  "version": 7,
+  "version": 8,
   "weekStart": ""
 }
