@@ -811,21 +811,13 @@ function st_migrate_phase14_1_integrations_v1(PDO $pdo): void
 }
 
 /**
- * Phase 14.1 — per-integration pull token hashes (Prometheus / events / report summary consumers).
- * Idempotent column adds on `integrations`.
+ * Idempotent: add pull-token columns on `integrations` if the table exists and any column is missing.
+ * Safe to call on every bootstrap (repairs installs where the migration row was recorded before the table existed).
  */
-function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
+function st_integrations_ensure_pull_token_columns(PDO $pdo): void
 {
-    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase14_1_integrations_per_pull_token_v1'")->fetchColumn();
-    if ($v === '1' || $v === 1) {
-        return;
-    }
     $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='integrations'")->fetchAll(PDO::FETCH_COLUMN);
     if (! is_array($tables) || ! in_array('integrations', $tables, true)) {
-        $pdo->exec(
-            "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
-        );
-
         return;
     }
     $cols = array_column($pdo->query('PRAGMA table_info(integrations)')->fetchAll(PDO::FETCH_ASSOC), 'name');
@@ -844,6 +836,46 @@ function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
     $addCol('token_created_at', 'ALTER TABLE integrations ADD COLUMN token_created_at TEXT');
     $addCol('token_last_used_at', 'ALTER TABLE integrations ADD COLUMN token_last_used_at TEXT');
     $addCol('token_last_used_ip', 'ALTER TABLE integrations ADD COLUMN token_last_used_ip TEXT');
+}
+
+/** True when `integrations` exists and all per-pull-token columns are present. */
+function st_integrations_pull_token_schema_ready(PDO $pdo): bool
+{
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='integrations'")->fetchAll(PDO::FETCH_COLUMN);
+    if (! is_array($tables) || ! in_array('integrations', $tables, true)) {
+        return false;
+    }
+    $cols = array_column($pdo->query('PRAGMA table_info(integrations)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    foreach (['token_hash', 'token_created_at', 'token_last_used_at', 'token_last_used_ip'] as $need) {
+        if (! in_array($need, $cols, true)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Phase 14.1 — per-integration pull token hashes (Prometheus / events / report summary consumers).
+ * Idempotent column adds on `integrations`.
+ */
+function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase14_1_integrations_per_pull_token_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        st_integrations_ensure_pull_token_columns($pdo);
+
+        return;
+    }
+    $tables = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='integrations'")->fetchAll(PDO::FETCH_COLUMN);
+    if (! is_array($tables) || ! in_array('integrations', $tables, true)) {
+        $pdo->exec(
+            "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
+        );
+
+        return;
+    }
+    st_integrations_ensure_pull_token_columns($pdo);
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase14_1_integrations_per_pull_token_v1', '1')"
     );

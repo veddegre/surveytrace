@@ -123,20 +123,80 @@ function st_integrations_any_row_pull_token_configured(PDO $db): bool
 }
 
 /**
+ * Raw Authorization header value (nginx/php-fpm often omits HTTP_AUTHORIZATION unless configured).
+ */
+function st_integrations_pull_authorization_header_raw(): string
+{
+    foreach ([$_SERVER['HTTP_AUTHORIZATION'] ?? null, $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null] as $v) {
+        if (is_string($v)) {
+            $v = trim($v);
+            if ($v !== '') {
+                return $v;
+            }
+        }
+    }
+    $scan = static function (?array $hdrs): string {
+        if (! is_array($hdrs)) {
+            return '';
+        }
+        foreach ($hdrs as $k => $v) {
+            if (strcasecmp((string) $k, 'Authorization') !== 0 || ! is_string($v)) {
+                continue;
+            }
+            $v = trim($v);
+            if ($v !== '') {
+                return $v;
+            }
+        }
+
+        return '';
+    };
+    if (function_exists('apache_request_headers')) {
+        $h = @apache_request_headers();
+        $found = $scan(is_array($h) ? $h : null);
+        if ($found !== '') {
+            return $found;
+        }
+    }
+    if (function_exists('getallheaders')) {
+        $h = @getallheaders();
+        $found = $scan(is_array($h) ? $h : null);
+        if ($found !== '') {
+            return $found;
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Plaintext pull token and how it was supplied (for logging; never log the token).
+ *
+ * @return array{plain:string, source:string} source: query_token|bearer_header|none
+ */
+function st_integrations_pull_token_from_request_meta(): array
+{
+    $q = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+    if ($q !== '') {
+        return ['plain' => $q, 'source' => 'query_token'];
+    }
+    $auth = st_integrations_pull_authorization_header_raw();
+    if ($auth !== '' && stripos($auth, 'Bearer ') === 0) {
+        $plain = trim(substr($auth, 7));
+        if ($plain !== '') {
+            return ['plain' => $plain, 'source' => 'bearer_header'];
+        }
+    }
+
+    return ['plain' => '', 'source' => 'none'];
+}
+
+/**
  * Verify pull request: Authorization: Bearer … or ?token=
  */
 function st_integrations_pull_token_from_request(): string
 {
-    $q = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
-    if ($q !== '') {
-        return $q;
-    }
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-    if (is_string($auth) && stripos($auth, 'Bearer ') === 0) {
-        return trim(substr($auth, 7));
-    }
-
-    return '';
+    return st_integrations_pull_token_from_request_meta()['plain'];
 }
 
 function st_integrations_pull_client_ip(): string
@@ -182,7 +242,8 @@ function st_integrations_pull_candidate_rows(PDO $db, array $types): array
     $st = $db->prepare(
         "SELECT id, name, type, token_hash FROM integrations
          WHERE enabled = 1 AND type IN ($ph)
-           AND token_hash IS NOT NULL AND TRIM(token_hash) != ''"
+           AND token_hash IS NOT NULL AND TRIM(token_hash) != ''
+           AND SUBSTR(TRIM(token_hash), 1, 1) = '\$'"
     );
     $st->execute($types);
 
@@ -194,6 +255,7 @@ function st_integrations_pull_candidate_rows(PDO $db, array $types): array
  */
 function st_integrations_pull_resolve_context(PDO $db, string $route, string $plain): ?array
 {
+    $plain = trim($plain);
     if ($plain === '') {
         return null;
     }
@@ -232,8 +294,25 @@ function st_integrations_pull_touch_used(PDO $db, int $integrationId, string $cl
     }
 }
 
+function st_integrations_pull_auth_failure_log(
+    string $route,
+    string $reason,
+    string $auth_source_detected,
+    int $candidate_count,
+    array $allowed_types
+): void {
+    @error_log('SurveyTrace.integrations ' . json_encode([
+        '_event'               => 'integrations.pull_auth_failed',
+        'route'                => $route,
+        'reason'               => $reason,
+        'auth_source_detected' => $auth_source_detected,
+        'candidate_count'      => $candidate_count,
+        'allowed_types'        => $allowed_types,
+    ], JSON_UNESCAPED_SLASHES));
+}
+
 /**
- * Authenticate pull request; exits with 401/503 on failure.
+ * Authenticate pull request; exits with JSON 401/503/500 on failure.
  *
  * @return array{integration_id:int, integration_name:string, integration_type:string}
  */
@@ -241,30 +320,30 @@ function st_integrations_pull_require_token_for(PDO $db, string $route): array
 {
     $types = st_integrations_pull_route_types($route);
     if ($types === []) {
-        http_response_code(500);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo "# surveytrace integrations: invalid pull route\n";
-        exit;
+        st_integrations_pull_auth_failure_log($route, 'invalid_token', 'none', 0, []);
+        st_json(['ok' => false, 'error' => 'invalid pull route'], 500);
+    }
+    if (! st_integrations_pull_token_schema_ready($db)) {
+        st_integrations_pull_auth_failure_log($route, 'schema_error', 'none', 0, $types);
+        st_json(['ok' => false, 'error' => 'database schema incomplete for pull integrations'], 500);
     }
     if (! st_integrations_pull_auth_available($db, $types)) {
-        http_response_code(503);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo "# surveytrace integrations: pull auth not configured (create an enabled pull integration for this route and generate a token)\n";
-        exit;
+        st_integrations_pull_auth_failure_log($route, 'no_candidates', 'none', 0, $types);
+        st_json(['ok' => false, 'error' => 'no enabled pull integration token configured for this endpoint'], 503);
     }
-    $plain = st_integrations_pull_token_from_request();
+    $meta = st_integrations_pull_token_from_request_meta();
+    $plain = $meta['plain'];
+    $source = $meta['source'];
     if ($plain === '') {
-        http_response_code(401);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo "# unauthorized\n";
-        exit;
+        $candidates = st_integrations_pull_candidate_rows($db, $types);
+        st_integrations_pull_auth_failure_log($route, 'missing_token', $source, count($candidates), $types);
+        st_json(['ok' => false, 'error' => 'token required'], 401);
     }
     $ctx = st_integrations_pull_resolve_context($db, $route, $plain);
     if ($ctx === null) {
-        http_response_code(401);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo "# unauthorized\n";
-        exit;
+        $candidates = st_integrations_pull_candidate_rows($db, $types);
+        st_integrations_pull_auth_failure_log($route, 'invalid_token', $source, count($candidates), $types);
+        st_json(['ok' => false, 'error' => 'invalid token for this endpoint'], 401);
     }
     if (($ctx['integration_id'] ?? 0) > 0) {
         st_integrations_pull_touch_used($db, (int) $ctx['integration_id'], st_integrations_pull_client_ip());
@@ -290,6 +369,49 @@ function st_integrations_pull_client_public(array $ctx): array
 }
 
 /**
+ * Admin diagnostic: verify a plaintext token against one integration row (never returns token or hash).
+ *
+ * @return array<string, mixed>
+ */
+function st_integrations_debug_pull_token_payload(
+    PDO $db,
+    int $integrationId,
+    string $route,
+    string $plainToken,
+    string $auth_source_detected
+): array {
+    $row = st_integrations_get_by_id($db, $integrationId);
+    $exists = $row !== null;
+    $type = $exists ? strtolower(trim((string) ($row['type'] ?? ''))) : '';
+    $enabled = $exists ? (int) ($row['enabled'] ?? 0) : 0;
+    $hash = $exists ? trim((string) ($row['token_hash'] ?? '')) : '';
+    $hashLooksStored = $hash !== '' && str_starts_with($hash, '$');
+    $allowed = st_integrations_pull_route_types($route);
+    $routeAllowed = $exists && in_array($type, $allowed, true);
+    $hashPrefix = 'none';
+    if ($hashLooksStored) {
+        $hashPrefix = strlen($hash) <= 16 ? $hash : substr($hash, 0, 16);
+    }
+    $pv = null;
+    if ($plainToken !== '') {
+        $pv = $hashLooksStored && password_verify($plainToken, $hash);
+    }
+
+    return [
+        'integration_exists'      => $exists,
+        'integration_id'          => $integrationId,
+        'type'                    => $type,
+        'enabled'                 => $enabled,
+        'token_configured'        => $hashLooksStored,
+        'route'                   => $route,
+        'route_allowed_for_type'  => $routeAllowed,
+        'hash_prefix'             => $hashPrefix,
+        'password_verify_result'  => $pv,
+        'auth_source_detected'    => $auth_source_detected,
+    ];
+}
+
+/**
  * Per-integration pull token rotation (plaintext returned once by caller).
  *
  * @return array{ok:bool, token?:string, error?:string}
@@ -298,6 +420,9 @@ function st_integrations_pull_token_rotate_for_row(PDO $db, int $id): array
 {
     if ($id <= 0) {
         return ['ok' => false, 'error' => 'invalid_id'];
+    }
+    if (! st_integrations_pull_token_schema_ready($db)) {
+        return ['ok' => false, 'error' => 'pull_token_schema_missing'];
     }
     $raw = 'st_int_' . bin2hex(random_bytes(24));
     $hash = password_hash($raw, PASSWORD_DEFAULT);

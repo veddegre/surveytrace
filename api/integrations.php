@@ -42,7 +42,11 @@ if ($action === 'rotate_token') {
     }
     $r = st_integrations_pull_token_rotate_for_row($db, $id);
     if (! $r['ok']) {
-        st_json(['ok' => false, 'error' => $r['error'] ?? 'rotate_failed'], 500);
+        $err = (string) ($r['error'] ?? 'rotate_failed');
+        if ($err === 'pull_token_schema_missing') {
+            st_json(['ok' => false, 'error' => 'pull token storage columns are missing; run database migrations'], 500);
+        }
+        st_json(['ok' => false, 'error' => $err !== '' ? $err : 'rotate_failed'], 500);
     }
     @error_log('SurveyTrace.integrations ' . json_encode([
         '_event' => 'integrations.pull_token_rotated',
@@ -55,6 +59,20 @@ if ($action === 'rotate_token') {
         'token_reveal_once' => true,
         'message'           => 'Copy this token now. It will not be shown again.',
     ]);
+}
+
+if ($action === 'debug_pull_token') {
+    $id = (int) ($body['integration_id'] ?? 0);
+    if ($id <= 0) {
+        st_json(['ok' => false, 'error' => 'integration_id required'], 400);
+    }
+    $route = trim((string) ($body['route'] ?? 'dashboard'));
+    if ($route === '') {
+        $route = 'dashboard';
+    }
+    $token = trim((string) ($body['token'] ?? ''));
+    $payload = st_integrations_debug_pull_token_payload($db, $id, $route, $token, $token !== '' ? 'request_body' : 'none');
+    st_json(['ok' => true] + $payload);
 }
 
 if ($action === 'create') {
