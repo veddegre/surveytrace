@@ -113,6 +113,22 @@ function st_collector_bootstrap_schema(): void {
     );
     $db->exec("CREATE INDEX IF NOT EXISTS idx_collector_ingest_pending ON collector_ingest_queue(status, next_attempt_at, created_at)");
 
+    // Deferred run-wide executive AI summary (Ollama/cloud) — drained by collector_ingest_worker background thread.
+    $db->exec(
+        "CREATE TABLE IF NOT EXISTS collector_ingest_exec_ai_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at DATETIME,
+            error_msg TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            processing_started_at DATETIME,
+            UNIQUE(job_id)
+        )"
+    );
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_collector_exec_ai_pending ON collector_ingest_exec_ai_queue(status, next_attempt_at, created_at)");
+
     $db->exec(
         "CREATE TABLE IF NOT EXISTS collector_rate_limits (
             collector_id INTEGER NOT NULL,

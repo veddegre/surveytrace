@@ -724,6 +724,8 @@ sudo journalctl -u surveytrace-collector-ingest -n 40 --no-pager
 
 **If logs show `sqlite3.OperationalError: unable to open database file`:** the worker resolves the DB via `SURVEYTRACE_INSTALL_DIR` (set in **`surveytrace-collector-ingest.service`**) and `data/surveytrace.db`, same as PHP’s `api/db.php`. Ensure **`/opt/surveytrace/data`** is directory **readable and writable** by user **`surveytrace`** (WAL needs write on the directory), and that **`surveytrace.db`** is owned **`surveytrace:www-data`** with mode **660** as applied by **`setup.sh` / `deploy.sh`**. After fixing permissions, restart: `sudo systemctl restart surveytrace-collector-ingest`.
 
+**Executive AI summary (run-wide):** after all collector chunks are applied and master CVE/per-asset enrichment finishes, the worker **queues** run-wide Ollama/cloud summary work in SQLite table **`collector_ingest_exec_ai_queue`** and processes it on a **separate daemon thread** so slow or timing-out models **do not block** chunk ingest or mark ingest failed. `summary_json` gains **`master_executive_ai_followup`**: `queued` → `done` (or `abandoned_*` after max retries). Optional wall clock cap: **`SURVEYTRACE_EXEC_AI_WALL_SECONDS`** (default **120**, clamped 20–900).
+
 To **re-queue** a stuck chunk after the DB is healthy (example job **44**), mark the corresponding `collector_ingest_queue` row **`pending`** again (only if the JSON file still exists under `data/collector_ingest/`):
 
 ```bash

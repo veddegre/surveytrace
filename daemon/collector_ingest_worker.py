@@ -2,17 +2,23 @@
 SurveyTrace collector ingest worker.
 
 Reads collector_ingest_queue rows, applies chunk payloads into scan tables/assets/findings.
-Then applies CVE and AI enrichment centrally on the master server.
+Then applies CVE and per-asset AI enrichment centrally on the master server.
+
+Run-wide executive AI summary (Ollama/cloud) is deferred to collector_ingest_exec_ai_queue and
+processed by a background thread so slow or timing-out model calls never fail chunk ingest.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
 import sqlite3
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
 from surveytrace_paths import data_dir, install_root, main_db_path
@@ -34,6 +40,18 @@ import scanner_daemon  # type: ignore
 from sqlite_pragmas import apply_surveytrace_pragmas
 
 _INGEST_ROW_COMMIT_INTERVAL = 100
+_EXEC_AI_FOLLOWUP_MAX_ATTEMPTS = 12
+_EXEC_AI_POLL_SEC = 2
+_EXEC_AI_STALE_PROCESSING_MIN = 30
+
+
+def _exec_ai_wall_seconds() -> float:
+    raw = (os.environ.get("SURVEYTRACE_EXEC_AI_WALL_SECONDS") or "120").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        v = 120.0
+    return max(20.0, min(900.0, v))
 
 
 def _ensure_asset_metadata_lock_columns(conn: sqlite3.Connection) -> None:
@@ -48,6 +66,233 @@ def _ensure_asset_metadata_lock_columns(conn: sqlite3.Connection) -> None:
             log.info("collector ingest: added assets.%s", col)
         except sqlite3.OperationalError:
             pass
+
+
+def _ensure_collector_exec_ai_queue(conn: sqlite3.Connection) -> None:
+    """Match api/lib_collectors.php — worker may start before PHP touches collectors."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS collector_ingest_exec_ai_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at DATETIME,
+            error_msg TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            processing_started_at DATETIME,
+            UNIQUE(job_id)
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_collector_exec_ai_pending ON collector_ingest_exec_ai_queue(status, next_attempt_at, created_at)"
+    )
+
+
+def _enqueue_executive_ai_followup(conn: sqlite3.Connection, job_id: int) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO collector_ingest_exec_ai_queue (job_id, status) VALUES (?, 'pending')",
+        (job_id,),
+    )
+
+
+def _run_executive_summary_bounded(summary_doc: dict, job_id: int) -> dict:
+    """Run executive AI with a hard wall-clock cap (HTTP timeouts may still be higher in edge cases)."""
+    wall = _exec_ai_wall_seconds()
+    payload = copy.deepcopy(summary_doc)
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = pool.submit(_master_refresh_scan_executive_summary, payload, job_id)
+        try:
+            return fut.result(timeout=wall)
+        except FuturesTimeoutError as e:
+            raise TimeoutError(f"executive_ai_wall_{wall}s") from e
+    finally:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            pool.shutdown(wait=False)
+
+
+def _reclaim_stale_exec_ai_rows(conn: sqlite3.Connection) -> None:
+    mins = int(_EXEC_AI_STALE_PROCESSING_MIN)
+    if mins < 1:
+        mins = 30
+    conn.execute(
+        f"""UPDATE collector_ingest_exec_ai_queue
+           SET status='pending',
+               error_msg=CASE
+                 WHEN error_msg IS NULL OR error_msg = '' THEN 'stale_processing_reclaimed'
+                 ELSE error_msg || '; stale_processing_reclaimed'
+               END
+           WHERE status='processing'
+             AND processing_started_at IS NOT NULL
+             AND datetime(processing_started_at) < datetime('now', '-{mins} minutes')"""
+    )
+
+
+def _process_one_exec_ai_followup() -> None:
+    """Drain at most one deferred executive-summary job (separate from chunk ingest loop)."""
+    qid: int | None = None
+    job_id: int | None = None
+    attempts = 0
+    with db_conn() as conn:
+        _reclaim_stale_exec_ai_rows(conn)
+        conn.commit()
+        row = conn.execute(
+            """SELECT id, job_id, attempts FROM collector_ingest_exec_ai_queue
+               WHERE status='pending'
+                 AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
+               ORDER BY created_at ASC LIMIT 1"""
+        ).fetchone()
+        if row is None:
+            return
+        qid = int(row["id"])
+        job_id = int(row["job_id"])
+        attempts = int(row["attempts"] or 0)
+        cur = conn.execute(
+            """UPDATE collector_ingest_exec_ai_queue
+               SET status='processing', processing_started_at=datetime('now')
+               WHERE id=? AND status='pending'""",
+            (qid,),
+        )
+        if cur.rowcount != 1:
+            return
+        conn.commit()
+
+    assert qid is not None and job_id is not None
+    t0 = time.monotonic()
+    try:
+        with db_conn() as conn:
+            srow = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+            raw = str(srow["summary_json"] or "") if srow else ""
+            summary_in: dict = {}
+            if raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        summary_in = parsed
+                except Exception:
+                    summary_in = {}
+        new_summary = _run_executive_summary_bounded(summary_in, job_id)
+        if isinstance(new_summary, dict):
+            new_summary["master_executive_ai_followup"] = "done"
+        elapsed = time.monotonic() - t0
+        with db_conn() as conn:
+            conn.execute(
+                "UPDATE scan_jobs SET summary_json=? WHERE id=?",
+                (json.dumps(new_summary, separators=(",", ":"), ensure_ascii=False), job_id),
+            )
+            conn.execute("DELETE FROM collector_ingest_exec_ai_queue WHERE id=?", (qid,))
+            conn.commit()
+        log.info("[job %d] executive AI summary follow-up finished in %.1fs", job_id, elapsed)
+    except TimeoutError:
+        elapsed = time.monotonic() - t0
+        wall = _exec_ai_wall_seconds()
+        log.warning(
+            "[job %d] executive AI summary timed out after %.1fs (wall_limit=%.1fs); will retry",
+            job_id,
+            elapsed,
+            wall,
+        )
+        delay = min(300, int(10 * (2 ** min(6, attempts))))
+        with db_conn() as conn:
+            if attempts + 1 >= _EXEC_AI_FOLLOWUP_MAX_ATTEMPTS:
+                conn.execute(
+                    "DELETE FROM collector_ingest_exec_ai_queue WHERE id=?",
+                    (qid,),
+                )
+                srow2 = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+                doc: dict = {}
+                try:
+                    r2 = str(srow2["summary_json"] or "") if srow2 else ""
+                    doc = json.loads(r2) if r2.strip() else {}
+                    if not isinstance(doc, dict):
+                        doc = {}
+                except Exception:
+                    doc = {}
+                doc["master_executive_ai_followup"] = "abandoned_timeout"
+                if str(doc.get("ai_scan_summary_status") or "") != "ok":
+                    doc["ai_scan_summary_status"] = "failed"
+                prev_d = str(doc.get("ai_scan_summary_detail") or "")
+                suffix = f"deferred_wall_timeout_{elapsed:.0f}s_max_attempts"
+                doc["ai_scan_summary_detail"] = ((prev_d + "; ") if prev_d else "") + suffix
+                doc["ai_scan_summary_detail"] = str(doc["ai_scan_summary_detail"])[:200]
+                conn.execute(
+                    "UPDATE scan_jobs SET summary_json=? WHERE id=?",
+                    (json.dumps(doc, separators=(",", ":"), ensure_ascii=False), job_id),
+                )
+                log.warning(
+                    "[job %d] executive AI summary follow-up abandoned after %d attempts (last wall %.1fs)",
+                    job_id,
+                    attempts + 1,
+                    wall,
+                )
+            else:
+                conn.execute(
+                    """UPDATE collector_ingest_exec_ai_queue
+                       SET status='pending',
+                           attempts=attempts+1,
+                           next_attempt_at=datetime('now', ?),
+                           error_msg=?,
+                           processing_started_at=NULL
+                       WHERE id=?""",
+                    (f"+{delay} seconds", f"timeout_after_{elapsed:.1f}s"[:240], qid),
+                )
+            conn.commit()
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        log.warning(
+            "[job %d] executive AI follow-up failed after %.1fs: %s",
+            job_id,
+            elapsed,
+            exc,
+        )
+        delay = min(300, int(10 * (2 ** min(6, attempts))))
+        with db_conn() as conn:
+            if attempts + 1 >= _EXEC_AI_FOLLOWUP_MAX_ATTEMPTS:
+                conn.execute("DELETE FROM collector_ingest_exec_ai_queue WHERE id=?", (qid,))
+                srow3 = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
+                doc3: dict = {}
+                try:
+                    r3 = str(srow3["summary_json"] or "") if srow3 else ""
+                    doc3 = json.loads(r3) if r3.strip() else {}
+                    if not isinstance(doc3, dict):
+                        doc3 = {}
+                except Exception:
+                    doc3 = {}
+                doc3["master_executive_ai_followup"] = "abandoned_error"
+                doc3["ai_scan_summary_detail"] = str(doc3.get("ai_scan_summary_detail") or "")[:120]
+                conn.execute(
+                    "UPDATE scan_jobs SET summary_json=? WHERE id=?",
+                    (json.dumps(doc3, separators=(",", ":"), ensure_ascii=False), job_id),
+                )
+                log.warning(
+                    "[job %d] executive AI follow-up abandoned after %d attempts (error=%s)",
+                    job_id,
+                    attempts + 1,
+                    str(exc)[:200],
+                )
+            else:
+                conn.execute(
+                    """UPDATE collector_ingest_exec_ai_queue
+                       SET status='pending',
+                           attempts=attempts+1,
+                           next_attempt_at=datetime('now', ?),
+                           error_msg=?,
+                           processing_started_at=NULL
+                       WHERE id=?""",
+                    (f"+{delay} seconds", str(exc)[:240], qid),
+                )
+            conn.commit()
+
+
+def _exec_ai_followup_loop() -> None:
+    while True:
+        try:
+            _process_one_exec_ai_followup()
+        except Exception:
+            log.exception("executive AI follow-up loop error")
+        time.sleep(_EXEC_AI_POLL_SEC)
 
 
 # Ensure shared scanner helpers point to this master's DB/NVD paths.
@@ -709,15 +954,13 @@ def process_one(qrow: dict) -> None:
         summary_doc2["ai_reason_counts"] = ai_reason_counts
         summary_doc2["collector_cve_matches"] = int(cve_count)
         summary_doc2["master_enrichment_status"] = "ok"
-        try:
-            summary_doc2 = _master_refresh_scan_executive_summary(summary_doc2, job_id)
-        except Exception as exc:
-            log.warning("executive scan summary refresh failed job %d: %s", job_id, exc)
-            summary_doc2["master_enrichment_status"] = "partial"
+        # Run-wide executive AI is deferred: same process, background thread + retry queue (never fails ingest).
+        summary_doc2["master_executive_ai_followup"] = "queued"
         conn.execute(
             "UPDATE scan_jobs SET summary_json=? WHERE id=?",
             (json.dumps(summary_doc2, separators=(",", ":"), ensure_ascii=False), job_id),
         )
+        _enqueue_executive_ai_followup(conn, job_id)
 
 
 def main() -> None:
@@ -732,7 +975,14 @@ def main() -> None:
         time.sleep(30)
     with db_conn() as conn:
         _ensure_asset_metadata_lock_columns(conn)
+        _ensure_collector_exec_ai_queue(conn)
         conn.commit()
+    threading.Thread(
+        target=_exec_ai_followup_loop,
+        name="surveytrace-collector-exec-ai",
+        daemon=True,
+    ).start()
+    log.info("deferred executive AI follow-up thread started (poll=%ds)", _EXEC_AI_POLL_SEC)
     while True:
         try:
             # One queue item per outer attempt: payload vs enrichment are separate transactions;
