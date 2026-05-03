@@ -7965,17 +7965,20 @@ async function stZabbixMatchReviewRefresh() {
     const ua = mr.unmatched_assets || [];
     let h = '';
     h += stZabbixMatchReviewTable('High confidence (≥ 0.9)', hi, [
-        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
+        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' },
+        { key: 'zabbix_display_name', label: 'Zabbix host' }, { key: 'hostname', label: 'Asset host' },
         { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
         { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
     ]);
     h += stZabbixMatchReviewTable('Near threshold (confidence 0.75–0.9)', near, [
-        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
+        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' },
+        { key: 'zabbix_display_name', label: 'Zabbix host' }, { key: 'hostname', label: 'Asset host' },
         { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
         { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
     ]);
     h += stZabbixMatchReviewTable('Unmatched Zabbix hosts', uh, [
-        { key: 'hostid', label: 'hostid' }, { key: 'visible_name', label: 'Visible' }, { key: 'tech_name', label: 'Technical' },
+        { key: 'hostid', label: 'hostid' }, { key: 'zabbix_display_name', label: 'Display' },
+        { key: 'visible_name', label: 'Visible' }, { key: 'tech_name', label: 'Technical' },
         { key: 'monitored', label: 'Mon.' }, { key: 'available', label: 'Avail' },
     ]);
     h += stZabbixMatchReviewTable('Assets without Zabbix link', ua, [
@@ -13228,6 +13231,17 @@ function renderHostPanelZabbixBlock(a) {
     }).filter(Boolean).join(', '), 1200);
     const gr = stZabbixUiTruncate((z.host_groups || []).map((g) => esc(g)).join(', '), 1200);
     const tm = stZabbixUiTruncate((z.templates || []).map((t) => esc(t)).join(', '), 1200);
+    const zbxHostLabel = linked
+        ? esc(String(
+            (z.display_name != null && String(z.display_name).trim() !== '')
+                ? z.display_name
+                : (z.visible_name != null && String(z.visible_name).trim() !== '')
+                    ? z.visible_name
+                    : (z.tech_name != null && String(z.tech_name).trim() !== '')
+                        ? z.tech_name
+                        : (z.zabbix_hostid || '—'),
+        ))
+        : '—';
     const m = z.match;
     let matchHtml = '<span class="text-dim">—</span>';
     if (m && linked) {
@@ -13246,6 +13260,7 @@ function renderHostPanelZabbixBlock(a) {
       </div>
       <div class="hp-block mb14" style="padding-bottom:4px">
         <table class="hp-meta-table">
+          <tr><td class="hp-meta-key">Zabbix host</td><td class="hp-meta-val-dim">${zbxHostLabel}</td></tr>
           <tr><td class="hp-meta-key">Monitored</td><td class="hp-meta-val-dim">${esc(monLabel)}</td></tr>
           <tr><td class="hp-meta-key">Availability</td><td class="hp-meta-val-dim">${avail}</td></tr>
           <tr><td class="hp-meta-key">Open problems</td><td class="hp-meta-val-dim">${prob}</td></tr>

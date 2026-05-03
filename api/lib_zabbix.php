@@ -666,6 +666,24 @@ function st_zabbix_availability_label(mixed $code): string
 }
 
 /**
+ * Single display string for UI / APIs: Zabbix visible (name) when set, else technical host, else hostid.
+ */
+function st_zabbix_host_display_name(string $visibleName, string $techName, string $hostid): string
+{
+    $v = trim($visibleName);
+    if ($v !== '') {
+        return $v;
+    }
+    $t = trim($techName);
+    if ($t !== '') {
+        return $t;
+    }
+    $h = trim($hostid);
+
+    return $h;
+}
+
+/**
  * host.get may return host groups under `groups` and/or `hostgroups` (Zabbix 7+). Merge to a list of group objects.
  *
  * @return list<array<string,mixed>>
@@ -907,9 +925,12 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                 }
                 $monitored = ((int) ($h['status'] ?? 1)) === 0 ? 1 : 0;
                 $avail = st_zabbix_availability_label($h['available'] ?? 0);
+                // Keep host + name in status_raw_json for repair if columns were ever blank; mirrors Zabbix host / name.
                 $statusJson = json_encode([
                     'status' => $h['status'] ?? null,
                     'available' => $h['available'] ?? null,
+                    'host' => $h['host'] ?? null,
+                    'name' => $h['name'] ?? null,
                 ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}';
                 $inv = $h['inventory'] ?? [];
                 if (! is_array($inv)) {
@@ -998,6 +1019,23 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                     $pc,
                     json_encode(['open_count' => $pc, 'note' => 'counts from problem.get capped at ' . ST_ZABBIX_SYNC_PROBLEM_LIMIT], JSON_UNESCAPED_SLASHES) ?: '{}',
                 ]);
+            }
+            // Repair names if an older client left tech_name/visible_name empty but JSON still has Zabbix host/name.
+            try {
+                $pdo->exec(
+                    "UPDATE zabbix_hosts SET tech_name = TRIM(COALESCE(NULLIF(json_extract(status_raw_json, '$.host'), ''), tech_name))
+                     WHERE TRIM(COALESCE(tech_name, '')) = ''"
+                );
+                $pdo->exec(
+                    "UPDATE zabbix_hosts SET visible_name = TRIM(COALESCE(
+                        NULLIF(json_extract(status_raw_json, '$.name'), ''),
+                        NULLIF(json_extract(status_raw_json, '$.host'), ''),
+                        NULLIF(tech_name, ''),
+                        visible_name
+                    )) WHERE TRIM(COALESCE(visible_name, '')) = ''"
+                );
+            } catch (Throwable) {
+                // ignore if sqlite json1 unavailable (unlikely)
             }
             $pdo->exec('COMMIT');
         } catch (Throwable $e) {
@@ -1208,7 +1246,8 @@ function st_zabbix_enrichment_for_asset(PDO $pdo, int $assetId): ?array
     }
     $st = $pdo->prepare(
         'SELECT l.zabbix_hostid, l.match_method, l.confidence, l.last_matched_at, COALESCE(l.is_manual, 0) AS is_manual,
-                h.monitored, h.available, h.inventory_json, h.templates_json
+                h.monitored, h.available, h.inventory_json, h.templates_json,
+                h.tech_name, h.visible_name
          FROM zabbix_asset_links l
          JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
          WHERE l.asset_id = ? LIMIT 1'
@@ -1229,6 +1268,9 @@ function st_zabbix_enrichment_for_asset(PDO $pdo, int $assetId): ?array
         ];
     }
     $hid = (string) $row['zabbix_hostid'];
+    $techNm = (string) ($row['tech_name'] ?? '');
+    $visNm = (string) ($row['visible_name'] ?? '');
+    $zbxDisplay = st_zabbix_host_display_name($visNm, $techNm, $hid);
     $groups = st_zabbix_host_group_names_for_scope_map($pdo, $hid);
     if (count($groups) > 100) {
         $groups = array_slice($groups, 0, 100);
@@ -1278,6 +1320,9 @@ function st_zabbix_enrichment_for_asset(PDO $pdo, int $assetId): ?array
     return [
         'linked' => true,
         'zabbix_hostid' => $hid,
+        'tech_name' => $techNm,
+        'visible_name' => $visNm,
+        'display_name' => $zbxDisplay,
         'match' => [
             'method' => (string) $row['match_method'],
             'confidence' => (float) $row['confidence'],
@@ -1658,7 +1703,10 @@ function st_zabbix_sample_matches(PDO $pdo, int $limit = 8): array
     }
     $lim = max(1, min(25, $limit));
     $sql = "SELECT a.ip, a.hostname, h.visible_name AS zabbix_visible, h.tech_name AS zabbix_tech,
-                   l.zabbix_hostid, l.match_method, l.confidence
+                   l.zabbix_hostid, l.match_method, l.confidence,
+                   (CASE WHEN TRIM(COALESCE(h.visible_name, '')) != '' THEN TRIM(h.visible_name)
+                         WHEN TRIM(COALESCE(h.tech_name, '')) != '' THEN TRIM(h.tech_name)
+                         ELSE TRIM(COALESCE(l.zabbix_hostid, '')) END) AS zabbix_display_name
             FROM zabbix_asset_links l
             JOIN assets a ON a.id = l.asset_id
             JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
@@ -1950,28 +1998,42 @@ function st_zabbix_match_review(PDO $pdo): array
         ];
     }
     $lim = 200;
+    $disp = '(CASE WHEN TRIM(COALESCE(h.visible_name, \'\')) != \'\' THEN TRIM(h.visible_name) '
+        . 'WHEN TRIM(COALESCE(h.tech_name, \'\')) != \'\' THEN TRIM(h.tech_name) '
+        . 'ELSE TRIM(COALESCE(h.hostid, \'\')) END)';
     $high = $pdo->query(
-        "SELECT a.id AS asset_id, a.ip, a.hostname, l.zabbix_hostid, l.confidence, l.match_method, COALESCE(l.is_manual,0) AS is_manual
+        "SELECT a.id AS asset_id, a.ip, a.hostname,
+                l.zabbix_hostid,
+                h.tech_name AS zabbix_tech_name, h.visible_name AS zabbix_visible_name,
+                {$disp} AS zabbix_display_name,
+                l.confidence, l.match_method, COALESCE(l.is_manual,0) AS is_manual
          FROM zabbix_asset_links l
          JOIN assets a ON a.id = l.asset_id
+         JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
          WHERE l.confidence >= 0.9
          ORDER BY l.confidence DESC, a.ip
          LIMIT {$lim}"
     )->fetchAll(PDO::FETCH_ASSOC);
     $near = $pdo->query(
-        "SELECT a.id AS asset_id, a.ip, a.hostname, l.zabbix_hostid, l.confidence, l.match_method, COALESCE(l.is_manual,0) AS is_manual
+        "SELECT a.id AS asset_id, a.ip, a.hostname,
+                l.zabbix_hostid,
+                h.tech_name AS zabbix_tech_name, h.visible_name AS zabbix_visible_name,
+                {$disp} AS zabbix_display_name,
+                l.confidence, l.match_method, COALESCE(l.is_manual,0) AS is_manual
          FROM zabbix_asset_links l
          JOIN assets a ON a.id = l.asset_id
+         JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
          WHERE l.confidence >= 0.75 AND l.confidence < 0.9
          ORDER BY l.confidence ASC, a.ip
          LIMIT {$lim}"
     )->fetchAll(PDO::FETCH_ASSOC);
     $unHosts = $pdo->query(
-        "SELECT h.hostid, h.visible_name, h.tech_name, h.monitored, h.available
+        "SELECT h.hostid, h.visible_name, h.tech_name, h.monitored, h.available,
+                {$disp} AS zabbix_display_name
          FROM zabbix_hosts h
          LEFT JOIN zabbix_asset_links l ON l.zabbix_hostid = h.hostid
          WHERE l.asset_id IS NULL
-         ORDER BY h.tech_name
+         ORDER BY h.tech_name, h.hostid
          LIMIT {$lim}"
     )->fetchAll(PDO::FETCH_ASSOC);
     $unAssets = $pdo->query(
