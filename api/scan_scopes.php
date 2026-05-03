@@ -74,6 +74,12 @@ if ($has !== 1) {
     st_json(['ok' => false, 'error' => 'scan_scopes table missing (run migrations or redeploy)']);
 }
 
+$dup = $db->prepare('SELECT 1 FROM scan_scopes WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1');
+$dup->execute([$name]);
+if ((int) $dup->fetchColumn() === 1) {
+    st_json(['ok' => false, 'error' => 'A scope with this name already exists'], 400);
+}
+
 $db->prepare(
     'INSERT INTO scan_scopes (name, description, scope_type, cidrs, tags, owner, environment, updated_at)
      VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'

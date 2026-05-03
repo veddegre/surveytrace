@@ -629,6 +629,7 @@ if (is_readable($dbProbe)) {
         </select>
       </div>
       <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
+      <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
     </div>
     <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
     <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
@@ -1023,8 +1024,11 @@ if (is_readable($dbProbe)) {
       Connector URL/token and sync are under <strong>Integrations → Zabbix</strong>.
     </p>
     <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
-      <strong>No scan scopes in the catalog.</strong> Create at least one scope (e.g. under <strong>Reports &amp; Analysis</strong>) before scope mapping works.
-      <button type="button" class="tbtn btn-xs mt6" onclick="goTab('report');hiNav('nreport')">Open Reports &amp; Analysis</button>
+      <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
+      <div class="row-wrap gap6 mt6">
+        <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
+        <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
+      </div>
     </div>
     <div class="flbl">Match review</div>
     <p class="hint-micro mb6">High-confidence links, near-threshold candidates, unmatched Zabbix hosts, and assets without a link. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
@@ -2131,6 +2135,30 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
   </div>
 </div>
 
+<!-- Create scan scope (Reports & Analysis + Enrichment → Zabbix) -->
+<div id="st-create-scope-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-create-scope-title" onclick="if(event.target===this)closeStCreateScopeModal()">
+  <div class="modal-card modal-w520" onclick="event.stopPropagation()">
+    <div class="row-between mb14" style="gap:12px;align-items:center">
+      <div class="modal-title" style="margin-bottom:0" id="st-create-scope-title">Create scan scope</div>
+      <button type="button" class="modal-close-x" onclick="closeStCreateScopeModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="hint-micro mb10">Adds a row to the <strong>scan_scopes</strong> catalog only. Scans or Zabbix rules can reference it later — <strong>no assets are assigned</strong> and <strong>Zabbix rules are not applied</strong> automatically.</p>
+    <label class="flbl">Name <span class="text-dim">(required)</span></label>
+    <input class="finp w100 mb8" id="st-scope-create-name" maxlength="200" placeholder="e.g. Vedorama datacenter">
+    <label class="flbl">Description <span class="text-dim">(optional)</span></label>
+    <textarea class="finp w100 mb8" id="st-scope-create-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
+    <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
+    <input class="finp w100 mb8" id="st-scope-create-env" maxlength="120" placeholder="e.g. production, staging">
+    <label class="flbl">CIDR hints <span class="text-dim">(optional, one per line)</span></label>
+    <textarea class="finp w100 mb10 mono-sm" id="st-scope-create-cidrs" rows="2" placeholder="10.0.0.0/8&#10;192.168.0.0/16"></textarea>
+    <div id="st-scope-create-err" class="help-mono mb8" style="display:none"></div>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="closeStCreateScopeModal()">Cancel</button>
+      <button type="button" class="btnp" id="st-scope-create-submit" onclick="submitStCreateScope()">Save scope</button>
+    </div>
+  </div>
+</div>
+
 <!-- Enrichment source modal -->
 <div id="esrc-bg" class="modal-bg z100">
   <div class="modal-card modal-w440">
@@ -2373,6 +2401,8 @@ function applyRoleAwareUi() {
     const retentionSave = document.getElementById('scan-trash-retention-save');
     if (retentionInput) retentionInput.style.display = isAdmin ? '' : 'none';
     if (retentionSave) retentionSave.style.display = isAdmin ? '' : 'none';
+    const scopeCreateBtn = document.getElementById('report-scope-create-btn');
+    if (scopeCreateBtn) scopeCreateBtn.style.display = canScanManage ? '' : 'none';
 }
 
 function updateAccessControlModeVisibility() {
@@ -6947,8 +6977,11 @@ function stZabbixRefreshScopeRuleButtons() {
     if (!ban) return;
     if (n === 0) {
         ban.style.display = '';
-        ban.innerHTML = '<strong>No scan scopes in the catalog.</strong> Create at least one scope (e.g. under <strong>Reports &amp; Analysis</strong>) before scope mapping works. '
-            + '<button type="button" class="tbtn btn-xs mt6" onclick="goTab(\'report\');hiNav(\'nreport\')">Open Reports &amp; Analysis</button>';
+        ban.innerHTML = '<strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment). '
+            + '<div class="row-wrap gap6 mt6">'
+            + '<button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal(\'enrich\')">Create scope</button>'
+            + '<button type="button" class="tbtn btn-xs" onclick="goTab(\'report\');hiNav(\'nreport\')">Reports &amp; Analysis</button>'
+            + '</div>';
     } else if (hasStaleRule) {
         ban.style.display = '';
         ban.innerHTML = '<strong>Stale rule:</strong> at least one row references a deleted scan scope. Fix or remove it before saving, previewing, or applying. '
@@ -8816,6 +8849,98 @@ function updateReportingScopeDetail() {
         ' · Environment: <strong>' +
         env +
         '</strong>';
+}
+
+/** Where the create-scope modal was opened from (report | enrich). */
+var stCreateScopeOpenedFrom = 'report';
+
+function openStCreateScopeModal(from) {
+    if (!stRoleCanManageScans()) {
+        toast('Scan editor or admin role required to create scopes.', 'err');
+        return;
+    }
+    stCreateScopeOpenedFrom = from === 'enrich' ? 'enrich' : 'report';
+    const nm = document.getElementById('st-scope-create-name');
+    const ds = document.getElementById('st-scope-create-desc');
+    const en = document.getElementById('st-scope-create-env');
+    const cd = document.getElementById('st-scope-create-cidrs');
+    const er = document.getElementById('st-scope-create-err');
+    if (nm) nm.value = '';
+    if (ds) ds.value = '';
+    if (en) en.value = '';
+    if (cd) cd.value = '';
+    if (er) {
+        er.textContent = '';
+        er.style.display = 'none';
+    }
+    const bg = document.getElementById('st-create-scope-bg');
+    if (bg) bg.style.display = 'flex';
+    if (nm) nm.focus();
+}
+
+function closeStCreateScopeModal() {
+    const bg = document.getElementById('st-create-scope-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+async function submitStCreateScope() {
+    const errEl = document.getElementById('st-scope-create-err');
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+    }
+    const name = String((document.getElementById('st-scope-create-name') || {}).value || '').trim();
+    if (!name) {
+        if (errEl) {
+            errEl.textContent = 'Name is required';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    const desc = String((document.getElementById('st-scope-create-desc') || {}).value || '').trim();
+    const env = String((document.getElementById('st-scope-create-env') || {}).value || '').trim();
+    const cidrBlob = String((document.getElementById('st-scope-create-cidrs') || {}).value || '');
+    const cidrs = cidrBlob.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const btn = document.getElementById('st-scope-create-submit');
+    if (btn) btn.disabled = true;
+    const r = await apiPost('/api/scan_scopes.php', {
+        name,
+        description: desc,
+        environment: env || 'unknown',
+        cidrs,
+        scope_type: 'network',
+    });
+    if (btn) btn.disabled = false;
+    if (!r || !r.ok) {
+        if (errEl) {
+            errEl.textContent = (r && r.error) ? r.error : 'Save failed';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    toast('Scan scope created', 'ok');
+    closeStCreateScopeModal();
+    stScopesForFormsCache = null;
+    await ensureStScopeSelects(true);
+    await loadReportingScopeSelector(true);
+    const sel = document.getElementById('report-scope-select');
+    if (sel && r.scope && r.scope.id) {
+        const sid = String(r.scope.id);
+        if ([...sel.options].some((o) => o.value === sid)) {
+            sel.value = sid;
+            syncReportingScopeApiFilterFromSelect(sel);
+            reportingScopePersistWrite();
+            updateReportingScopeDetail();
+        }
+    }
+    if (currentTab === 'report') {
+        void loadReportingTab();
+    }
+    await loadZabbixEnrichmentPanel();
+    if (stCreateScopeOpenedFrom === 'enrich') {
+        goTab('enrich');
+        hiNav('nenrich');
+    }
 }
 
 async function loadReportingScopeSelector(forceRefresh) {
