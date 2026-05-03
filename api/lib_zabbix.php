@@ -18,6 +18,278 @@ const ST_ZABBIX_SYNC_PROBLEM_LIMIT = 4000;
 const ST_ZABBIX_HTTP_TIMEOUT_SEC = 12;
 
 /**
+ * Trim and collapse Unicode whitespace for scope-map pattern / Zabbix label comparison.
+ */
+function st_zabbix_norm_scope_map_label(string $s): string
+{
+    $t = preg_replace('/\s+/u', ' ', trim($s));
+
+    return $t === '' ? '' : (string) $t;
+}
+
+/**
+ * Case-insensitive equality after {@see st_zabbix_norm_scope_map_label()}.
+ */
+function st_zabbix_scope_map_label_equals_ci(string $a, string $b): bool
+{
+    return strcasecmp(st_zabbix_norm_scope_map_label($a), st_zabbix_norm_scope_map_label($b)) === 0;
+}
+
+/**
+ * Truthy `enabled` from JSON/UI (bool, int, or common string forms).
+ */
+function st_zabbix_scope_rule_enabled(mixed $v): bool
+{
+    if ($v === true || $v === 1) {
+        return true;
+    }
+    if ($v === false || $v === null || $v === 0 || $v === 0.0 || $v === '' || $v === '0') {
+        return false;
+    }
+    if (is_string($v)) {
+        $s = strtolower(trim($v));
+
+        return $s === '1' || $s === 'true' || $s === 'yes' || $s === 'on';
+    }
+
+    return false;
+}
+
+/**
+ * Whether a rule row is enabled for evaluation. If `enabled` is absent, use $defaultWhenMissing
+ * (false for posted form rows — matches legacy `(int)($rule['enabled'] ?? 0) === 1`; true for DB rows that omit the column).
+ */
+function st_zabbix_scope_rule_effective_enabled(array $rule, bool $defaultWhenMissing): bool
+{
+    if (! array_key_exists('enabled', $rule)) {
+        return $defaultWhenMissing;
+    }
+
+    return st_zabbix_scope_rule_enabled($rule['enabled']);
+}
+
+/**
+ * Group names for scope mapping: prefer `zabbix_host_groups`, fall back to `zabbix_hosts.groups_json`
+ * if the denormalized table is empty (repair path / older sync edge cases).
+ *
+ * @return array<int, string>
+ */
+function st_zabbix_host_group_names_for_scope_map(PDO $pdo, string $hostid): array
+{
+    $gst = $pdo->prepare('SELECT group_name FROM zabbix_host_groups WHERE hostid = ? ORDER BY group_name');
+    $gst->execute([$hostid]);
+    $out = [];
+    foreach ($gst->fetchAll(PDO::FETCH_ASSOC) as $g) {
+        if (is_array($g) && (string) ($g['group_name'] ?? '') !== '') {
+            $out[] = (string) $g['group_name'];
+        }
+    }
+    if ($out !== []) {
+        return $out;
+    }
+    $sj = $pdo->prepare('SELECT groups_json FROM zabbix_hosts WHERE hostid = ? LIMIT 1');
+    $sj->execute([$hostid]);
+    $raw = $sj->fetchColumn();
+    if (! is_string($raw) || $raw === '') {
+        return [];
+    }
+    $arr = json_decode($raw, true);
+    if (! is_array($arr)) {
+        return [];
+    }
+    foreach ($arr as $g) {
+        if (! is_array($g)) {
+            continue;
+        }
+        $nm = (string) ($g['name'] ?? $g['group'] ?? $g['groupname'] ?? '');
+        if ($nm !== '') {
+            $out[] = $nm;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Tag pairs for scope mapping: `zabbix_host_tags` with fallback to `tags_json` on the host row.
+ *
+ * @return array<int, array{0:string,1:string}>
+ */
+function st_zabbix_host_tag_pairs_for_scope_map(PDO $pdo, string $hostid): array
+{
+    $tst = $pdo->prepare('SELECT tag, value FROM zabbix_host_tags WHERE hostid = ? ORDER BY tag, value');
+    $tst->execute([$hostid]);
+    $pairs = [];
+    foreach ($tst->fetchAll(PDO::FETCH_ASSOC) as $t) {
+        if (is_array($t)) {
+            $pairs[] = [(string) ($t['tag'] ?? ''), (string) ($t['value'] ?? '')];
+        }
+    }
+    if ($pairs !== []) {
+        return $pairs;
+    }
+    $sj = $pdo->prepare('SELECT tags_json FROM zabbix_hosts WHERE hostid = ? LIMIT 1');
+    $sj->execute([$hostid]);
+    $raw = $sj->fetchColumn();
+    if (! is_string($raw) || $raw === '') {
+        return [];
+    }
+    $arr = json_decode($raw, true);
+    if (! is_array($arr)) {
+        return [];
+    }
+    foreach ($arr as $t) {
+        if (! is_array($t)) {
+            continue;
+        }
+        $pairs[] = [(string) ($t['tag'] ?? ''), (string) ($t['value'] ?? '')];
+    }
+
+    return $pairs;
+}
+
+/** Max distinct group names returned in `scope_map_catalog` (GET payload). */
+const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_GROUPS = 500;
+
+/** Max tag keys in `scope_map_catalog`. */
+const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_TAG_KEYS = 200;
+
+/** Max distinct values per tag key in `scope_map_catalog`. */
+const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_VALUES_PER_TAG = 120;
+
+/**
+ * Bounded, deduplicated host group names and tag keys/values for scope-map rule UI.
+ * Sources: `zabbix_host_groups`, `zabbix_host_tags`, plus `groups_json` / `tags_json` on `zabbix_hosts` when needed.
+ *
+ * @return array{groups: array<int, string>, tags: array<int, array{tag: string, values: array<int, string>}>}
+ */
+function st_zabbix_scope_map_catalog(PDO $pdo): array
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return ['groups' => [], 'tags' => []];
+    }
+    $gCanon = [];
+    $gst = $pdo->query(
+        "SELECT DISTINCT TRIM(group_name) AS g FROM zabbix_host_groups WHERE TRIM(COALESCE(group_name, '')) != ''"
+    );
+    foreach ($gst ? $gst->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $g = trim((string) ($row['g'] ?? ''));
+        if ($g === '') {
+            continue;
+        }
+        $k = strtolower($g);
+        if (! isset($gCanon[$k])) {
+            $gCanon[$k] = $g;
+        }
+    }
+    $lim = max(1, (int) ST_ZABBIX_SYNC_HOST_LIMIT);
+    $hq = $pdo->query(
+        "SELECT groups_json FROM zabbix_hosts WHERE groups_json IS NOT NULL AND TRIM(groups_json) NOT IN ('', '[]') LIMIT {$lim}"
+    );
+    foreach ($hq ? $hq->fetchAll(PDO::FETCH_COLUMN) : [] as $raw) {
+        if (! is_string($raw) || $raw === '') {
+            continue;
+        }
+        $arr = json_decode($raw, true);
+        if (! is_array($arr)) {
+            continue;
+        }
+        foreach ($arr as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $g = trim((string) ($item['name'] ?? $item['group'] ?? $item['groupname'] ?? ''));
+            if ($g === '') {
+                continue;
+            }
+            $k = strtolower($g);
+            if (! isset($gCanon[$k])) {
+                $gCanon[$k] = $g;
+            }
+        }
+    }
+    $groups = array_values($gCanon);
+    usort($groups, 'strcasecmp');
+    if (count($groups) > ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_GROUPS) {
+        $groups = array_slice($groups, 0, ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_GROUPS);
+    }
+
+    /** @var array<string, array{tag: string, vcanon: array<string, string>}> $tAccum key = lower(tag display) */
+    $tAccum = [];
+    $tq = $pdo->query(
+        "SELECT DISTINCT TRIM(tag) AS t, TRIM(value) AS v FROM zabbix_host_tags WHERE TRIM(COALESCE(tag, '')) != ''"
+    );
+    foreach ($tq ? $tq->fetchAll(PDO::FETCH_ASSOC) : [] as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $tk = trim((string) ($row['t'] ?? ''));
+        if ($tk === '') {
+            continue;
+        }
+        $vk = strtolower($tk);
+        if (! isset($tAccum[$vk])) {
+            $tAccum[$vk] = ['tag' => $tk, 'vcanon' => []];
+        }
+        $valDisp = (string) ($row['v'] ?? '');
+        $lv = strtolower($valDisp);
+        if (! isset($tAccum[$vk]['vcanon'][$lv])) {
+            $tAccum[$vk]['vcanon'][$lv] = $valDisp;
+        }
+    }
+    $hq2 = $pdo->query(
+        "SELECT tags_json FROM zabbix_hosts WHERE tags_json IS NOT NULL AND TRIM(tags_json) NOT IN ('', '[]') LIMIT {$lim}"
+    );
+    foreach ($hq2 ? $hq2->fetchAll(PDO::FETCH_COLUMN) : [] as $raw) {
+        if (! is_string($raw) || $raw === '') {
+            continue;
+        }
+        $arr = json_decode($raw, true);
+        if (! is_array($arr)) {
+            continue;
+        }
+        foreach ($arr as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $tk = trim((string) ($item['tag'] ?? ''));
+            if ($tk === '') {
+                continue;
+            }
+            $vk = strtolower($tk);
+            if (! isset($tAccum[$vk])) {
+                $tAccum[$vk] = ['tag' => $tk, 'vcanon' => []];
+            }
+            $valDisp = trim((string) ($item['value'] ?? ''));
+            $lv = strtolower($valDisp);
+            if (! isset($tAccum[$vk]['vcanon'][$lv])) {
+                $tAccum[$vk]['vcanon'][$lv] = $valDisp;
+            }
+        }
+    }
+    $tagRows = [];
+    foreach ($tAccum as $bucket) {
+        $vals = array_values($bucket['vcanon']);
+        usort($vals, 'strcasecmp');
+        if (count($vals) > ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_VALUES_PER_TAG) {
+            $vals = array_slice($vals, 0, ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_VALUES_PER_TAG);
+        }
+        $tagRows[] = ['tag' => $bucket['tag'], 'values' => $vals];
+    }
+    usort($tagRows, static function (array $a, array $b): int {
+        return strcasecmp((string) ($a['tag'] ?? ''), (string) ($b['tag'] ?? ''));
+    });
+    if (count($tagRows) > ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_TAG_KEYS) {
+        $tagRows = array_slice($tagRows, 0, ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_TAG_KEYS);
+    }
+
+    return ['groups' => $groups, 'tags' => $tagRows];
+}
+
+/**
  * Create Zabbix tables if missing (idempotent). Single connector row id=1.
  */
 function st_zabbix_ensure_schema(PDO $pdo): void
@@ -571,7 +843,8 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                     if ($gid === '') {
                         continue;
                     }
-                    $insGrp->execute([$hostid, $gid, (string) ($g['name'] ?? '')]);
+                    $gname = (string) ($g['name'] ?? $g['group'] ?? $g['groupname'] ?? '');
+                    $insGrp->execute([$hostid, $gid, $gname]);
                 }
                 foreach ($tags as $t) {
                     if (! is_array($t)) {
@@ -843,25 +1116,15 @@ function st_zabbix_enrichment_for_asset(PDO $pdo, int $assetId): ?array
         ];
     }
     $hid = (string) $row['zabbix_hostid'];
-    $gst = $pdo->prepare('SELECT group_name FROM zabbix_host_groups WHERE hostid = ? ORDER BY group_name');
-    $gst->execute([$hid]);
-    $groups = array_values(array_filter(array_map(static fn ($g) => (string) ($g['group_name'] ?? ''), $gst->fetchAll(PDO::FETCH_ASSOC))));
+    $groups = st_zabbix_host_group_names_for_scope_map($pdo, $hid);
     if (count($groups) > 100) {
         $groups = array_slice($groups, 0, 100);
     }
 
-    $tst = $pdo->prepare('SELECT tag, value FROM zabbix_host_tags WHERE hostid = ? ORDER BY tag, value');
-    $tst->execute([$hid]);
-    $tagRows = $tst->fetchAll(PDO::FETCH_ASSOC);
+    $pairRows = st_zabbix_host_tag_pairs_for_scope_map($pdo, $hid);
     $tags = [];
-    foreach ($tagRows as $tr) {
-        if (! is_array($tr)) {
-            continue;
-        }
-        $tags[] = [
-            'tag' => (string) ($tr['tag'] ?? ''),
-            'value' => (string) ($tr['value'] ?? ''),
-        ];
+    foreach ($pairRows as [$tg, $vl]) {
+        $tags[] = ['tag' => $tg, 'value' => $vl];
     }
     if (count($tags) > 80) {
         $tags = array_slice($tags, 0, 80);
@@ -969,6 +1232,17 @@ function st_zabbix_scope_id_set(PDO $pdo): array
 
     return $out;
 }
+
+/*
+ * Zabbix scope-map `pattern` storage (DB + POST payloads). Do not introduce alternate formats without
+ * updating: matcher (preview + suggest + first_matching), validation, apply, UI serialization, and docs.
+ *
+ * - rule_type `group`: single host group name (trimmed; matching is case-insensitive with normalized whitespace).
+ * - rule_type `tag`:
+ *   - No `=` in pattern: match any host tag whose **key** equals the pattern (value ignored).
+ *   - Contains `=`: split on the **first** `=` only — left side = tag key, right side = value (may be empty);
+ *     both sides trimmed/normalized; pair must match.
+ */
 
 /**
  * Validate Zabbix scope-map rules from API/UI. Empty array clears all rules (allowed).
@@ -1087,9 +1361,10 @@ function st_zabbix_assert_no_enabled_stale_scope_rules(PDO $pdo): void
  * Preview which assets would match scope rules (no writes, no asset scope changes).
  *
  * @param array<int,array<string,mixed>> $rules
+ * @param array<string,mixed>|null     $debugCollector set to [] by caller to receive admin-only debug stats (no secrets)
  * @return array<int,array<string,mixed>>
  */
-function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
+function st_zabbix_preview_scope_map(PDO $pdo, array $rules, ?array &$debugCollector = null): array
 {
     $v = st_zabbix_scope_rules_validate($pdo, $rules);
     if (! $v['ok']) {
@@ -1098,12 +1373,33 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
     if ($rules === []) {
         return [];
     }
+    $dbgOn = $debugCollector !== null;
+    if ($dbgOn) {
+        $enPosted = 0;
+        foreach ($rules as $rx) {
+            if (is_array($rx) && st_zabbix_scope_rule_effective_enabled($rx, false)) {
+                ++$enPosted;
+            }
+        }
+        $debugCollector = [
+            'submitted_rule_count' => count($rules),
+            'validation_valid_count' => (int) ($v['valid_count'] ?? 0),
+            'enabled_rules_for_preview' => $enPosted,
+            'linked_asset_rows' => 0,
+            'group_rows_considered' => 0,
+            'tag_rows_considered' => 0,
+            'match_count' => 0,
+            'per_linked_host' => [],
+        ];
+    }
     $st = $pdo->query(
         'SELECT l.asset_id, a.ip, a.hostname, a.scope_id AS current_scope_id, l.zabbix_hostid
          FROM zabbix_asset_links l JOIN assets a ON a.id = l.asset_id'
     );
     $rows = $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
     $out = [];
+    $perCap = 40;
+    $perN = 0;
     foreach ($rows as $row) {
         if (! is_array($row)) {
             continue;
@@ -1113,28 +1409,34 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
         if ($aid <= 0 || $zh === '') {
             continue;
         }
-        $gst = $pdo->prepare('SELECT group_name FROM zabbix_host_groups WHERE hostid = ?');
-        $gst->execute([$zh]);
-        $groupNames = [];
-        foreach ($gst->fetchAll(PDO::FETCH_ASSOC) as $g) {
-            if (is_array($g) && (string) ($g['group_name'] ?? '') !== '') {
-                $groupNames[] = (string) $g['group_name'];
-            }
+        if ($dbgOn) {
+            $debugCollector['linked_asset_rows'] = (int) $debugCollector['linked_asset_rows'] + 1;
         }
-        $tst = $pdo->prepare('SELECT tag, value FROM zabbix_host_tags WHERE hostid = ?');
-        $tst->execute([$zh]);
-        $tagPairs = [];
-        foreach ($tst->fetchAll(PDO::FETCH_ASSOC) as $t) {
-            if (! is_array($t)) {
-                continue;
-            }
-            $tagPairs[] = [(string) ($t['tag'] ?? ''), (string) ($t['value'] ?? '')];
+        $groupNames = st_zabbix_host_group_names_for_scope_map($pdo, $zh);
+        $tagPairs = st_zabbix_host_tag_pairs_for_scope_map($pdo, $zh);
+        if ($dbgOn) {
+            $debugCollector['group_rows_considered'] = (int) $debugCollector['group_rows_considered'] + count($groupNames);
+            $debugCollector['tag_rows_considered'] = (int) $debugCollector['tag_rows_considered'] + count($tagPairs);
+        }
+        $matchedThis = false;
+        $hostDbg = null;
+        if ($dbgOn && $perN < $perCap) {
+            $hostDbg = [
+                'asset_id' => $aid,
+                'zabbix_hostid' => $zh,
+                'group_names' => array_slice($groupNames, 0, 12),
+                'tag_pairs' => array_slice(array_map(static fn ($p) => [$p[0], $p[1]], $tagPairs), 0, 12),
+                'matched' => false,
+                'hit_rule_type' => null,
+                'pattern_normalized' => null,
+            ];
+            ++$perN;
         }
         foreach ($rules as $rule) {
             if (! is_array($rule)) {
                 continue;
             }
-            if ((int) ($rule['enabled'] ?? 0) !== 1) {
+            if (! st_zabbix_scope_rule_effective_enabled($rule, false)) {
                 continue;
             }
             $type = strtolower(trim((string) ($rule['rule_type'] ?? '')));
@@ -1147,7 +1449,7 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
             $detail = '';
             if ($type === 'group') {
                 foreach ($groupNames as $gn) {
-                    if (strcasecmp($gn, $pattern) === 0) {
+                    if (st_zabbix_scope_map_label_equals_ci($gn, $pattern)) {
                         $hit = true;
                         $detail = 'host_group:' . $gn;
                         break;
@@ -1155,9 +1457,11 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
                 }
             } elseif ($type === 'tag') {
                 if (str_contains($pattern, '=')) {
-                    [$tk, $tv] = array_map('trim', explode('=', $pattern, 2));
+                    $pe = explode('=', $pattern, 2);
+                    $tk = st_zabbix_norm_scope_map_label((string) ($pe[0] ?? ''));
+                    $tv = st_zabbix_norm_scope_map_label((string) ($pe[1] ?? ''));
                     foreach ($tagPairs as [$kt, $kv]) {
-                        if (strcasecmp($kt, $tk) === 0 && (string) $kv === $tv) {
+                        if (st_zabbix_scope_map_label_equals_ci($kt, $tk) && st_zabbix_scope_map_label_equals_ci((string) $kv, $tv)) {
                             $hit = true;
                             $detail = 'tag:' . $kt . '=' . $kv;
                             break;
@@ -1165,7 +1469,7 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
                     }
                 } else {
                     foreach ($tagPairs as [$kt, $kv]) {
-                        if (strcasecmp($kt, $pattern) === 0) {
+                        if (st_zabbix_scope_map_label_equals_ci($kt, $pattern)) {
                             $hit = true;
                             $detail = 'tag:' . $kt . '=' . $kv;
                             break;
@@ -1186,9 +1490,21 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules): array
                     'pattern' => $pattern,
                     'detail' => $detail,
                 ];
+                $matchedThis = true;
+                if ($hostDbg !== null) {
+                    $hostDbg['matched'] = true;
+                    $hostDbg['hit_rule_type'] = $type;
+                    $hostDbg['pattern_normalized'] = st_zabbix_norm_scope_map_label($pattern);
+                }
                 break;
             }
         }
+        if ($dbgOn && $hostDbg !== null) {
+            $debugCollector['per_linked_host'][] = $hostDbg;
+        }
+    }
+    if ($dbgOn) {
+        $debugCollector['match_count'] = count($out);
     }
 
     return $out;
@@ -1344,24 +1660,10 @@ function st_zabbix_refresh_asset_zabbix_denorm_all(PDO $pdo): void
  */
 function st_zabbix_host_groups_and_tags(PDO $pdo, string $hostid): array
 {
-    $groups = [];
-    $gst = $pdo->prepare('SELECT group_name FROM zabbix_host_groups WHERE hostid = ?');
-    $gst->execute([$hostid]);
-    foreach ($gst->fetchAll(PDO::FETCH_ASSOC) as $g) {
-        if (is_array($g) && (string) ($g['group_name'] ?? '') !== '') {
-            $groups[] = (string) $g['group_name'];
-        }
-    }
-    $tags = [];
-    $tst = $pdo->prepare('SELECT tag, value FROM zabbix_host_tags WHERE hostid = ?');
-    $tst->execute([$hostid]);
-    foreach ($tst->fetchAll(PDO::FETCH_ASSOC) as $t) {
-        if (is_array($t)) {
-            $tags[] = [(string) ($t['tag'] ?? ''), (string) ($t['value'] ?? '')];
-        }
-    }
-
-    return ['groups' => $groups, 'tags' => $tags];
+    return [
+        'groups' => st_zabbix_host_group_names_for_scope_map($pdo, $hostid),
+        'tags' => st_zabbix_host_tag_pairs_for_scope_map($pdo, $hostid),
+    ];
 }
 
 /**
@@ -1373,6 +1675,9 @@ function st_zabbix_first_matching_scope_id(array $rules, array $groupNames, arra
         if (! is_array($rule)) {
             continue;
         }
+        if (! st_zabbix_scope_rule_effective_enabled($rule, true)) {
+            continue;
+        }
         $type = strtolower(trim((string) ($rule['rule_type'] ?? '')));
         $pattern = trim((string) ($rule['pattern'] ?? ''));
         $sid = (int) ($rule['scope_id'] ?? 0);
@@ -1381,21 +1686,23 @@ function st_zabbix_first_matching_scope_id(array $rules, array $groupNames, arra
         }
         if ($type === 'group') {
             foreach ($groupNames as $gn) {
-                if (strcasecmp($gn, $pattern) === 0) {
+                if (st_zabbix_scope_map_label_equals_ci($gn, $pattern)) {
                     return $sid;
                 }
             }
         } elseif ($type === 'tag') {
             if (str_contains($pattern, '=')) {
-                [$tk, $tv] = array_map('trim', explode('=', $pattern, 2));
+                $pe = explode('=', $pattern, 2);
+                $tk = st_zabbix_norm_scope_map_label((string) ($pe[0] ?? ''));
+                $tv = st_zabbix_norm_scope_map_label((string) ($pe[1] ?? ''));
                 foreach ($tagPairs as [$kt, $kv]) {
-                    if (strcasecmp($kt, $tk) === 0 && (string) $kv === $tv) {
+                    if (st_zabbix_scope_map_label_equals_ci($kt, $tk) && st_zabbix_scope_map_label_equals_ci((string) $kv, $tv)) {
                         return $sid;
                     }
                 }
             } else {
                 foreach ($tagPairs as [$kt, $kv]) {
-                    if (strcasecmp($kt, $pattern) === 0) {
+                    if (st_zabbix_scope_map_label_equals_ci($kt, $pattern)) {
                         return $sid;
                     }
                 }

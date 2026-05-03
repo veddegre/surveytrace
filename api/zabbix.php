@@ -30,6 +30,7 @@ if ($method === 'GET') {
         'stats' => st_zabbix_stats($db),
         'sample_matches' => st_zabbix_sample_matches($db, 8),
         'scope_rules' => st_zabbix_scope_rules_all($db),
+        'scope_map_catalog' => st_zabbix_scope_map_catalog($db),
         'scopes' => $scopes,
         'scope_catalog_count' => count($scopes),
         'workflow' => [
@@ -132,8 +133,12 @@ if ($action === 'preview_scope_map') {
     if (! is_array($rules)) {
         st_json(['ok' => false, 'error' => 'rules array required'], 400);
     }
+    $dbg = null;
+    if (! empty($body['debug_scope_map'])) {
+        $dbg = [];
+    }
     try {
-        $preview = st_zabbix_preview_scope_map($db, $rules);
+        $preview = st_zabbix_preview_scope_map($db, $rules, $dbg);
     } catch (InvalidArgumentException $e) {
         $msg = st_zabbix_redact_secrets($e->getMessage());
         @error_log('SurveyTrace zabbix preview_scope_map validation failed: ' . $msg);
@@ -144,7 +149,11 @@ if ($action === 'preview_scope_map') {
         : ($preview === []
             ? 'No assets matched — enable rules, run sync so hosts link to assets, and ensure a linked host’s group/tag matches a rule.'
             : 'Preview only — asset scopes are not modified.');
-    st_json(['ok' => true, 'preview' => $preview, 'note' => $note]);
+    $out = ['ok' => true, 'preview' => $preview, 'note' => $note];
+    if ($dbg !== null) {
+        $out['debug_scope_map'] = $dbg;
+    }
+    st_json($out);
 }
 
 if ($action === 'save_scope_rules') {
@@ -200,8 +209,12 @@ if ($action === 'preview_scope_apply') {
             'enabled_valid_rule_count' => 0,
         ]);
     }
+    $dbg = null;
+    if (! empty($body['debug_scope_map'])) {
+        $dbg = [];
+    }
     try {
-        $plan = st_zabbix_preview_scope_map($db, $dbRules);
+        $plan = st_zabbix_preview_scope_map($db, $dbRules, $dbg);
     } catch (InvalidArgumentException $e) {
         $msg = st_zabbix_redact_secrets($e->getMessage());
         @error_log('SurveyTrace zabbix preview_scope_apply failed: ' . $msg);
@@ -210,12 +223,16 @@ if ($action === 'preview_scope_apply') {
     $note = $plan === []
         ? 'No assets matched enabled rules — run sync and ensure linked hosts match a rule’s group or tag.'
         : 'Plan only — call apply_scope_map with confirm and the same rows to write scope_id.';
-    st_json([
+    $out = [
         'ok' => true,
         'plan' => $plan,
         'note' => $note,
         'enabled_valid_rule_count' => count($dbRules),
-    ]);
+    ];
+    if ($dbg !== null) {
+        $out['debug_scope_map'] = $dbg;
+    }
+    st_json($out);
 }
 
 if ($action === 'apply_scope_map') {

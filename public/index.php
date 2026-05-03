@@ -6886,6 +6886,42 @@ async function loadIntegrationsTab() {
 
 /** Scan scopes for Zabbix rule dropdowns (Enrichment → Zabbix); mirrored on GET /api/zabbix.php as `scopes`. */
 var zbScopeOptions = [];
+/** Synced group / tag catalog for scope-map rules; from GET /api/zabbix.php `scope_map_catalog`. */
+var zbScopeMapCatalog = { groups: [], tags: [] };
+
+function stZabbixCatalogGroupListed(pat) {
+    const p = String(pat || '').trim();
+    if (!p) {
+        return false;
+    }
+    const pl = p.toLowerCase();
+    return (zbScopeMapCatalog.groups || []).some((g) => String(g).trim().toLowerCase() === pl);
+}
+
+/** @returns {{ mode: string, entry: object, value?: string }|null} */
+function stZabbixCatalogTagMetaForPattern(pat) {
+    const raw = String(pat || '').trim();
+    if (!raw) {
+        return null;
+    }
+    const tags = zbScopeMapCatalog.tags || [];
+    if (!raw.includes('=')) {
+        const pl = raw.toLowerCase();
+        const entry = tags.find((t) => String(t.tag || '').trim().toLowerCase() === pl);
+        return entry ? { mode: 'any', entry } : null;
+    }
+    const eq = raw.indexOf('=');
+    const tk = raw.slice(0, eq).trim();
+    const tv = raw.slice(eq + 1);
+    const tvl = tv.trim().toLowerCase();
+    const entry = tags.find((t) => String(t.tag || '').trim().toLowerCase() === tk.toLowerCase());
+    if (!entry) {
+        return null;
+    }
+    const vals = entry.values || [];
+    const hit = vals.find((v) => String(v).trim().toLowerCase() === tvl);
+    return hit !== undefined ? { mode: 'value', entry, value: hit } : null;
+}
 
 function zbScopeLabel(sid) {
     const id = parseInt(String(sid ?? '0'), 10);
@@ -6913,26 +6949,349 @@ function zbScopeSelectHtml(selectedId, rule) {
     return o;
 }
 
+/** Build `pattern` for save/preview: must match api/lib_zabbix.php (tag = key only, or key=value with first '='). */
+function stZabbixRuleRowPatternFromDom(row) {
+    const legacy = row.querySelector('.zb-r-pattern');
+    if (legacy) {
+        return String(legacy.value || '').trim();
+    }
+    const type = (row.querySelector('.zb-r-type') || {}).value || 'group';
+    if (type === 'group') {
+        const gmode = row.querySelector('.zb-r-gmode');
+        if (!gmode || gmode.value === 'custom') {
+            return String((row.querySelector('.zb-r-pattern-custom') || {}).value || '').trim();
+        }
+        const gs = row.querySelector('.zb-r-group-sel');
+        return gs ? String(gs.value || '').trim() : '';
+    }
+    const tmode = row.querySelector('.zb-r-tmode');
+    if (!tmode || tmode.value === 'custom') {
+        return String((row.querySelector('.zb-r-pattern-custom') || {}).value || '').trim();
+    }
+    const key = String((row.querySelector('.zb-r-tag-key') || {}).value || '').trim();
+    if (!key) {
+        return '';
+    }
+    const vsel = row.querySelector('.zb-r-tag-val');
+    if (!vsel) {
+        return key;
+    }
+    const vv = vsel.value;
+    // __ANY__ is UI-only; persisted pattern is tag key alone (backend: any value).
+    if (vv === '__ANY__') {
+        return key;
+    }
+    return key + '=' + vv;
+}
+
+function stZabbixTagValPopulate(valSel, tagEntry, selectedVal) {
+    while (valSel.firstChild) {
+        valSel.removeChild(valSel.firstChild);
+    }
+    const anyO = document.createElement('option');
+    anyO.value = '__ANY__';
+    anyO.textContent = '(any value)';
+    valSel.appendChild(anyO);
+    const vals = (tagEntry && tagEntry.values) ? tagEntry.values : [];
+    vals.forEach((v) => {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = v === '' ? '(empty)' : String(v);
+        valSel.appendChild(o);
+    });
+    if (arguments.length < 3) {
+        anyO.selected = true;
+        return;
+    }
+    if (selectedVal === '__ANY__') {
+        anyO.selected = true;
+        return;
+    }
+    let set = false;
+    [...valSel.options].forEach((op) => {
+        if (!set && op.value !== '__ANY__' && String(op.value) === String(selectedVal)) {
+            op.selected = true;
+            set = true;
+        }
+    });
+    if (!set) {
+        const c = document.createElement('option');
+        c.value = String(selectedVal);
+        c.textContent = String(selectedVal) === '' ? '(empty)' : String(selectedVal);
+        c.selected = true;
+        valSel.appendChild(c);
+    }
+}
+
+function stZabbixOnTagKeyChange(keySel) {
+    const row = keySel.closest('.zb-rule-row');
+    const valSel = row.querySelector('.zb-r-tag-val');
+    if (!valSel) {
+        return;
+    }
+    const tags = zbScopeMapCatalog.tags || [];
+    const tk = String(keySel.value || '').trim();
+    const trow = tags.find((t) => String(t.tag || '') === tk);
+    stZabbixTagValPopulate(valSel, trow || { values: [] }, '__ANY__');
+    stZabbixRefreshScopeRuleButtons();
+}
+
+function stZabbixOnRuleTypeChange(sel) {
+    const row = sel.closest('.zb-rule-row');
+    const prev = stZabbixRuleRowPatternFromDom(row);
+    stZabbixRenderRulePatternUi(row, { rule_type: sel.value, pattern: prev });
+    stZabbixRefreshScopeRuleButtons();
+}
+
+function stZabbixRenderRulePatternUi(row, seed) {
+    const ui = row.querySelector('.zb-r-pattern-ui');
+    if (!ui) {
+        return;
+    }
+    const type = (seed && seed.rule_type) || (row.querySelector('.zb-r-type') || {}).value || 'group';
+    const p = seed && Object.prototype.hasOwnProperty.call(seed, 'pattern')
+        ? String(seed.pattern || '')
+        : stZabbixRuleRowPatternFromDom(row);
+    ui.innerHTML = '';
+    ui.className = 'zb-r-pattern-ui row-wrap gap6 flex-1';
+    ui.style.minWidth = '260px';
+    ui.style.alignItems = 'flex-end';
+
+    if (type === 'group') {
+        const grp = zbScopeMapCatalog.groups || [];
+        if (!grp.length) {
+            const h = document.createElement('div');
+            h.className = 'hint-micro text-dim';
+            h.style.flex = '1';
+            h.style.minWidth = '140px';
+            h.textContent = 'No Zabbix groups found yet. Run a Zabbix sync first.';
+            ui.appendChild(h);
+        }
+        const inList = grp.length > 0 && stZabbixCatalogGroupListed(p);
+        const gmode = document.createElement('select');
+        gmode.className = 'finp zb-r-gmode';
+        gmode.style.minWidth = '170px';
+        if (grp.length > 0) {
+            const oa = document.createElement('option');
+            oa.value = 'catalog';
+            oa.textContent = 'From synced groups';
+            gmode.appendChild(oa);
+            const ob = document.createElement('option');
+            ob.value = 'custom';
+            ob.textContent = 'Advanced: custom value…';
+            gmode.appendChild(ob);
+            gmode.value = inList || p.trim() === '' ? 'catalog' : 'custom';
+        } else {
+            const ox = document.createElement('option');
+            ox.value = 'custom';
+            ox.textContent = 'Custom value';
+            gmode.appendChild(ox);
+            gmode.value = 'custom';
+            gmode.style.display = 'none';
+        }
+        ui.appendChild(gmode);
+
+        let groupSelWrap = null;
+        let gs = null;
+        if (grp.length > 0) {
+            groupSelWrap = document.createElement('div');
+            groupSelWrap.className = 'row-wrap gap6';
+            groupSelWrap.style.flex = '1';
+            gs = document.createElement('select');
+            gs.className = 'finp zb-r-group-sel';
+            gs.style.minWidth = '220px';
+            gs.style.flex = '1';
+            const ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = '— select group —';
+            gs.appendChild(ph);
+            grp.forEach((g) => {
+                const o = document.createElement('option');
+                o.value = g;
+                o.textContent = g;
+                gs.appendChild(o);
+            });
+            const pl = p.trim().toLowerCase();
+            [...gs.options].forEach((op) => {
+                if (op.value && String(op.value).trim().toLowerCase() === pl) {
+                    op.selected = true;
+                }
+            });
+            gs.onchange = () => stZabbixRefreshScopeRuleButtons();
+            groupSelWrap.appendChild(gs);
+            ui.appendChild(groupSelWrap);
+        }
+
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'finp zb-r-pattern-custom';
+        inp.style.minWidth = '200px';
+        inp.style.flex = '1';
+        inp.placeholder = 'Host group name (exact match, case-insensitive)';
+        inp.value = gmode.value === 'custom' ? p : '';
+        inp.oninput = () => stZabbixRefreshScopeRuleButtons();
+        ui.appendChild(inp);
+
+        const applyG = () => {
+            const cat = grp.length > 0 && gmode.value === 'catalog';
+            if (groupSelWrap) {
+                groupSelWrap.style.display = cat ? '' : 'none';
+            }
+            inp.style.display = cat ? 'none' : '';
+        };
+        applyG();
+        gmode.onchange = () => {
+            applyG();
+            if (gmode.value === 'custom' && gs && gs.value) {
+                inp.value = gs.value;
+            }
+            if (gmode.value === 'catalog' && gs && inp.value.trim()) {
+                const hit = [...gs.options].find(
+                    (o) => o.value && o.value.trim().toLowerCase() === inp.value.trim().toLowerCase()
+                );
+                if (hit) {
+                    hit.selected = true;
+                }
+            }
+            stZabbixRefreshScopeRuleButtons();
+        };
+    } else {
+        const tags = zbScopeMapCatalog.tags || [];
+        if (!tags.length) {
+            const h = document.createElement('div');
+            h.className = 'hint-micro text-dim';
+            h.style.flex = '1';
+            h.style.minWidth = '140px';
+            h.textContent = 'No Zabbix tags found yet. Run a Zabbix sync first.';
+            ui.appendChild(h);
+        }
+        const meta = stZabbixCatalogTagMetaForPattern(p);
+        const inCat = !!meta;
+        const tmode = document.createElement('select');
+        tmode.className = 'finp zb-r-tmode';
+        tmode.style.minWidth = '170px';
+        if (tags.length > 0) {
+            const oa = document.createElement('option');
+            oa.value = 'catalog';
+            oa.textContent = 'From synced tags';
+            tmode.appendChild(oa);
+            const ob = document.createElement('option');
+            ob.value = 'custom';
+            ob.textContent = 'Advanced: custom value…';
+            tmode.appendChild(ob);
+            tmode.value = inCat || p.trim() === '' ? 'catalog' : 'custom';
+        } else {
+            const ox = document.createElement('option');
+            ox.value = 'custom';
+            ox.textContent = 'Custom value';
+            tmode.appendChild(ox);
+            tmode.value = 'custom';
+            tmode.style.display = 'none';
+        }
+        ui.appendChild(tmode);
+
+        let catWrap = null;
+        let keySel = null;
+        let valSel = null;
+        if (tags.length > 0) {
+            catWrap = document.createElement('div');
+            catWrap.className = 'row-wrap gap6';
+            catWrap.style.flex = '1';
+            keySel = document.createElement('select');
+            keySel.className = 'finp zb-r-tag-key';
+            keySel.style.minWidth = '140px';
+            const phk = document.createElement('option');
+            phk.value = '';
+            phk.textContent = '— tag —';
+            keySel.appendChild(phk);
+            tags.forEach((t) => {
+                const o = document.createElement('option');
+                o.value = t.tag;
+                o.textContent = t.tag;
+                keySel.appendChild(o);
+            });
+            valSel = document.createElement('select');
+            valSel.className = 'finp zb-r-tag-val';
+            valSel.style.minWidth = '160px';
+            let selKey = '';
+            let selVal = '__ANY__';
+            if (meta) {
+                selKey = meta.entry.tag;
+                selVal = meta.mode === 'any' ? '__ANY__' : meta.value;
+            } else if (!p.includes('=')) {
+                selKey = p.trim();
+            } else {
+                const eq = p.indexOf('=');
+                selKey = p.slice(0, eq).trim();
+                selVal = p.slice(eq + 1);
+            }
+            [...keySel.options].forEach((op) => {
+                if (op.value && op.value.trim().toLowerCase() === String(selKey).trim().toLowerCase()) {
+                    op.selected = true;
+                }
+            });
+            const effKey = keySel.value || selKey;
+            const trow = tags.find((t) => String(t.tag || '').trim().toLowerCase() === String(effKey).trim().toLowerCase());
+            stZabbixTagValPopulate(valSel, trow || { values: [] }, selVal);
+            keySel.onchange = () => stZabbixOnTagKeyChange(keySel);
+            valSel.onchange = () => stZabbixRefreshScopeRuleButtons();
+            catWrap.appendChild(keySel);
+            catWrap.appendChild(valSel);
+            ui.appendChild(catWrap);
+        }
+
+        const inpT = document.createElement('input');
+        inpT.type = 'text';
+        inpT.className = 'finp zb-r-pattern-custom';
+        inpT.style.minWidth = '200px';
+        inpT.style.flex = '1';
+        inpT.placeholder = 'e.g. Environment or Environment=prod';
+        inpT.value = tmode.value === 'custom' ? p : '';
+        inpT.oninput = () => stZabbixRefreshScopeRuleButtons();
+        ui.appendChild(inpT);
+
+        const applyT = () => {
+            const cat = tags.length > 0 && tmode.value === 'catalog';
+            if (catWrap) {
+                catWrap.style.display = cat ? '' : 'none';
+            }
+            inpT.style.display = cat ? 'none' : '';
+        };
+        applyT();
+        tmode.onchange = () => {
+            applyT();
+            if (tmode.value === 'custom' && keySel && valSel && keySel.value) {
+                if (valSel.value === '__ANY__') {
+                    inpT.value = keySel.value;
+                } else {
+                    inpT.value = keySel.value + '=' + valSel.value;
+                }
+            }
+            stZabbixRefreshScopeRuleButtons();
+        };
+    }
+}
+
 function stZabbixAddRuleRow(rule, skipRefresh) {
     const wrap = document.getElementById('zb-rules-wrap');
     if (!wrap) return;
     const r = rule || {};
     const rt = (r.rule_type === 'tag') ? 'tag' : 'group';
-    const pat = esc(r.pattern || '');
     const sid = parseInt(String(r.scope_id || '0'), 10);
     const en = r.enabled ? ' checked' : '';
     const div = document.createElement('div');
     div.className = 'zb-rule-row row-wrap gap6 mb6 flex-wrap';
     div.innerHTML = `
-      <select class="finp zb-r-type" style="min-width:140px">
+      <select class="finp zb-r-type" style="min-width:140px" onchange="stZabbixOnRuleTypeChange(this)">
         <option value="group"${rt === 'group' ? ' selected' : ''}>Host group (exact name)</option>
         <option value="tag"${rt === 'tag' ? ' selected' : ''}>Host tag</option>
       </select>
-      <input class="finp zb-r-pattern" style="min-width:220px;flex:1" placeholder="e.g. Linux servers or Environment=prod" value="${pat}">
+      <div class="zb-r-pattern-ui"></div>
       ${zbScopeSelectHtml(sid, r)}
       <label class="text-micro" style="align-self:center"><input type="checkbox" class="zb-r-en"${en}> enabled</label>
       <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove();stZabbixRefreshScopeRuleButtons();">Remove</button>`;
     wrap.appendChild(div);
+    stZabbixRenderRulePatternUi(div, { rule_type: rt, pattern: String(r.pattern || '') });
     if (!skipRefresh) stZabbixRefreshScopeRuleButtons();
 }
 
@@ -6950,7 +7309,7 @@ function stZabbixRulesFromDomForSave() {
     document.querySelectorAll('.zb-rule-row').forEach((row) => {
         ++rowNum;
         const type = (row.querySelector('.zb-r-type') || {}).value || 'group';
-        const pattern = (row.querySelector('.zb-r-pattern') || {}).value || '';
+        const pattern = stZabbixRuleRowPatternFromDom(row);
         const scopeSel = row.querySelector('.zb-r-scope');
         const scope_id = parseInt(String(scopeSel && scopeSel.value ? scopeSel.value : '0'), 10);
         const enabled = !!(row.querySelector('.zb-r-en') || {}).checked;
@@ -7031,6 +7390,13 @@ function stZabbixApplyEnrichmentPanel(z) {
     zbScopeOptions = Array.isArray(z.scopes) && z.scopes.length
         ? z.scopes
         : zbScopeOptions;
+    zbScopeMapCatalog =
+        z.scope_map_catalog && typeof z.scope_map_catalog === 'object'
+            ? {
+                groups: Array.isArray(z.scope_map_catalog.groups) ? z.scope_map_catalog.groups : [],
+                tags: Array.isArray(z.scope_map_catalog.tags) ? z.scope_map_catalog.tags : [],
+            }
+            : { groups: [], tags: [] };
     if (!zbScopeOptions.length) {
         void api('/api/scan_scopes.php', { quiet: true }).then((sc) => {
             if (sc && sc.ok && Array.isArray(sc.scopes)) zbScopeOptions = sc.scopes;
