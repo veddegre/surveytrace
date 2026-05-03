@@ -31,6 +31,7 @@ if ($method === 'GET') {
         'sample_matches' => st_zabbix_sample_matches($db, 8),
         'scope_rules' => st_zabbix_scope_rules_all($db),
         'scope_map_catalog' => st_zabbix_scope_map_catalog($db),
+        'zabbix_cache_status' => st_zabbix_cache_status($db),
         'scopes' => $scopes,
         'scope_catalog_count' => count($scopes),
         'workflow' => [

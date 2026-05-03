@@ -1037,6 +1037,7 @@ if (is_readable($dbProbe)) {
 
     <div class="flbl">Scope map rules</div>
     <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+    <div id="zb-cache-status" class="hint-micro mb6 text-dim" style="display:none" aria-live="polite"></div>
     <div id="zb-rules-wrap" class="mb6"></div>
     <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
     <div class="row-wrap gap6 mb8">
@@ -6884,6 +6885,68 @@ async function loadIntegrationsTab() {
     void loadZabbixIntegrationOnly();
 }
 
+function stZabbixFmtCacheStatusMessage(st) {
+    if (!st || st.tables_ready === false) {
+        return { warn: 'Zabbix tables are not ready (migrations missing).', detail: '' };
+    }
+    const h = String(st.status_hint || 'ok');
+    const detail =
+        'Hosts: ' + (st.zabbix_hosts ?? 0)
+        + ' · zabbix_host_groups rows: ' + (st.zabbix_host_groups_rows ?? 0)
+        + ' · hosts with groups_json: ' + (st.hosts_with_nonempty_groups_json ?? 0)
+        + ' · catalog groups: ' + (st.scope_map_catalog_group_count ?? 0);
+    if (h === 'no_hosts') {
+        return { warn: 'No Zabbix host rows in the local cache — enable the connector and run a sync.', detail };
+    }
+    if (h === 'no_groups_in_cache') {
+        return {
+            warn: 'Sync did not store any host groups (empty zabbix_host_groups and no usable groups_json). Check Zabbix API access and run sync again. Advanced: custom group values still work.',
+            detail,
+        };
+    }
+    if (h === 'groups_json_unparsed') {
+        return {
+            warn: 'Hosts have groups_json but no group names could be extracted — possible API shape mismatch. Use Advanced: custom, or report a sample groups_json from the DB.',
+            detail,
+        };
+    }
+    if (h === 'group_rows_empty_names') {
+        return {
+            warn: 'zabbix_host_groups has rows but all group_name values are empty — run a full sync again after upgrading.',
+            detail,
+        };
+    }
+    if (h === 'groups_from_json_only') {
+        return {
+            warn: 'Group dropdown is filled from groups_json (normalized group table is empty). Re-sync to populate zabbix_host_groups.',
+            detail,
+        };
+    }
+    if (h === 'tables_missing') {
+        return { warn: 'Zabbix tables missing.', detail: '' };
+    }
+    return { warn: '', detail };
+}
+
+function stZabbixApplyCacheStatusHint(z) {
+    const el = document.getElementById('zb-cache-status');
+    if (!el) {
+        return;
+    }
+    if (!z || !z.ok || !z.zabbix_cache_status) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    const { warn, detail } = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
+    el.style.display = '';
+    if (warn) {
+        el.innerHTML = '<span class="hstate-warn">' + esc(warn) + '</span><div class="text-micro mt4">' + esc(detail) + '</div>';
+    } else {
+        el.innerHTML = '<span>' + esc(detail) + '</span>';
+    }
+}
+
 /** Scan scopes for Zabbix rule dropdowns (Enrichment → Zabbix); mirrored on GET /api/zabbix.php as `scopes`. */
 var zbScopeOptions = [];
 /** Synced group / tag catalog for scope-map rules; from GET /api/zabbix.php `scope_map_catalog`. */
@@ -7397,6 +7460,7 @@ function stZabbixApplyEnrichmentPanel(z) {
                 tags: Array.isArray(z.scope_map_catalog.tags) ? z.scope_map_catalog.tags : [],
             }
             : { groups: [], tags: [] };
+    stZabbixApplyCacheStatusHint(z);
     if (!zbScopeOptions.length) {
         void api('/api/scan_scopes.php', { quiet: true }).then((sc) => {
             if (sc && sc.ok && Array.isArray(sc.scopes)) zbScopeOptions = sc.scopes;

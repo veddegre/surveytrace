@@ -148,6 +148,9 @@ function st_zabbix_host_tag_pairs_for_scope_map(PDO $pdo, string $hostid): array
     return $pairs;
 }
 
+/** Max host rows scanned for `groups_json` / `tags_json` when building scope_map_catalog (avoid huge reads). */
+const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_HOST_ROWS = 2000;
+
 /** Max distinct group names returned in `scope_map_catalog` (GET payload). */
 const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_GROUPS = 500;
 
@@ -163,6 +166,11 @@ const ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_VALUES_PER_TAG = 120;
  *
  * @return array{groups: array<int, string>, tags: array<int, array{tag: string, values: array<int, string>}>}
  */
+function st_zabbix_group_label_from_json_item(array $item): string
+{
+    return trim((string) ($item['name'] ?? $item['group'] ?? $item['groupname'] ?? $item['groupName'] ?? ''));
+}
+
 function st_zabbix_scope_map_catalog(PDO $pdo): array
 {
     if (! st_zabbix_table_ready($pdo)) {
@@ -185,9 +193,9 @@ function st_zabbix_scope_map_catalog(PDO $pdo): array
             $gCanon[$k] = $g;
         }
     }
-    $lim = max(1, (int) ST_ZABBIX_SYNC_HOST_LIMIT);
+    $catLim = max(1, (int) ST_ZABBIX_SCOPE_MAP_CATALOG_MAX_HOST_ROWS);
     $hq = $pdo->query(
-        "SELECT groups_json FROM zabbix_hosts WHERE groups_json IS NOT NULL AND TRIM(groups_json) NOT IN ('', '[]') LIMIT {$lim}"
+        "SELECT groups_json FROM zabbix_hosts WHERE groups_json IS NOT NULL AND TRIM(groups_json) NOT IN ('', '[]') LIMIT {$catLim}"
     );
     foreach ($hq ? $hq->fetchAll(PDO::FETCH_COLUMN) : [] as $raw) {
         if (! is_string($raw) || $raw === '') {
@@ -201,7 +209,7 @@ function st_zabbix_scope_map_catalog(PDO $pdo): array
             if (! is_array($item)) {
                 continue;
             }
-            $g = trim((string) ($item['name'] ?? $item['group'] ?? $item['groupname'] ?? ''));
+            $g = st_zabbix_group_label_from_json_item($item);
             if ($g === '') {
                 continue;
             }
@@ -241,7 +249,7 @@ function st_zabbix_scope_map_catalog(PDO $pdo): array
         }
     }
     $hq2 = $pdo->query(
-        "SELECT tags_json FROM zabbix_hosts WHERE tags_json IS NOT NULL AND TRIM(tags_json) NOT IN ('', '[]') LIMIT {$lim}"
+        "SELECT tags_json FROM zabbix_hosts WHERE tags_json IS NOT NULL AND TRIM(tags_json) NOT IN ('', '[]') LIMIT {$catLim}"
     );
     foreach ($hq2 ? $hq2->fetchAll(PDO::FETCH_COLUMN) : [] as $raw) {
         if (! is_string($raw) || $raw === '') {
@@ -658,6 +666,106 @@ function st_zabbix_availability_label(mixed $code): string
 }
 
 /**
+ * host.get may return host groups under `groups` and/or `hostgroups` (Zabbix 7+). Merge to a list of group objects.
+ *
+ * @return list<array<string,mixed>>
+ */
+function st_zabbix_host_api_groups_list(array $h): array
+{
+    $out = [];
+    foreach (['groups', 'hostgroups'] as $prop) {
+        $chunk = $h[$prop] ?? null;
+        if (! is_array($chunk) || $chunk === []) {
+            continue;
+        }
+        foreach (array_values($chunk) as $g) {
+            if (is_array($g)) {
+                $out[] = $g;
+            }
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Stable (hostid, groupid) row for `zabbix_host_groups` from one API group object.
+ *
+ * @return array{0: string, 1: string}|null [groupid, group_name]
+ */
+function st_zabbix_normalize_api_group_row(array $g): ?array
+{
+    $gid = trim((string) ($g['groupid'] ?? $g['id'] ?? $g['uuid'] ?? ''));
+    $gname = trim((string) ($g['name'] ?? $g['group'] ?? $g['groupname'] ?? $g['groupName'] ?? ''));
+    if ($gid === '' && $gname !== '') {
+        $gid = 'n:' . substr(hash('sha256', $gname), 0, 32);
+    }
+    if ($gid === '') {
+        return null;
+    }
+    if ($gname === '') {
+        $gname = $gid;
+    }
+
+    return [$gid, $gname];
+}
+
+/**
+ * Row counts and hints for GET /api/zabbix.php (no secrets).
+ *
+ * @return array<string, mixed>
+ */
+function st_zabbix_cache_status(PDO $pdo): array
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return [
+            'tables_ready' => false,
+            'zabbix_hosts' => 0,
+            'zabbix_host_groups_rows' => 0,
+            'zabbix_host_groups_distinct_nonempty_names' => 0,
+            'hosts_with_nonempty_groups_json' => 0,
+            'scope_map_catalog_group_count' => 0,
+            'scope_map_catalog_tag_key_count' => 0,
+            'status_hint' => 'tables_missing',
+        ];
+    }
+    $hosts = (int) $pdo->query('SELECT COUNT(1) FROM zabbix_hosts')->fetchColumn();
+    $gRows = (int) $pdo->query('SELECT COUNT(1) FROM zabbix_host_groups')->fetchColumn();
+    $gDistinct = (int) $pdo->query(
+        "SELECT COUNT(DISTINCT TRIM(group_name)) FROM zabbix_host_groups WHERE TRIM(COALESCE(group_name, '')) != ''"
+    )->fetchColumn();
+    $gj = (int) $pdo->query(
+        "SELECT COUNT(1) FROM zabbix_hosts WHERE groups_json IS NOT NULL AND TRIM(groups_json) NOT IN ('', '[]')"
+    )->fetchColumn();
+    $cat = st_zabbix_scope_map_catalog($pdo);
+    $catGc = count($cat['groups']);
+    $catTk = count($cat['tags']);
+    $hint = 'ok';
+    if ($hosts === 0) {
+        $hint = 'no_hosts';
+    } elseif ($catGc === 0 && $gj === 0 && $gRows === 0) {
+        $hint = 'no_groups_in_cache';
+    } elseif ($gRows === 0 && $gj > 0 && $catGc === 0) {
+        $hint = 'groups_json_unparsed';
+    } elseif ($gRows > 0 && $gDistinct === 0) {
+        $hint = 'group_rows_empty_names';
+    } elseif ($gRows === 0 && $gj > 0 && $catGc > 0) {
+        $hint = 'groups_from_json_only';
+    }
+
+    return [
+        'tables_ready' => true,
+        'zabbix_hosts' => $hosts,
+        'zabbix_host_groups_rows' => $gRows,
+        'zabbix_host_groups_distinct_nonempty_names' => $gDistinct,
+        'hosts_with_nonempty_groups_json' => $gj,
+        'scope_map_catalog_group_count' => $catGc,
+        'scope_map_catalog_tag_key_count' => $catTk,
+        'status_hint' => $hint,
+    ];
+}
+
+/**
  * Normalize MAC for comparison (12 hex) or empty string.
  */
 function st_zabbix_norm_mac(string $m): string
@@ -747,7 +855,9 @@ function st_zabbix_run_full_sync(PDO $pdo): array
         $hosts = st_zabbix_jsonrpc($apiUrl, $tok, 'host.get', [
             'output' => ['hostid', 'host', 'name', 'status', 'available'],
             'selectInterfaces' => ['interfaceid', 'ip', 'dns', 'port', 'type', 'main', 'useip', 'macaddress'],
+            // Zabbix 6.x: `groups`; Zabbix 7+: prefer `selectHostGroups` → `hostgroups` (`selectGroups` is deprecated).
             'selectGroups' => ['groupid', 'name'],
+            'selectHostGroups' => ['groupid', 'name'],
             'selectParentTemplates' => ['templateid', 'name'],
             'selectTags' => ['tag', 'value'],
             'selectInventory' => 'extend',
@@ -806,10 +916,7 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                     $inv = [];
                 }
                 $invJson = json_encode($inv, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}';
-                $groups = $h['groups'] ?? [];
-                if (! is_array($groups)) {
-                    $groups = [];
-                }
+                $groups = st_zabbix_host_api_groups_list($h);
                 $tags = $h['tags'] ?? [];
                 if (! is_array($tags)) {
                     $tags = [];
@@ -835,15 +942,21 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                     json_encode($tmpls, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]',
                     json_encode($ifaces, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]',
                 ]);
+                $seenGrp = [];
                 foreach ($groups as $g) {
                     if (! is_array($g)) {
                         continue;
                     }
-                    $gid = (string) ($g['groupid'] ?? '');
-                    if ($gid === '') {
+                    $norm = st_zabbix_normalize_api_group_row($g);
+                    if ($norm === null) {
                         continue;
                     }
-                    $gname = (string) ($g['name'] ?? $g['group'] ?? $g['groupname'] ?? '');
+                    [$gid, $gname] = $norm;
+                    $ug = $hostid . "\0" . $gid;
+                    if (isset($seenGrp[$ug])) {
+                        continue;
+                    }
+                    $seenGrp[$ug] = true;
                     $insGrp->execute([$hostid, $gid, $gname]);
                 }
                 foreach ($tags as $t) {
