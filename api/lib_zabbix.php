@@ -684,6 +684,23 @@ function st_zabbix_host_display_name(string $visibleName, string $techName, stri
 }
 
 /**
+ * Suggested SurveyTrace hostname from Zabbix visible / technical names only (no hostid fallback).
+ */
+function st_zabbix_suggested_hostname_from_zabbix_names(string $visibleName, string $techName): string
+{
+    $v = trim($visibleName);
+    if ($v !== '') {
+        return $v;
+    }
+    $t = trim($techName);
+    if ($t !== '') {
+        return $t;
+    }
+
+    return '';
+}
+
+/**
  * host.get may return host groups under `groups` and/or `hostgroups` (Zabbix 7+). Merge to a list of group objects.
  *
  * @return list<array<string,mixed>>
@@ -1916,7 +1933,7 @@ function st_zabbix_suggest_scope_for_asset(PDO $pdo, int $assetId): ?int
  * Apply scope mapping after explicit confirmation. Each row must match current DB scope and server suggestion.
  *
  * @param array<int, array<string,mixed>> $rows
- * @return array{applied: int, skipped: int, errors: array<int, string>, changes: array<int, array<string,int|null>>}
+ * @return array{applied: int, skipped: int, errors: array<int, string>, changes: array<int, array<string,int|null>>, skip_reasons: array<string, int>}
  */
 function st_zabbix_apply_scope_map(PDO $pdo, bool $confirm, array $rows): array
 {
@@ -1930,56 +1947,270 @@ function st_zabbix_apply_scope_map(PDO $pdo, bool $confirm, array $rows): array
     $skipped = 0;
     $errors = [];
     $changes = [];
+    $skip_reasons = [
+        'invalid_row' => 0,
+        'invalid_new_scope' => 0,
+        'asset_not_found' => 0,
+        'stale_old_scope' => 0,
+        'stale_suggestion' => 0,
+        'already_target_scope' => 0,
+    ];
     $chkScope = $pdo->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
     $selAsset = $pdo->prepare('SELECT COALESCE(scope_id, 0) AS sid FROM assets WHERE id = ? LIMIT 1');
     $upd = $pdo->prepare('UPDATE assets SET scope_id = ? WHERE id = ?');
     foreach ($rows as $idx => $r) {
         if (! is_array($r)) {
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['invalid_row'];
+
             continue;
         }
         $aid = (int) ($r['asset_id'] ?? 0);
         $newScope = (int) ($r['new_scope_id'] ?? 0);
         if ($aid <= 0 || $newScope <= 0) {
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['invalid_row'];
+
             continue;
         }
         $chkScope->execute([$newScope]);
         if ((int) $chkScope->fetchColumn() !== 1) {
             $errors[] = 'asset ' . $aid . ': invalid new_scope_id';
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['invalid_new_scope'];
+
             continue;
         }
         $selAsset->execute([$aid]);
         $curRow = $selAsset->fetch(PDO::FETCH_ASSOC);
         if (! is_array($curRow)) {
             $errors[] = 'asset ' . $aid . ': not found';
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['asset_not_found'];
+
             continue;
         }
         $cur = st_zabbix_norm_scope_id($curRow['sid'] ?? null);
         $oldExpect = st_zabbix_norm_scope_id($r['old_scope_id'] ?? null);
         if ($cur !== $oldExpect) {
             $errors[] = 'asset ' . $aid . ': old_scope_id mismatch (refresh preview)';
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['stale_old_scope'];
+
             continue;
         }
         $suggested = st_zabbix_suggest_scope_for_asset($pdo, $aid);
         if ($suggested !== $newScope) {
             $errors[] = 'asset ' . $aid . ': new_scope_id does not match current rules';
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['stale_suggestion'];
+
             continue;
         }
         if ($cur === $newScope) {
-            $skipped++;
+            ++$skipped;
+            ++$skip_reasons['already_target_scope'];
+
             continue;
         }
         $upd->execute([$newScope, $aid]);
         $changes[] = ['asset_id' => $aid, 'old_scope_id' => $cur, 'new_scope_id' => $newScope];
-        $applied++;
+        ++$applied;
     }
 
-    return ['applied' => $applied, 'skipped' => $skipped, 'errors' => $errors, 'changes' => $changes];
+    return ['applied' => $applied, 'skipped' => $skipped, 'errors' => $errors, 'changes' => $changes, 'skip_reasons' => $skip_reasons];
+}
+
+/**
+ * Preview rows where a linked Zabbix host can fill a blank SurveyTrace hostname (respects hostname lock).
+ *
+ * @return list<array<string,mixed>>
+ */
+function st_zabbix_preview_identity_hostname_plan(PDO $pdo): array
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return [];
+    }
+    $st = $pdo->query(
+        'SELECT a.id AS asset_id, a.ip,
+                TRIM(COALESCE(a.hostname, \'\')) AS current_hostname,
+                l.zabbix_hostid,
+                TRIM(COALESCE(h.visible_name, \'\')) AS zabbix_visible_name,
+                TRIM(COALESCE(h.tech_name, \'\')) AS zabbix_tech_name,
+                l.match_method,
+                l.confidence
+         FROM zabbix_asset_links l
+         INNER JOIN assets a ON a.id = l.asset_id
+         INNER JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
+         WHERE TRIM(COALESCE(a.hostname, \'\')) = \'\'
+         AND COALESCE(a.hostname_locked, 0) = 0
+         ORDER BY a.ip'
+    );
+    $rows = $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
+    $out = [];
+    foreach ($rows as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $sug = st_zabbix_suggested_hostname_from_zabbix_names(
+            (string) ($row['zabbix_visible_name'] ?? ''),
+            (string) ($row['zabbix_tech_name'] ?? '')
+        );
+        if ($sug === '') {
+            continue;
+        }
+        $row['suggested_hostname'] = $sug;
+        $row['zabbix_display_name'] = st_zabbix_host_display_name(
+            (string) ($row['zabbix_visible_name'] ?? ''),
+            (string) ($row['zabbix_tech_name'] ?? ''),
+            (string) ($row['zabbix_hostid'] ?? '')
+        );
+        $out[] = $row;
+    }
+
+    return $out;
+}
+
+/**
+ * Apply Zabbix-suggested hostnames for explicitly selected assets (blank hostname + not locked only).
+ *
+ * @param array<int, array<string,mixed>> $applyRows Each: asset_id, current_hostname, suggested_hostname (from preview)
+ * @return array{applied: int, skipped: int, results: list<array<string,mixed>>, skip_reasons: array<string, int>}
+ */
+function st_zabbix_apply_identity_hostname(PDO $pdo, array $applyRows): array
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        throw new RuntimeException('Zabbix tables unavailable');
+    }
+    $applied = 0;
+    $skipped = 0;
+    $results = [];
+    $skip_reasons = [
+        'invalid_row' => 0,
+        'not_selected' => 0,
+        'not_linked' => 0,
+        'hostname_locked' => 0,
+        'already_set' => 0,
+        'stale_current_hostname' => 0,
+        'no_zabbix_name' => 0,
+        'stale_preview' => 0,
+    ];
+    $selAsset = $pdo->prepare(
+        'SELECT a.id, TRIM(COALESCE(a.hostname, \'\')) AS h, COALESCE(a.hostname_locked, 0) AS hl
+         FROM assets a WHERE a.id = ? LIMIT 1'
+    );
+    $selLink = $pdo->prepare('SELECT 1 FROM zabbix_asset_links WHERE asset_id = ? LIMIT 1');
+    $selHost = $pdo->prepare(
+        'SELECT TRIM(COALESCE(h.visible_name, \'\')) AS vn, TRIM(COALESCE(h.tech_name, \'\')) AS tn
+         FROM zabbix_hosts h
+         INNER JOIN zabbix_asset_links l ON l.zabbix_hostid = h.hostid AND l.asset_id = ?
+         LIMIT 1'
+    );
+    $upd = $pdo->prepare(
+        'UPDATE assets SET hostname = ? WHERE id = ? AND TRIM(COALESCE(hostname, \'\')) = TRIM(?) AND COALESCE(hostname_locked, 0) = 0'
+    );
+
+    foreach ($applyRows as $r) {
+        if (! is_array($r)) {
+            ++$skipped;
+            ++$skip_reasons['invalid_row'];
+
+            continue;
+        }
+        $aid = (int) ($r['asset_id'] ?? 0);
+        $expectCur = trim((string) ($r['current_hostname'] ?? ''));
+        $suggestedClient = trim((string) ($r['suggested_hostname'] ?? ''));
+        if ($aid <= 0) {
+            ++$skipped;
+            ++$skip_reasons['not_selected'];
+            $results[] = ['asset_id' => 0, 'status' => 'skipped', 'reason' => 'not_selected'];
+
+            continue;
+        }
+        $selLink->execute([$aid]);
+        if ((int) $selLink->fetchColumn() !== 1) {
+            ++$skipped;
+            ++$skip_reasons['not_linked'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'not_linked'];
+
+            continue;
+        }
+        $selAsset->execute([$aid]);
+        $ar = $selAsset->fetch(PDO::FETCH_ASSOC);
+        if (! is_array($ar)) {
+            ++$skipped;
+            ++$skip_reasons['not_linked'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'not_linked'];
+
+            continue;
+        }
+        if (((int) ($ar['hl'] ?? 0)) !== 0) {
+            ++$skipped;
+            ++$skip_reasons['hostname_locked'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'hostname_locked'];
+
+            continue;
+        }
+        $dbh = trim((string) ($ar['h'] ?? ''));
+        if ($dbh !== $expectCur) {
+            ++$skipped;
+            ++$skip_reasons['stale_current_hostname'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'stale_current_hostname'];
+
+            continue;
+        }
+        if ($dbh !== '') {
+            ++$skipped;
+            ++$skip_reasons['already_set'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'already_set'];
+
+            continue;
+        }
+        $selHost->execute([$aid]);
+        $hr = $selHost->fetch(PDO::FETCH_ASSOC);
+        if (! is_array($hr)) {
+            ++$skipped;
+            ++$skip_reasons['not_linked'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'not_linked'];
+
+            continue;
+        }
+        $suggestedNow = st_zabbix_suggested_hostname_from_zabbix_names(
+            (string) ($hr['vn'] ?? ''),
+            (string) ($hr['tn'] ?? '')
+        );
+        if ($suggestedNow === '') {
+            ++$skipped;
+            ++$skip_reasons['no_zabbix_name'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'no_zabbix_name'];
+
+            continue;
+        }
+        if ($suggestedNow !== $suggestedClient) {
+            ++$skipped;
+            ++$skip_reasons['stale_preview'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'stale_preview'];
+
+            continue;
+        }
+        $upd->execute([$suggestedClient, $aid, $expectCur]);
+        if ($upd->rowCount() < 1) {
+            ++$skipped;
+            ++$skip_reasons['stale_current_hostname'];
+            $results[] = ['asset_id' => $aid, 'status' => 'skipped', 'reason' => 'stale_current_hostname'];
+
+            continue;
+        }
+        ++$applied;
+        $results[] = [
+            'asset_id' => $aid,
+            'status' => 'applied',
+            'old_hostname' => $dbh,
+            'new_hostname' => $suggestedClient,
+        ];
+    }
+
+    return ['applied' => $applied, 'skipped' => $skipped, 'results' => $results, 'skip_reasons' => $skip_reasons];
 }
 
 /**

@@ -3,7 +3,8 @@
  * SurveyTrace — /api/zabbix.php
  *
  * Admin-only: Zabbix source connector config, API test, bounded sync (background worker),
- * scope-map rules (preview/save; never mutates asset scopes automatically).
+ * scope-map rules (preview/save; never mutates asset scopes automatically),
+ * and optional explicit Zabbix → asset hostname identity apply (preview/confirm/audit).
  */
 
 declare(strict_types=1);
@@ -36,6 +37,7 @@ if ($method === 'GET') {
         'scope_catalog_count' => count($scopes),
         'workflow' => [
             'asset_scope_apply' => st_zabbix_scan_scopes_table_exists($db) && st_zabbix_asset_workflow_columns_ready($db),
+            'asset_identity_apply' => st_zabbix_table_ready($db),
         ],
     ];
     if (isset($_GET['match_review']) && (string) $_GET['match_review'] === '1') {
@@ -234,6 +236,55 @@ if ($action === 'preview_scope_apply') {
         $out['debug_scope_map'] = $dbg;
     }
     st_json($out);
+}
+
+if ($action === 'preview_identity_apply') {
+    if (! st_zabbix_table_ready($db)) {
+        st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
+    }
+    $plan = st_zabbix_preview_identity_hostname_plan($db);
+    $note = $plan === []
+        ? 'No linked assets with a blank SurveyTrace hostname and a usable Zabbix visible/technical name. Run sync, confirm links, or unlock hostname if the field is locked.'
+        : 'Plan only — select rows and call apply_identity with confirm to write hostname (audited).';
+    st_json(['ok' => true, 'plan' => $plan, 'note' => $note]);
+}
+
+if ($action === 'apply_identity') {
+    if (! st_zabbix_table_ready($db)) {
+        st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
+    }
+    if (empty($body['confirm'])) {
+        st_json(['ok' => false, 'error' => 'confirm is required (explicit operator acknowledgement)'], 400);
+    }
+    $apply = $body['apply'] ?? null;
+    if (! is_array($apply)) {
+        st_json(['ok' => false, 'error' => 'apply array required: [{asset_id, current_hostname, suggested_hostname}, ...]'], 400);
+    }
+    try {
+        $res = st_zabbix_apply_identity_hostname($db, $apply);
+    } catch (Throwable $e) {
+        st_json(['ok' => false, 'error' => st_zabbix_redact_secrets($e->getMessage())], 400);
+    }
+    $actor = st_current_user();
+    if ($res['applied'] > 0) {
+        $logResults = $res['results'];
+        if (is_array($logResults) && count($logResults) > 80) {
+            $logResults = array_slice($logResults, 0, 80);
+        }
+        st_audit_log(
+            'zabbix.identity_applied',
+            (int) ($actor['id'] ?? 0),
+            (string) ($actor['username'] ?? ''),
+            null,
+            null,
+            [
+                'applied' => $res['applied'],
+                'skipped' => $res['skipped'],
+                'results' => $logResults,
+            ]
+        );
+    }
+    st_json(['ok' => true] + $res);
 }
 
 if ($action === 'apply_scope_map') {

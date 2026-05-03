@@ -1100,6 +1100,24 @@ if (is_readable($dbProbe)) {
       </div>
       <div id="zb-preview" class="help-mono mb12" style="max-height:180px;overflow:auto">—</div>
 
+      <div id="zb-identity-block" class="mb14">
+        <div class="flbl">Identity suggestions</div>
+        <p class="hint-micro mb6">
+          Copy the linked Zabbix <strong>visible</strong> or <strong>technical</strong> host name into SurveyTrace <strong>hostname</strong> when it is blank.
+          <strong>Preview → confirm → apply</strong> only; never automatic. Does not overwrite non-empty hostnames or <strong>hostname_locked</strong> assets.
+          This is separate from <strong>scope mapping</strong>, which only updates <code class="code-accent">scope_id</code>.
+        </p>
+        <div class="row-wrap gap6 mb6">
+          <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
+        </div>
+        <div id="zb-identity-plan-body" class="mb6">—</div>
+        <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <input type="checkbox" id="zb-identity-confirm">
+          I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked).
+        </label>
+        <button type="button" class="btnp" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
+      </div>
+
       <div id="zb-operator-blocks">
         <div id="zb-scope-apply-block" style="display:none">
           <div class="flbl">Apply scope map (saved + enabled rules)</div>
@@ -7860,10 +7878,138 @@ async function stZabbixSaveRules() {
 /** Last scope apply plan from `preview_scope_apply` (same indices as checkboxes in #zb-apply-plan-body). */
 var __stZabbixScopePlan = [];
 
+function stZabbixScopePlanCapturePrevSelection() {
+    const plan = __stZabbixScopePlan || [];
+    const keys = new Set();
+    document.querySelectorAll('#zb-apply-plan-body .zb-plan-chk').forEach((el) => {
+        if (el.disabled || !el.checked) return;
+        const i = parseInt(el.getAttribute('data-i') || '-1', 10);
+        const p = plan[i];
+        if (!p) return;
+        keys.add(String(p.asset_id) + '|' + String(parseInt(String(p.suggested_scope_id || '0'), 10)));
+    });
+    return keys;
+}
+
+function stZabbixScopePlanRestoreSelection(keys, plan) {
+    if (!keys || keys.size === 0 || !plan.length) return;
+    plan.forEach((p, i) => {
+        const k = String(p.asset_id) + '|' + String(parseInt(String(p.suggested_scope_id || '0'), 10));
+        if (!keys.has(k)) return;
+        const ch = document.querySelector(`#zb-apply-plan-body .zb-plan-chk[data-i="${i}"]`);
+        if (ch && !ch.disabled) ch.checked = true;
+    });
+}
+
+function stZabbixScopePlanUpdateCount() {
+    const el = document.getElementById('zb-plan-select-count');
+    if (!el) return;
+    let eligible = 0;
+    let checked = 0;
+    document.querySelectorAll('#zb-apply-plan-body .zb-plan-chk').forEach((c) => {
+        if (c.disabled) return;
+        eligible++;
+        if (c.checked) checked++;
+    });
+    el.textContent = String(checked) + ' of ' + String(eligible) + ' selected';
+    const hdr = document.getElementById('zb-plan-header-chk');
+    if (hdr) {
+        hdr.disabled = eligible === 0;
+        hdr.checked = eligible > 0 && checked === eligible;
+        hdr.indeterminate = checked > 0 && checked < eligible;
+    }
+}
+
+function stZabbixScopePlanSelectAll(on) {
+    document.querySelectorAll('#zb-apply-plan-body .zb-plan-chk:not(:disabled)').forEach((c) => {
+        c.checked = !!on;
+    });
+    stZabbixScopePlanUpdateCount();
+}
+
+function stZabbixScopePlanHeaderClick(ev) {
+    if (ev) ev.preventDefault();
+    const eligible = [...document.querySelectorAll('#zb-apply-plan-body .zb-plan-chk:not(:disabled)')];
+    if (!eligible.length) return false;
+    const allOn = eligible.every((c) => c.checked);
+    eligible.forEach((c) => {
+        c.checked = !allOn;
+    });
+    stZabbixScopePlanUpdateCount();
+    return false;
+}
+
+function stZabbixFormatSkipReasons(sr) {
+    if (!sr || typeof sr !== 'object') return '';
+    const labels = {
+        already_target_scope: 'already at target scope',
+        stale_old_scope: 'stale current scope (refresh plan)',
+        stale_suggestion: 'rules changed (refresh plan)',
+        invalid_row: 'invalid row',
+        invalid_new_scope: 'invalid target scope',
+        asset_not_found: 'asset not found',
+        not_linked: 'not linked',
+        hostname_locked: 'hostname locked',
+        already_set: 'hostname already set',
+        stale_current_hostname: 'stale hostname (refresh plan)',
+        no_zabbix_name: 'no Zabbix name',
+        stale_preview: 'stale preview',
+        not_selected: 'invalid selection',
+    };
+    const parts = [];
+    Object.keys(sr).forEach((k) => {
+        const n = sr[k];
+        if (typeof n === 'number' && n > 0) parts.push(String(n) + ' ' + (labels[k] || k));
+    });
+    return parts.join(', ');
+}
+
+function stZabbixFormatScopeApplyToast(r) {
+    const applied = r.applied != null ? r.applied : 0;
+    const skipped = r.skipped != null ? r.skipped : 0;
+    const sr = r.skip_reasons || {};
+    if (applied > 0) {
+        let m = 'Applied ' + String(applied) + ' update' + (applied === 1 ? '' : 's') + '.';
+        if (skipped > 0) {
+            const sum = stZabbixFormatSkipReasons(sr);
+            if (sum) m += ' Skipped: ' + sum + '.';
+        }
+        return m;
+    }
+    if (skipped > 0 && sr.already_target_scope === skipped) {
+        return 'No changes needed. ' + String(skipped) + ' asset' + (skipped === 1 ? '' : 's') + ' already matched the target scope.';
+    }
+    if (skipped > 0) {
+        const sum = stZabbixFormatSkipReasons(sr);
+        return sum ? ('No updates applied. Skipped: ' + sum + '.') : 'No updates applied.';
+    }
+    return 'No updates applied.';
+}
+
+function stZabbixFormatIdentityApplyToast(r) {
+    const applied = r.applied != null ? r.applied : 0;
+    const skipped = r.skipped != null ? r.skipped : 0;
+    const sr = r.skip_reasons || {};
+    if (applied > 0) {
+        let m = 'Applied ' + String(applied) + ' hostname update' + (applied === 1 ? '' : 's') + '.';
+        if (skipped > 0) {
+            const sum = stZabbixFormatSkipReasons(sr);
+            if (sum) m += ' Skipped: ' + sum + '.';
+        }
+        return m;
+    }
+    if (skipped > 0) {
+        const sum = stZabbixFormatSkipReasons(sr);
+        return sum ? ('No updates applied. Skipped: ' + sum + '.') : 'No updates applied.';
+    }
+    return 'No updates applied.';
+}
+
 async function stZabbixLoadApplyPlan() {
     if (!stRoleIsAdmin()) return;
     const el = document.getElementById('zb-apply-plan-body');
     if (!el) return;
+    const prevKeys = stZabbixScopePlanCapturePrevSelection();
     el.textContent = 'Loading plan…';
     const r = await apiPost('/api/zabbix.php', { action: 'preview_scope_apply' });
     if (!r || !r.ok) {
@@ -7881,19 +8027,30 @@ async function stZabbixLoadApplyPlan() {
         const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
         const chg = (cur || 0) !== (sug || 0);
         const checked = chg ? ' checked' : '';
+        const dis = chg ? '' : ' disabled';
+        const status = chg ? '' : '<span class="text-dim">no change</span>';
         return `<tr>
-          <td><input type="checkbox" class="zb-plan-chk" data-i="${i}"${checked}></td>
+          <td><input type="checkbox" class="zb-plan-chk" data-i="${i}" data-eligible="${chg ? '1' : '0'}"${checked}${dis} onchange="stZabbixScopePlanUpdateCount()"></td>
           <td class="mono-sm">${esc(String(p.asset_id))}</td>
           <td class="mono-sm">${esc(p.ip || '')}</td>
           <td>${zbScopeLabel(cur)}</td>
           <td>${zbScopeLabel(sug)}</td>
           <td class="text-micro">${esc(p.rule_type || '')}:${esc(p.pattern || '')}</td>
+          <td class="text-micro">${status}</td>
         </tr>`;
     }).join('');
-    el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th></th><th>Asset</th><th>IP</th><th>Current scope</th><th>New scope</th><th>Rule</th>
+    el.innerHTML = `<div class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap">
+      <button type="button" class="tbtn btn-xs" onclick="stZabbixScopePlanSelectAll(true)">Select all</button>
+      <button type="button" class="tbtn btn-xs" onclick="stZabbixScopePlanSelectAll(false)">Clear all</button>
+      <span class="hint-micro" id="zb-plan-select-count">0 of 0 selected</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th style="width:36px"><input type="checkbox" id="zb-plan-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixScopePlanHeaderClick(event)"></th>
+      <th>Asset</th><th>IP</th><th>Current scope</th><th>New scope</th><th>Rule</th><th>Status</th>
     </tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint-micro mt4">${plan.length} row(s) — only checked rows are sent on apply. Rows where current equals new are unchecked by default.</p>`;
+    <p class="hint-micro mt4">${plan.length} row(s) — only checked, eligible rows are sent on apply. Rows already at the target scope are disabled.</p>`;
+    stZabbixScopePlanRestoreSelection(prevKeys, plan);
+    stZabbixScopePlanUpdateCount();
 }
 
 async function stZabbixApplyPlanSelection() {
@@ -7929,12 +8086,171 @@ async function stZabbixApplyPlanSelection() {
     ))) return;
     const r = await apiPost('/api/zabbix.php', { action: 'apply_scope_map', confirm: true, apply });
     if (r && r.ok) {
-        const msg = `Applied ${r.applied != null ? r.applied : 0}, skipped ${r.skipped != null ? r.skipped : 0}` +
-            ((r.errors && r.errors.length) ? (' · errors: ' + r.errors.join('; ')) : '');
-        toast(msg, (r.applied > 0) ? 'ok' : 'err');
+        let msg = stZabbixFormatScopeApplyToast(r);
+        if (r.errors && r.errors.length) msg += ' Details: ' + r.errors.join('; ');
+        const sr0 = r.skip_reasons || {};
+        const sk = r.skipped != null ? r.skipped : 0;
+        const ap = r.applied != null ? r.applied : 0;
+        const benign = ap === 0 && sk > 0 && sr0.already_target_scope === sk;
+        toast(msg, (ap > 0 || benign) ? 'ok' : 'err');
         document.getElementById('zb-apply-confirm').checked = false;
         await stZabbixLoadApplyPlan();
         await loadZabbixEnrichmentPanel();
+    } else {
+        toast((r && r.error) ? r.error : 'Apply failed', 'err');
+    }
+}
+
+/** Last identity hostname plan from `preview_identity_apply` (indices match `.zb-id-chk`). */
+var __stZabbixIdentityPlan = [];
+
+function stZabbixIdentityPlanCapturePrevSelection() {
+    const plan = __stZabbixIdentityPlan || [];
+    const keys = new Set();
+    document.querySelectorAll('#zb-identity-plan-body .zb-id-chk').forEach((el) => {
+        if (el.disabled || !el.checked) return;
+        const i = parseInt(el.getAttribute('data-i') || '-1', 10);
+        const p = plan[i];
+        if (!p) return;
+        const sug = p.suggested_hostname != null ? String(p.suggested_hostname) : '';
+        keys.add(String(p.asset_id) + '\0' + sug);
+    });
+    return keys;
+}
+
+function stZabbixIdentityPlanRestoreSelection(keys, plan) {
+    if (!keys || keys.size === 0 || !plan.length) return;
+    plan.forEach((p, i) => {
+        const sug = p.suggested_hostname != null ? String(p.suggested_hostname) : '';
+        const k = String(p.asset_id) + '\0' + sug;
+        if (!keys.has(k)) return;
+        const ch = document.querySelector(`#zb-identity-plan-body .zb-id-chk[data-i="${i}"]`);
+        if (ch && !ch.disabled) ch.checked = true;
+    });
+}
+
+function stZabbixIdentityPlanUpdateCount() {
+    const el = document.getElementById('zb-id-select-count');
+    if (!el) return;
+    let eligible = 0;
+    let checked = 0;
+    document.querySelectorAll('#zb-identity-plan-body .zb-id-chk').forEach((c) => {
+        if (c.disabled) return;
+        eligible++;
+        if (c.checked) checked++;
+    });
+    el.textContent = String(checked) + ' of ' + String(eligible) + ' selected';
+    const hdr = document.getElementById('zb-id-header-chk');
+    if (hdr) {
+        hdr.disabled = eligible === 0;
+        hdr.checked = eligible > 0 && checked === eligible;
+        hdr.indeterminate = checked > 0 && checked < eligible;
+    }
+}
+
+function stZabbixIdentityPlanSelectAll(on) {
+    document.querySelectorAll('#zb-identity-plan-body .zb-id-chk:not(:disabled)').forEach((c) => {
+        c.checked = !!on;
+    });
+    stZabbixIdentityPlanUpdateCount();
+}
+
+function stZabbixIdentityPlanHeaderClick(ev) {
+    if (ev) ev.preventDefault();
+    const eligible = [...document.querySelectorAll('#zb-identity-plan-body .zb-id-chk:not(:disabled)')];
+    if (!eligible.length) return false;
+    const allOn = eligible.every((c) => c.checked);
+    eligible.forEach((c) => {
+        c.checked = !allOn;
+    });
+    stZabbixIdentityPlanUpdateCount();
+    return false;
+}
+
+async function stZabbixLoadIdentityPlan() {
+    if (!stRoleIsAdmin()) return;
+    const el = document.getElementById('zb-identity-plan-body');
+    if (!el) return;
+    const prevKeys = stZabbixIdentityPlanCapturePrevSelection();
+    el.textContent = 'Loading plan…';
+    const r = await apiPost('/api/zabbix.php', { action: 'preview_identity_apply' });
+    if (!r || !r.ok) {
+        el.textContent = (r && r.error) ? r.error : 'Plan failed';
+        return;
+    }
+    const plan = r.plan || [];
+    __stZabbixIdentityPlan = plan;
+    if (!plan.length) {
+        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No identity plan rows.') + '</span>';
+        return;
+    }
+    const rows = plan.map((p, i) => {
+        const curH = p.current_hostname != null ? String(p.current_hostname) : '';
+        const sug = p.suggested_hostname != null ? String(p.suggested_hostname) : '';
+        const zdn = p.zabbix_display_name != null ? String(p.zabbix_display_name) : '';
+        const conf = p.confidence != null ? Number(p.confidence).toFixed(2) : '—';
+        const eligible = sug.trim() !== '';
+        const dis = eligible ? '' : ' disabled';
+        const checked = eligible ? ' checked' : '';
+        return `<tr>
+          <td><input type="checkbox" class="zb-id-chk" data-i="${i}" data-eligible="${eligible ? '1' : '0'}"${checked}${dis} onchange="stZabbixIdentityPlanUpdateCount()"></td>
+          <td class="mono-sm">${esc(String(p.asset_id))}</td>
+          <td class="mono-sm">${esc(p.ip || '')}</td>
+          <td class="mono-sm">${esc(curH || '—')}</td>
+          <td class="mono-sm">${esc(zdn)}</td>
+          <td class="text-micro">${esc(String(p.match_method || ''))}</td>
+          <td class="mono-sm">${esc(conf)}</td>
+          <td class="mono-sm">${esc(sug)}</td>
+        </tr>`;
+    }).join('');
+    el.innerHTML = `<div class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap">
+      <button type="button" class="tbtn btn-xs" onclick="stZabbixIdentityPlanSelectAll(true)">Select all</button>
+      <button type="button" class="tbtn btn-xs" onclick="stZabbixIdentityPlanSelectAll(false)">Clear all</button>
+      <span class="hint-micro" id="zb-id-select-count">0 of 0 selected</span>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th style="width:36px"><input type="checkbox" id="zb-id-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixIdentityPlanHeaderClick(event)"></th>
+      <th>Asset</th><th>IP</th><th>Current hostname</th><th>Zabbix host</th><th>Match</th><th>Conf.</th><th>Suggested hostname</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="hint-micro mt4">${plan.length} row(s) — only checked, eligible rows are sent on apply.</p>`;
+    stZabbixIdentityPlanRestoreSelection(prevKeys, plan);
+    stZabbixIdentityPlanUpdateCount();
+}
+
+async function stZabbixApplyIdentitySelection() {
+    if (!stRoleIsAdmin()) return;
+    const c = document.getElementById('zb-identity-confirm');
+    if (!c || !c.checked) {
+        toast('Check the confirmation box first', 'err');
+        return;
+    }
+    const plan = __stZabbixIdentityPlan || [];
+    const apply = [];
+    document.querySelectorAll('.zb-id-chk:checked').forEach((el) => {
+        const i = parseInt(el.getAttribute('data-i') || '-1', 10);
+        const p = plan[i];
+        if (!p) return;
+        apply.push({
+            asset_id: parseInt(String(p.asset_id), 10),
+            current_hostname: p.current_hostname != null ? String(p.current_hostname) : '',
+            suggested_hostname: p.suggested_hostname != null ? String(p.suggested_hostname) : '',
+        });
+    });
+    if (!apply.length) {
+        toast('Select at least one row to apply', 'err');
+        return;
+    }
+    if (!(await showConfirmModal(
+        `Apply Zabbix-suggested hostname to ${apply.length} asset(s)? Only blank hostnames are updated; changes are logged in the audit trail.`,
+        { title: 'Apply identity updates', okText: 'Apply', cancelText: 'Cancel' }
+    ))) return;
+    const r = await apiPost('/api/zabbix.php', { action: 'apply_identity', confirm: true, apply });
+    if (r && r.ok) {
+        toast(stZabbixFormatIdentityApplyToast(r), (r.applied > 0) ? 'ok' : 'err');
+        document.getElementById('zb-identity-confirm').checked = false;
+        await stZabbixLoadIdentityPlan();
+        await stZabbixMatchReviewRefresh();
+        if (currentTab === 'assets') loadAssets(typeof assetPage === 'number' ? assetPage : 1);
     } else {
         toast((r && r.error) ? r.error : 'Apply failed', 'err');
     }
