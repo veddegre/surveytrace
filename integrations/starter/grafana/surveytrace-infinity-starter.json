@@ -1,5 +1,7 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -8,22 +10,46 @@
   "liveNow": false,
   "panels": [
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-          "columns": [{ "selector": "assets_total", "text": "Value", "type": "number" }],
+          "columns": [
+            {
+              "selector": "assets_total",
+              "text": "Value",
+              "type": "number"
+            }
+          ],
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -31,29 +57,58 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Total assets",
       "type": "stat"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-          "columns": [{ "selector": "open_findings_total", "text": "Value", "type": "number" }],
+          "columns": [
+            {
+              "selector": "open_findings_total",
+              "text": "Value",
+              "type": "number"
+            }
+          ],
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -61,29 +116,70 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Open findings (total)",
       "type": "stat"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] } }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-          "columns": [{ "selector": "open_findings_by_severity.critical", "text": "Value", "type": "number" }],
+          "columns": [
+            {
+              "selector": "open_findings_by_severity.critical",
+              "text": "Value",
+              "type": "number"
+            }
+          ],
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -91,29 +187,58 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Open critical findings",
       "type": "stat"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-          "columns": [{ "selector": "open_findings_by_severity.high", "text": "Value", "type": "number" }],
+          "columns": [
+            {
+              "selector": "open_findings_by_severity.high",
+              "text": "Value",
+              "type": "number"
+            }
+          ],
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -121,24 +246,58 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Open high findings",
       "type": "stat"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none", "custom": { "drawStyle": "line", "lineInterpolation": "smooth" } }, "overrides": [] },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "id": 5,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
-            { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
-            { "selector": "asset_count", "text": "asset_count", "type": "number" }
+            {
+              "selector": "timestamp_iso",
+              "text": "Time",
+              "type": "timestamp"
+            },
+            {
+              "selector": "asset_count",
+              "text": "asset_count",
+              "type": "number"
+            }
           ],
           "filters": [],
           "format": "timeseries",
@@ -147,24 +306,58 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Asset count by completed job (trends)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none", "custom": { "drawStyle": "line", "lineInterpolation": "smooth" } }, "overrides": [] },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "id": 6,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
-            { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
-            { "selector": "open_findings_total", "text": "open_findings_total", "type": "number" }
+            {
+              "selector": "timestamp_iso",
+              "text": "Time",
+              "type": "timestamp"
+            },
+            {
+              "selector": "open_findings_total",
+              "text": "open_findings_total",
+              "type": "number"
+            }
           ],
           "filters": [],
           "format": "timeseries",
@@ -173,26 +366,59 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=trends&trend_limit=30",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Open findings total by completed job (trends)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 13 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
       "id": 7,
-      "options": { "showHeader": true },
+      "options": {
+        "showHeader": true
+      },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
-            { "selector": "event_type", "text": "event_type", "type": "string" },
-            { "selector": "occurred_at", "text": "occurred_at", "type": "string" },
-            { "selector": "subject.asset_id", "text": "asset_id", "type": "string" },
-            { "selector": "severity", "text": "severity", "type": "string" }
+            {
+              "selector": "event_type",
+              "text": "event_type",
+              "type": "string"
+            },
+            {
+              "selector": "occurred_at",
+              "text": "occurred_at",
+              "type": "string"
+            },
+            {
+              "selector": "subject.asset_id",
+              "text": "asset_id",
+              "type": "string"
+            },
+            {
+              "selector": "severity",
+              "text": "severity",
+              "type": "string"
+            }
           ],
           "filters": [],
           "format": "table",
@@ -201,26 +427,70 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=events&event_hours=24&event_limit=40"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=events&event_hours=24&event_limit=40",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Recent events (bounded)",
       "type": "table"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 23 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
       "id": 8,
-      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }, "showUnfilled": true },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "showUnfilled": true
+      },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
-            { "selector": "open_findings_by_severity.critical", "text": "critical", "type": "number" },
-            { "selector": "open_findings_by_severity.high", "text": "high", "type": "number" },
-            { "selector": "open_findings_by_severity.medium", "text": "medium", "type": "number" },
-            { "selector": "open_findings_by_severity.low", "text": "low", "type": "number" }
+            {
+              "selector": "open_findings_by_severity.critical",
+              "text": "critical",
+              "type": "number"
+            },
+            {
+              "selector": "open_findings_by_severity.high",
+              "text": "high",
+              "type": "number"
+            },
+            {
+              "selector": "open_findings_by_severity.medium",
+              "text": "medium",
+              "type": "number"
+            },
+            {
+              "selector": "open_findings_by_severity.low",
+              "text": "low",
+              "type": "number"
+            }
           ],
           "filters": [],
           "format": "table",
@@ -229,26 +499,59 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=metrics",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Open findings by severity (live)",
       "type": "bargauge"
     },
     {
-      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 23 },
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "${infinity}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
       "id": 9,
-      "options": { "showHeader": true },
+      "options": {
+        "showHeader": true
+      },
       "targets": [
         {
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "columns": [
-            { "selector": "available", "text": "available", "type": "boolean" },
-            { "selector": "overall_pass", "text": "overall_pass", "type": "boolean" },
-            { "selector": "job_id", "text": "job_id", "type": "number" },
-            { "selector": "scope_name", "text": "scope_name", "type": "string" }
+            {
+              "selector": "available",
+              "text": "available",
+              "type": "boolean"
+            },
+            {
+              "selector": "overall_pass",
+              "text": "overall_pass",
+              "type": "boolean"
+            },
+            {
+              "selector": "job_id",
+              "text": "job_id",
+              "type": "number"
+            },
+            {
+              "selector": "scope_name",
+              "text": "scope_name",
+              "type": "string"
+            }
           ],
           "filters": [],
           "format": "table",
@@ -257,7 +560,12 @@
           "refId": "A",
           "source": "url",
           "type": "json",
-          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=compliance"
+          "url": "${surveytrace_base}/api/integrations_dashboard.php?view=compliance",
+          "root_selector": "",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          }
         }
       ],
       "title": "Compliance snapshot",
@@ -266,25 +574,40 @@
   ],
   "refresh": "1m",
   "schemaVersion": 39,
-  "tags": ["surveytrace", "infinity"],
+  "tags": [
+    "surveytrace",
+    "infinity"
+  ],
   "templating": {
     "list": [
       {
-        "current": { "selected": true, "text": "https://surveytrace.example", "value": "https://surveytrace.example" },
-        "description": "Replace with your real SurveyTrace origin. Must match Infinity \"Allowed hosts\" exactly (scheme + host, no path, no trailing slash). The import default is a placeholder — leaving it causes requests to the wrong host and panels show no data even when Bearer is set.",
+        "current": {
+          "selected": true,
+          "text": "https://surveytrace.example",
+          "value": "https://surveytrace.example"
+        },
+        "description": "Replace with your real SurveyTrace origin. Must match Infinity \"Allowed hosts\" exactly (scheme + host, no path, no trailing slash). The import default is a placeholder \u2014 leaving it causes requests to the wrong host and panels show no data even when Bearer is set.",
         "hide": 0,
         "label": "SurveyTrace base URL",
         "name": "surveytrace_base",
         "options": [
-          { "selected": true, "text": "https://surveytrace.example", "value": "https://surveytrace.example" }
+          {
+            "selected": true,
+            "text": "https://surveytrace.example",
+            "value": "https://surveytrace.example"
+          }
         ],
         "query": "https://surveytrace.example",
         "skipUrlSync": false,
         "type": "textbox"
       },
       {
-        "current": { "selected": false, "text": "", "value": "" },
-        "description": "Choose the Infinity datasource where you configured Bearer and allowed hosts — not a second unauthenticated Infinity instance.",
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "description": "Choose the Infinity datasource where you configured Bearer and allowed hosts \u2014 not a second unauthenticated Infinity instance.",
         "hide": 0,
         "includeAll": false,
         "label": "Infinity datasource",
@@ -299,11 +622,14 @@
       }
     ]
   },
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "SurveyTrace starter (Infinity JSON)",
   "uid": "surveytrace-infinity-starter",
-  "version": 8,
+  "version": 9,
   "weekStart": ""
 }

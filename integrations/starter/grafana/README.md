@@ -20,9 +20,9 @@ This folder contains an importable **Grafana dashboard** (`surveytrace-infinity-
 
 ### Dashboard JSON and datasource binding
 
-- **Every panel** and **every Infinity query target** use the same datasource reference: **`{ "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" }`**. After import, **`${infinity}`** must resolve to the **same** Infinity instance you configured with **Bearer** (not an unconfigured “default” Infinity datasource).
-- Targets include **only** `type` + `uid` (variable) — **no** `url_options`, **no** `headers`, **no** `Authorization` in JSON, so Grafana never merges an empty `headers: []` that overrides secure datasource auth.
-- Panel URLs stay **absolute** using **`${surveytrace_base}`** (full `https://host/...`). That matches typical Infinity “allowed host + full URL” setups. If your Infinity build supports a **pinned base URL** on the datasource and you prefer **relative** paths (e.g. `/api/integrations_dashboard.php?view=metrics`), you may change panel URLs after import — auth must still come **only** from the datasource, not the dashboard.
+- **Every panel** sets **`datasource`** to **`{ "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" }`**. Queries inherit that datasource; targets do **not** repeat a `datasource` block (matches Infinity’s own [provisioning examples](https://github.com/grafana/grafana-infinity-datasource/tree/main/provisioning/dashboards-actual)). After import, **`${infinity}`** must resolve to the Infinity instance where **Bearer** and **Allowed hosts** are configured.
+- Each URL query includes **`root_selector": ""`** and **`url_options": { "method": "GET", "data": "" }`** — the same minimal shape Infinity ships in `welcome.json` / `variables.json`. Omitting **`url_options`** can leave the panel **Query** tab unable to run or refresh the query reliably in some Grafana + Infinity builds. There is **no** `headers` key in JSON (never **`headers": []`**); auth stays on the datasource only.
+- Panel URLs stay **absolute** using **`${surveytrace_base}`** (full `https://host/...`). If your Infinity build supports a **pinned base URL** on the datasource and you prefer **relative** paths, you may change URLs after import — auth must still come **only** from the datasource, not the dashboard.
 
 If Infinity still returns **401** from SurveyTrace, Grafana is often **not** attaching the datasource header to backend URL requests — use the section below before changing SurveyTrace.
 
@@ -113,6 +113,9 @@ Bearer on the Infinity datasource only applies to requests Grafana actually send
 
 5. **Datasource access mode**  
    Prefer **Server** (default for backend queries). **Browser** access can behave differently with headers and CORS; if you use Browser, confirm in the inspector that requests still succeed.
+
+6. **Query tab “Refresh” does nothing or never returns**  
+   Re-import the latest **`surveytrace-infinity-starter.json`** (starter **version 9+**). Older exports that stripped **`url_options`** entirely can confuse the Infinity query UI even when the backend would default `GET`. The current starter always includes **`url_options`** with **`method: "GET"`** and **`data: ""`**, and **no** `headers` field. Open the browser **developer console** (F12) on the panel editor page once — a thrown JS error from the query editor often explains a silent refresh failure.
 
 ## Troubleshooting **401** from SurveyTrace (curl works, Grafana does not)
 
