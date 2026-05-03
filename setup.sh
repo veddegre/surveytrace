@@ -111,6 +111,7 @@ REQUIRED_PKGS=(
     php-sqlite3
     php-json
     php-mbstring
+    php-curl
     php-fpm
     # Build deps for scapy / python packages
     libssl-dev
@@ -150,6 +151,12 @@ fi
 if apt-cache show "php${PHP_VER}-fpm" &>/dev/null; then
     apt-get install -y --no-install-recommends "php${PHP_VER}-fpm" || \
         warn "Could not install php${PHP_VER}-fpm — web server PHP may fail until it is installed"
+fi
+
+# cURL extension for the same PHP version (Zabbix, integrations, AI HTTP); meta php-curl may lag behind PHP_VER.
+if apt-cache show "php${PHP_VER}-curl" &>/dev/null; then
+    apt-get install -y --no-install-recommends "php${PHP_VER}-curl" || \
+        warn "Could not install php${PHP_VER}-curl — HTTP client features may fail until it is installed"
 fi
 
 # Debian/Ubuntu: mod_proxy_fcgi lives here; package name is libapache2-mod-proxy-fcgi.

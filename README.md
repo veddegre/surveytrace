@@ -163,7 +163,7 @@ Together, the name describes exactly what the tool does: it surveys your network
 
 - Ubuntu 22.04+ or Debian 12+
 - Python 3.10+
-- PHP 8.1+ with SQLite3 extension
+- PHP 8.1+ with **SQLite3** and **cURL** extensions (`php-sqlite3`, `php-curl`) — required for Zabbix sync, integration webhooks, and cloud AI HTTP clients
 - Apache 2.4+ (or another PHP-capable web stack; **PHP-FPM** is recommended so long-running feed sync can return immediately to the browser)
 - nmap
 - `samba-common-bin` (for `nmblookup` NetBIOS hostname fallback)
@@ -667,7 +667,7 @@ See **[Setup and deploy (master vs collector)](#setup-and-deploy-master-vs-colle
 ```bash
 # System dependencies
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 php-fpm \
+sudo apt install -y python3 python3-pip python3-venv php php-sqlite3 php-curl php-fpm \
     apache2 libapache2-mod-proxy-fcgi nmap sqlite3 qrencode samba-common-bin
 
 # Service user
