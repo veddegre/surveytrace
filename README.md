@@ -426,7 +426,7 @@ Shipped under **`integrations/starter/`** (also copied to **`/opt/surveytrace/in
 | Path | Purpose |
 |------|---------|
 | **`integrations/starter/splunk_surveytrace/`** | Splunk app: **`app.conf`**, **`macros.conf`**, **`props.conf`** (**`surveytrace:reporting:event`**), **`default/inputs.conf`** + **`bin/surveytrace_events.py`** for optional JSONL pull, starter **saved searches** and Simple XML **dashboards**. See **`README.md`** in that folder. |
-| **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** + **`README.md`**. Panels use **`GET /api/integrations_dashboard.php?view=…`** (raw JSON slices); configure **one** **`grafana_infinity_pull`** token on the **Infinity datasource** only (**no tokens in JSON**). **No Prometheus required** for the starter. |
+| **`integrations/starter/grafana/`** | **`surveytrace-infinity-starter.json`** + **`README.md`**. Panels use **`GET /api/integrations_dashboard.php?view=…`**; **Bearer only on the Infinity datasource** (secure fields — **no tokens in JSON**). Starter uses **panel-level datasource only** so per-query targets do not override auth. If panels return **401**, use **Query Inspector** (see Grafana **`README.md`**) before changing SurveyTrace. **No Prometheus required** for the starter. |
 
 Canonical HEC / JSON lines should remain **`surveytrace.reporting.event.v1`** (see **`api/lib_reporting_event_model.php`**). Dashboard-friendly scope fields: top-level **`scope_id`** / **`scope_name`** on envelopes and (for JSON events, default) on each event via **`st_reporting_event_envelope_scope_fields()`**.
 

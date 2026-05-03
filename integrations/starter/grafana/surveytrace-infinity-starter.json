@@ -23,7 +23,6 @@
       "targets": [
         {
           "columns": [{ "selector": "assets_total", "text": "Value", "type": "number" }],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -54,7 +53,6 @@
       "targets": [
         {
           "columns": [{ "selector": "open_findings_total", "text": "Value", "type": "number" }],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -85,7 +83,6 @@
       "targets": [
         {
           "columns": [{ "selector": "open_findings_by_severity.critical", "text": "Value", "type": "number" }],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -116,7 +113,6 @@
       "targets": [
         {
           "columns": [{ "selector": "open_findings_by_severity.high", "text": "Value", "type": "number" }],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -143,7 +139,6 @@
             { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
             { "selector": "asset_count", "text": "asset_count", "type": "number" }
           ],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "timeseries",
           "global_query_id": "",
@@ -170,7 +165,6 @@
             { "selector": "timestamp_iso", "text": "Time", "type": "timestamp" },
             { "selector": "open_findings_total", "text": "open_findings_total", "type": "number" }
           ],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "timeseries",
           "global_query_id": "",
@@ -199,7 +193,6 @@
             { "selector": "subject.asset_id", "text": "asset_id", "type": "string" },
             { "selector": "severity", "text": "severity", "type": "string" }
           ],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -228,7 +221,6 @@
             { "selector": "open_findings_by_severity.medium", "text": "medium", "type": "number" },
             { "selector": "open_findings_by_severity.low", "text": "low", "type": "number" }
           ],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -257,7 +249,6 @@
             { "selector": "job_id", "text": "job_id", "type": "number" },
             { "selector": "scope_name", "text": "scope_name", "type": "string" }
           ],
-          "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
           "filters": [],
           "format": "table",
           "global_query_id": "",
@@ -311,6 +302,6 @@
   "timezone": "browser",
   "title": "SurveyTrace starter (Infinity JSON)",
   "uid": "surveytrace-infinity-starter",
-  "version": 5,
+  "version": 6,
   "weekStart": ""
 }
