@@ -812,13 +812,124 @@ function st_reporting_build_report_payload(PDO $db, int $jobB, ?int $baselineJob
 }
 
 /**
+ * Minimal job row for drift compatibility (schedule/batch/target/label/collector).
+ *
+ * @return array<string, mixed>|null
+ */
+function st_reporting_job_drift_meta(PDO $db, int $jobId): ?array
+{
+    if ($jobId <= 0 || ! st_sqlite_table_exists($db, 'scan_jobs')) {
+        return null;
+    }
+    try {
+        $st = $db->prepare(
+            'SELECT id, COALESCE(scope_id, 0) AS scope_id, COALESCE(schedule_id, 0) AS schedule_id, COALESCE(batch_id, 0) AS batch_id,
+                    COALESCE(collector_id, 0) AS collector_id, COALESCE(target_cidr, \'\') AS target_cidr, COALESCE(label, \'\') AS label
+             FROM scan_jobs WHERE id = ? AND (deleted_at IS NULL OR deleted_at = \'\') LIMIT 1'
+        );
+        $st->execute([$jobId]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+
+        return $r ?: null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Legacy jobs share scope_id 0 but are not necessarily the same network.
+ * True when there is a concrete grouping signal (same schedule, same batch, same target, strong label match, or collector + second signal).
+ *
+ * @param array<string, mixed> $a
+ * @param array<string, mixed> $b
+ */
+function st_reporting_unscoped_jobs_compatible(array $a, array $b): bool
+{
+    $schedA = (int) ($a['schedule_id'] ?? 0);
+    $schedB = (int) ($b['schedule_id'] ?? 0);
+    if ($schedA > 0 && $schedA === $schedB) {
+        return true;
+    }
+    $batchA = (int) ($a['batch_id'] ?? 0);
+    $batchB = (int) ($b['batch_id'] ?? 0);
+    if ($batchA > 0 && $batchA === $batchB) {
+        return true;
+    }
+    $cidrA = trim((string) ($a['target_cidr'] ?? ''));
+    $cidrB = trim((string) ($b['target_cidr'] ?? ''));
+    if ($cidrA !== '' && $cidrA === $cidrB) {
+        return true;
+    }
+    $normLabel = static function (string $lab): string {
+        $lab = trim($lab);
+        if ($lab === '') {
+            return '';
+        }
+        foreach ([' — ', ' | ', ' - ', ' / '] as $sep) {
+            $p = strpos($lab, $sep);
+            if ($p !== false && $p >= 3) {
+                return strtolower(substr($lab, 0, $p));
+            }
+        }
+
+        return strlen($lab) >= 4 ? strtolower($lab) : '';
+    };
+    $la = $normLabel((string) ($a['label'] ?? ''));
+    $lb = $normLabel((string) ($b['label'] ?? ''));
+    if ($la !== '' && $la === $lb && strlen($la) >= 4) {
+        return true;
+    }
+    $colA = (int) ($a['collector_id'] ?? 0);
+    $colB = (int) ($b['collector_id'] ?? 0);
+    if ($colA > 0 && $colA === $colB) {
+        if (($schedA > 0 && $schedA === $schedB) || ($batchA > 0 && $batchA === $batchB) || ($cidrA !== '' && $cidrA === $cidrB)
+            || ($la !== '' && $la === $lb && strlen($la) >= 4)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Both jobs are unscoped (scope 0) but not provably the same lineage → manual / low-confidence only.
+ *
+ * @param array{job_a_scope_id:?int,job_b_scope_id:?int,same_scope:bool,comparable:bool} $scopeAlign
+ */
+function st_reporting_unscoped_pair_uncertain(PDO $db, int $jobA, int $jobB, array $scopeAlign): bool
+{
+    if (! st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        return false;
+    }
+    $norm = static function ($x): int {
+        if ($x === null || $x === '') {
+            return 0;
+        }
+        $n = (int) $x;
+
+        return $n > 0 ? $n : 0;
+    };
+    $ia = $norm($scopeAlign['job_a_scope_id'] ?? null);
+    $ib = $norm($scopeAlign['job_b_scope_id'] ?? null);
+    if ($ia !== 0 || $ib !== 0) {
+        return false;
+    }
+    $ra = st_reporting_job_drift_meta($db, $jobA);
+    $rb = st_reporting_job_drift_meta($db, $jobB);
+    if (! $ra || ! $rb) {
+        return true;
+    }
+
+    return ! st_reporting_unscoped_jobs_compatible($ra, $rb);
+}
+
+/**
  * Lightweight trends from recent completed jobs (snapshot counts).
  * Uses a small bounded number of aggregate queries (not N+1 per job).
  *
- * @return list<array<string,mixed>>
- */
-/**
  * @param int|null $scopeFilter null = all jobs (legacy); 0 = unscoped only (scope_id IS NULL); >0 = that scope
+ *
+ * @return list<array<string,mixed>>
  */
 function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null): array
 {
@@ -840,7 +951,11 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
         $hasScopeCol = st_scan_scopes_table_scan_jobs_has_scope_id($db);
         $scopeSelectSql = $hasScopeCol ? ', COALESCE(j.scope_id, 0) AS scope_id' : '';
         $jobs = $db->prepare(
-            "SELECT j.id, j.finished_at, j.label, j.status
+            "SELECT j.id, j.finished_at, j.label, j.status,
+                    COALESCE(j.schedule_id, 0) AS schedule_id,
+                    COALESCE(j.batch_id, 0) AS batch_id,
+                    COALESCE(j.collector_id, 0) AS collector_id,
+                    COALESCE(j.target_cidr, '') AS target_cidr
                     $scopeSelectSql
              FROM scan_jobs j
              WHERE j.status = 'done' AND (j.deleted_at IS NULL OR j.deleted_at = '')
@@ -897,11 +1012,15 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
                 }
             }
             $out[] = [
-                'job_id'      => $jid,
-                'finished_at' => (string) ($j['finished_at'] ?? ''),
-                'label'       => (string) ($j['label'] ?? ''),
-                'scope_id'    => $sid,
-                'assets'      => (int) ($assetCounts[$jid] ?? 0),
+                'job_id'        => $jid,
+                'finished_at'   => (string) ($j['finished_at'] ?? ''),
+                'label'         => (string) ($j['label'] ?? ''),
+                'scope_id'      => $sid,
+                'schedule_id'   => (int) ($j['schedule_id'] ?? 0),
+                'batch_id'      => (int) ($j['batch_id'] ?? 0),
+                'collector_id'  => (int) ($j['collector_id'] ?? 0),
+                'target_cidr'   => (string) ($j['target_cidr'] ?? ''),
+                'assets'        => (int) ($assetCounts[$jid] ?? 0),
                 'open_findings_total' => array_sum($bySev),
                 'open_findings_by_severity' => $bySev,
             ];
@@ -919,7 +1038,7 @@ function st_reporting_trends(PDO $db, int $limit = 30, ?int $scopeFilter = null)
  * Trend points for UI: canonical keys, max 50 jobs per request.
  * Reuses {@see st_reporting_trends} (two batched GROUP BY queries on job_id IN (...), no per-job N+1).
  *
- * @return list<array{job_id:int,scope_id:int,timestamp:string,asset_count:int,open_findings_total:int,open_findings_by_severity:array<string,int>,label:string}>
+ * @return list<array<string,mixed>>
  */
 function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter = null): array
 {
@@ -937,6 +1056,10 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter
                 ? $row['open_findings_by_severity']
                 : [],
             'label'                      => (string) ($row['label'] ?? ''),
+            'schedule_id'                => (int) ($row['schedule_id'] ?? 0),
+            'batch_id'                   => (int) ($row['batch_id'] ?? 0),
+            'collector_id'               => (int) ($row['collector_id'] ?? 0),
+            'target_cidr'                => (string) ($row['target_cidr'] ?? ''),
         ];
     }
 

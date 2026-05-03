@@ -303,10 +303,25 @@ The **Reports & Analysis** tab extends the Executive View: **At a glance** (live
 SurveyTrace can tag each **`scan_jobs`** row with an optional **`scope_id`** (see **`scan_scopes`** and **`scan_scope_baselines`**). Reporting behavior:
 
 - **Named scope** — Each network/environment row in **`scan_scopes`** can have **one** baseline in **`scan_scope_baselines`** (`scope_id` → `baseline_job_id`). **Set baseline** in the UI with a named scope selected writes that row (not the legacy global key). Drift and compliance for that filter use the scoped baseline first, then the previous completed job in the same scope.
-- **Unscoped only** — Jobs with **`scope_id` NULL or 0** are “legacy / no tag.” The **legacy global** baseline (`config.phase13_baseline_job_id`) is only used as the *unscoped comparison baseline* when the resolved global baseline **job** is itself unscoped. If the global baseline points at a **named-scope** scan, it is **not** silently reused for unscoped-only comparisons (the UI explains this).
-- **All scopes (overview)** — Lists **all** completed jobs for trends and selectors. There is **no** single baseline that applies to every network. Automatic **Snapshot drift** picks the globally latest scan, then compares within **that job’s scope**: scoped baseline for that scope if valid, else **legacy global** only when the latest scan is unscoped and the global baseline job is unscoped, else the **previous completed scan in the same scope bucket**. **Manual compare** can still pick any two jobs; cross-scope pairs are **low-confidence** in the UI.
+- **Unscoped only** — Jobs with **`scope_id` NULL or 0** mean **scope unknown**, not one shared environment. The **legacy global** baseline (`config.phase13_baseline_job_id`) is still honored when it resolves to an unscoped job. Automatic snapshot drift **without** a baseline only pairs the latest unscoped job to a **prior** unscoped job when **`st_reporting_unscoped_jobs_compatible`** is true (same **`schedule_id` > 0**, or same **`batch_id` > 0**, or same non-empty **`target_cidr`**, or same normalized label prefix before a separator, or same **`collector_id` > 0` together with one of those signals). Otherwise drift is not auto-shown; charts and manual compare still work.
+- **All scopes (overview)** — Lists **all** completed jobs for trends and selectors. There is **no** single baseline that applies to every network. **Snapshot drift** for the globally latest scan uses that scan’s **named** scope baseline when applicable, else the **legacy global** baseline when the latest job is unscoped, else the most recent **prior job in the same named scope**. When the latest job is **unscoped**, a prior reference is chosen only if the compatibility rule above matches—unrelated legacy scans (e.g. different products) are **not** auto-compared by date alone. **Manual compare** can still pick any two jobs; cross-scope pairs and **both-unscoped incompatible** pairs get **low-confidence** wording via **`scope_alignment`** and **`diff_summary.unscoped_pair_uncertain`** on **`compare_summary`**.
 
-Cross-scope manual compare remains allowed but uses cautious wording when **`scope_alignment.comparable`** is false.
+Cross-scope manual compare remains allowed but uses cautious wording when **`scope_alignment.comparable`** is false. When both jobs are unscoped and compatibility cannot be verified, **`diff_summary.unscoped_pair_uncertain`** is true.
+
+#### Bulk-assigning legacy `scope_id` (operators)
+
+SQLite examples (run with a backup; adjust ids):
+
+```sql
+-- By schedule: tag all jobs from one recurring schedule into scope 2
+UPDATE scan_jobs SET scope_id = 2 WHERE schedule_id = 42 AND (scope_id IS NULL OR scope_id = 0);
+
+-- By target string: tag jobs that share a CIDR literal
+UPDATE scan_jobs SET scope_id = 3 WHERE target_cidr = '10.0.0.0/16' AND (scope_id IS NULL OR scope_id = 0);
+
+-- Hand-picked job ids
+UPDATE scan_jobs SET scope_id = 4 WHERE id IN (101, 102, 103);
+```
 
 ### Soft limits
 
@@ -321,10 +336,10 @@ Cross-scope manual compare remains allowed but uses cautious wording when **`sco
 | Action | Method | Roles | Notes |
 |--------|--------|-------|-------|
 | `compare` | GET | viewer+ | `job_a`, `job_b` required, must differ (full diff rows) |
-| `compare_summary` | GET | viewer+ | Same as `compare`; response has **`diff_summary`** only (counts + events) |
+| `compare_summary` | GET | viewer+ | Same as `compare`; response has **`diff_summary`** only (counts + events + **`scope_alignment`** + **`unscoped_pair_uncertain`**) |
 | `summary` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
 | `trends` | GET | viewer+ | `limit` default 30, max 200 (legacy shape: `finished_at`, `assets`) |
-| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — `job_id`, `timestamp`, `asset_count`, `open_findings_total`, `open_findings_by_severity`, `label`; same batched queries as `trends` |
+| `trends_summary` | GET | viewer+ | `limit` default 30, **max 50** — `job_id`, `scope_id`, `timestamp`, `asset_count`, `open_findings_total`, `open_findings_by_severity`, `label`, **`schedule_id`**, **`batch_id`**, **`collector_id`**, **`target_cidr`** (for client-side drift compatibility); same batched queries as `trends` |
 | `compliance` | GET | viewer+ | `job_id`; optional `vs_baseline=1` |
 | `baseline` | GET | viewer+ | Current baseline config + effective id |
 | `baseline_debug` | GET | **admin** | Validation detail for baseline |

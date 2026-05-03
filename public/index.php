@@ -590,7 +590,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top" style="margin-bottom:8px">Reports &amp; Analysis</div>
   <div class="hint-micro mb12">
     This page extends the <strong>Executive View</strong> with <strong>snapshot-based</strong> reporting: baseline drift, compliance checks, per-job trends, and saved report artifacts. Numbers from completed scans reflect frozen inventory and findings at job time — not the same as live Dashboard totals. Read-only except <strong>Set baseline</strong> (scan editor or admin).
-    <span class="text-dim"><strong>All scopes</strong> shows every finished job (overview only — not one shared baseline for all networks). Narrow to a scope for per-network baselines and drift.</span>
+    <span class="text-dim"><strong>All scopes</strong> shows every finished job (overview only — not one shared baseline for all networks). Unscoped jobs are not assumed comparable unless they share a schedule, batch, target CIDR, or label signal. Narrow to a scope for per-network baselines and drift.</span>
   </div>
 
   <div class="card mb10" id="report-scope-card">
@@ -600,14 +600,14 @@ if (is_readable($dbProbe)) {
         <label class="flbl" for="report-scope-select">Scope</label>
         <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
           <option value="all">All scopes (default)</option>
-          <option value="0">Unscoped only</option>
+          <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
         </select>
       </div>
       <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
     </div>
     <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
     <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
-      <strong>Unscoped only</strong> — showing jobs with no scope tag. These scans may come from different networks; use a named scope when you need like-for-like drift.
+      <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
     </div>
   </div>
 
@@ -623,7 +623,7 @@ if (is_readable($dbProbe)) {
   <div class="sth section-top">Snapshot drift</div>
   <div class="card mb10">
     <div class="hint-micro mb8">
-      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: automatic drift always stays inside the <em>latest scan’s scope</em> (that scope’s baseline if set and valid, else legacy unscoped global only when both jobs are unscoped, else the prior finished job in the same scope). It never picks two different named scopes by date alone. <strong>Named / Unscoped filter</strong>: uses that filter’s baseline rules, then prior job in the list.
+      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: drift uses the latest scan’s <em>named scope</em> baseline when applicable, else an operator-set legacy global baseline for unscoped jobs only, else the prior finished job in the <strong>same named scope</strong>. For <strong>unscoped</strong> latest scans, the prior reference is chosen only when a compatibility signal matches (same schedule, batch, target CIDR, or label prefix); unrelated legacy scans are not auto-paired. <strong>Named / Unscoped filter</strong>: baseline rules for that bucket, then a compatible prior when unscoped.
     </div>
     <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
   </div>
@@ -7384,6 +7384,65 @@ function reportingTrendsRowScopeKey(row) {
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/**
+ * Legacy rows share scope_id 0 but are not one network. Mirrors {@see st_reporting_unscoped_jobs_compatible} in api/lib_reporting.php.
+ * @param {Record<string, unknown>} a
+ * @param {Record<string, unknown>} b
+ */
+function reportingUnscopedJobsCompatible(a, b) {
+    if (!a || !b) {
+        return false;
+    }
+    const schedA = parseInt(String(a.schedule_id != null ? a.schedule_id : 0), 10) || 0;
+    const schedB = parseInt(String(b.schedule_id != null ? b.schedule_id : 0), 10) || 0;
+    if (schedA > 0 && schedA === schedB) {
+        return true;
+    }
+    const batchA = parseInt(String(a.batch_id != null ? a.batch_id : 0), 10) || 0;
+    const batchB = parseInt(String(b.batch_id != null ? b.batch_id : 0), 10) || 0;
+    if (batchA > 0 && batchA === batchB) {
+        return true;
+    }
+    const cidrA = String(a.target_cidr != null ? a.target_cidr : '').trim();
+    const cidrB = String(b.target_cidr != null ? b.target_cidr : '').trim();
+    if (cidrA !== '' && cidrA === cidrB) {
+        return true;
+    }
+    const normLabel = (lab) => {
+        lab = String(lab != null ? lab : '').trim();
+        if (!lab) {
+            return '';
+        }
+        const seps = [' — ', ' | ', ' - ', ' / '];
+        for (let s = 0; s < seps.length; s++) {
+            const sep = seps[s];
+            const p = lab.indexOf(sep);
+            if (p >= 3) {
+                return lab.slice(0, p).toLowerCase();
+            }
+        }
+        return lab.length >= 4 ? lab.toLowerCase() : '';
+    };
+    const la = normLabel(a.label);
+    const lb = normLabel(b.label);
+    if (la !== '' && la === lb && la.length >= 4) {
+        return true;
+    }
+    const colA = parseInt(String(a.collector_id != null ? a.collector_id : 0), 10) || 0;
+    const colB = parseInt(String(b.collector_id != null ? b.collector_id : 0), 10) || 0;
+    if (colA > 0 && colA === colB) {
+        if (
+            (schedA > 0 && schedA === schedB) ||
+            (batchA > 0 && batchA === batchB) ||
+            (cidrA !== '' && cidrA === cidrB) ||
+            (la !== '' && la === lb && la.length >= 4)
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function fillStScopeOptionSelects(scopes) {
     const pairs = [
         ['sc-scope-id', 'None — unscoped job'],
@@ -7473,12 +7532,12 @@ function updateReportingScopeDetail() {
     }
     if (reportingScopeApiFilter === null) {
         detailEl.innerHTML =
-            '<strong>All scopes (overview)</strong> — lists every completed scan. This mode is <em>not</em> a single comparison universe: there is no one baseline for all networks here. Automatic drift only compares within the latest scan’s scope (see Snapshot drift). Use a named scope or Unscoped only to set or inspect baselines.';
+            '<strong>All scopes (overview)</strong> — lists every completed scan. This mode is <em>not</em> a single comparison universe: there is no one baseline for all networks here. Unscoped jobs are <strong>scope-unknown</strong>, not one bucket; automatic drift does not pair unrelated unscoped scans without a compatibility signal. Use a named scope or Unscoped only to set or inspect baselines.';
         return;
     }
     if (reportingScopeApiFilter === 0) {
         detailEl.innerHTML =
-            '<strong>Unscoped only</strong> — only jobs with no scope tag (NULL / 0). Use this to audit legacy scans separately from named networks.';
+            '<strong>Unscoped only</strong> — jobs with no scope tag (NULL / 0). <strong>Unscoped means scope unknown</strong>, not one shared environment. Use this to audit legacy scans separately from named networks; drift uses a prior scan only when schedule, batch, target CIDR, or label prefix matches.';
         return;
     }
     const sc = reportingScopesList.find((x) => parseInt(String(x.id), 10) === reportingScopeApiFilter);
@@ -7521,7 +7580,7 @@ async function loadReportingScopeSelector(forceRefresh) {
         : null;
     sel.innerHTML =
         '<option value="all">All scopes (default)</option>' +
-        '<option value="0">Unscoped only</option>';
+        '<option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>';
     scopes.forEach((sc) => {
         const o = document.createElement('option');
         o.value = String(sc.id);
@@ -7963,7 +8022,7 @@ function reportingCompareNarrativeParagraph(refId, curId, nc, deltaHc, hasTrendP
 
 function reportingCompareSummaryCardsHtml(nc, cardOpts) {
     cardOpts = cardOpts || {};
-    const cross = !!cardOpts.crossScope;
+    const cross = !!(cardOpts.crossScope || cardOpts.unscopedUncertain);
     const dAssets = nc.assets_b - nc.assets_a;
     const dShow = dAssets > 0 ? '+' + dAssets : String(dAssets);
     const card = (title, value, sub, tone) => {
@@ -8135,7 +8194,9 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
     const jobCur = s.job_b;
     const nc = reportingCompareNormalizeCounts(s.counts, s.finding_events);
     const align = s.scope_alignment;
+    const unscopedPairUncertain = !!(opts.unscopedPairUncertain || s.unscoped_pair_uncertain);
     const crossScope = !!(opts.crossScope || (align && align.comparable === false));
+    const lowConfidence = crossScope || unscopedPairUncertain;
     const warnList = Array.isArray(s.warnings) ? s.warnings.slice(0, 24) : [];
     const warns =
         warnList.length > 0
@@ -8151,7 +8212,16 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
         deltaHc = 0;
     }
     const hasTrendPair = !!opts.trendHasPair;
-    if (crossScope) {
+    if (lowConfidence) {
+        const unscopedOnlyUncertain = unscopedPairUncertain && !crossScope;
+        const warnBody = unscopedOnlyUncertain
+            ? '<strong>Low-confidence comparison</strong> — both scans are unscoped; comparison may be unreliable. ' +
+              'Raw counters are shown below; do not read asset deltas as “hosts disappeared” without verifying the same network.'
+            : '<strong>Low-confidence comparison</strong> — scopes differ or one job is unscoped. ' +
+              'Raw counters are shown below; do not read asset deltas as “hosts disappeared” across networks.';
+        const narrativeBody = unscopedOnlyUncertain
+            ? 'Assign jobs to a <strong>named scope</strong> when you need like-for-like drift, or pick a reference scan that shares schedule, batch, target CIDR, or label lineage with the current job.'
+            : 'Use this pair for manual inspection only. Prefer the <strong>Reports</strong> scope selector and two jobs from the same scope for production drift review.';
         const head =
             '<div class="hint-micro mb8">' +
             '<strong>Reference scan</strong> <span class="mono-sm">#' +
@@ -8160,14 +8230,19 @@ function reportingRenderCompareExecutiveSummary(s, opts) {
             esc(String(jobCur)) +
             '</span> <span class="text-dim">(frozen per-scan snapshots)</span></div>' +
             '<div class="hint-micro mb8 hstate-warn" style="line-height:1.5">' +
-            '<strong>Low-confidence comparison</strong> — scopes differ or one job is unscoped. ' +
-            'Raw counters are shown below; do not read asset deltas as “hosts disappeared” across networks.</div>';
+            warnBody +
+            '</div>';
         const narrative =
             '<p class="hint-micro report-snapshot-narrative" style="line-height:1.55;margin:0 0 8px">' +
-            'Use this pair for manual inspection only. Prefer the <strong>Reports</strong> scope selector and two jobs from the same scope for production drift review.</p>';
+            narrativeBody +
+            '</p>';
         const badgeRow =
-            '<div class="row-wrap gap10 mb8" style="align-items:center"><span class="hstate-unk" style="font-weight:600">Cross-scope / unscoped mix</span></div>';
-        const cards = showCards ? reportingCompareSummaryCardsHtml(nc, { crossScope: true }) : '';
+            '<div class="row-wrap gap10 mb8" style="align-items:center"><span class="hstate-unk" style="font-weight:600">' +
+            (unscopedOnlyUncertain ? 'Unscoped pair (unverified network)' : 'Cross-scope / unscoped mix') +
+            '</span></div>';
+        const cards = showCards
+            ? reportingCompareSummaryCardsHtml(nc, { crossScope: true, unscopedUncertain: unscopedOnlyUncertain })
+            : '';
         const adv =
             '<details class="mt10 report-snapshot-advanced" style="border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
             '<summary class="hint-micro" style="cursor:pointer;font-weight:600">Advanced details</summary>' +
@@ -8537,26 +8612,35 @@ async function loadReportingChangeSince() {
         if (!picked) {
             for (let i = 1; i < ts.length; i++) {
                 if (reportingTrendsRowScopeKey(ts[i]) === sk) {
+                    if (sk === 0 && !reportingUnscopedJobsCompatible(ts[0], ts[i])) {
+                        continue;
+                    }
                     const cand = parseInt(String(ts[i].job_id), 10);
                     if (cand > 0 && cand !== newest) {
                         jobA = cand;
-                        labelMode = 'same_scope_prior_all';
+                        labelMode = sk === 0 ? 'unscoped_compatible_prior_all' : 'same_scope_prior_all';
                         break;
                     }
                 }
             }
         }
         if (!jobA) {
-            const scopeLabel =
-                sk === 0
-                    ? 'unscoped / legacy (no scope tag)'
-                    : 'scope #' + sk + ' (named network)';
+            if (sk === 0) {
+                const baselineNote =
+                    bl && bl.ok && bl.legacy_global_points_to_named_scope
+                        ? ' <span class="text-dim">(Legacy global baseline points at a named-scope job, so it is not used for unscoped drift here.)</span>'
+                        : '';
+                out.innerHTML =
+                    '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">This scan is unscoped, so Reports cannot safely choose a previous scan for drift. Assign it to a scope or use <strong>Manual Compare</strong>.' +
+                    baselineNote +
+                    '</div>';
+                return;
+            }
+            const scopeLabel = 'scope #' + sk + ' (named network)';
             const baselineNote =
                 sk > 0
                     ? ' (No scoped baseline set for that network, or it matches the latest scan.)'
-                    : sk === 0 && bl && bl.ok && bl.legacy_global_points_to_named_scope
-                      ? ' (Legacy global baseline points at a named-scope job, so it is not used for unscoped drift here.)'
-                      : '';
+                    : '';
             out.innerHTML =
                 '<div class="hint-micro text-dim">Latest completed scan is <span class="mono-sm">#' +
                 esc(String(newest)) +
@@ -8570,16 +8654,21 @@ async function loadReportingChangeSince() {
             return;
         }
     } else {
+        const unscopedOnly = reportingScopeApiFilter === 0;
         if (eff > 0 && eff !== newest) {
             jobA = eff;
             labelMode = 'baseline';
         } else {
             for (let i = 1; i < ts.length; i++) {
                 const cand = parseInt(String(ts[i].job_id), 10);
-                if (cand > 0 && cand !== newest) {
-                    jobA = cand;
-                    break;
+                if (cand <= 0 || cand === newest) {
+                    continue;
                 }
+                if (unscopedOnly && !reportingUnscopedJobsCompatible(ts[0], ts[i])) {
+                    continue;
+                }
+                jobA = cand;
+                break;
             }
             if (jobA) {
                 if (eff > 0 && eff === newest) {
@@ -8587,12 +8676,17 @@ async function loadReportingChangeSince() {
                 } else if (unavail && cfg > 0) {
                     labelMode = 'fallback_unusable_baseline';
                 } else {
-                    labelMode = 'prior_only';
+                    labelMode = unscopedOnly ? 'unscoped_compatible_prior_filter' : 'prior_only';
                 }
             }
         }
     }
     if (!jobA || jobA === newest) {
+        if (reportingScopeApiFilter === 0) {
+            out.innerHTML =
+                '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">Unscoped-only mode: no <strong>compatible</strong> prior scan was found in this list (same schedule, batch, target CIDR, or matching label prefix). Automatic snapshot drift is not shown — history charts below still list unscoped jobs. Set a baseline for this bucket, assign scans to a named scope, or use <strong>Manual compare</strong>.</div>';
+            return;
+        }
         const narrow =
             reportingScopeApiFilter !== null && reportingScopeApiFilter !== undefined
                 ? ' At least two completed scans in this filter, or a baseline that differs from the latest scan, are needed.'
@@ -8622,11 +8716,18 @@ async function loadReportingChangeSince() {
     let hintText = '';
     if (labelMode === 'same_scope_prior_all') {
         hintText =
-            'All scopes — reference: most recent prior completed scan in the <strong>same reporting scope</strong> (scan #' +
+            'All scopes — reference: most recent prior completed scan in the <strong>same named scope</strong> (scan #' +
             jobA +
             ') vs latest scan #' +
             newest +
             ' — snapshot tables only (not live inventory).';
+    } else if (labelMode === 'unscoped_compatible_prior_all') {
+        hintText =
+            'All scopes — reference: prior unscoped scan #' +
+            jobA +
+            ' vs latest #' +
+            newest +
+            ' — chosen only because they share a <strong>compatibility signal</strong> (same schedule, batch, target CIDR, or label prefix); snapshots only.';
     } else if (labelMode === 'scope_baseline_latest_network') {
         hintText =
             'All scopes — reference: <strong>baseline for the latest scan’s network</strong> (scan #' +
@@ -8636,11 +8737,11 @@ async function loadReportingChangeSince() {
             ' — snapshots only.';
     } else if (labelMode === 'legacy_unscoped_global_all') {
         hintText =
-            'All scopes — reference: <strong>legacy global baseline</strong> (unscoped job, scan #' +
+            'All scopes — reference: <strong>legacy global baseline</strong> (operator-chosen unscoped job, scan #' +
             jobA +
             ') vs latest unscoped scan #' +
             newest +
-            ' — snapshots only.';
+            ' — snapshots only; verify both jobs target the same network.';
     } else if (labelMode === 'baseline') {
         hintText =
             (reportingScopeApiFilter > 0
@@ -8665,6 +8766,13 @@ async function loadReportingChangeSince() {
             ' vs current scan #' +
             newest +
             ' — snapshots only.';
+    } else if (labelMode === 'unscoped_compatible_prior_filter') {
+        hintText =
+            'Unscoped filter — reference: prior scan #' +
+            jobA +
+            ' vs latest #' +
+            newest +
+            ' — compatible signal only (schedule, batch, target CIDR, or label prefix); snapshots only.';
     } else {
         hintText =
             'No separate baseline for drift; reference: prior completed scan #' +
@@ -8691,6 +8799,7 @@ async function loadReportingChangeSince() {
     }
     const align = ds.scope_alignment;
     const crossScope = !!(align && align.comparable === false);
+    const unscopedPairUncertain = !!ds.unscoped_pair_uncertain;
     out.innerHTML =
         hint +
         reportingRenderCompareExecutiveSummary(ds, {
@@ -8698,6 +8807,7 @@ async function loadReportingChangeSince() {
             trendDeltaHc: trendDeltaHc,
             trendHasPair: trendHasPair,
             crossScope: crossScope,
+            unscopedPairUncertain: unscopedPairUncertain,
         });
 }
 
@@ -9246,9 +9356,13 @@ async function runReportingCompareSummary() {
     const s = d.diff_summary || {};
     const align = s.scope_alignment;
     const crossScope = !!(align && align.comparable === false);
+    const unscopedPairUncertain = !!s.unscoped_pair_uncertain;
     if (out) {
         out.className = 'report-snapshot-drift-out';
-        out.innerHTML = reportingRenderCompareExecutiveSummary(s, { crossScope: crossScope });
+        out.innerHTML = reportingRenderCompareExecutiveSummary(s, {
+            crossScope: crossScope,
+            unscopedPairUncertain: unscopedPairUncertain,
+        });
     }
 }
 

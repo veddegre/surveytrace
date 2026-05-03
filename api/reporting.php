@@ -117,16 +117,23 @@ switch ($action) {
                 'comparable'     => true,
             ];
         }
+        $unscopedUncertain = false;
+        try {
+            $unscopedUncertain = st_reporting_unscoped_pair_uncertain($db, $ja, $jb, $scopeAlign);
+        } catch (Throwable $e) {
+            $unscopedUncertain = false;
+        }
         st_json([
             'ok'           => true,
             'diff_summary' => [
-                'job_a'            => $diff['job_a'],
-                'job_b'            => $diff['job_b'],
-                'semantics'        => $diff['semantics'],
-                'warnings'         => $diff['warnings'],
-                'counts'           => $diff['counts'],
-                'finding_events'   => $diff['finding_events'],
-                'scope_alignment'  => $scopeAlign,
+                'job_a'                   => $diff['job_a'],
+                'job_b'                   => $diff['job_b'],
+                'semantics'               => $diff['semantics'],
+                'warnings'                => $diff['warnings'],
+                'counts'                  => $diff['counts'],
+                'finding_events'          => $diff['finding_events'],
+                'scope_alignment'         => $scopeAlign,
+                'unscoped_pair_uncertain' => $unscopedUncertain,
             ],
         ]);
 
