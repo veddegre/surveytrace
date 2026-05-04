@@ -19,7 +19,8 @@
  *   device_id  — if > 0, only assets for this logical device
  *   lifecycle_status — active|stale|retired (optional)
  *   scope_id   — optional inventory scope filter (requires assets.scope_id + scan_scopes): omit = all, 0 = unscoped only, N = assets with scope_id = N (invalid/deleted N ignored)
- *   ai_review  — "1" = only assets that likely need AI/identity review (AI suggestion vs category, unapplied AI, low AI confidence, AI reason text, or low identity_confidence)
+ *   ai_review  — "1" = actionable scan-AI / identity review only: stored suggested category differs from current row, or scan AI recorded a non-benign reason after an attempt, or identity_confidence under 0.75. Ignores operator host-summary cache.
+ *   ai_summary — "1" = assets with a saved OK operator host summary (ai_host_explain_cache.status=ok). Informational filter; omit if column missing.
  *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings|zabbix_problem_count|scope_name (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
@@ -627,7 +628,8 @@ $severity   = st_str('severity', '', ['','critical','high','medium','low','none'
 $port_filter= st_int('port');
 $since_days = st_int('since_days');
 $new_only   = st_str('new_only') === '1';
-$ai_review  = st_str('ai_review') === '1';
+$ai_review   = st_str('ai_review') === '1';
+$ai_summary  = st_str('ai_summary') === '1';
 $page       = st_int('page',     1,  1);
 $per_page   = st_int('per_page', 50, 1, 200);
 $offset     = ($page - 1) * $per_page;
@@ -681,17 +683,10 @@ if ($new_only) {
     $where[]          = "a.first_seen >= datetime('now', '-1 day')";
 }
 if ($ai_review) {
-    // Meaningful "needs review": AI mismatch / not applied / low confidence, operator AI reason, or weak identity confidence.
-    $where[] = '('
-        . '(COALESCE(a.ai_last_attempted,0)=1 AND ('
-        . 'COALESCE(a.ai_last_applied,0)=0 '
-        . 'OR COALESCE(a.ai_last_confidence,0) < 0.85 '
-        . 'OR (TRIM(COALESCE(a.ai_last_suggested_category,\'\')) != \'\' '
-        . "AND LOWER(TRIM(COALESCE(a.ai_last_suggested_category,''))) != LOWER(TRIM(COALESCE(a.category,''))))"
-        . ')) '
-        . "OR TRIM(COALESCE(a.ai_last_reason,'')) != '' "
-        . 'OR (a.identity_confidence IS NOT NULL AND a.identity_confidence < 0.75)'
-        . ')';
+    $where[] = st_assets_sql_predicate_needs_ai_review();
+}
+if ($ai_summary && st_assets_has_ai_host_explain_cache($db)) {
+    $where[] = st_assets_sql_predicate_has_ok_host_summary();
 }
 
 if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes') && isset($_GET['scope_id'])) {
@@ -899,6 +894,7 @@ st_json([
     'unscoped_asset_count' => (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes'))
         ? $unscoped_asset_count
         : null,
+    'ai_host_summary_filter_available' => st_assets_has_ai_host_explain_cache($db),
 ]);
 
 // ---------------------------------------------------------------------------

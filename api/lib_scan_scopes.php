@@ -189,6 +189,50 @@ function st_assets_has_scope_id(PDO $db): bool
     return $cache;
 }
 
+/** True when assets has operator AI host-summary cache column (Phase 16+ migrations). */
+function st_assets_has_ai_host_explain_cache(PDO $db): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $ti = $db->query('PRAGMA table_info(assets)');
+        $cols = array_column($ti ? $ti->fetchAll(PDO::FETCH_ASSOC) : [], 'name');
+        $cache = in_array('ai_host_explain_cache', $cols, true);
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
+/**
+ * SQL predicate (uses alias `a` for assets): scan-time AI category suggestion disagrees with
+ * stored category, or a non-benign scan-AI reason after an attempt, or low identity_confidence.
+ * Excludes informational-only paths (e.g. same_category, host-summary cache — use {@see st_assets_sql_predicate_has_ok_host_summary} separately).
+ */
+function st_assets_sql_predicate_needs_ai_review(): string
+{
+    return '('
+        . "(TRIM(COALESCE(a.ai_last_suggested_category,'')) != '' "
+        . "AND LOWER(TRIM(COALESCE(a.ai_last_suggested_category,''))) != LOWER(TRIM(COALESCE(a.category,''))))"
+        . ' OR ('
+        . 'COALESCE(a.ai_last_attempted,0) = 1 '
+        . "AND TRIM(COALESCE(a.ai_last_reason,'')) != '' "
+        . "AND LOWER(TRIM(COALESCE(a.ai_last_reason,''))) NOT IN ('same_category','suggest_only','low_confidence','strong_port_signal')"
+        . ') OR ('
+        . 'a.identity_confidence IS NOT NULL AND a.identity_confidence < 0.75'
+        . ')'
+        . ')';
+}
+
+/** SQL predicate: saved operator host summary envelope with status ok (alias `a`). */
+function st_assets_sql_predicate_has_ok_host_summary(): string
+{
+    return "(json_extract(a.ai_host_explain_cache, '$.status') = 'ok')";
+}
+
 /**
  * Count of assets per named scope (excludes NULL/0).
  *

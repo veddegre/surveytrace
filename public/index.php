@@ -265,16 +265,28 @@ if (is_readable($dbProbe)) {
       <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
       <option value="scope_name">Sort: Scope</option>
     </select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Show assets that may need attention: AI suggestion differs from category, AI not applied, AI confidence under 0.85, AI reason text, or identity confidence under 0.75.">
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not include operator &quot;host summary&quot; text (see AI filters).">
       <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
-      AI review
+      Needs AI review
     </label>
     <span class="row-wrap gap4" style="display:inline-flex;align-items:center;flex-wrap:wrap">
       <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
       <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     </span>
-    <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI review, and Zabbix filters">Clear filters</button>
+    <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI filters, and Zabbix filters">Clear filters</button>
     <span id="af-filter-active-note" class="text-micro text-dim" style="display:none;flex-basis:100%" aria-live="polite"></span>
+  </div>
+  <div id="af-ai-filters-section" class="mb8" style="display:none">
+    <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
+      <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()">AI filters</button>
+    </div>
+    <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
+      <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+        <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
+          <input type="checkbox" id="af-ai-summary" onchange="loadAssets(1)"> Has host summary
+        </label>
+      </div>
+    </div>
   </div>
   <div id="af-zbx-section" class="mb8" style="display:none">
     <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
@@ -2443,6 +2455,8 @@ var assetOrder   = 'asc';
 var assetDeviceFilter = 0;
 /** Set from GET /api/assets.php zabbix_filters_available after each list load. */
 window.__stAssetsZabbixFiltersAvailable = false;
+/** Set from GET /api/assets.php ai_host_summary_filter_available after each list load. */
+window.__stAiSummaryFilterAvailable = false;
 var devicePage   = 1;
 var vulnPage     = 1;
 var activeJobId  = null;
@@ -4016,6 +4030,63 @@ function stAssetsZbxDisclosureToggle() {
     } catch (_e) {}
 }
 
+function stAssetsSyncAiFiltersDisclosureState() {
+    const panel = document.getElementById('af-ai-filters-panel');
+    const btn = document.getElementById('af-ai-filters-disclosure-btn');
+    if (!panel || !btn || !window.__stAiSummaryFilterAvailable) {
+        return;
+    }
+    let open = false;
+    try {
+        open = localStorage.getItem('st_assets_ai_filters_open') === '1';
+    } catch (_e) {
+        open = false;
+    }
+    panel.classList.toggle('hide', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function stAssetsAiFiltersDisclosureToggle() {
+    const panel = document.getElementById('af-ai-filters-panel');
+    const btn = document.getElementById('af-ai-filters-disclosure-btn');
+    if (!panel || !btn || !window.__stAiSummaryFilterAvailable) {
+        return;
+    }
+    const willOpen = panel.classList.contains('hide');
+    panel.classList.toggle('hide', !willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    try {
+        localStorage.setItem('st_assets_ai_filters_open', willOpen ? '1' : '0');
+    } catch (_e) {}
+}
+
+function stAssetsApplyAiFiltersFromServer(avail) {
+    window.__stAiSummaryFilterAvailable = !!avail;
+    const sec = document.getElementById('af-ai-filters-section');
+    if (sec) {
+        sec.style.display = avail ? '' : 'none';
+    }
+    if (!avail) {
+        const sm = document.getElementById('af-ai-summary');
+        if (sm) {
+            sm.checked = false;
+        }
+        const panel = document.getElementById('af-ai-filters-panel');
+        const btn = document.getElementById('af-ai-filters-disclosure-btn');
+        if (panel) {
+            panel.classList.add('hide');
+        }
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'false');
+        }
+        try {
+            localStorage.setItem('st_assets_ai_filters_open', '0');
+        } catch (_e) {}
+    } else {
+        stAssetsSyncAiFiltersDisclosureState();
+    }
+}
+
 function stAssetsApplyZabbixFromServer(avail) {
     window.__stAssetsZabbixFiltersAvailable = !!avail;
     const sec = document.getElementById('af-zbx-section');
@@ -4105,6 +4176,7 @@ function clearAllAssetFilters() {
     const life = document.getElementById('af-life');
     const srt = document.getElementById('af-sort');
     const aiq = document.getElementById('af-ai-review');
+    const ais = document.getElementById('af-ai-summary');
     const zm = document.getElementById('af-zbx-monitored');
     const zu = document.getElementById('af-zbx-unavail');
     const zp = document.getElementById('af-zbx-problems');
@@ -4118,6 +4190,7 @@ function clearAllAssetFilters() {
     if (scf) scf.value = '';
     if (srt) srt.value = 'ip';
     if (aiq) aiq.checked = false;
+    if (ais) ais.checked = false;
     if (zm) zm.value = '';
     if (zu) zu.checked = false;
     if (zp) zp.checked = false;
@@ -4824,7 +4897,10 @@ function stAssetsUpdateFilterHint() {
     }
     const bits = [];
     if (document.getElementById('af-ai-review')?.checked) {
-        bits.push('AI review');
+        bits.push('Needs AI review');
+    }
+    if (window.__stAiSummaryFilterAvailable && document.getElementById('af-ai-summary')?.checked) {
+        bits.push('Has host summary');
     }
     const sf = document.getElementById('af-scope-filter');
     if (sf && sf.style.display !== 'none' && sf.value !== '') {
@@ -4849,6 +4925,7 @@ async function loadAssets(page) {
     const sev  = document.getElementById('af-sev')?.value  || '';
     const sort = document.getElementById('af-sort')?.value || assetSort;
     const aiReview = !!document.getElementById('af-ai-review')?.checked;
+    const aiSummaryOn = !!window.__stAiSummaryFilterAvailable && !!document.getElementById('af-ai-summary')?.checked;
     const zbxOkForQuery = !!window.__stAssetsZabbixFiltersAvailable;
     const zbxColBefore = zbxOkForQuery && !!document.getElementById('af-zbx-col')?.checked;
     const thZbx = document.getElementById('af-th-zbx');
@@ -4885,17 +4962,19 @@ async function loadAssets(page) {
 
     const devQ = assetDeviceFilter > 0 ? `&device_id=${encodeURIComponent(String(assetDeviceFilter))}` : '';
     const aiQ = aiReview ? '&ai_review=1' : '';
+    const aiSumQ = aiSummaryOn ? '&ai_summary=1' : '';
     const life = document.getElementById('af-life')?.value || '';
     const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
     const sfEl = document.getElementById('af-scope-filter');
     const scopeQ = (window.__stAssetsScopeColumn && sfEl && sfEl.style.display !== 'none' && sfEl.value !== '')
         ? `&scope_id=${encodeURIComponent(sfEl.value)}`
         : '';
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}${scopeQ}${zbxQ}`;
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${aiSumQ}${lifeQ}${scopeQ}${zbxQ}`;
     const d   = await api(url);
     if (!d) return;
 
     stAssetsApplyZabbixFromServer(!!d.zabbix_filters_available);
+    stAssetsApplyAiFiltersFromServer(!!d.ai_host_summary_filter_available);
 
     try {
         window.__stAssetsScopeColumn = !!d.assets_scope_column;
@@ -15217,11 +15296,13 @@ function exportAssets(format) {
     }
     const aiRev = !!document.getElementById('af-ai-review')?.checked;
     const aiQ = aiRev ? '&ai_review=1' : '';
+    const aiSumOn = !!window.__stAiSummaryFilterAvailable && !!document.getElementById('af-ai-summary')?.checked;
+    const aiSumQ = aiSumOn ? '&ai_summary=1' : '';
     const sfE = document.getElementById('af-scope-filter');
     const scopeQ = (window.__stAssetsScopeColumn && sfE && sfE.style.display !== 'none' && sfE.value !== '')
         ? `&scope_id=${encodeURIComponent(sfE.value)}`
         : '';
-    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${aiQ}${scopeQ}${zbxQ}`;
+    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${aiQ}${aiSumQ}${scopeQ}${zbxQ}`;
     // Trigger download
     const a = document.createElement('a');
     a.href = url;

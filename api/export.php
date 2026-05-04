@@ -13,7 +13,8 @@
  *   lifecycle_status — active|stale|retired (optional; Phase 12)
  *   zabbix_monitored — ''|0|1, zabbix_unavailable=1, zabbix_has_problems=1, zabbix_group, zabbix_tag (Phase 16.2; when migrations applied)
  *   scope_id — optional: same semantics as GET /api/assets.php (inventory scope on assets)
- *   ai_review — "1" — same semantics as GET /api/assets.php
+ *   ai_review — "1" — same semantics as GET /api/assets.php (actionable scan-AI / identity only)
+ *   ai_summary — "1" — same semantics as GET /api/assets.php (OK cached operator host summary)
  *
  * CSV/JSON include Phase 12 lifecycle and business-context columns on asset rows.
  */
@@ -87,16 +88,11 @@ if ($lifecycle_status !== '') {
 
 $ai_review = st_str('ai_review') === '1';
 if ($ai_review) {
-    $where[] = '('
-        . '(COALESCE(a.ai_last_attempted,0)=1 AND ('
-        . 'COALESCE(a.ai_last_applied,0)=0 '
-        . 'OR COALESCE(a.ai_last_confidence,0) < 0.85 '
-        . 'OR (TRIM(COALESCE(a.ai_last_suggested_category,\'\')) != \'\' '
-        . "AND LOWER(TRIM(COALESCE(a.ai_last_suggested_category,''))) != LOWER(TRIM(COALESCE(a.category,''))))"
-        . ')) '
-        . "OR TRIM(COALESCE(a.ai_last_reason,'')) != '' "
-        . 'OR (a.identity_confidence IS NOT NULL AND a.identity_confidence < 0.75)'
-        . ')';
+    $where[] = st_assets_sql_predicate_needs_ai_review();
+}
+$ai_summary = st_str('ai_summary') === '1';
+if ($ai_summary && st_assets_has_ai_host_explain_cache($db)) {
+    $where[] = st_assets_sql_predicate_has_ok_host_summary();
 }
 
 if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes') && isset($_GET['scope_id'])) {
