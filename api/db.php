@@ -1077,6 +1077,15 @@ function st_json(mixed $data, int $status = 200): never {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        $xf = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($https || $xf === 'https') {
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+        }
+        // Deliberately no broad Content-Security-Policy here: the SPA uses inline handlers/styles.
         header('Cache-Control: no-store');
     }
     $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
@@ -1102,6 +1111,14 @@ function st_json_raw(mixed $data, int $status = 200): never
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        $xf = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($https || $xf === 'https') {
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+        }
         header('Cache-Control: no-store');
     }
     $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
@@ -1480,12 +1497,17 @@ function st_password_hash_algo(): string {
     return $algo;
 }
 
+/** Default bcrypt cost for new hashes (must match st_password_needs_rehash options). */
+function st_password_bcrypt_options(): array {
+    return ['cost' => 12];
+}
+
 function st_password_hash(string $password): string {
     $algo = st_password_hash_algo();
     if ($algo === 'argon2id' && defined('PASSWORD_ARGON2ID')) {
         return password_hash($password, PASSWORD_ARGON2ID);
     }
-    return password_hash($password, PASSWORD_BCRYPT);
+    return password_hash($password, PASSWORD_BCRYPT, st_password_bcrypt_options());
 }
 
 function st_password_needs_rehash(string $hash): bool {
@@ -1493,7 +1515,7 @@ function st_password_needs_rehash(string $hash): bool {
     if ($algo === 'argon2id' && defined('PASSWORD_ARGON2ID')) {
         return password_needs_rehash($hash, PASSWORD_ARGON2ID);
     }
-    return password_needs_rehash($hash, PASSWORD_BCRYPT);
+    return password_needs_rehash($hash, PASSWORD_BCRYPT, st_password_bcrypt_options());
 }
 
 function st_login_max_attempts(): int {
@@ -1511,19 +1533,23 @@ function st_login_actor_key(string $username, string $ip): string {
 function st_login_lock_state(string $username, string $ip): array {
     $userNorm = strtolower(trim($username));
     $actorKey = st_login_actor_key($username, $ip);
-    $stmt = st_db()->prepare("SELECT failed_count, locked_until FROM auth_login_state WHERE actor_key=? LIMIT 1");
+    $stmt = st_db()->prepare(
+        "SELECT failed_count, locked_until,
+                CASE WHEN locked_until IS NOT NULL AND locked_until <> ''
+                     AND locked_until > datetime('now') THEN 1 ELSE 0 END AS locked_now
+         FROM auth_login_state WHERE actor_key=? LIMIT 1"
+    );
     $stmt->execute([$actorKey]);
-    $row = $stmt->fetch() ?: ['failed_count' => 0, 'locked_until' => null];
-    $lockedUntil = (string)($row['locked_until'] ?? '');
-    $locked = false;
+    $row = $stmt->fetch() ?: ['failed_count' => 0, 'locked_until' => null, 'locked_now' => 0];
+    $locked = ((int)($row['locked_now'] ?? 0)) === 1;
     $retryAfter = 0;
-    if ($lockedUntil !== '') {
-        $retryAfter = strtotime($lockedUntil) - time();
-        if ($retryAfter > 0) {
-            $locked = true;
-        } else {
-            $retryAfter = 0;
-        }
+    if ($locked) {
+        $stmt2 = st_db()->prepare(
+            "SELECT CAST((strftime('%s', locked_until) - strftime('%s','now')) AS INTEGER) AS d
+             FROM auth_login_state WHERE actor_key=? LIMIT 1"
+        );
+        $stmt2->execute([$actorKey]);
+        $retryAfter = max(0, (int)$stmt2->fetchColumn());
     }
     return [
         'actor_key' => $actorKey,

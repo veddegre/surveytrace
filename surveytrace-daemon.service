@@ -17,7 +17,9 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Capabilities needed for raw socket / ARP scanning
+# Raw sockets (ICMP, UDP probes) need CAP_NET_RAW; CAP_NET_ADMIN is kept for legacy
+# routed/ARP paths and some libpcap/scapy behaviors on certain kernels.
+# Tighten only after verifying scans on your OS/network stack.
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 
@@ -25,6 +27,7 @@ CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ProtectHome=yes
 ReadWritePaths=/opt/surveytrace/data
 
 [Install]

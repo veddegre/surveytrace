@@ -33,6 +33,12 @@ if (is_readable($dbProbe)) {
         st_release_session_lock();
     }
 }
+if (!headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+}
 ?><!DOCTYPE html>
 <html lang="en">
 <head>

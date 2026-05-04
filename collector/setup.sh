@@ -80,6 +80,7 @@ cat > /etc/systemd/system/surveytrace-collector.service <<'EOF'
 [Unit]
 Description=SurveyTrace collector agent (parity)
 After=network.target
+Documentation=https://github.com/yourorg/surveytrace
 
 [Service]
 Type=simple
@@ -92,11 +93,14 @@ KillMode=control-group
 TimeoutStopSec=120
 Restart=always
 RestartSec=5
+# Passive/active discovery: raw sockets (and some nmap modes) require CAP_NET_RAW;
+# CAP_NET_ADMIN retained for parity with scanner daemon on kernels that need it.
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ProtectHome=yes
 ReadWritePaths=/opt/surveytrace/data /etc/surveytrace /var/lib/surveytrace
 
 [Install]

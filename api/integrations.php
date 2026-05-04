@@ -52,6 +52,15 @@ if ($action === 'rotate_token') {
         }
         st_json(['ok' => false, 'error' => $err !== '' ? $err : 'rotate_failed'], 500);
     }
+    $actor = st_current_user();
+    st_audit_log(
+        'integrations.pull_token_rotated',
+        (int)($actor['id'] ?? 0),
+        (string)($actor['username'] ?? ''),
+        null,
+        null,
+        ['integration_id' => $id]
+    );
     @error_log('SurveyTrace.integrations ' . json_encode([
         '_event' => 'integrations.pull_token_rotated',
         'id'     => $id,

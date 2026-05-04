@@ -324,6 +324,7 @@ try {
 $dataDir = ST_DATA_DIR;
 $appDb = ST_DB_PATH;
 $nvdDb = $dataDir . '/nvd.db';
+$isAdminHealth = st_current_role() === 'admin';
 
 $health = [
     'ok' => true,
@@ -333,10 +334,12 @@ $health = [
         'version' => PHP_VERSION,
         'sapi' => PHP_SAPI,
     ],
-    'paths' => [
+    'paths' => $isAdminHealth ? [
         'data_dir' => $dataDir,
         'app_db' => $appDb,
         'nvd_db' => $nvdDb,
+    ] : [
+        'detail' => 'Absolute filesystem paths are shown to admin role only.',
     ],
     'data_dir' => [
         'exists' => is_dir($dataDir),

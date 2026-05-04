@@ -93,7 +93,7 @@ function st_replace_recovery_codes(PDO $db, int $userId): array {
     $db->prepare("DELETE FROM user_recovery_codes WHERE user_id=?")->execute([$userId]);
     $ins = $db->prepare("INSERT INTO user_recovery_codes (user_id, code_hash) VALUES (?, ?)");
     foreach ($codes as $c) {
-        $ins->execute([$userId, password_hash($c, PASSWORD_DEFAULT)]);
+        $ins->execute([$userId, st_password_hash($c)]);
     }
     return $codes;
 }

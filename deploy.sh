@@ -13,12 +13,13 @@ DEST="/opt/surveytrace"
 SRC="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_ROLE_FILE="$DEST/data/.install_role"
 
-st_sudo() { sudo "$@" 2>/dev/null; }
+# Forward stderr for real failures (probes use explicit 2>/dev/null on the test line).
+st_sudo() { sudo "$@"; }
 
 read_install_role() {
   local r=""
-  if st_sudo test -f "$INSTALL_ROLE_FILE"; then
-    r=$(sudo cat "$INSTALL_ROLE_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+  if sudo test -f "$INSTALL_ROLE_FILE" 2>/dev/null; then
+    r=$(sudo cat "$INSTALL_ROLE_FILE" 2>/dev/null | tr -d '[:space:]' || echo "")
   fi
   printf '%s' "$r"
 }

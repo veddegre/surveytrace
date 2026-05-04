@@ -321,6 +321,42 @@ if (in_array('scope_id', $scanJobCols, true) && $scopeIdBody > 0) {
 // ---------------------------------------------------------------------------
 // 4. Exclusions — accept freeform text, strip comment lines
 // ---------------------------------------------------------------------------
+/**
+ * One exclusion token: plain IPv4, IPv4/CIDR, or IPv4 range notation; must match scan target style.
+ */
+function st_scan_start_validate_exclusion_token(string $token): bool {
+    $t = trim($token);
+    if ($t === '') {
+        return false;
+    }
+    if (filter_var($t, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return true;
+    }
+    if (preg_match('/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/', $t)) {
+        [$ip, $pfx] = explode('/', $t, 2);
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        $n = (int)$pfx;
+        return $n >= 8 && $n <= 32;
+    }
+    if (preg_match('/^(\d{1,3}\.){3}(\d{1,3})-(\d{1,3})$/', $t, $m)) {
+        $startFull = $m[1] . $m[2];
+        if (!filter_var($startFull, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        $lo = (int)$m[2];
+        $hi = (int)$m[3];
+        return $hi >= $lo && $lo >= 0 && $hi <= 255;
+    }
+    if (preg_match('/^(\d{1,3}\.){3}\d{1,3}\s*-\s*(\d{1,3}\.){3}\d{1,3}$/', $t)) {
+        [$a, $b] = array_map('trim', explode('-', $t, 2));
+        return filter_var($a, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+            && filter_var($b, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+    }
+    return false;
+}
+
 $exclusions_raw = (string)($body['exclusions'] ?? '');
 $exclusion_lines = array_filter(
     array_map(
@@ -328,6 +364,11 @@ $exclusion_lines = array_filter(
         preg_split('/[\r\n,]+/', $exclusions_raw)
     )
 );
+foreach ($exclusion_lines as $exLine) {
+    if (!st_scan_start_validate_exclusion_token($exLine)) {
+        st_json(['error' => 'Invalid exclusion line (use IPv4, IPv4/CIDR /8-/32, or IPv4-IPv4 range): ' . substr($exLine, 0, 80), 'field' => 'exclusions'], 400);
+    }
+}
 $exclusions = implode("\n", array_values($exclusion_lines));
 
 // Optional label

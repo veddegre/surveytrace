@@ -951,4 +951,18 @@ if (!$changed) {
     st_json(['error' => 'no supported settings supplied'], 400);
 }
 
+$dbAuditOnly = ['db_backup_enabled', 'db_backup_cron', 'db_backup_retention_days', 'db_backup_keep_count'];
+$keysForGeneric = array_values(array_diff(array_keys($changed), $dbAuditOnly));
+if ($keysForGeneric) {
+    $actor = st_current_user();
+    st_audit_log(
+        'settings.keys_updated',
+        (int)($actor['id'] ?? 0),
+        (string)($actor['username'] ?? ''),
+        null,
+        null,
+        ['keys' => $keysForGeneric]
+    );
+}
+
 st_json(array_merge(['ok' => true], $changed));

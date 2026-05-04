@@ -7,7 +7,7 @@ DEST="/opt/surveytrace"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_ROLE_FILE="$DEST/data/.install_role"
 
-st_sudo() { sudo "$@" 2>/dev/null; }
+st_sudo() { sudo "$@"; }
 
 collector_setup_complete() {
   st_sudo test -d "$DEST/venv" \
