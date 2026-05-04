@@ -218,6 +218,21 @@ body.light-mode .finp:focus{box-shadow:0 0 0 2px rgba(0,111,255,.18)}
 .card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:12px;box-shadow:0 1px 0 rgba(0,0,0,.1)}
 body.light-mode .card{box-shadow:0 1px 0 rgba(0,0,0,.04)}
 .card:last-child{margin-bottom:0}
+/* Enrichment — Zabbix tools panel (UI Pass 2) */
+.zb-enrich-tools-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.zb-enrich-tools-head .ct{margin-bottom:0}
+.zb-enrich-section{border-top:1px solid var(--bd);padding-top:14px;margin-top:14px}
+.zb-enrich-section:first-child{border-top:none;padding-top:0;margin-top:0}
+.zb-enrich-match-box{max-height:70vh;overflow:auto;border:1px solid var(--bd);border-radius:var(--radius-lg);padding:10px}
+.zb-subhead{display:block;font-size:12px;font-weight:600;color:var(--tx2);margin:10px 0 6px;font-family:var(--sf)}
+.zb-subhead:first-child{margin-top:0}
+.zb-enrich-confirm-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.zb-enrich-scope-apply{margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)}
+.zb-manual-inp--aid{min-width:100px}
+.zb-manual-inp--hid{min-width:140px}
+.zb-manual-inp--meth{min-width:100px}
+.zb-manual-inp--conf{min-width:90px}
+.zb-manual-inp--unlink{min-width:160px}
 .ct{font-family:var(--sf);font-size:11px;color:var(--tx3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px;font-weight:700}
 .flbl{display:block;font-size:13px;font-weight:600;color:var(--tx);margin-bottom:4px;font-family:var(--sf)}
 .finput{width:100%;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--radius);padding:9px 11px;color:var(--tx);font-family:var(--sf);font-size:14px;outline:none;margin-bottom:9px;transition:border-color .12s, box-shadow .12s}
@@ -416,6 +431,7 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
   font-family:var(--sf);font-size:11px;color:var(--tx2)
 }
 .w100{width:100%}
+.mb0{margin-bottom:0}
 .mb4{margin-bottom:4px}
 .mb6{margin-bottom:6px}
 .mb8{margin-bottom:8px}

@@ -1116,7 +1116,7 @@ if (!headers_sent()) {
       <div class="ct">Zabbix</div>
       <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body" style="flex:1"><p class="hint-micro text-dim mb0">Loading…</p></div>
       <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
-      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()">Open Zabbix enrichment tools</button>
+      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open Zabbix enrichment tools</button>
     </div>
     <div class="card" style="flex:1;min-width:min(100%,220px);opacity:0.95;padding:14px 14px 12px">
       <div class="ct">More integrations</div>
@@ -1153,16 +1153,16 @@ if (!headers_sent()) {
     </div>
   </div>
 
-  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none;padding:14px 14px 12px">
-    <div class="row-between mb10" style="gap:12px;align-items:center;flex-wrap:wrap">
-      <div class="ct" style="margin:0">Zabbix enrichment tools</div>
-      <button type="button" class="tbtn btn-xs" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false">Expand</button>
+  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none">
+    <div class="zb-enrich-tools-head">
+      <div id="zb-enrich-tools-heading" class="ct">Zabbix enrichment tools</div>
+      <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Expand</button>
     </div>
     <div id="zb-enrich-freshness-banner" class="mb10" style="display:none" aria-live="polite"></div>
     <p class="hint-micro mb10" id="zb-enrich-tools-intro">
       Match review, scope rules, apply plan, and manual link/unlink use data from <strong>Integrations → Zabbix</strong>. Read-only Zabbix context also appears on host <strong>Details</strong>.
     </p>
-    <div id="zb-enrich-tools-panel" class="hide">
+    <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
       <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
         <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
         <div class="row-wrap gap6 mt6">
@@ -1170,66 +1170,77 @@ if (!headers_sent()) {
           <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
         </div>
       </div>
-      <div class="flbl">Match review</div>
-      <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
-      <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-      <div id="zb-match-review-body" class="mb12" style="max-height:70vh;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:10px">Open the tools panel, then click Refresh.</div>
 
-      <div class="flbl">Scope map rules</div>
-      <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-      <div id="zb-cache-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
-      <details id="zb-cache-diagnostics" class="mb6 text-micro" style="display:none">
-        <summary style="cursor:pointer">Diagnostics</summary>
-        <div id="zb-cache-diagnostics-body" class="hint-micro mt4 mono-sm text-dim"></div>
-      </details>
-      <div id="zb-rules-wrap" class="mb6"></div>
-      <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
-      <div class="row-wrap gap6 mb8">
-        <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
-        <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+      <div class="zb-enrich-section">
+        <div class="flbl">Match review</div>
+        <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+        <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+        <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open the tools panel, then click Refresh.</div>
       </div>
-      <div id="zb-preview" class="mb12">—</div>
 
-      <div id="zb-identity-block" class="mb14">
-        <div class="flbl">Identity suggestions</div>
-        <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
-        <div class="row-wrap gap6 mb6">
-          <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
+      <div class="zb-enrich-section">
+        <div class="flbl">Scope map rules</div>
+        <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+        <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
+          <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
+          <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
+            <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
+            <div id="zb-diagnostics-detail" class="hint-micro mono-sm text-dim"></div>
+          </div>
         </div>
-        <div id="zb-identity-plan-body" class="mb6">—</div>
-        <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <input type="checkbox" id="zb-identity-confirm">
-          I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
-        </label>
-        <button type="button" class="btnp" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
+        <div id="zb-rules-wrap" class="mb6"></div>
+        <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
+        <div class="row-wrap gap6 mb8">
+          <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+          <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+        </div>
+        <div id="zb-preview" class="mb0">—</div>
       </div>
 
-      <div id="zb-operator-blocks">
-        <div id="zb-scope-apply-block" style="display:none">
-          <div class="flbl">Apply scope map (saved + enabled rules)</div>
+      <div class="zb-enrich-section">
+        <div class="flbl">Apply actions</div>
+        <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
+        <div id="zb-identity-block">
+          <div class="zb-subhead">Identity</div>
+          <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
+          <div class="row-wrap gap6 mb6">
+            <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
+          </div>
+          <div id="zb-identity-plan-body" class="mb6">—</div>
+          <label class="text-micro zb-enrich-confirm-row">
+            <input type="checkbox" id="zb-identity-confirm">
+            I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
+          </label>
+          <button type="button" class="btnp" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
+        </div>
+
+        <div id="zb-scope-apply-block" class="zb-enrich-scope-apply" style="display:none">
+          <div class="zb-subhead">Scope map apply</div>
           <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
           <div class="row-wrap gap6 mb6">
             <button type="button" class="tbtn" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
           </div>
           <div id="zb-apply-plan-body" class="mb6">—</div>
-          <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <label class="text-micro zb-enrich-confirm-row">
             <input type="checkbox" id="zb-apply-confirm">
             I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
           </label>
           <button type="button" class="btnp" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
         </div>
+      </div>
 
-        <div class="flbl mt12">Manual link / unlink</div>
+      <div class="zb-enrich-section">
+        <div class="flbl">Manual link / unlink</div>
         <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
-        <div class="row-wrap gap6 mb6 flex-wrap">
-          <input class="finp narrow" id="zb-link-aid" type="number" min="1" placeholder="Asset id" style="min-width:100px">
-          <input class="finp narrow" id="zb-link-hid" placeholder="Zabbix hostid" style="min-width:140px">
-          <input class="finp narrow" id="zb-link-method" placeholder="match_method" value="manual" style="min-width:100px">
-          <input class="finp narrow" id="zb-link-conf" placeholder="confidence" value="1" style="min-width:90px">
+        <div class="row-wrap gap6 mb6">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--aid" id="zb-link-aid" type="number" min="1" placeholder="Asset id">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--hid" id="zb-link-hid" placeholder="Zabbix hostid">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--meth" id="zb-link-method" placeholder="match_method" value="manual">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--conf" id="zb-link-conf" placeholder="confidence" value="1">
           <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
         </div>
-        <div class="row-wrap gap6 flex-wrap">
-          <input class="finp narrow" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink" style="min-width:160px">
+        <div class="row-wrap gap6">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
           <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
         </div>
       </div>
@@ -8435,28 +8446,57 @@ function stZabbixFmtCacheStatusMessage(st) {
 }
 
 function stZabbixApplyCacheStatusHint(z) {
-    const wEl = document.getElementById('zb-cache-warn');
-    const detWrap = document.getElementById('zb-cache-diagnostics');
-    const detBody = document.getElementById('zb-cache-diagnostics-body');
-    if (!wEl || !detWrap || !detBody) {
+    const row = document.getElementById('zb-enrich-diagnostics-row');
+    const wEl = document.getElementById('zb-diagnostics-warn');
+    const detBody = document.getElementById('zb-diagnostics-detail');
+    const btn = document.getElementById('btn-zb-diagnostics-toggle');
+    const panel = document.getElementById('zb-diagnostics-panel');
+    if (!row || !wEl || !detBody) {
         return;
     }
     wEl.style.display = 'none';
     wEl.innerHTML = '';
-    detWrap.style.display = 'none';
     detBody.textContent = '';
+    row.style.display = 'none';
+    if (panel) {
+        panel.classList.add('hide');
+    }
+    if (btn) {
+        btn.setAttribute('aria-expanded', 'false');
+    }
     if (!z || !z.ok || !z.zabbix_cache_status) {
         return;
     }
     const { warn, detail } = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
+    if (!warn && !detail) {
+        return;
+    }
+    row.style.display = '';
     if (warn) {
         wEl.style.display = '';
         wEl.innerHTML = '<span class="hstate-warn">' + esc(warn) + '</span>';
     }
     if (detail) {
         detBody.textContent = detail;
-        detWrap.style.display = '';
     }
+}
+
+function stZabbixEnrichDiagnosticsToggle() {
+    const panel = document.getElementById('zb-diagnostics-panel');
+    const btn = document.getElementById('btn-zb-diagnostics-toggle');
+    if (!panel || !btn) return;
+    const willOpen = panel.classList.contains('hide');
+    panel.classList.toggle('hide', !willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
+function stZabbixOverviewDiagnosticsToggle() {
+    const panel = document.getElementById('zb-overview-diagnostics-panel');
+    const btn = document.getElementById('btn-zb-overview-diagnostics-toggle');
+    if (!panel || !btn) return;
+    const willOpen = panel.classList.contains('hide');
+    panel.classList.toggle('hide', !willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 }
 
 const ST_LS_ZB_ENRICH_TOOLS_OPEN = 'st_zabbix_enrich_tools_open';
@@ -8590,6 +8630,7 @@ function stZabbixEnrichToolsApplyDomOpen(open, opts) {
     if (cta && cta.style.display !== 'none') {
         cta.textContent = open ? 'Close Zabbix enrichment tools' : 'Open Zabbix enrichment tools';
         cta.setAttribute('aria-expanded', open ? 'true' : 'false');
+        cta.setAttribute('aria-controls', 'zb-enrich-tools-panel');
     }
     if (!o.skipLs) {
         stZabbixEnrichToolsLsSet(open);
@@ -8699,12 +8740,17 @@ function stEnrichmentRefreshZabbixOverview(resp) {
             + ' · Unmatched Zabbix hosts: <strong>' + esc(String(unmd)) + '</strong></div>';
         if (resp.zabbix_cache_status) {
             const fm = stZabbixFmtCacheStatusMessage(resp.zabbix_cache_status);
-            if (fm.warn) {
-                html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span></div>';
-            }
-            if (fm.detail) {
-                html += '<details class="hint-micro mb6 text-dim"><summary style="cursor:pointer">Diagnostics</summary>'
-                    + '<div class="text-micro mt4 mono-sm">' + esc(fm.detail) + '</div></details>';
+            if (fm.warn || fm.detail) {
+                html += '<div id="zb-overview-diagnostics-row" class="mb6">'
+                    + '<button type="button" class="tbtn btn-sm" id="btn-zb-overview-diagnostics-toggle" onclick="stZabbixOverviewDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-overview-diagnostics-panel">Diagnostics</button>'
+                    + '<div id="zb-overview-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-overview-diagnostics-toggle">';
+                if (fm.warn) {
+                    html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span></div>';
+                }
+                if (fm.detail) {
+                    html += '<div class="hint-micro mono-sm text-dim">' + esc(fm.detail) + '</div>';
+                }
+                html += '</div></div>';
             }
         }
     }
