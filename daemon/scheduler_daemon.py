@@ -175,6 +175,14 @@ def _ensure_zabbix_connector_scheduler_columns(conn: sqlite3.Connection) -> None
             )
         if "scheduled_output_lock_at" not in cols:
             conn.execute("ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock_at TEXT")
+        if "output_sender_host" not in cols:
+            conn.execute(
+                "ALTER TABLE zabbix_connector ADD COLUMN output_sender_host TEXT NOT NULL DEFAULT ''"
+            )
+        if "output_sender_port" not in cols:
+            conn.execute(
+                "ALTER TABLE zabbix_connector ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051"
+            )
     except sqlite3.OperationalError as e:
         log.warning("zabbix_connector scheduler columns: %s", e)
 
@@ -300,31 +308,7 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
                 c2.close()
         except Exception:
             pass
-        log.warning("Zabbix scheduled sync: lock/update failed: %s", e)
         return
-    try:
-        subprocess.Popen(
-            [php_bin, str(worker)],
-            cwd=str(root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        log.info("Zabbix scheduled sync: spawned worker (interval=%ss)", interval)
-    except Exception as e:
-        log.error("Zabbix scheduled sync: spawn failed: %s", e)
-        try:
-            c2 = db_conn()
-            try:
-                c2.execute(
-                    "UPDATE zabbix_connector SET scheduled_sync_lock=0, scheduled_sync_lock_at=NULL "
-                    "WHERE id=1"
-                )
-                c2.commit()
-            finally:
-                c2.close()
-        except Exception:
-            pass
 
 
 def _hard_delete_scan(conn: sqlite3.Connection, job_id: int) -> None:

@@ -445,6 +445,12 @@ function st_zabbix_ensure_schema(PDO $pdo): void
             if (! in_array('scheduled_output_lock_at', $zcCols, true)) {
                 $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock_at TEXT');
             }
+            if (! in_array('output_sender_host', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_sender_host TEXT NOT NULL DEFAULT \'\'');
+            }
+            if (! in_array('output_sender_port', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051');
+            }
         }
     } catch (Throwable) {
         // ignore if PRAGMA unsupported in edge contexts
@@ -516,6 +522,8 @@ function st_zabbix_connector_get(PDO $pdo): array
             'api_token' => '',
             'enabled' => 0,
             'output_enabled' => 0,
+            'output_sender_host' => '',
+            'output_sender_port' => 10051,
             'output_host' => '',
             'output_key_prefix' => 'surveytrace.',
             'last_output_push_at' => null,
@@ -558,6 +566,8 @@ function st_zabbix_connector_public(array $row): array
         'api_token_set' => $tok !== '',
         'enabled' => (int) ($row['enabled'] ?? 0) === 1,
         'output_enabled' => (int) ($row['output_enabled'] ?? 0) === 1,
+        'output_sender_host' => (string) ($row['output_sender_host'] ?? ''),
+        'output_sender_port' => (int) ($row['output_sender_port'] ?? 10051),
         'output_host' => (string) ($row['output_host'] ?? ''),
         'output_key_prefix' => (string) ($row['output_key_prefix'] ?? 'surveytrace.'),
         'last_output_push_at' => $row['last_output_push_at'] ?? null,
@@ -584,6 +594,15 @@ function st_zabbix_connector_save(PDO $pdo, array $in): void
     $apiUrl = st_zabbix_normalize_api_url(trim((string) ($in['api_url'] ?? $cur['api_url'] ?? '')));
     $enabled = ! empty($in['enabled']) ? 1 : 0;
     $outputEnabled = ! empty($in['output_enabled']) ? 1 : 0;
+    $outputSenderHost = trim((string) ($in['output_sender_host'] ?? $cur['output_sender_host'] ?? ''));
+    $ospIn = $in['output_sender_port'] ?? null;
+    $outputSenderPort = $cur['output_sender_port'] ?? 10051;
+    if ($ospIn !== null && $ospIn !== '') {
+        $outputSenderPort = (int) $ospIn;
+    }
+    if ($outputSenderPort < 1 || $outputSenderPort > 65535) {
+        $outputSenderPort = 10051;
+    }
     $outputHost = trim((string) ($in['output_host'] ?? $cur['output_host'] ?? ''));
     $outputKeyPrefix = trim((string) ($in['output_key_prefix'] ?? $cur['output_key_prefix'] ?? 'surveytrace.'));
     if ($outputKeyPrefix === '') {
@@ -596,9 +615,20 @@ function st_zabbix_connector_save(PDO $pdo, array $in): void
     }
     $st = $pdo->prepare(
         'UPDATE zabbix_connector SET name = ?, api_url = ?, api_token = ?, enabled = ?, '
-        . 'output_enabled = ?, output_host = ?, output_key_prefix = ?, updated_at = datetime(\'now\') WHERE id = 1'
+        . 'output_enabled = ?, output_sender_host = ?, output_sender_port = ?, output_host = ?, output_key_prefix = ?, '
+        . 'updated_at = datetime(\'now\') WHERE id = 1'
     );
-    $st->execute([$name, $apiUrl, $apiToken, $enabled, $outputEnabled, $outputHost, $outputKeyPrefix]);
+    $st->execute([
+        $name,
+        $apiUrl,
+        $apiToken,
+        $enabled,
+        $outputEnabled,
+        $outputSenderHost,
+        $outputSenderPort,
+        $outputHost,
+        $outputKeyPrefix,
+    ]);
 }
 
 function st_zabbix_php_cli(): string
@@ -2021,7 +2051,12 @@ function st_zabbix_output_enabled_configured(PDO $pdo): bool
         return false;
     }
 
-    return trim((string) ($c['output_host'] ?? '')) !== '';
+    if (trim((string) ($c['output_host'] ?? '')) === '') {
+        return false;
+    }
+    $t = st_zabbix_resolve_output_sender_target($pdo);
+
+    return ($t['host'] ?? '') !== '';
 }
 
 /**
@@ -2079,26 +2114,125 @@ function st_zabbix_sender_path(): string
 }
 
 /**
+ * Resolve TCP target for zabbix_sender (-z/-p). output_sender_host wins; otherwise API URL host with trapper port 10051.
+ *
+ * @return array{host:string,port:int,used_api_fallback:bool,error?:string}
+ */
+function st_zabbix_resolve_output_sender_target(PDO $pdo): array
+{
+    $c = st_zabbix_connector_get($pdo);
+    $explicit = trim((string) ($c['output_sender_host'] ?? ''));
+    $port = (int) ($c['output_sender_port'] ?? 10051);
+    if ($port < 1 || $port > 65535) {
+        $port = 10051;
+    }
+    if ($explicit !== '') {
+        return ['host' => $explicit, 'port' => $port, 'used_api_fallback' => false];
+    }
+    $apiUrl = st_zabbix_normalize_api_url((string) ($c['api_url'] ?? ''));
+    $u = parse_url($apiUrl);
+    $host = is_array($u) ? trim((string) ($u['host'] ?? '')) : '';
+    if ($host === '') {
+        return [
+            'host' => '',
+            'port' => 10051,
+            'used_api_fallback' => true,
+            'error' => 'Sender server not set: configure Sender server/address (recommended when the API URL is HTTPS, a tunnel, or does not reach TCP 10051), or use an API URL whose hostname is reachable on the Zabbix trapper port.',
+        ];
+    }
+
+    // Trapper default; do not use the API URL scheme port (e.g. 443) for zabbix_sender.
+    return ['host' => $host, 'port' => 10051, 'used_api_fallback' => true];
+}
+
+/**
+ * Classify zabbix_sender stdout/stderr for operators (test metrics + logs).
+ *
+ * @return array{ok:bool,primary:string,hint?:string}
+ */
+function st_zabbix_interpret_sender_cli_output(string $combined, int $exitCode): array
+{
+    $t = trim($combined);
+    $low = strtolower($t);
+    if ($exitCode !== 0) {
+        if (str_contains($low, 'connection refused')
+            || str_contains($low, 'connection reset by peer')
+            || str_contains($low, 'no route to host')
+            || str_contains($low, 'network is unreachable')
+            || str_contains($low, 'timed out')
+            || str_contains($low, 'connection timed out')
+            || str_contains($low, 'could not connect')) {
+            return [
+                'ok' => false,
+                'primary' => 'Sender connection failed (could not reach Zabbix trapper on the configured host/port).',
+                'hint' => $t !== '' ? $t : 'Check Sender server/address, port 10051 reachability, and firewalls.',
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'primary' => 'zabbix_sender failed (exit ' . $exitCode . ').',
+            'hint' => $t !== '' ? $t : null,
+        ];
+    }
+    $processed = null;
+    $failed = null;
+    if (preg_match('/Processed\s+(\d+)/i', $t, $m)) {
+        $processed = (int) $m[1];
+    }
+    if (preg_match('/Failed\s+(\d+)/i', $t, $m2)) {
+        $failed = (int) $m2[1];
+    }
+    if ($failed !== null && $failed > 0) {
+        return [
+            'ok' => false,
+            'primary' => 'Zabbix accepted the connection but rejected values (processed '
+                . (string) ($processed ?? '?') . ', failed ' . (string) $failed . ').',
+            'hint' => 'Likely causes: missing Zabbix trapper items, item key mismatch vs key prefix, or output host not matching the Zabbix Host name exactly. Raw: ' . ($t !== '' ? $t : '(empty)'),
+        ];
+    }
+
+    return ['ok' => true, 'primary' => $t !== '' ? $t : 'ok'];
+}
+
+/**
  * @param array<string,int|float|string> $metrics
- * @return array{ok:bool,transport:string,sent:int,error?:string}
+ * @return array{ok:bool,transport:string,sent:int,error?:string,hint?:string}
  */
 function st_zabbix_send_metrics(PDO $pdo, array $metrics): array
 {
     $c = st_zabbix_connector_get($pdo);
     $sender = st_zabbix_sender_path();
     if ($sender === '' || ! is_executable($sender)) {
-        return ['ok' => false, 'transport' => 'none', 'sent' => 0, 'error' => 'zabbix_sender not found'];
+        return [
+            'ok' => false,
+            'transport' => 'none',
+            'sent' => 0,
+            'error' => 'zabbix_sender not found or not executable (install zabbix-sender / zabbix_sender on this host).',
+        ];
     }
-    $apiUrl = st_zabbix_normalize_api_url((string) ($c['api_url'] ?? ''));
-    $u = parse_url($apiUrl);
-    $zHost = is_array($u) ? (string) ($u['host'] ?? '') : '';
-    if ($zHost === '') {
-        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'invalid zabbix api host'];
+    $target = st_zabbix_resolve_output_sender_target($pdo);
+    if (($target['host'] ?? '') === '') {
+        return [
+            'ok' => false,
+            'transport' => 'sender',
+            'sent' => 0,
+            'error' => (string) ($target['error'] ?? 'sender server not configured'),
+        ];
     }
-    $zPort = is_array($u) && isset($u['port']) ? (int) $u['port'] : 10051;
+    $zHost = (string) $target['host'];
+    $zPort = (int) ($target['port'] ?? 10051);
+    if ($zPort < 1 || $zPort > 65535) {
+        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'Invalid sender port (expected 1–65535).'];
+    }
     $outHost = trim((string) ($c['output_host'] ?? ''));
     if ($outHost === '') {
-        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'output host not set'];
+        return [
+            'ok' => false,
+            'transport' => 'sender',
+            'sent' => 0,
+            'error' => 'Output host not set: this must be the Zabbix Host name (as shown in Zabbix), not the sender TCP address.',
+        ];
     }
     $prefix = trim((string) ($c['output_key_prefix'] ?? 'surveytrace.'));
     if ($prefix === '') {
@@ -2143,12 +2277,15 @@ function st_zabbix_send_metrics(PDO $pdo, array $metrics): array
     $rc = 1;
     @exec($cmd, $out, $rc);
     @unlink($tmp);
-    if ($rc !== 0) {
+    $combined = trim(implode("\n", $out));
+    $interp = st_zabbix_interpret_sender_cli_output($combined, $rc);
+    if (! $interp['ok']) {
         return [
             'ok' => false,
             'transport' => 'sender',
             'sent' => 0,
-            'error' => trim(implode("\n", $out)) ?: ('zabbix_sender exit ' . $rc),
+            'error' => $interp['primary'],
+            'hint' => $interp['hint'] ?? null,
         ];
     }
 
@@ -2177,7 +2314,12 @@ function st_zabbix_run_output_push(PDO $pdo): array
                  WHERE id=1"
             )->execute([(int) ($res['sent'] ?? 0)]);
         } else {
-            $err = st_zabbix_redact_secrets(substr((string) ($res['error'] ?? 'output push failed'), 0, 2000));
+            $err = (string) ($res['error'] ?? 'output push failed');
+            $hint = $res['hint'] ?? null;
+            if (is_string($hint) && $hint !== '') {
+                $err .= ' — ' . $hint;
+            }
+            $err = st_zabbix_redact_secrets(substr($err, 0, 2000));
             $pdo->prepare(
                 "UPDATE zabbix_connector
                  SET last_output_push_at=datetime('now'),

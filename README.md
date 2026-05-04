@@ -1170,11 +1170,11 @@ Shipped work is summarized in **`RELEASE_NOTES.md`** and in [Changelog](#changel
 - **SemVer 0.16.0 (still Phase 15 — Integrations)** — Admin **Integrations** UI refresh (Push vs Pull/API, type-aware forms, Splunk scripted-input starter); removal of unused legacy global pull config (**`migration_phase16_remove_legacy_integrations_pull_token_v1`**). See the **0.16.0** bullets under [Changelog](#changelog).
 - **Phase 16.1 — Zabbix source connector (MVP)** — Admin **`/api/zabbix.php`** + **`api/lib_zabbix.php`** + CLI **`api/zabbix_sync_worker.php`**; tables **`zabbix_connector`**, **`zabbix_hosts`**, **`zabbix_host_interfaces`**, **`zabbix_host_groups`**, **`zabbix_host_tags`**, **`zabbix_host_problems_summary`**, **`zabbix_asset_links`**, **`zabbix_scope_map_rules`**; migration **`migration_phase16_zabbix_source_v1`**. Bounded JSON-RPC pull (hosts/interfaces/groups/tags/templates/inventory/availability + capped **`problem.get`**); asset matching by IP, DNS/hostname, visible name, MAC; read-only **`zabbix`** block on **`GET /api/assets.php?id=`** and the asset edit modal; optional **group/tag → `scan_scopes`** rules with **preview/save only** (no automatic scope writes). **Integrations** tab panel for configure/test/sync. **Not in this slice:** Zabbix as a push/alert sink, auto-overwriting operator asset fields.
 - **Phase 16.2 — Zabbix operator workflow** — **`assets.scope_id`** + denorm trust columns; migration **`migration_phase16_2_zabbix_workflow_v1`**; explicit **preview → confirm → apply** scope updates (**`preview_scope_apply`**, **`apply_scope_map`** + audit **`zabbix.scope_map_applied`**); optional explicit **hostname** fill from linked Zabbix names for blank **`assets.hostname`** (**`preview_identity_apply`**, **`apply_identity`** + audit **`zabbix.identity_applied`**); **match review** UI + manual **`link_manual`** / **`unlink_asset`** (audited); **`zabbix_asset_links.is_manual`** preserved across rematch; **`GET /api/assets.php`** Zabbix filters + optional list column. See **[Using Zabbix data in SurveyTrace](#using-zabbix-data-in-surveytrace-phase-162)**.
-- **Phase 16.4 — Zabbix output / monitoring signals** — Optional one-way **SurveyTrace → Zabbix** summary metrics push (health/security counters) using **`zabbix_sender`** when available; connector config fields (**`output_enabled`**, **`output_host`**, **`output_key_prefix`**); scheduler-driven background push (**5 min default**) with lock protection and non-blocking failure handling; manual **Send test metrics** action in Integrations; push status surfaced in Integrations and Enrichment Zabbix cards. **No automatic trigger creation** and no scope/identity workflow changes.
+- **Phase 16.4 — Zabbix output / monitoring signals** — Optional one-way **SurveyTrace → Zabbix** summary metrics push (health/security counters) using **`zabbix_sender`** when available; connector fields include **`output_sender_host`** / **`output_sender_port`** (trapper TCP target, separate from HTTPS API URL), **`output_host`** (Zabbix Host name), **`output_key_prefix`**, **`output_enabled`**; scheduler-driven background push (**5 min default**) with lock protection and non-blocking failure handling; manual **Send test metrics** in Integrations; push status in Integrations and Enrichment Zabbix cards. **No automatic trigger creation** and no scope/identity workflow changes.
 
 ### Upcoming
 - **Phase 16.3 — Enrichment freshness + scheduled sync** — **`daemon/scheduler_daemon.py`** runs a lightweight **Zabbix** sync on the same interval cadence as **`zabbix_auto_sync_interval_secs`** (config default **900** seconds), spawning **`api/zabbix_sync_worker.php`** only when the connector is **enabled**, **fully configured** (API URL + token), and due (with **`scheduled_sync_lock`** on **`zabbix_connector`** to avoid overlapping workers). **Freshness** (`fresh` / `stale` / `outdated` / `never_synced`) from **`last_sync_at`** is exposed on **`GET /api/zabbix.php?status=1`** (viewer+) and on single-asset **`GET /api/assets.php?id=`** as **`zabbix_enrichment_status`**; Enrichment / Integrations / host **Details** show last-sync + badges. **No** automatic scope, identity, or ownership changes — sync only refreshes cached Zabbix tables + rematch.
-- **Phase 16.4 — Zabbix output / monitoring signals** — Shipped: SurveyTrace sends optional summary metrics to Zabbix; output is disabled by default and must be explicitly enabled/configured. SurveyTrace does **not** create triggers automatically.
+- **Phase 16.4 — Zabbix output / monitoring signals** — Shipped: SurveyTrace sends optional summary metrics via **`zabbix_sender`**; **Sender server** / port are separate from the HTTPS API URL (tunnel-safe). Output is disabled by default. SurveyTrace does **not** create triggers automatically.
 - **Phase 17 — Ownership, user, device, and endpoint-vulnerability enrichment** — **Planned (deferred):** **TeamDynamix** for ownership/business context; **Microsoft Defender** (XDR / Defender Vulnerability Management) for device context, logged-in/recent users, exposure/risk, software inventory, and Defender-reported CVE evidence. Store **source-attributed** evidence; **do not** overwrite locked/manual asset fields or auto-resolve findings. See **[Planned: enrichment connectors](#planned-ownership-user-context-and-vulnerability-enrichment-connectors)** (design intent only until shipped).
 - **Phase 18 — Source connector completion** — First-class connectors for **Cisco DNA/Meraki**, **Juniper Mist**, **Infoblox**, **Palo Alto**, **Proxmox / VMware / TrueNAS** (and similar infrastructure APIs), and other vendors behind a shared connector contract (auth, paging, retry, health, field mapping). *(Passive fingerprinting for hypervisors already exists; this phase is **API-backed** inventory/enrichment.)*
 - **Phase 19 — Data fusion + enrichment** — Multi-source CVE/advisory **dedupe**; **source weighting** and **conflict resolution**; **SurveyTrace scanner vs Defender** (and other sources) evidence reconciliation; **OSV / NVD / KEV / EPSS** and package/advisory expansion; combine scanner, Defender, ownership, and monitoring context into coherent asset/finding views.
@@ -1313,6 +1313,28 @@ Emit **structured events** (JSON) per sync or on change: asset identity, normali
 
 SurveyTrace can push summary **health** and **security** metrics into Zabbix as numeric items. The feature is **optional** and must be enabled under **Integrations → Zabbix**. SurveyTrace does **not** create Zabbix items or triggers automatically; pushes are intended to be **low-noise** and **operator-controlled** (periodic summary values only).
 
+**Sender vs API URL** — JSON-RPC sync uses the **API URL** (often HTTPS, sometimes via Cloudflare Tunnel or another reverse proxy). **`zabbix_sender`** talks to the Zabbix **trapper** listener (TCP **10051** by default), which is usually **not** exposed on that same HTTPS URL. Configure **Sender server / address** and **Sender port** to a host/IP that can reach trapper (for example the server’s **LAN** or **Tailscale** address). If **Sender server** is left blank, SurveyTrace falls back to the **hostname** from the API URL with trapper port **10051** only (never the HTTPS port); that fallback is wrong for tunnel-only APIs, so set the sender explicitly.
+
+### Requirements
+
+- The `zabbix_sender` binary must be installed on the SurveyTrace host.
+- SurveyTrace uses `zabbix_sender` to push metrics to Zabbix trapper items.
+- If `zabbix_sender` is not installed, metric delivery will fail (no data will appear in Zabbix).
+- **Output host** (`output_host`) must match the Zabbix **Host name** exactly (Configuration → Hosts). Items must be **Zabbix trapper** type with keys matching your prefix (default `surveytrace.`).
+
+#### Install zabbix_sender (Debian / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install zabbix-sender
+```
+
+Verify installation:
+
+```bash
+which zabbix_sender
+```
+
 | Key | Description |
 |-----|-------------|
 | surveytrace.scans.last_status | 0=ok, 1=warning, 2=error |
@@ -1330,9 +1352,14 @@ SurveyTrace can push summary **health** and **security** metrics into Zabbix as 
 - Create a host in Zabbix (or reuse an existing one).
 - Add **Zabbix trapper** items using the keys in the table above (or equivalents under your configured key prefix).
 - Use the configured **key prefix** in Integrations (default: `surveytrace.`).
-- Ensure the Zabbix **host name** matches the configured **`output_host`**.
+- Set **Sender server** to an address SurveyTrace can open to **TCP 10051** (or your trapper port), not necessarily the API hostname.
+- Ensure **Output host** matches the Zabbix **Host name** field exactly (this is the metric host argument to `zabbix_sender`, not the TCP target).
 
-**Safety:** SurveyTrace does **not** create triggers automatically. Operators should define triggers and thresholds in Zabbix as needed. Metrics are sent on a schedule (default roughly **5 minutes**), not on every internal event.
+**Safety:**
+
+- SurveyTrace does **not** create triggers automatically. Operators should define triggers and thresholds in Zabbix as needed.
+- Metrics are sent on a schedule (default roughly **5 minutes**), not on every internal event.
+- If `zabbix_sender` is not available, SurveyTrace will skip sending metrics and log the failure without impacting core functionality.
 
 ## License
 

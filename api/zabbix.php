@@ -79,6 +79,16 @@ if ($action === 'save_connector') {
     if (! st_zabbix_table_ready($db)) {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
+    st_zabbix_ensure_schema($db);
+    if (array_key_exists('output_sender_port', $body)) {
+        $rawPort = $body['output_sender_port'];
+        if ($rawPort !== null && $rawPort !== '') {
+            $p = (int) $rawPort;
+            if ($p < 1 || $p > 65535) {
+                st_json(['ok' => false, 'error' => 'Sender port must be between 1 and 65535 (default 10051).'], 400);
+            }
+        }
+    }
     st_zabbix_connector_save($db, $body);
     $row = st_zabbix_connector_get($db);
     st_json(['ok' => true, 'connector' => st_zabbix_connector_public($row)]);
@@ -157,11 +167,14 @@ if ($action === 'send_output_test') {
     }
     $res = st_zabbix_run_output_push($db);
     if (! $res['ok']) {
+        $hint = $res['hint'] ?? null;
+        $hint = is_string($hint) && $hint !== '' ? st_zabbix_redact_secrets($hint) : null;
         st_json([
             'ok' => false,
             'error' => st_zabbix_redact_secrets((string) ($res['error'] ?? 'Zabbix output push failed')),
             'transport' => $res['transport'] ?? 'none',
             'sent' => (int) ($res['sent'] ?? 0),
+            'hint' => $hint,
         ], 400);
     }
     st_json([

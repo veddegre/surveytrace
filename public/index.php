@@ -1489,8 +1489,14 @@ if (!headers_sent()) {
       <div class="row-wrap gap6 mb8 flex-wrap">
         <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-output-enabled"> Enable output (SurveyTrace → Zabbix)</label>
       </div>
-      <label class="flbl">Output target host</label>
-      <input class="finp w100 mb6" id="zb-output-host" type="text" placeholder="surveytrace-master">
+      <p class="hint-micro text-dim mb8">Sender server is where <code class="code-accent">zabbix_sender</code> connects on TCP (default port 10051). This may differ from the API URL if the API is behind a proxy or tunnel.</p>
+      <label class="flbl">Sender server / address</label>
+      <input class="finp w100 mb6" id="zb-output-sender-host" type="text" placeholder="192.168.23.13 or zabbix.lan">
+      <label class="flbl">Sender port</label>
+      <input class="finp w100 mb6" id="zb-output-sender-port" type="number" min="1" max="65535" step="1" value="10051" placeholder="10051">
+      <label class="flbl">Output host (Zabbix Host name)</label>
+      <input class="finp w100 mb6" id="zb-output-host" type="text" placeholder="surveytrace">
+      <p class="hint-micro text-dim mb6">Use the exact <strong>Host name</strong> from Zabbix (Configuration → Hosts). This is not the sender TCP address.</p>
       <label class="flbl">Output key prefix</label>
       <input class="finp w100 mb8" id="zb-output-prefix" type="text" placeholder="surveytrace.">
       <label class="flbl">API URL</label>
@@ -8938,6 +8944,8 @@ function stZabbixApplyIntegrationPanel(z) {
     const tokEl = document.getElementById('zb-token');
     const enEl = document.getElementById('zb-enabled');
     const outEnEl = document.getElementById('zb-output-enabled');
+    const outSenderHostEl = document.getElementById('zb-output-sender-host');
+    const outSenderPortEl = document.getElementById('zb-output-sender-port');
     const outHostEl = document.getElementById('zb-output-host');
     const outPrefEl = document.getElementById('zb-output-prefix');
     const statsEl = document.getElementById('zb-stats');
@@ -8947,6 +8955,11 @@ function stZabbixApplyIntegrationPanel(z) {
     if (tokEl) tokEl.value = '';
     if (enEl) enEl.checked = !!c.enabled;
     if (outEnEl) outEnEl.checked = !!c.output_enabled;
+    if (outSenderHostEl) outSenderHostEl.value = c.output_sender_host || '';
+    if (outSenderPortEl) {
+        const pp = c.output_sender_port != null ? parseInt(String(c.output_sender_port), 10) : 10051;
+        outSenderPortEl.value = String(Number.isFinite(pp) && pp > 0 ? pp : 10051);
+    }
     if (outHostEl) outHostEl.value = c.output_host || '';
     if (outPrefEl) outPrefEl.value = c.output_key_prefix || 'surveytrace.';
     if (stEl) {
@@ -9053,6 +9066,14 @@ async function stZabbixSave() {
         api_url: (document.getElementById('zb-url') || {}).value || '',
         enabled: !!(document.getElementById('zb-enabled') || {}).checked,
         output_enabled: !!(document.getElementById('zb-output-enabled') || {}).checked,
+        output_sender_host: ((document.getElementById('zb-output-sender-host') || {}).value || '').trim(),
+        output_sender_port: (function () {
+            const el = document.getElementById('zb-output-sender-port');
+            const raw = el && el.value != null ? String(el.value).trim() : '';
+            if (raw === '') return 10051;
+            const n = parseInt(raw, 10);
+            return Number.isFinite(n) ? n : 10051;
+        })(),
         output_host: ((document.getElementById('zb-output-host') || {}).value || '').trim(),
         output_key_prefix: ((document.getElementById('zb-output-prefix') || {}).value || '').trim(),
     };
@@ -9075,7 +9096,11 @@ async function stZabbixSendTestMetrics() {
         toast('Test metrics sent' + (r.sent != null ? (' (' + String(r.sent) + ')') : ''), 'ok');
         await loadZabbixIntegrationOnly();
     } else {
-        toast((r && r.error) ? r.error : 'Test metrics failed', 'err');
+        let msg = (r && r.error) ? String(r.error) : 'Test metrics failed';
+        if (r && r.hint) {
+            msg += ' · ' + String(r.hint);
+        }
+        toast(msg, 'err');
         await loadZabbixIntegrationOnly();
     }
 }
