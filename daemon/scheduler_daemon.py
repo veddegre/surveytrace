@@ -48,6 +48,9 @@ BACKUP_SCRIPT = Path(__file__).parent / "backup_db.sh"
 BACKUP_DIR_DEFAULT = DB_PATH.parent / "backups"
 POLL_SECS = 30   # check every 30 seconds
 
+# Zabbix connector SQLite table (single source of truth for scheduler SQL — must be zabbix_connector).
+ZABBIX_CONNECTOR_TABLE = "zabbix_connector"
+
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -158,45 +161,54 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 def _ensure_zabbix_connector_scheduler_columns(conn: sqlite3.Connection) -> None:
     try:
         n = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='zabbix_connector' LIMIT 1"
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (ZABBIX_CONNECTOR_TABLE,),
         ).fetchone()
         if not n:
+            log.warning(
+                "SurveyTrace scheduler: SQLite table %r is missing (run PHP / app migrations first); "
+                "skipping zabbix_connector scheduler column updates.",
+                ZABBIX_CONNECTOR_TABLE,
+            )
             return
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(zabbix_connector)").fetchall()}
+        cols = {
+            row[1]
+            for row in conn.execute(f"PRAGMA table_info({ZABBIX_CONNECTOR_TABLE})").fetchall()
+        }
         if "scheduled_sync_lock" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN scheduled_sync_lock INTEGER NOT NULL DEFAULT 0"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN scheduled_sync_lock INTEGER NOT NULL DEFAULT 0"
             )
         if "scheduled_sync_lock_at" not in cols:
-            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN scheduled_sync_lock_at TEXT")
+            conn.execute(f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN scheduled_sync_lock_at TEXT")
         if "scheduled_output_lock" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock INTEGER NOT NULL DEFAULT 0"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN scheduled_output_lock INTEGER NOT NULL DEFAULT 0"
             )
         if "scheduled_output_lock_at" not in cols:
-            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock_at TEXT")
+            conn.execute(f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN scheduled_output_lock_at TEXT")
         if "output_sender_host" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN output_sender_host TEXT NOT NULL DEFAULT ''"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN output_sender_host TEXT NOT NULL DEFAULT ''"
             )
         if "output_sender_port" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051"
             )
         if "sync_schedule_enabled" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN sync_schedule_enabled INTEGER NOT NULL DEFAULT 0"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN sync_schedule_enabled INTEGER NOT NULL DEFAULT 0"
             )
         if "sync_interval_minutes" not in cols:
             conn.execute(
-                "ALTER TABLE zabbix_connector ADD COLUMN sync_interval_minutes INTEGER NOT NULL DEFAULT 60"
+                f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN sync_interval_minutes INTEGER NOT NULL DEFAULT 60"
             )
         if "next_sync_at" not in cols:
-            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN next_sync_at TEXT")
+            conn.execute(f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN next_sync_at TEXT")
         if "last_sync_started_at" not in cols:
-            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN last_sync_started_at TEXT")
+            conn.execute(f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN last_sync_started_at TEXT")
         if "last_sync_completed_at" not in cols:
-            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN last_sync_completed_at TEXT")
+            conn.execute(f"ALTER TABLE {ZABBIX_CONNECTOR_TABLE} ADD COLUMN last_sync_completed_at TEXT")
     except sqlite3.OperationalError as e:
         log.warning("zabbix_connector scheduler columns: %s", e)
 
@@ -210,9 +222,14 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     try:
         _ensure_zabbix_connector_scheduler_columns(conn)
         ztab = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='zabbix_connector' LIMIT 1"
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (ZABBIX_CONNECTOR_TABLE,),
         ).fetchone()
         if not ztab:
+            log.warning(
+                "Zabbix scheduled sync: table %r missing; skipping scheduled pull.",
+                ZABBIX_CONNECTOR_TABLE,
+            )
             return
     except Exception as e:
         log.warning("Zabbix scheduled sync: schema check failed: %s", e)
@@ -222,7 +239,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     try:
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
-            """UPDATE zabbix_connector SET scheduled_sync_lock=1, scheduled_sync_lock_at=datetime('now')
+            f"""UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_sync_lock=1, scheduled_sync_lock_at=datetime('now')
                 WHERE id=1 AND enabled=1
                   AND COALESCE(sync_schedule_enabled,0)=1
                   AND TRIM(COALESCE(api_url,''))!='' AND TRIM(COALESCE(api_token,''))!=''
@@ -258,7 +275,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
             c2 = db_conn()
             try:
                 c2.execute(
-                    "UPDATE zabbix_connector SET scheduled_sync_lock=0, scheduled_sync_lock_at=NULL "
+                    f"UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_sync_lock=0, scheduled_sync_lock_at=NULL "
                     "WHERE id=1"
                 )
                 c2.commit()
@@ -277,9 +294,14 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
     try:
         _ensure_zabbix_connector_scheduler_columns(conn)
         ztab = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='zabbix_connector' LIMIT 1"
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (ZABBIX_CONNECTOR_TABLE,),
         ).fetchone()
         if not ztab:
+            log.warning(
+                "Zabbix output push: table %r missing; skipping scheduled output.",
+                ZABBIX_CONNECTOR_TABLE,
+            )
             return
     except Exception as e:
         log.warning("Zabbix output push: schema check failed: %s", e)
@@ -295,7 +317,7 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
     try:
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
-            """UPDATE zabbix_connector SET scheduled_output_lock=1, scheduled_output_lock_at=datetime('now')
+            f"""UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_output_lock=1, scheduled_output_lock_at=datetime('now')
                 WHERE id=1
                   AND enabled=1
                   AND COALESCE(output_enabled,0)=1
@@ -334,7 +356,7 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
             c2 = db_conn()
             try:
                 c2.execute(
-                    "UPDATE zabbix_connector SET scheduled_output_lock=0, scheduled_output_lock_at=NULL "
+                    f"UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_output_lock=0, scheduled_output_lock_at=NULL "
                     "WHERE id=1"
                 )
                 c2.commit()
