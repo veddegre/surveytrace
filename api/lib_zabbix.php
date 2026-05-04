@@ -17,6 +17,12 @@ const ST_ZABBIX_SYNC_PROBLEM_LIMIT = 4000;
 /** HTTP timeout for each Zabbix JSON-RPC call (seconds). */
 const ST_ZABBIX_HTTP_TIMEOUT_SEC = 12;
 
+/** Cache age below this is "fresh" for UI + scheduler cadence (seconds). */
+const ST_ZABBIX_FRESHNESS_FRESH_SEC = 900;
+
+/** "Stale" from fresh up to this age (seconds); older is "outdated". */
+const ST_ZABBIX_FRESHNESS_STALE_MAX_SEC = 3600;
+
 /**
  * Trim and collapse Unicode whitespace for scope-map pattern / Zabbix label comparison.
  */
@@ -401,6 +407,48 @@ function st_zabbix_ensure_schema(PDO $pdo): void
         )'
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_zabbix_scope_rules ON zabbix_scope_map_rules(scope_id, enabled)');
+
+    // Phase 16.3 — scheduler lock (Python scheduler + zabbix_sync_worker.php clear in finally).
+    try {
+        $zcCols = $pdo->query("PRAGMA table_info(zabbix_connector)")->fetchAll(PDO::FETCH_COLUMN, 1);
+        if (is_array($zcCols)) {
+            if (! in_array('scheduled_sync_lock', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN scheduled_sync_lock INTEGER NOT NULL DEFAULT 0');
+            }
+            if (! in_array('scheduled_sync_lock_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN scheduled_sync_lock_at TEXT');
+            }
+            if (! in_array('output_enabled', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_enabled INTEGER NOT NULL DEFAULT 0');
+            }
+            if (! in_array('output_host', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_host TEXT NOT NULL DEFAULT \'\'');
+            }
+            if (! in_array('output_key_prefix', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_key_prefix TEXT NOT NULL DEFAULT \'surveytrace.\'');
+            }
+            if (! in_array('last_output_push_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_output_push_at TEXT');
+            }
+            if (! in_array('last_output_push_status', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_output_push_status TEXT');
+            }
+            if (! in_array('last_output_push_error', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_output_push_error TEXT');
+            }
+            if (! in_array('last_output_push_count', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_output_push_count INTEGER NOT NULL DEFAULT 0');
+            }
+            if (! in_array('scheduled_output_lock', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock INTEGER NOT NULL DEFAULT 0');
+            }
+            if (! in_array('scheduled_output_lock_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN scheduled_output_lock_at TEXT');
+            }
+        }
+    } catch (Throwable) {
+        // ignore if PRAGMA unsupported in edge contexts
+    }
 }
 
 function st_zabbix_table_ready(PDO $pdo): bool
@@ -467,6 +515,13 @@ function st_zabbix_connector_get(PDO $pdo): array
             'api_url' => '',
             'api_token' => '',
             'enabled' => 0,
+            'output_enabled' => 0,
+            'output_host' => '',
+            'output_key_prefix' => 'surveytrace.',
+            'last_output_push_at' => null,
+            'last_output_push_status' => null,
+            'last_output_push_error' => null,
+            'last_output_push_count' => 0,
             'last_sync_at' => null,
             'last_sync_status' => null,
             'last_error' => null,
@@ -491,6 +546,10 @@ function st_zabbix_connector_public(array $row): array
     if (is_string($lastErr) && $lastErr !== '') {
         $lastErr = st_zabbix_redact_secrets($lastErr);
     }
+    $lastOutErr = $row['last_output_push_error'] ?? null;
+    if (is_string($lastOutErr) && $lastOutErr !== '') {
+        $lastOutErr = st_zabbix_redact_secrets($lastOutErr);
+    }
 
     return [
         'id' => (int) ($row['id'] ?? 1),
@@ -498,6 +557,13 @@ function st_zabbix_connector_public(array $row): array
         'api_url' => (string) ($row['api_url'] ?? ''),
         'api_token_set' => $tok !== '',
         'enabled' => (int) ($row['enabled'] ?? 0) === 1,
+        'output_enabled' => (int) ($row['output_enabled'] ?? 0) === 1,
+        'output_host' => (string) ($row['output_host'] ?? ''),
+        'output_key_prefix' => (string) ($row['output_key_prefix'] ?? 'surveytrace.'),
+        'last_output_push_at' => $row['last_output_push_at'] ?? null,
+        'last_output_push_status' => $row['last_output_push_status'] ?? null,
+        'last_output_push_error' => $lastOutErr,
+        'last_output_push_count' => (int) ($row['last_output_push_count'] ?? 0),
         'last_sync_at' => $row['last_sync_at'] ?? null,
         'last_sync_status' => $row['last_sync_status'] ?? null,
         'last_error' => $lastErr,
@@ -517,15 +583,22 @@ function st_zabbix_connector_save(PDO $pdo, array $in): void
     }
     $apiUrl = st_zabbix_normalize_api_url(trim((string) ($in['api_url'] ?? $cur['api_url'] ?? '')));
     $enabled = ! empty($in['enabled']) ? 1 : 0;
+    $outputEnabled = ! empty($in['output_enabled']) ? 1 : 0;
+    $outputHost = trim((string) ($in['output_host'] ?? $cur['output_host'] ?? ''));
+    $outputKeyPrefix = trim((string) ($in['output_key_prefix'] ?? $cur['output_key_prefix'] ?? 'surveytrace.'));
+    if ($outputKeyPrefix === '') {
+        $outputKeyPrefix = 'surveytrace.';
+    }
     $newTok = array_key_exists('api_token', $in) ? trim((string) $in['api_token']) : null;
     $apiToken = $cur['api_token'] ?? '';
     if ($newTok !== null && $newTok !== '') {
         $apiToken = $newTok;
     }
     $st = $pdo->prepare(
-        'UPDATE zabbix_connector SET name = ?, api_url = ?, api_token = ?, enabled = ?, updated_at = datetime(\'now\') WHERE id = 1'
+        'UPDATE zabbix_connector SET name = ?, api_url = ?, api_token = ?, enabled = ?, '
+        . 'output_enabled = ?, output_host = ?, output_key_prefix = ?, updated_at = datetime(\'now\') WHERE id = 1'
     );
-    $st->execute([$name, $apiUrl, $apiToken, $enabled]);
+    $st->execute([$name, $apiUrl, $apiToken, $enabled, $outputEnabled, $outputHost, $outputKeyPrefix]);
 }
 
 function st_zabbix_php_cli(): string
@@ -1819,6 +1892,306 @@ function st_zabbix_connector_api_url_configured(PDO $pdo): bool
     } catch (Throwable $e) {
         return false;
     }
+}
+
+function st_zabbix_connector_fully_configured(PDO $pdo): bool
+{
+    try {
+        if (! st_zabbix_table_ready($pdo)) {
+            return false;
+        }
+        $c = st_zabbix_connector_get($pdo);
+        if (st_zabbix_normalize_api_url(trim((string) ($c['api_url'] ?? ''))) === '') {
+            return false;
+        }
+
+        return trim((string) ($c['api_token'] ?? '')) !== '';
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Read-only enrichment / freshness for UI and lightweight GET ?status=1 (no secrets).
+ *
+ * @return array{
+ *   tables_ready: bool,
+ *   configured: bool,
+ *   enabled: bool,
+ *   last_sync: ?string,
+ *   last_sync_status: mixed,
+ *   freshness_state: 'never_synced'|'fresh'|'stale'|'outdated',
+ *   freshness_seconds: ?int
+ * }
+ */
+function st_zabbix_enrichment_status_for_ui(PDO $pdo): array
+{
+    $out = [
+        'tables_ready' => st_zabbix_table_ready($pdo),
+        'configured' => false,
+        'enabled' => false,
+        'last_sync' => null,
+        'last_sync_status' => null,
+        'freshness_state' => 'never_synced',
+        'freshness_seconds' => null,
+        'hosts_cached' => 0,
+    ];
+    if (! $out['tables_ready']) {
+        return $out;
+    }
+    try {
+        $out['hosts_cached'] = (int) $pdo->query('SELECT COUNT(1) FROM zabbix_hosts')->fetchColumn();
+    } catch (Throwable) {
+        $out['hosts_cached'] = 0;
+    }
+    $c = st_zabbix_connector_get($pdo);
+    $out['enabled'] = ((int) ($c['enabled'] ?? 0)) === 1;
+    $out['configured'] = st_zabbix_connector_fully_configured($pdo);
+    $ls = $c['last_sync_at'] ?? null;
+    $lsTrim = is_string($ls) ? trim($ls) : '';
+    $out['last_sync_status'] = $c['last_sync_status'] ?? null;
+    if ($lsTrim === '') {
+        $out['freshness_state'] = 'never_synced';
+
+        return $out;
+    }
+    $out['last_sync'] = $lsTrim;
+    $ts = strtotime($lsTrim);
+    if ($ts === false) {
+        $out['freshness_state'] = 'never_synced';
+
+        return $out;
+    }
+    $sec = max(0, time() - $ts);
+    $out['freshness_seconds'] = $sec;
+    if ($sec < ST_ZABBIX_FRESHNESS_FRESH_SEC) {
+        $out['freshness_state'] = 'fresh';
+    } elseif ($sec < ST_ZABBIX_FRESHNESS_STALE_MAX_SEC) {
+        $out['freshness_state'] = 'stale';
+    } else {
+        $out['freshness_state'] = 'outdated';
+    }
+
+    return $out;
+}
+
+/**
+ * Clear scheduled-sync lock after zabbix_sync_worker.php finishes (success or failure).
+ */
+function st_zabbix_clear_scheduled_sync_lock(PDO $pdo): void
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return;
+    }
+    try {
+        $cols = $pdo->query('PRAGMA table_info(zabbix_connector)')->fetchAll(PDO::FETCH_COLUMN, 1);
+        if (! is_array($cols) || ! in_array('scheduled_sync_lock', $cols, true)) {
+            return;
+        }
+        $pdo->exec('UPDATE zabbix_connector SET scheduled_sync_lock = 0, scheduled_sync_lock_at = NULL WHERE id = 1');
+    } catch (Throwable) {
+    }
+}
+
+/**
+ * Clear scheduled-output lock after zabbix_output_worker.php finishes.
+ */
+function st_zabbix_clear_scheduled_output_lock(PDO $pdo): void
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return;
+    }
+    try {
+        $cols = $pdo->query('PRAGMA table_info(zabbix_connector)')->fetchAll(PDO::FETCH_COLUMN, 1);
+        if (! is_array($cols) || ! in_array('scheduled_output_lock', $cols, true)) {
+            return;
+        }
+        $pdo->exec('UPDATE zabbix_connector SET scheduled_output_lock = 0, scheduled_output_lock_at = NULL WHERE id = 1');
+    } catch (Throwable) {
+    }
+}
+
+function st_zabbix_output_enabled_configured(PDO $pdo): bool
+{
+    if (! st_zabbix_connector_fully_configured($pdo)) {
+        return false;
+    }
+    $c = st_zabbix_connector_get($pdo);
+    if ((int) ($c['enabled'] ?? 0) !== 1 || (int) ($c['output_enabled'] ?? 0) !== 1) {
+        return false;
+    }
+
+    return trim((string) ($c['output_host'] ?? '')) !== '';
+}
+
+/**
+ * @return array<string,int>
+ */
+function st_zabbix_build_output_metrics(PDO $pdo): array
+{
+    $m = [];
+    $latest = $pdo->query("SELECT status FROM scan_jobs ORDER BY id DESC LIMIT 1")->fetchColumn();
+    $st = strtolower(trim((string) ($latest ?? '')));
+    $m['surveytrace.scans.last_status'] = ($st === 'failed' || $st === 'aborted') ? 2 : (($st === 'running' || $st === 'queued') ? 1 : 0);
+    $m['surveytrace.scans.active_jobs'] = (int) $pdo->query("SELECT COUNT(1) FROM scan_jobs WHERE status IN ('queued','running')")->fetchColumn();
+    try {
+        $m['surveytrace.ingest.backlog'] = (int) $pdo->query(
+            "SELECT COUNT(1) FROM collector_ingest_queue WHERE status IN ('pending','retry')"
+        )->fetchColumn();
+    } catch (Throwable) {
+        $m['surveytrace.ingest.backlog'] = 0;
+    }
+    $m['surveytrace.vuln.critical_open'] = (int) $pdo->query(
+        "SELECT COUNT(1) FROM findings WHERE COALESCE(resolved,0)=0 AND LOWER(TRIM(COALESCE(severity,'')))='critical'"
+    )->fetchColumn();
+    $m['surveytrace.vuln.high_open'] = (int) $pdo->query(
+        "SELECT COUNT(1) FROM findings WHERE COALESCE(resolved,0)=0 AND LOWER(TRIM(COALESCE(severity,'')))='high'"
+    )->fetchColumn();
+    try {
+        $m['surveytrace.collectors.active'] = (int) $pdo->query(
+            "SELECT COUNT(1) FROM collectors WHERE COALESCE(revoked_at,'')='' "
+            . "AND last_seen_at IS NOT NULL AND last_seen_at >= datetime('now','-120 seconds')"
+        )->fetchColumn();
+        $m['surveytrace.collectors.offline'] = (int) $pdo->query(
+            "SELECT COUNT(1) FROM collectors WHERE COALESCE(revoked_at,'')='' "
+            . "AND (last_seen_at IS NULL OR last_seen_at < datetime('now','-120 seconds'))"
+        )->fetchColumn();
+    } catch (Throwable) {
+        $m['surveytrace.collectors.active'] = 0;
+        $m['surveytrace.collectors.offline'] = 0;
+    }
+    $m['surveytrace.assets.total'] = (int) $pdo->query("SELECT COUNT(1) FROM assets")->fetchColumn();
+    $m['surveytrace.assets.stale'] = (int) $pdo->query(
+        "SELECT COUNT(1) FROM assets WHERE LOWER(TRIM(COALESCE(lifecycle_status,'')))='stale'"
+    )->fetchColumn();
+
+    return $m;
+}
+
+function st_zabbix_sender_path(): string
+{
+    if (! function_exists('shell_exec')) {
+        return '';
+    }
+    $p = trim((string) @shell_exec('command -v zabbix_sender 2>/dev/null'));
+
+    return is_string($p) ? $p : '';
+}
+
+/**
+ * @param array<string,int|float|string> $metrics
+ * @return array{ok:bool,transport:string,sent:int,error?:string}
+ */
+function st_zabbix_send_metrics(PDO $pdo, array $metrics): array
+{
+    $c = st_zabbix_connector_get($pdo);
+    $sender = st_zabbix_sender_path();
+    if ($sender === '' || ! is_executable($sender)) {
+        return ['ok' => false, 'transport' => 'none', 'sent' => 0, 'error' => 'zabbix_sender not found'];
+    }
+    $apiUrl = st_zabbix_normalize_api_url((string) ($c['api_url'] ?? ''));
+    $u = parse_url($apiUrl);
+    $zHost = is_array($u) ? (string) ($u['host'] ?? '') : '';
+    if ($zHost === '') {
+        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'invalid zabbix api host'];
+    }
+    $zPort = is_array($u) && isset($u['port']) ? (int) $u['port'] : 10051;
+    $outHost = trim((string) ($c['output_host'] ?? ''));
+    if ($outHost === '') {
+        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'output host not set'];
+    }
+    $prefix = trim((string) ($c['output_key_prefix'] ?? 'surveytrace.'));
+    if ($prefix === '') {
+        $prefix = 'surveytrace.';
+    }
+    $tmp = @tempnam(sys_get_temp_dir(), 'st_zbx_out_');
+    if ($tmp === false) {
+        return ['ok' => false, 'transport' => 'sender', 'sent' => 0, 'error' => 'temp file unavailable'];
+    }
+    $sent = 0;
+    $lines = [];
+    foreach ($metrics as $k => $v) {
+        $ks = trim((string) $k);
+        if ($ks === '') {
+            continue;
+        }
+        if (str_starts_with($ks, 'surveytrace.')) {
+            $fullKey = $prefix . substr($ks, strlen('surveytrace.'));
+        } elseif (str_starts_with($ks, $prefix)) {
+            $fullKey = $ks;
+        } else {
+            $fullKey = $prefix . $ks;
+        }
+        $lines[] = $outHost . ' ' . $fullKey . ' ' . (string) $v;
+        ++$sent;
+    }
+    if ($sent === 0) {
+        @unlink($tmp);
+
+        return ['ok' => true, 'transport' => 'sender', 'sent' => 0];
+    }
+    @file_put_contents($tmp, implode(PHP_EOL, $lines) . PHP_EOL);
+    $cmd = sprintf(
+        '%s -z %s -p %d -i %s -t %d 2>&1',
+        escapeshellarg($sender),
+        escapeshellarg($zHost),
+        $zPort,
+        escapeshellarg($tmp),
+        6
+    );
+    $out = [];
+    $rc = 1;
+    @exec($cmd, $out, $rc);
+    @unlink($tmp);
+    if ($rc !== 0) {
+        return [
+            'ok' => false,
+            'transport' => 'sender',
+            'sent' => 0,
+            'error' => trim(implode("\n", $out)) ?: ('zabbix_sender exit ' . $rc),
+        ];
+    }
+
+    return ['ok' => true, 'transport' => 'sender', 'sent' => $sent];
+}
+
+/**
+ * @return array{ok:bool,sent:int,transport:string,error?:string}
+ */
+function st_zabbix_run_output_push(PDO $pdo): array
+{
+    if (! st_zabbix_output_enabled_configured($pdo)) {
+        return ['ok' => false, 'sent' => 0, 'transport' => 'none', 'error' => 'output disabled or not configured'];
+    }
+    $metrics = st_zabbix_build_output_metrics($pdo);
+    $res = st_zabbix_send_metrics($pdo, $metrics);
+    try {
+        if ($res['ok']) {
+            $pdo->prepare(
+                "UPDATE zabbix_connector
+                 SET last_output_push_at=datetime('now'),
+                     last_output_push_status='ok',
+                     last_output_push_error=NULL,
+                     last_output_push_count=?,
+                     updated_at=datetime('now')
+                 WHERE id=1"
+            )->execute([(int) ($res['sent'] ?? 0)]);
+        } else {
+            $err = st_zabbix_redact_secrets(substr((string) ($res['error'] ?? 'output push failed'), 0, 2000));
+            $pdo->prepare(
+                "UPDATE zabbix_connector
+                 SET last_output_push_at=datetime('now'),
+                     last_output_push_status='error',
+                     last_output_push_error=?,
+                     last_output_push_count=?,
+                     updated_at=datetime('now')
+                 WHERE id=1"
+            )->execute([$err, (int) ($res['sent'] ?? 0)]);
+        }
+    } catch (Throwable) {
+    }
+
+    return $res;
 }
 
 function st_zabbix_cache_has_host_or_link_rows(PDO $pdo): bool

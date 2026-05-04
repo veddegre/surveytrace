@@ -598,6 +598,11 @@ if ($single_id > 0) {
 
     if (st_zabbix_table_ready($db)) {
         try {
+            $asset['zabbix_enrichment_status'] = st_zabbix_enrichment_status_for_ui($db);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets.php zabbix_status: ' . st_zabbix_redact_secrets($e->getMessage()));
+        }
+        try {
             $zbx = st_zabbix_enrichment_for_asset($db, $single_id);
             if (is_array($zbx)) {
                 $asset['zabbix'] = $zbx;

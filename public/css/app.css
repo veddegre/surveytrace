@@ -466,6 +466,14 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .badge-ready{background:var(--gdim);color:var(--green)}
 .badge-partial{background:var(--adim);color:var(--amber)}
 .badge-missing{background:var(--bg4);color:var(--tx3)}
+/* Zabbix cache freshness (Phase 16.3) */
+.badge-zbx-fresh{background:var(--gdim);color:var(--green)}
+.badge-zbx-stale{background:var(--adim);color:var(--amber)}
+.badge-zbx-outdated{background:var(--rdim);color:var(--red)}
+.badge-zbx-never{background:var(--bg4);color:var(--tx3)}
+.enrich-zbx-card-body{padding:2px 2px 0}
+.hp-zbx-freshness{font-size:11px;color:var(--tx3);margin:6px 0 4px}
+.hp-zbx-freshness-warn{font-size:11px;color:var(--amber);margin-top:6px}
 .hp-port-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)}
 .hp-port-num{font-family:var(--mf);font-size:13px;color:var(--acc);min-width:48px;flex-shrink:0}
 .hp-port-text{font-size:12px;color:var(--tx2);word-break:break-word;line-height:1.45}

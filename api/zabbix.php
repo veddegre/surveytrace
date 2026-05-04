@@ -14,12 +14,33 @@ require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_zabbix.php';
 
 st_auth();
-st_require_role(['admin']);
 
 $db = st_db();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
+    $wantStatus = isset($_GET['status']) && (string) $_GET['status'] === '1';
+    if ($wantStatus) {
+        st_require_role(['viewer', 'scan_editor', 'admin']);
+        if (! st_zabbix_table_ready($db)) {
+            st_json([
+                'ok' => true,
+                'zabbix_status' => [
+                    'tables_ready' => false,
+                    'configured' => false,
+                    'enabled' => false,
+                    'last_sync' => null,
+                    'last_sync_status' => null,
+                    'freshness_state' => 'never_synced',
+                    'freshness_seconds' => null,
+                    'hosts_cached' => 0,
+                ],
+            ]);
+        }
+        st_json(['ok' => true, 'zabbix_status' => st_zabbix_enrichment_status_for_ui($db)]);
+    }
+
+    st_require_role(['admin']);
     if (! st_zabbix_table_ready($db)) {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
@@ -39,6 +60,7 @@ if ($method === 'GET') {
             'asset_scope_apply' => st_zabbix_scan_scopes_table_exists($db) && st_zabbix_asset_workflow_columns_ready($db),
             'asset_identity_apply' => st_zabbix_table_ready($db),
         ],
+        'zabbix_status' => st_zabbix_enrichment_status_for_ui($db),
     ];
     if (isset($_GET['match_review']) && (string) $_GET['match_review'] === '1') {
         $out['match_review'] = st_zabbix_match_review($db);
@@ -47,6 +69,7 @@ if ($method === 'GET') {
 }
 
 st_method('POST');
+st_require_role(['admin']);
 st_require_csrf();
 
 $body = st_input();
@@ -126,6 +149,26 @@ if ($action === 'sync_now') {
         'ok' => false,
         'error' => 'Could not start background sync (exec disabled or worker missing). Use PHP-FPM, set SURVEYTRACE_PHP_CLI to a CLI binary, or run: php api/zabbix_sync_worker.php',
     ], 503);
+}
+
+if ($action === 'send_output_test') {
+    if (! st_zabbix_table_ready($db)) {
+        st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
+    }
+    $res = st_zabbix_run_output_push($db);
+    if (! $res['ok']) {
+        st_json([
+            'ok' => false,
+            'error' => st_zabbix_redact_secrets((string) ($res['error'] ?? 'Zabbix output push failed')),
+            'transport' => $res['transport'] ?? 'none',
+            'sent' => (int) ($res['sent'] ?? 0),
+        ], 400);
+    }
+    st_json([
+        'ok' => true,
+        'sent' => (int) ($res['sent'] ?? 0),
+        'transport' => (string) ($res['transport'] ?? 'sender'),
+    ]);
 }
 
 if ($action === 'preview_scope_map') {

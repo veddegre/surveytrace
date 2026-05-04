@@ -1094,17 +1094,18 @@ if (!headers_sent()) {
   </p>
 
   <div class="row-wrap gap10 mb14" style="align-items:stretch">
-    <div class="card" style="flex:1;min-width:min(100%,220px)">
+    <div class="card" style="flex:1;min-width:min(100%,220px);padding:14px 14px 12px">
       <div class="ct">Network enrichment</div>
       <p class="hint-micro mb6">SNMP, files, APIs, and similar sources run during scans (narrow per job on <strong>Scan</strong> / <strong>Schedules</strong>).</p>
       <p class="hint-micro text-dim mb0">Active sources appear in the card below.</p>
     </div>
-    <div class="card" id="enrich-zbx-overview-card" style="flex:1;min-width:min(100%,220px)">
+    <div class="card" id="enrich-zbx-overview-card" style="flex:1;min-width:min(100%,220px);padding:14px 14px 12px;display:flex;flex-direction:column">
       <div class="ct">Zabbix</div>
-      <div id="enrich-zbx-overview-details"><p class="hint-micro text-dim mb0">Loading…</p></div>
+      <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body" style="flex:1"><p class="hint-micro text-dim mb0">Loading…</p></div>
+      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
       <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()">Open Zabbix enrichment tools</button>
     </div>
-    <div class="card" style="flex:1;min-width:min(100%,220px);opacity:0.95">
+    <div class="card" style="flex:1;min-width:min(100%,220px);opacity:0.95;padding:14px 14px 12px">
       <div class="ct">More integrations</div>
       <p class="hint-micro mb4"><strong>TeamDynamix</strong> — planned (future phase).</p>
       <p class="hint-micro mb0"><strong>Defender</strong> — planned (future phase).</p>
@@ -1139,11 +1140,12 @@ if (!headers_sent()) {
     </div>
   </div>
 
-  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none">
+  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none;padding:14px 14px 12px">
     <div class="row-between mb10" style="gap:12px;align-items:center;flex-wrap:wrap">
       <div class="ct" style="margin:0">Zabbix enrichment tools</div>
       <button type="button" class="tbtn btn-xs" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false">Expand</button>
     </div>
+    <div id="zb-enrich-freshness-banner" class="mb10" style="display:none" aria-live="polite"></div>
     <p class="hint-micro mb10" id="zb-enrich-tools-intro">
       Match review, scope rules, apply plan, and manual link/unlink use data from <strong>Integrations → Zabbix</strong>. Read-only Zabbix context also appears on host <strong>Details</strong>.
     </p>
@@ -1484,6 +1486,13 @@ if (!headers_sent()) {
         <input class="finp" id="zb-name" placeholder="Zabbix" style="min-width:160px;flex:1">
         <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-enabled"> Enabled</label>
       </div>
+      <div class="row-wrap gap6 mb8 flex-wrap">
+        <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-output-enabled"> Enable output (SurveyTrace → Zabbix)</label>
+      </div>
+      <label class="flbl">Output target host</label>
+      <input class="finp w100 mb6" id="zb-output-host" type="text" placeholder="surveytrace-master">
+      <label class="flbl">Output key prefix</label>
+      <input class="finp w100 mb8" id="zb-output-prefix" type="text" placeholder="surveytrace.">
       <label class="flbl">API URL</label>
       <input class="finp w100 mb6" id="zb-url" type="url" placeholder="https://zabbix.example/zabbix">
       <label class="flbl">API token</label>
@@ -1492,9 +1501,12 @@ if (!headers_sent()) {
         <button type="button" class="tbtn" id="zb-test" onclick="stZabbixTest()">Test API</button>
         <button type="button" class="tbtn" onclick="stZabbixSave()">Save</button>
         <button type="button" class="btnp" onclick="stZabbixSync()">Sync now</button>
+        <button type="button" class="tbtn" onclick="stZabbixSendTestMetrics()">Send test metrics</button>
       </div>
       <div id="zb-status" class="help-mono mb8">—</div>
       <div id="zb-stats" class="hint-micro mb8">—</div>
+      <div id="zb-output-status" class="hint-micro mb8">—</div>
+      <p class="hint-micro text-dim mb0">SurveyTrace sends health and security summary metrics to Zabbix. No alerts are created by default.</p>
     </div>
 
     <p class="help-line text-dim mt10 text-micro">
@@ -8188,6 +8200,70 @@ function stZabbixApplyCacheStatusHint(z) {
 
 const ST_LS_ZB_ENRICH_TOOLS_OPEN = 'st_zabbix_enrich_tools_open';
 
+/** @param {object} zs zabbix_status from GET /api/zabbix.php?status=1 */
+function stZabbixFreshnessBadgeClass(zs) {
+    const st = zs && zs.freshness_state ? String(zs.freshness_state) : 'never_synced';
+    if (st === 'fresh') return 'badge-mini badge-zbx-fresh';
+    if (st === 'stale') return 'badge-mini badge-zbx-stale';
+    if (st === 'outdated') return 'badge-mini badge-zbx-outdated';
+    return 'badge-mini badge-zbx-never';
+}
+
+/** @param {object} zs */
+function stZabbixFreshnessBadgeLabel(zs) {
+    const st = zs && zs.freshness_state ? String(zs.freshness_state) : 'never_synced';
+    if (st === 'fresh') return 'Fresh';
+    if (st === 'stale') return 'Stale';
+    if (st === 'outdated') return 'Outdated';
+    return 'Never synced';
+}
+
+/** @param {object} zs */
+function stZabbixLastSyncLineHtml(zs) {
+    if (!zs || zs.last_sync == null || String(zs.last_sync).trim() === '') {
+        return '<span class="mono-sm text-dim">Last synced: never</span>';
+    }
+    const sec = zs.freshness_seconds != null ? Number(zs.freshness_seconds) : null;
+    if (sec == null || !Number.isFinite(sec)) {
+        return '<span class="mono-sm text-dim">Last synced: ' + esc(String(zs.last_sync)) + '</span>';
+    }
+    if (sec < 75) {
+        return '<span class="mono-sm text-dim">Last synced: just now</span>';
+    }
+    const m = Math.floor(sec / 60);
+    if (m < 120) {
+        return '<span class="mono-sm text-dim">Last synced: ' + m + ' minute' + (m === 1 ? '' : 's') + ' ago</span>';
+    }
+    const h = Math.floor(m / 60);
+    return '<span class="mono-sm text-dim">Last synced: ' + h + ' hour' + (h === 1 ? '' : 's') + ' ago</span>';
+}
+
+/** @param {object|null} zs */
+function stZabbixApplyEnrichmentFreshnessBanner(zs) {
+    const el = document.getElementById('zb-enrich-freshness-banner');
+    const toolsWrap = document.getElementById('st-zabbix-enrich-tools-wrap');
+    if (!el) return;
+    if (!stRoleIsAdmin() || !toolsWrap || toolsWrap.style.display === 'none') {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    if (!zs || !zs.tables_ready || !zs.configured || !zs.enabled) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    const badge = '<span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
+    const line = stZabbixLastSyncLineHtml(zs);
+    let hint = '';
+    const st = String(zs.freshness_state || '');
+    if (st === 'stale' || st === 'outdated') {
+        hint = '<p class="hint-micro text-dim mb0 mt6">Data may be stale. Run sync to refresh.</p>';
+    }
+    el.innerHTML = '<div class="row-wrap gap8" style="align-items:center;flex-wrap:wrap">' + badge + line + '</div>' + hint;
+    el.style.display = '';
+}
+
 function stZabbixEnrichToolsLsIsOpen() {
     try {
         return localStorage.getItem(ST_LS_ZB_ENRICH_TOOLS_OPEN) === '1';
@@ -8210,6 +8286,10 @@ function stZabbixEnrichIsConfigured(z) {
 
 function stZabbixEnrichHasSyncedData(z) {
     if (!z || !z.ok) return false;
+    if (z.zabbix_status && z.zabbix_status.hosts_cached != null) {
+        const hc = parseInt(String(z.zabbix_status.hosts_cached), 10);
+        if (Number.isFinite(hc)) return hc > 0;
+    }
     const h = z.stats && z.stats.hosts != null ? parseInt(String(z.stats.hosts), 10) : 0;
     return Number.isFinite(h) && h > 0;
 }
@@ -8251,12 +8331,13 @@ function stZabbixEnrichToolsToggle() {
 
 /**
  * Updates the Enrichment tab Zabbix overview card and tools panel visibility.
- * @param {object|null} z Result of GET /api/zabbix.php
+ * @param {object|null} resp Result of GET /api/zabbix.php?status=1 (or full admin GET which includes zabbix_status).
  */
-function stEnrichmentRefreshZabbixOverview(z) {
+function stEnrichmentRefreshZabbixOverview(resp) {
     const detailsEl = document.getElementById('enrich-zbx-overview-details');
     const toolsWrap = document.getElementById('st-zabbix-enrich-tools-wrap');
     const cta = document.getElementById('enrich-zbx-tools-cta');
+    const syncBtn = document.getElementById('enrich-zbx-sync-btn');
     const intro = document.getElementById('zb-enrich-tools-intro');
     if (!detailsEl || !toolsWrap) return;
 
@@ -8266,71 +8347,111 @@ function stEnrichmentRefreshZabbixOverview(z) {
             if (!show) cta.removeAttribute('aria-expanded');
         }
     };
+    const showSync = (show) => {
+        if (syncBtn) syncBtn.style.display = show ? '' : 'none';
+    };
     showCta(false);
+    showSync(false);
 
-    if (!stRoleIsAdmin()) {
-        detailsEl.innerHTML = '<p class="hint-micro text-dim mb0">Zabbix connector details are available to administrators only.</p>';
-        toolsWrap.style.display = 'none';
-        if (intro) intro.style.display = 'none';
-        return;
-    }
-
-    if (!z || !z.ok) {
-        const err = (z && z.error) ? esc(z.error) : 'Could not load Zabbix state.';
+    const zs = resp && resp.zabbix_status ? resp.zabbix_status : null;
+    if (!resp || !resp.ok || !zs) {
+        const err = (resp && resp.error) ? esc(String(resp.error)) : 'Could not load Zabbix status.';
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is unavailable.</p>'
             + '<p class="hint-micro text-dim mb0">' + err + '</p>';
         toolsWrap.style.display = 'none';
         if (intro) intro.style.display = 'none';
+        stZabbixApplyEnrichmentFreshnessBanner(null);
+        return;
+    }
+
+    if (!zs.tables_ready) {
+        detailsEl.innerHTML = '<p class="hint-micro text-dim mb0">Zabbix tables are not installed. Run database migrations.</p>';
+        toolsWrap.style.display = 'none';
+        if (intro) intro.style.display = 'none';
+        stZabbixApplyEnrichmentFreshnessBanner(null);
+        return;
+    }
+
+    if (!zs.configured) {
+        detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is not configured.</p>'
+            + '<p class="hint-micro text-dim mb0">Configure it under <strong>Integrations → Zabbix</strong>.</p>';
+        toolsWrap.style.display = 'none';
+        if (intro) intro.style.display = 'none';
+        stZabbixApplyEnrichmentFreshnessBanner(null);
+        return;
+    }
+
+    if (!zs.enabled) {
+        detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is disabled.</p>'
+            + '<p class="hint-micro text-dim mb0">Enable it under <strong>Integrations → Zabbix</strong>.</p>';
+        toolsWrap.style.display = 'none';
+        if (intro) intro.style.display = 'none';
+        stZabbixApplyEnrichmentFreshnessBanner(null);
         return;
     }
 
     if (intro) intro.style.display = '';
 
-    const c = z.connector || {};
-    const configured = stZabbixEnrichIsConfigured(z);
-    const synced = stZabbixEnrichHasSyncedData(z);
-
-    if (!configured) {
-        detailsEl.innerHTML = '<p class="hint-micro mb8">Zabbix enrichment is not configured.</p>'
-            + '<button type="button" class="tbtn btn-xs" onclick="goTab(\'integrations\');hiNav(\'nintegrations\')">Configure under Integrations → Zabbix</button>';
-        toolsWrap.style.display = 'none';
-        return;
+    const badge = '<span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
+    const line = stZabbixLastSyncLineHtml(zs);
+    let html = '<div class="row-wrap gap8 mb8" style="align-items:center;flex-wrap:wrap">' + badge + line + '</div>'
+        + '<p class="hint-micro text-dim mb8" style="margin-bottom:10px">Sync updates cached monitoring data. No automatic changes are applied.</p>';
+    if (stRoleIsAdmin() && resp.connector) {
+        const c0 = resp.connector || {};
+        html += '<div class="help-box mb8"><div class="hint-micro"><strong>Zabbix output (SurveyTrace → Zabbix)</strong></div>'
+            + '<div class="hint-micro mt4"><span class="badge-mini ' + (c0.output_enabled ? 'badge-on' : 'badge-off') + '">'
+            + (c0.output_enabled ? 'Enabled' : 'Disabled') + '</span>'
+            + ' · last push: ' + esc(String(c0.last_output_push_at || '—'))
+            + ' · result: ' + esc(String(c0.last_output_push_status || '—')) + '</div>'
+            + '<p class="hint-micro text-dim mb0 mt4">SurveyTrace sends health and security summary metrics to Zabbix. No alerts are created by default.</p></div>';
     }
 
-    const matched = z.stats && z.stats.matched_pairs != null ? z.stats.matched_pairs : 0;
-    const unmd = z.stats && z.stats.hosts_unmatched != null ? z.stats.hosts_unmatched : 0;
-    const lastSync = c.last_sync_at ? esc(String(c.last_sync_at)) : '—';
-    const enOn = !!c.enabled;
-    let html = '<div class="hint-micro mb6"><span class="badge-mini ' + (enOn ? 'badge-on' : 'badge-off') + '">'
-        + (enOn ? 'enabled' : 'disabled') + '</span>'
-        + ' · last sync: <span class="mono-sm">' + lastSync + '</span></div>'
-        + '<div class="hint-micro mb6">Matched links: <strong>' + esc(String(matched)) + '</strong>'
-        + ' · Unmatched Zabbix hosts: <strong>' + esc(String(unmd)) + '</strong></div>';
+    const hostsCached = zs.hosts_cached != null ? parseInt(String(zs.hosts_cached), 10) : 0;
+    const synced = Number.isFinite(hostsCached) && hostsCached > 0;
 
-    if (z.zabbix_cache_status) {
-        const fm = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
-        if (fm.warn) {
-            html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span></div>';
-        }
-        if (fm.detail) {
-            html += '<details class="hint-micro mb6 text-dim"><summary style="cursor:pointer">Diagnostics</summary>'
-                + '<div class="text-micro mt4 mono-sm">' + esc(fm.detail) + '</div></details>';
+    if (stRoleIsAdmin() && resp.connector && resp.stats) {
+        const c = resp.connector || {};
+        const matched = resp.stats.matched_pairs != null ? resp.stats.matched_pairs : 0;
+        const unmd = resp.stats.hosts_unmatched != null ? resp.stats.hosts_unmatched : 0;
+        html += '<div class="hint-micro mb6"><span class="badge-mini ' + (c.enabled ? 'badge-on' : 'badge-off') + '">'
+            + (c.enabled ? 'enabled' : 'disabled') + '</span></div>'
+            + '<div class="hint-micro mb6">Matched links: <strong>' + esc(String(matched)) + '</strong>'
+            + ' · Unmatched Zabbix hosts: <strong>' + esc(String(unmd)) + '</strong></div>';
+        if (resp.zabbix_cache_status) {
+            const fm = stZabbixFmtCacheStatusMessage(resp.zabbix_cache_status);
+            if (fm.warn) {
+                html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span></div>';
+            }
+            if (fm.detail) {
+                html += '<details class="hint-micro mb6 text-dim"><summary style="cursor:pointer">Diagnostics</summary>'
+                    + '<div class="text-micro mt4 mono-sm">' + esc(fm.detail) + '</div></details>';
+            }
         }
     }
 
     if (!synced) {
-        html += '<div class="help-box mb6"><strong>Run Zabbix sync first.</strong> Open Integrations → Zabbix, then use <strong>Sync now</strong> (connector must be enabled).</div>'
-            + '<button type="button" class="tbtn btn-xs" onclick="goTab(\'integrations\');hiNav(\'nintegrations\')">Open Zabbix integration</button>';
+        html += '<div class="help-box mb6"><strong>No cached hosts yet.</strong> Run a sync (button below or Integrations → Zabbix).</div>';
         detailsEl.innerHTML = html;
         toolsWrap.style.display = 'none';
+        showCta(false);
+        if (stRoleIsAdmin() && zs.enabled && zs.configured) showSync(true);
+        stZabbixApplyEnrichmentFreshnessBanner(zs);
         return;
     }
 
     detailsEl.innerHTML = html;
-    toolsWrap.style.display = '';
-    showCta(true);
-    const wantOpen = stZabbixEnrichToolsLsIsOpen();
-    stZabbixEnrichToolsApplyDomOpen(!!wantOpen, { skipLs: true });
+    if (stRoleIsAdmin()) {
+        toolsWrap.style.display = '';
+        showCta(true);
+        showSync(true);
+        const wantOpen = stZabbixEnrichToolsLsIsOpen();
+        stZabbixEnrichToolsApplyDomOpen(!!wantOpen, { skipLs: true });
+    } else {
+        toolsWrap.style.display = 'none';
+        showCta(false);
+        showSync(false);
+    }
+    stZabbixApplyEnrichmentFreshnessBanner(zs);
 }
 
 /** Scan scopes for Zabbix rule dropdowns (Enrichment tab tools); mirrored on GET /api/zabbix.php as `scopes`. */
@@ -8816,18 +8937,41 @@ function stZabbixApplyIntegrationPanel(z) {
     const urlEl = document.getElementById('zb-url');
     const tokEl = document.getElementById('zb-token');
     const enEl = document.getElementById('zb-enabled');
+    const outEnEl = document.getElementById('zb-output-enabled');
+    const outHostEl = document.getElementById('zb-output-host');
+    const outPrefEl = document.getElementById('zb-output-prefix');
     const statsEl = document.getElementById('zb-stats');
+    const outStatusEl = document.getElementById('zb-output-status');
     if (nameEl) nameEl.value = c.name || 'Zabbix';
     if (urlEl) urlEl.value = c.api_url || '';
     if (tokEl) tokEl.value = '';
     if (enEl) enEl.checked = !!c.enabled;
+    if (outEnEl) outEnEl.checked = !!c.output_enabled;
+    if (outHostEl) outHostEl.value = c.output_host || '';
+    if (outPrefEl) outPrefEl.value = c.output_key_prefix || 'surveytrace.';
     if (stEl) {
         const err = c.last_error ? (' · last error: ' + esc(c.last_error)) : '';
-        stEl.textContent = 'Last sync: ' + (c.last_sync_at || '—') + ' · status: ' + (c.last_sync_status || '—') + err;
+        let frHtml = '';
+        if (z.zabbix_status) {
+            const zs = z.zabbix_status;
+            frHtml = ' · cache <span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
+        }
+        stEl.innerHTML = 'Last sync: ' + esc(String(c.last_sync_at || '—'))
+            + ' · status: ' + esc(String(c.last_sync_status || '—')) + err + frHtml;
     }
     if (statsEl) {
         const s = z.stats || {};
         statsEl.textContent = `Hosts synced: ${s.hosts || 0} · matched links: ${s.matched_pairs || 0} · unmatched Zabbix hosts: ${s.hosts_unmatched || 0}`;
+    }
+    if (outStatusEl) {
+        const pushErr = c.last_output_push_error ? (' · last error: ' + esc(c.last_output_push_error)) : '';
+        const pushState = c.output_enabled ? 'enabled' : 'disabled';
+        outStatusEl.innerHTML = 'Zabbix output: <span class="badge-mini '
+            + (c.output_enabled ? 'badge-on' : 'badge-off') + '">' + pushState + '</span>'
+            + ' · last push: ' + esc(String(c.last_output_push_at || '—'))
+            + ' · result: ' + esc(String(c.last_output_push_status || '—'))
+            + ' · sent: ' + esc(String(c.last_output_push_count != null ? c.last_output_push_count : 0))
+            + pushErr;
     }
 }
 
@@ -8865,17 +9009,36 @@ function stZabbixApplyEnrichmentPanel(z) {
 
 async function loadZabbixIntegrationOnly() {
     if (!stRoleIsAdmin()) return;
-    const z = await loadZabbixFromApi();
+    const [z, zsR] = await Promise.all([
+        loadZabbixFromApi(),
+        api('/api/zabbix.php?status=1', { quiet: true }),
+    ]);
     stZabbixApplyIntegrationPanel(z);
-    stEnrichmentRefreshZabbixOverview(z);
+    stEnrichmentRefreshZabbixOverview(z && z.ok ? z : zsR);
+    stZabbixApplyEnrichmentFreshnessBanner(
+        z && z.ok && z.zabbix_status ? z.zabbix_status : (zsR && zsR.zabbix_status ? zsR.zabbix_status : null)
+    );
 }
 
 async function loadZabbixEnrichmentPanel() {
-    const z = await loadZabbixFromApi();
-    stEnrichmentRefreshZabbixOverview(z);
+    const zsR = await api('/api/zabbix.php?status=1', { quiet: true });
+    if (stRoleIsAdmin()) {
+        const z = await loadZabbixFromApi();
+        stEnrichmentRefreshZabbixOverview(z && z.ok ? z : zsR);
+        stZabbixApplyIntegrationPanel(z);
+        stZabbixApplyEnrichmentPanel(z);
+        stZabbixApplyEnrichmentFreshnessBanner(
+            z && z.ok && z.zabbix_status ? z.zabbix_status : (zsR && zsR.zabbix_status ? zsR.zabbix_status : null)
+        );
+    } else {
+        stEnrichmentRefreshZabbixOverview(zsR);
+        stZabbixApplyEnrichmentFreshnessBanner(null);
+    }
+}
+
+async function stZabbixSyncFromEnrichment() {
     if (!stRoleIsAdmin()) return;
-    stZabbixApplyIntegrationPanel(z);
-    stZabbixApplyEnrichmentPanel(z);
+    await stZabbixSync();
 }
 
 async function loadZabbixConnector() {
@@ -8889,6 +9052,9 @@ async function stZabbixSave() {
         name: (document.getElementById('zb-name') || {}).value || '',
         api_url: (document.getElementById('zb-url') || {}).value || '',
         enabled: !!(document.getElementById('zb-enabled') || {}).checked,
+        output_enabled: !!(document.getElementById('zb-output-enabled') || {}).checked,
+        output_host: ((document.getElementById('zb-output-host') || {}).value || '').trim(),
+        output_key_prefix: ((document.getElementById('zb-output-prefix') || {}).value || '').trim(),
     };
     const tok = (document.getElementById('zb-token') || {}).value || '';
     if (tok.trim() !== '') body.api_token = tok.trim();
@@ -8899,6 +9065,18 @@ async function stZabbixSave() {
         await loadZabbixEnrichmentPanel();
     } else {
         toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function stZabbixSendTestMetrics() {
+    if (!stRoleIsAdmin()) return;
+    const r = await apiPost('/api/zabbix.php', { action: 'send_output_test' });
+    if (r && r.ok) {
+        toast('Test metrics sent' + (r.sent != null ? (' (' + String(r.sent) + ')') : ''), 'ok');
+        await loadZabbixIntegrationOnly();
+    } else {
+        toast((r && r.error) ? r.error : 'Test metrics failed', 'err');
+        await loadZabbixIntegrationOnly();
     }
 }
 
@@ -8921,7 +9099,7 @@ async function stZabbixSync() {
     const r = await apiPost('/api/zabbix.php', { action: 'sync_now' });
     if (r && r.ok) {
         toast('Zabbix sync started (' + (r.mode || 'async') + ')', 'ok');
-        setTimeout(() => { void loadZabbixIntegrationOnly(); void loadZabbixEnrichmentPanel(); }, 4000);
+        setTimeout(() => { void loadZabbixEnrichmentPanel(); void loadZabbixIntegrationOnly(); }, 4000);
     } else {
         toast((r && r.error) ? r.error : 'Sync failed to start', 'err');
     }
@@ -14164,7 +14342,13 @@ async function hydrateAssetModalZabbix(assetId) {
     wrap.classList.add('hide');
     body.textContent = '';
     const r = await api('/api/assets.php?id=' + encodeURIComponent(String(assetId)), { quiet: true });
-    if (!r || !r.asset || !('zabbix' in r.asset)) return;
+    if (!r || !r.asset) return;
+    const fs = r.asset.zabbix_enrichment_status;
+    if (!fs || !fs.tables_ready || !fs.configured || !fs.enabled) {
+        wrap.classList.add('hide');
+        return;
+    }
+    if (!('zabbix' in r.asset)) return;
     const z = r.asset.zabbix;
     wrap.classList.remove('hide');
     if (!z || !z.linked) {
@@ -14867,6 +15051,10 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
 // ==========================================================================
 /** Read-only Zabbix summary for the host Details side panel (no actions). */
 function renderHostPanelZabbixBlock(a) {
+    const f = a && a.zabbix_enrichment_status;
+    if (!f || !f.tables_ready || !f.configured || !f.enabled) {
+        return '';
+    }
     const z = a && a.zabbix;
     if (!z || typeof z !== 'object') {
         return '';
@@ -14917,6 +15105,13 @@ function renderHostPanelZabbixBlock(a) {
     const unlinkNote = linked
         ? ''
         : '<p class="hint-micro text-dim mt6" style="margin-bottom:0">No Zabbix host linked. After the connector syncs, matching links hosts by IP, hostname, MAC, or visible name.</p>';
+    const fr = f.freshness_state ? String(f.freshness_state) : 'never_synced';
+    const zbxFreshRow = '<tr><td class="hp-meta-key">Zabbix cache</td><td class="hp-meta-val-dim">'
+        + stZabbixLastSyncLineHtml(f)
+        + ' <span class="' + stZabbixFreshnessBadgeClass(f) + '">' + esc(stZabbixFreshnessBadgeLabel(f)) + '</span></td></tr>';
+    const zbxOutdatedNote = fr === 'outdated'
+        ? '<p class="hp-zbx-freshness-warn" style="margin-bottom:0">Zabbix cache is outdated — details below may not match the server.</p>'
+        : '';
     return `
       <div class="hp-head">
         Zabbix
@@ -14925,6 +15120,7 @@ function renderHostPanelZabbixBlock(a) {
       </div>
       <div class="hp-block mb14" style="padding-bottom:4px">
         <table class="hp-meta-table">
+          ${zbxFreshRow}
           <tr><td class="hp-meta-key">Zabbix host</td><td class="hp-meta-val-dim">${zbxHostLabel}</td></tr>
           <tr><td class="hp-meta-key">Monitored</td><td class="hp-meta-val-dim">${esc(monLabel)}</td></tr>
           <tr><td class="hp-meta-key">Availability</td><td class="hp-meta-val-dim">${avail}</td></tr>
@@ -14934,6 +15130,7 @@ function renderHostPanelZabbixBlock(a) {
           <tr><td class="hp-meta-key">Templates</td><td class="hp-meta-val-dim cpe-break">${tm || '<span class="text-dim">—</span>'}</td></tr>
           <tr><td class="hp-meta-key">Match</td><td class="hp-meta-val-dim">${matchHtml}</td></tr>
         </table>
+        ${zbxOutdatedNote}
         ${unlinkNote}
       </div>`;
 }
