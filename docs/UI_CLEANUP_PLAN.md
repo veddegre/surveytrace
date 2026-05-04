@@ -2,6 +2,10 @@
 
 This document is a **structured audit and cleanup plan** for the SurveyTrace **single-page UI** (`public/index.php`, `public/css/app.css`). Goals: **clarity**, **consistency**, and **usability** — without changing **backend behavior**, **removing features**, or shipping code in this step.
 
+**Navigation / header redesign (proposal, separate doc):** [`docs/NAV_REDESIGN.md`](NAV_REDESIGN.md) — target shell layout (header, Account menu, collapsible sidebar groups, scan-history redirect), implementation passes, risks, and acceptance criteria. **Not implemented** unless noted elsewhere.
+
+**Host Details panel redesign (proposal, separate doc):** [`docs/HOST_DETAILS_REDESIGN.md`](HOST_DETAILS_REDESIGN.md) — centered wide modal, section/tabs IA, accessibility, implementation passes, risks. **Not implemented** unless noted elsewhere.
+
 **Scope assumption:** Most interactive UI lives in **`public/index.php`** with shared styles in **`public/css/app.css`**. Validation later: grep for remaining native **`window.confirm` / `alert` / `prompt`** (including minified patterns), keyboard flows, and mobile widths.
 
 ---
@@ -91,10 +95,13 @@ This document is a **structured audit and cleanup plan** for the SurveyTrace **s
 | M2 | **Destructive confirm template** | Checkbox **“I understand …”** + enabled **Confirm** button (disabled until checked); used for delete integration, bulk destructive, unlink where irreversible. |
 | M3 | **Copy deck pass** | Align titles (“Delete X” vs “Remove X”), body text (consequences), and button order (**Cancel** left, **Confirm** right in LTR). |
 | M4 | **Focus trap + return focus** | Accessibility pass on modals opened from tables. |
+| M5 | **Host Details wide modal** | Centered host detail surface per **[`docs/HOST_DETAILS_REDESIGN.md`](HOST_DETAILS_REDESIGN.md)**; aligns with M4 (trap, Escape, return focus); reuses existing `openHostPanel` data paths. |
 
 ---
 
 ## 5. Navigation
+
+**Detailed proposal:** [`docs/NAV_REDESIGN.md`](NAV_REDESIGN.md) (header + Account menu + collapsible sidebar groups + scan redirect + a11y acceptance criteria). The table below stays a **short audit list**; full target layout and pass-by-pass plan live in that file.
 
 ### Plan items
 
@@ -150,9 +157,9 @@ Work is sequenced so each pass is **shippable**, **testable**, and **low regress
 
 ### UI Pass 5 — Navigation deduplication
 
-- N1–N3.
+- N1–N3, aligned with **[`docs/NAV_REDESIGN.md`](NAV_REDESIGN.md)** (Pass 1–2 minimum: header + Account menu + sidebar groups/collapse; Pass 4 for scan → Scan history).
 
-**Exit criteria:** No duplicate entries to the same panel without intentional “shortcut” labeling.
+**Exit criteria:** No duplicate entries to the same panel without intentional “shortcut” labeling; see **Acceptance criteria** in `NAV_REDESIGN.md` for the full nav initiative checklist when implementing that doc.
 
 ### UI Pass 6 — Visual tokens + tables
 
@@ -188,5 +195,7 @@ Work is sequenced so each pass is **shippable**, **testable**, and **low regress
 ## References in-repo
 
 - Roadmap track: **UI cleanup and operator workflows** — [`README.md`](../README.md#roadmap) (links this file).
+- **Navigation / header redesign (proposal):** [`docs/NAV_REDESIGN.md`](NAV_REDESIGN.md).
+- **Host Details panel redesign (proposal):** [`docs/HOST_DETAILS_REDESIGN.md`](HOST_DETAILS_REDESIGN.md).
 - Large surface: `public/index.php` (Assets ~L260+, Enrichment ~L1090+, Integrations Zabbix ~L1478+).
 - Styles: `public/css/app.css`.

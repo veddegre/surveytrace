@@ -585,7 +585,105 @@ button[data-st-ai-action]:disabled{opacity:.88;cursor:wait}
 .modal-feed{padding:16px;width:min(980px,92vw);max-height:86vh;display:flex;flex-direction:column}
 .modal-confirm{padding:16px;width:min(520px,92vw)}
 .code-accent{color:var(--acc)}
-.host-panel{display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--bg2);border-left:1px solid var(--bd);z-index:200;overflow-y:auto;box-shadow:-6px 0 32px rgba(0,0,0,.35)}
+/* Host details — centered wide modal (Pass 1; docs/HOST_DETAILS_REDESIGN.md) */
+.host-modal-backdrop.host-panel-backdrop{background:rgba(0,0,0,.48)}
+body.light-mode .host-modal-backdrop.host-panel-backdrop{background:rgba(0,0,0,.28)}
+.host-modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:200;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  box-sizing:border-box;
+  pointer-events:none;
+}
+.host-modal-dialog{
+  pointer-events:auto;
+  width:min(1220px,calc(100vw - 48px));
+  max-height:calc(100vh - 48px);
+  background:var(--bg2);
+  border:1px solid var(--bd);
+  border-radius:var(--radius-lg);
+  box-shadow:0 20px 56px rgba(0,0,0,.42);
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  overflow:hidden;
+}
+body.light-mode .host-modal-dialog{box-shadow:0 16px 40px rgba(0,0,0,.12)}
+.host-modal-header{
+  flex-shrink:0;
+  padding:18px 22px;
+  border-bottom:1px solid var(--bd);
+  background:var(--bg2);
+  border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+}
+.host-modal-header-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.host-modal-header-titles{min-width:0;flex:1}
+.host-modal-title{
+  margin:0;
+  font-family:var(--sf);
+  font-size:19px;
+  font-weight:700;
+  color:var(--tx);
+  letter-spacing:.01em;
+  line-height:1.3;
+  word-break:break-word;
+}
+.host-modal-header-meta{
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  row-gap:6px;
+}
+.host-modal-scope-wrap{display:inline-flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.host-modal-close{flex-shrink:0}
+.host-modal-body{
+  flex:1;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  padding:22px 24px 26px;
+  -webkit-overflow-scrolling:touch;
+}
+.host-section{margin-bottom:22px}
+.host-section:last-child{margin-bottom:0}
+.host-section-heading{
+  margin:0 0 12px;
+  padding-bottom:8px;
+  border-bottom:1px solid var(--bd);
+  font-family:var(--sf);
+  font-size:12px;
+  font-weight:700;
+  color:var(--tx2);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.host-overview-identity-line{
+  font-size:14px;
+  color:var(--tx);
+  margin-bottom:12px;
+  line-height:1.45;
+  word-break:break-word;
+}
+.host-modal-body .hp-meta-key{min-width:128px;width:auto;max-width:44%;padding-right:10px}
+.host-modal-body .hp-meta-table{font-size:13px}
+.host-modal-body .hp-meta-table td{padding:5px 0}
+.host-modal-body .hp-chips{margin-bottom:12px}
+.host-modal-body .hp-actions-host-primary{margin-top:4px}
+@media (max-width:640px){
+  .host-modal{padding:12px}
+  .host-modal-dialog{width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
+  .host-modal-header{padding:14px 16px}
+  .host-modal-title{font-size:17px}
+  .host-modal-body{padding:16px 14px 22px}
+}
+/* Device panel — keep right-rail layout (paired with .host-panel-head / .host-panel-body) */
+.host-panel{display:none;position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--bg2);border-left:1px solid var(--bd);z-index:202;overflow-y:auto;box-shadow:-6px 0 32px rgba(0,0,0,.35)}
 .host-panel-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg2);z-index:1}
 .host-panel-title{font-family:var(--sf);font-size:15px;font-weight:700;color:var(--tx);letter-spacing:.01em}
 .host-panel-close{font-size:15px;padding:2px 8px}

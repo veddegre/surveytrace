@@ -1983,15 +1983,22 @@ if (!headers_sent()) {
   </div>
 </div>
 
-<!-- Host detail panel -->
-<div id="host-panel" class="host-panel">
-  <div class="host-panel-head">
-    <div class="host-panel-title" id="hp-title">Host detail</div>
-    <button class="tbtn host-panel-close" onclick="closeHostPanel()">✕</button>
+<!-- Host detail — centered wide modal (Pass 1; see docs/HOST_DETAILS_REDESIGN.md) -->
+<div id="host-panel-bg" class="host-panel-backdrop host-modal-backdrop" onclick="closeHostPanel()" aria-hidden="true"></div>
+<div id="host-panel" class="host-modal" style="display:none">
+  <div class="host-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="hp-title" onclick="event.stopPropagation()">
+    <header class="host-modal-header">
+      <div class="host-modal-header-inner">
+        <div class="host-modal-header-titles">
+          <h2 id="hp-title" class="host-modal-title">Host detail</h2>
+          <div id="hp-header-badges" class="host-modal-header-meta"></div>
+        </div>
+        <button type="button" class="tbtn host-modal-close host-panel-close" onclick="closeHostPanel()" aria-label="Close host details">✕</button>
+      </div>
+    </header>
+    <div id="hp-body" class="host-modal-body"></div>
   </div>
-  <div id="hp-body" class="host-panel-body"></div>
 </div>
-<div id="host-panel-bg" class="host-panel-backdrop" onclick="closeHostPanel()"></div>
 
 <!-- Change single-asset inventory scope -->
 <div id="st-asset-scope-bg" class="modal-bg z102" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-asset-scope-title" onclick="if(event.target===this)closeStAssetScopeModal()">
@@ -4854,7 +4861,7 @@ async function submitStAssetScopeModal() {
         if (currentTab === 'assets') {
             loadAssets(typeof assetPage === 'number' ? assetPage : 1);
         }
-        if (document.getElementById('host-panel')?.style.display === 'block') {
+        if (stIsHostPanelOpen()) {
             void openHostPanel(assetId, ip);
         }
         void loadScopesTab();
@@ -15452,8 +15459,34 @@ function collectDetectedServiceChips(ports, banners, httpProbe) {
 }
 
 // ==========================================================================
-// Host detail panel
+// Host detail panel (centered modal)
 // ==========================================================================
+/** @returns {boolean} */
+function stIsHostPanelOpen() {
+    const hp = document.getElementById('host-panel');
+    return !!(hp && hp.style.display && hp.style.display !== 'none');
+}
+
+let stHostPanelReturnFocusEl = null;
+
+function stHostPanelAttachEsc() {
+    if (window.__stHostPanelEscHandler) return;
+    window.__stHostPanelEscHandler = function (ev) {
+        if (ev.key !== 'Escape') return;
+        if (!stIsHostPanelOpen()) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeHostPanel();
+    };
+    document.addEventListener('keydown', window.__stHostPanelEscHandler, true);
+}
+
+function stHostPanelDetachEsc() {
+    if (!window.__stHostPanelEscHandler) return;
+    document.removeEventListener('keydown', window.__stHostPanelEscHandler, true);
+    window.__stHostPanelEscHandler = null;
+}
+
 /** Read-only Zabbix summary for the host Details side panel (no actions). */
 function renderHostPanelZabbixBlock(a) {
     const f = a && a.zabbix_enrichment_status;
@@ -15542,11 +15575,15 @@ function renderHostPanelZabbixBlock(a) {
 
 async function openHostPanel(id, ip) {
     closeDevicePanel();
+    stHostPanelReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const hpEl = document.getElementById('host-panel');
-    hpEl.style.display = 'block';
+    const hpBadges = document.getElementById('hp-header-badges');
+    hpEl.style.display = 'flex';
     document.getElementById('host-panel-bg').style.display = 'block';
+    stHostPanelAttachEsc();
     hpEl.dataset.hpAssetId = String(id);
     document.getElementById('hp-title').textContent = ip;
+    if (hpBadges) hpBadges.innerHTML = '';
     document.getElementById('hp-body').innerHTML = '<div class="loading">Loading…</div>';
     syncHostPanelExplainBusyUi();
 
@@ -15558,8 +15595,13 @@ async function openHostPanel(id, ip) {
 
     if (!assetData || !assetData.asset) {
         document.getElementById('hp-body').innerHTML = '<div class="loading">Failed to load</div>';
+        if (hpBadges) hpBadges.innerHTML = '';
         delete hpEl.dataset.hpAssetId;
         syncHostPanelExplainBusyUi();
+        queueMicrotask(() => {
+            const c = document.querySelector('#host-panel .host-modal-close');
+            if (c && typeof c.focus === 'function') c.focus();
+        });
         return;
     }
 
@@ -15589,9 +15631,18 @@ async function openHostPanel(id, ip) {
         }
         return '';
     })();
-    document.getElementById('hp-title').textContent = hn
-        ? `${a.ip} (${a.category || 'unk'} / ${hn})`
-        : `${a.ip} (${a.category || 'unk'})`;
+    document.getElementById('hp-title').textContent = hn ? `${hn} · ${a.ip}` : String(a.ip);
+    if (hpBadges) {
+        let badgeHtml = `<span class="cat ${esc(a.category || 'unk')}">${esc(a.category || 'unk')}</span>${lifecycleBadgeHtml(a)}`;
+        if (aiInfluenced) {
+            badgeHtml += '<span class="hp-chip" title="Category was adjusted by local AI enrichment">AI-assisted</span>';
+        }
+        if (scopeAssignable) {
+            const sn = a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—';
+            badgeHtml += `<span class="host-modal-scope-wrap"><span class="text-dim text-micro">Scope</span> <span class="mono-sm">${esc(sn)}</span></span>`;
+        }
+        hpBadges.innerHTML = badgeHtml;
+    }
 
     const serviceChips = collectDetectedServiceChips(ports, banners, httpProbe);
 
@@ -15666,14 +15717,12 @@ async function openHostPanel(id, ip) {
         }).join('')
         : '<div class="hp-empty" style="padding:4px 0">No per-scan history yet</div>';
 
+    const zbxHtml = renderHostPanelZabbixBlock(a);
     document.getElementById('hp-body').innerHTML = `
-      <div class="hp-meta">
-        <div class="hp-meta-title">
-          <span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span>
-          ${lifecycleBadgeHtml(a)}
-          ${aiInfluenced ? '<span class="hp-chip" title="Category was adjusted by local AI enrichment">AI-assisted</span>' : ''}
-          <span class="hp-meta-host">${esc(a.hostname||'—')}</span>${hnTrustChip ? ' ' + hnTrustChip : ''}
-        </div>
+      <section class="host-section" aria-label="Overview">
+        <h3 class="host-section-heading">Overview</h3>
+        <div class="hp-meta">
+        <div class="host-overview-identity-line">${esc(a.hostname || '—')}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
           <tr><td class="hp-meta-key">Lifecycle</td><td class="hp-meta-val">${lifecycleBadgeHtml(a)} <span class="text-dim mono-sm">${esc(a.lifecycle_reason || '—')}</span></td></tr>
@@ -15709,36 +15758,37 @@ async function openHostPanel(id, ip) {
           ${a.ai_last_reason ? `<tr><td class="hp-meta-key">AI skip reason</td><td class="hp-meta-val-dim">${esc(a.ai_last_reason)}</td></tr>` : ''}
           ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
-      </div>
+        </div>
+      </section>
 
-      ${renderHostPanelZabbixBlock(a)}
+      ${zbxHtml ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>` : ''}
 
-      <div class="hp-head">
-        Detected services
-        <div class="hp-head-line"></div>
-      </div>
+      <section class="host-section" aria-label="Detected services">
+        <h3 class="host-section-heading">Detected services</h3>
       ${serviceRows}
+      </section>
 
-      <div class="hp-head">
-        Open ports (${ports.length})
-        <div class="hp-head-line"></div>
-      </div>
+      <section class="host-section" aria-label="Open ports">
+        <h3 class="host-section-heading">Open ports (${ports.length})</h3>
       <div class="mb14">${portRows}</div>
+      </section>
 
-      ${renderHpAiOperatorSection(a, id, a.ip)}
+      <section class="host-section" aria-label="AI summary">${renderHpAiOperatorSection(a, id, a.ip)}</section>
 
+      <section class="host-section" aria-label="Host actions">
       <div class="hp-actions hp-actions-host-primary mb14">
         <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
         <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>
         ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
+      </section>
 
-      <div class="hp-head">
-        Open vulnerabilities (${openFindings.length})
-        <div class="hp-head-line"></div>
-      </div>
+      <section class="host-section" aria-label="Open vulnerabilities">
+        <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
       <div class="mb14">${findingRows}</div>
+      </section>
 
+      <section class="host-section" aria-label="Accepted risk">
       <details class="mb14"${acceptedFindings.length ? ' open' : ''}>
         <summary class="hp-head" style="cursor:pointer;list-style:none">
           Accepted risk (${acceptedFindings.length})
@@ -15747,11 +15797,10 @@ async function openHostPanel(id, ip) {
         </summary>
         <div class="mt8">${acceptedFindingRows}</div>
       </details>
+      </section>
 
-      <div class="hp-head">
-        Port history
-        <div class="hp-head-line"></div>
-      </div>
+      <section class="host-section" aria-label="Port history">
+        <h3 class="host-section-heading">Port history</h3>
       <div class="mb8">${
         (assetData.asset.port_history||[]).slice(0,5).map(h => `
           <div class="hp-history-row">
@@ -15759,21 +15808,35 @@ async function openHostPanel(id, ip) {
             <span class="hp-history-ports">${(h.ports||[]).join(', ')||'none'}</span>
           </div>`).join('') || '<div class="hp-empty" style="padding:4px 0">No history yet</div>'
       }</div>
+      </section>
 
-      <div class="hp-head">
-        Scan change history
-        <div class="hp-head-line"></div>
-      </div>
-      <div class="mb10">${scanHistoryRows}</div>`;
+      <section class="host-section" aria-label="Scan change history">
+        <h3 class="host-section-heading">Scan change history</h3>
+      <div class="mb10">${scanHistoryRows}</div>
+      </section>`;
     syncHostPanelExplainBusyUi();
+    queueMicrotask(() => {
+        const c = document.querySelector('#host-panel .host-modal-close');
+        if (c && typeof c.focus === 'function') c.focus();
+    });
 }
 
 function closeHostPanel() {
     const hpEl = document.getElementById('host-panel');
+    const hpBadges = document.getElementById('hp-header-badges');
+    stHostPanelDetachEsc();
     hpEl.style.display = 'none';
     document.getElementById('host-panel-bg').style.display = 'none';
     delete hpEl.dataset.hpAssetId;
+    if (hpBadges) hpBadges.innerHTML = '';
     syncHostPanelExplainBusyUi();
+    const ret = stHostPanelReturnFocusEl;
+    stHostPanelReturnFocusEl = null;
+    if (ret && typeof ret.focus === 'function') {
+        try {
+            ret.focus();
+        } catch (_e) {}
+    }
 }
 
 // ==========================================================================

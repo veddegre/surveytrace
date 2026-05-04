@@ -22,6 +22,7 @@ A self-hosted network asset discovery and inventory platform for general-purpose
 - [Roadmap](#roadmap)
 - [Connector development guide](docs/CONNECTOR_DEVELOPMENT_GUIDE.md)
 - [UI cleanup plan](docs/UI_CLEANUP_PLAN.md) (no implementation yet)
+- [Navigation / header redesign](docs/NAV_REDESIGN.md) (proposal; not implemented)
 - [License](#license)
 - [Author](#author)
 
@@ -1168,7 +1169,7 @@ For how **source connectors** (scan-time plugins vs API-backed cache like Zabbix
 ### Upcoming roadmap tracks
 
 - **Monitoring enrichment** — Zabbix as a monitoring **source** (JSON-RPC cache in SQLite, operator workflows, **scheduled pull** + freshness, optional **SurveyTrace → Zabbix** metrics **output**). Follow-on tuning, extra diagnostics, or additional monitoring-oriented sources belong here. *Does not subsume ownership or XDR-style device/CVE APIs.*
-- **UI cleanup and operator workflows** — Assets filters and enrichment UX, modals, navigation consistency, scan history UX (pagination/filters/deep links/CSV), bulk operations, fingerprint pattern editor, optional **`public/index.php`** modularization, replacing remaining native **`alert` / `confirm` / `prompt`** flows. **Structured plan (no implementation commitment):** [`docs/UI_CLEANUP_PLAN.md`](docs/UI_CLEANUP_PLAN.md).
+- **UI cleanup and operator workflows** — Assets filters and enrichment UX, modals, navigation consistency, scan history UX (pagination/filters/deep links/CSV), bulk operations, fingerprint pattern editor, optional **`public/index.php`** modularization, replacing remaining native **`alert` / `confirm` / `prompt`** flows. **Structured plan (no implementation commitment):** [`docs/UI_CLEANUP_PLAN.md`](docs/UI_CLEANUP_PLAN.md). **Navigation / header shell (proposal):** [`docs/NAV_REDESIGN.md`](docs/NAV_REDESIGN.md).
 - **Connector framework** — Shared conventions for future **read-oriented** API connectors (auth, paging, caps, health, workers, SQLite cache, RBAC). Zabbix is the live reference; see **[Connector development guide](docs/CONNECTOR_DEVELOPMENT_GUIDE.md)**.
 - **Ownership and endpoint enrichment** — **Deferred:** **TeamDynamix**-style ownership/business context and **Microsoft Defender**-style device / user / CVE evidence **are not implemented** and are **not** the next gated releases. **TeamDynamix** work is **deferred** until the vendor **Swagger/API transition** settles enough to build against a **stable contract**. **Microsoft Defender** integration is **deferred** until there is a **testable environment** or **representative data source** for development and validation. Design intent (only) lives under **[Planned: enrichment connectors](#planned-ownership-user-context-and-vulnerability-enrichment-connectors)** below.
 - **Infrastructure/API connectors** — First-class API-backed inventory/enrichment for **Proxmox**, **VMware**, **TrueNAS**, **Cisco DNA/Meraki**, **Juniper Mist**, **Infoblox**, **Palo Alto**, and similar (passive fingerprinting for some hypervisors already exists; this track is **API-backed** context). Vendor order within the track is not fixed.
