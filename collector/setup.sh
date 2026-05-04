@@ -44,6 +44,7 @@ if ! id "$APP_USER" &>/dev/null; then
 fi
 usermod -aG netdev "$APP_USER" 2>/dev/null || true
 
+# No master api/ tree on collectors (no Zabbix API workers); only daemon + sql + data.
 mkdir -p "$INSTALL_DIR/daemon" "$INSTALL_DIR/sql" "$INSTALL_DIR/data"
 printf '%s\n' collector > "$INSTALL_ROLE_FILE"
 cp "$SRC_DIR/daemon/scanner_daemon.py" "$INSTALL_DIR/daemon/"

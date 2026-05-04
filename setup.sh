@@ -327,9 +327,15 @@ chmod 770 "$DATA_DIR"
 chmod g+s "$DATA_DIR"
 [[ -f "$DB_FILE" ]] && chmod 660 "$DB_FILE" && chown "$APP_USER":"$WEB_GROUP" "$DB_FILE"
 
-# PHP can read/write db via www-data group
-chmod 750 "$INSTALL_DIR/api"
-chown -R root:"$WEB_GROUP" "$INSTALL_DIR/api"
+# api/: owned by surveytrace so scheduler (User=surveytrace) can read PHP CLI workers
+# (e.g. zabbix_sync_worker.php, zabbix_output_worker.php, reporting_cli.php). www-data
+# reads via group bit; dirs 2750 so new files under api/ inherit www-data group when
+# created by surveytrace. Not world-readable.
+chown -R "$APP_USER":"$WEB_GROUP" "$INSTALL_DIR/api"
+chmod 2750 "$INSTALL_DIR/api"
+find "$INSTALL_DIR/api" -type d -exec chmod 2750 {} \; 2>/dev/null || true
+find "$INSTALL_DIR/api" -type f -exec chmod 640 {} \; 2>/dev/null || true
+
 chmod 750 "$INSTALL_DIR/public"
 chown -R root:"$WEB_GROUP" "$INSTALL_DIR/public"
 

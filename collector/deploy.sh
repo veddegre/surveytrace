@@ -49,6 +49,8 @@ Expected: $DEST/venv, $DEST/daemon/collector_agent.py, /etc/surveytrace/collecto
 fi
 
 echo "Deploying SurveyTrace collector files..."
+# Collector nodes do not install master api/ (no zabbix_*_worker.php here); permissions
+# are surveytrace:surveytrace under $DEST/daemon and $DEST/sql only.
 sudo mkdir -p "$DEST/daemon" "$DEST/sql" "$DEST/daemon/sources"
 
 for f in sqlite_pragmas.py surveytrace_paths.py surveytrace_version.py scanner_daemon.py change_detection.py asset_lifecycle.py finding_triage.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do

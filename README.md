@@ -77,6 +77,8 @@ bash deploy.sh
 
 `deploy.sh` refuses to run if first-time **setup** does not appear to have completed (missing venv, API/DB paths on master, or collector agent/config on collectors). The error text points back to `setup.sh` / `collector/setup.sh`.
 
+On a **master**, `setup.sh` / `deploy.sh` set **`/opt/surveytrace/api`** to **`surveytrace:www-data`** (directories **`2750`**, files **`640`**) so **`surveytrace-scheduler`** can read PHP workers under **`api/`** (scheduled Zabbix pull/output, **`reporting_cli.php`**, etc.) while **PHP-FPM** (`www-data`) still reads the same tree via the group bit. **`data/`** permissions are unchanged (not world-readable). If the scheduler logs **`Zabbix scheduled sync: worker script missing`** even though **`sudo test -f`** as root succeeds, **`surveytrace`** often cannot traverse or read the file — re-run **`bash deploy.sh`** or repair with the commands in **[Updating / Deploying Changes](#updating--deploying-changes)** (scheduler + API permissions).
+
 **Overrides (rare):**
 
 | Variable | Purpose |
@@ -712,7 +714,7 @@ bash deploy.sh
 
 On a **master**, `deploy.sh` copies the tracked application files from the repo into `/opt/surveytrace` (not a blind `cp -r` of the whole tree). It includes, among others:
 
-- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, etc.
+- **`api/`** — all HTTP endpoints used by the UI, including `feeds.php`, **`feed_sync_lib.php`** (shared by `feeds.php` and `daemon/feed_sync_worker.php`), `scan_history.php`, **`devices.php`** (device list/detail + merge), **`ai_actions.php`** (self-contained on-demand operator AI: CVE triage, explain host, refresh scan summary), `settings.php`, **`zabbix_sync_worker.php`**, **`zabbix_output_worker.php`**, etc. After copy, **`deploy.sh`** resets ownership to **`surveytrace:www-data`** and modes (**`2750`** on directories, **`640`** on files) so **`surveytrace-scheduler`** and **PHP-FPM** can both read the tree.
 - **`daemon/`** — scanner, scheduler, fingerprint engine, enrichment `sources/`, **`asset_lifecycle.py`**, **`feed_sync_worker.php`** + **`feed_sync_cancel.py`** (UI cancel / cooperative stop), and the `sync_*.py` feed scripts
 - **`public/`** — `index.php` and `css/app.css`
 - **`sql/schema.sql`** — reference copy for new installs (existing DBs are migrated by the app on startup)
@@ -727,6 +729,16 @@ sudo journalctl -u surveytrace-collector-ingest -n 40 --no-pager
 ```
 
 **If logs show `sqlite3.OperationalError: unable to open database file`:** the worker resolves the DB via `SURVEYTRACE_INSTALL_DIR` (set in **`surveytrace-collector-ingest.service`**) and `data/surveytrace.db`, same as PHP’s `api/db.php`. Ensure **`/opt/surveytrace/data`** is directory **readable and writable** by user **`surveytrace`** (WAL needs write on the directory), and that **`surveytrace.db`** is owned **`surveytrace:www-data`** with mode **660** as applied by **`setup.sh` / `deploy.sh`**. After fixing permissions, restart: `sudo systemctl restart surveytrace-collector-ingest`.
+
+**If scheduled Zabbix pull never runs** and **`journalctl -u surveytrace-scheduler`** shows **`Zabbix scheduled sync: worker script missing`** (or Python **`PermissionError`** opening **`api/zabbix_sync_worker.php`**): the scheduler runs as **`surveytrace`**. Older installs used **`root:www-data`** on **`api/`** with mode **`750`**, which **excludes** the app user from the directory. **`setup.sh`** and **`deploy.sh`** now enforce **`chown -R surveytrace:www-data /opt/surveytrace/api`**, **`find … -type d -exec chmod 2750`**, **`find … -type f -exec chmod 640`**. Quick checks (should all succeed after deploy):
+
+```bash
+sudo -u surveytrace test -f /opt/surveytrace/api/zabbix_sync_worker.php
+sudo -u surveytrace test -r /opt/surveytrace/api/zabbix_sync_worker.php
+sudo -u surveytrace test -r /opt/surveytrace/api/zabbix_output_worker.php
+```
+
+Then **`sudo systemctl restart surveytrace-scheduler`**. **`surveytrace-scheduler.service`** only needs **read** access to **`api/`**; **`ReadWritePaths=/opt/surveytrace/data`** does not block reads elsewhere under **`/opt/surveytrace`**.
 
 **Executive AI summary (run-wide):** after all collector chunks are applied and master CVE/per-asset enrichment finishes, the worker **queues** run-wide Ollama/cloud summary work in SQLite table **`collector_ingest_exec_ai_queue`** and processes it on a **separate daemon thread** so slow or timing-out models **do not block** chunk ingest or mark ingest failed. `summary_json` gains **`master_executive_ai_followup`**: `queued` → `done` (or `abandoned_*` after max retries). Optional wall clock cap: **`SURVEYTRACE_EXEC_AI_WALL_SECONDS`** (default **120**, clamped 20–900).
 
@@ -804,6 +816,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Unreleased
 
+- **Ops — Master `api/` permissions** — **`setup.sh`** / **`deploy.sh`** set **`/opt/surveytrace/api`** to **`surveytrace:www-data`** with dirs **`2750`** and files **`640`** so **`surveytrace-scheduler`** can read **`zabbix_*_worker.php`** and other CLI workers; **`deploy.sh`** ships **`zabbix_output_worker.php`** and post-deploy checks assert **`surveytrace`** and **`www-data`** can read the Zabbix worker scripts.
 - **Phase 16.3 — Scheduled Zabbix pull** — Optional **`sync_schedule_enabled`** / **`sync_interval_minutes`** / **`next_sync_at`** on **`zabbix_connector`**; **`daemon/scheduler_daemon.py`** spawns **`api/zabbix_sync_worker.php`** when due; **`POST /api/zabbix.php`** **`save_sync_schedule`**; Integrations + Enrichment freshness (**`st_zabbix_freshness`**, interval-based **fresh** / **stale** / **outdated**); **`last_sync_started_at`** / **`last_sync_completed_at`**; manual **Sync now** uses **`scheduled_sync_lock`** to avoid overlapping pulls. Scheduled pull does **not** auto-apply scope or identity.
 - **Manual scan scopes** — **`assets.scope_id`** (after Phase 16.2 migration) can be set from the **Assets** tab (bulk **Set scope** / **Clear scope** with confirmation) and **Host detail** (**Change scope**), or managed from the **Scopes** tab (create / rename / delete catalog rows). **`GET /api/scopes.php`** lists scopes with per-scope **asset counts**, and (for scan editors+) **`job_counts`** / **`schedule_counts`** keyed by scope id so operators see how many **`scan_jobs`** / **`scan_schedules`** rows reference each catalog entry. **`GET /api/scopes.php?action=delete_impact&scope_id=N`** (scan editor+) returns the same reference counts before delete. **`POST /api/scopes.php`** supports **`action=create`**, **`rename`**, **`delete`** (delete clears **`assets`**, **`scan_jobs`**, and **`scan_schedules`** references, removes **`zabbix_scope_map_rules`** for that id, then drops the scope and cascades **`scan_scope_baselines`**). **`POST /api/assets.php?action=set_scope_bulk`** applies manual changes with **`confirm: true`** and skips rows already at the target scope (`unchanged` in the JSON). **Audit:** **`scope.created`**, **`scope.renamed`**, **`scope.deleted`** (with impact counts), **`scope.assets_assigned`**, **`scope.assets_cleared`**. **Zabbix** scope mapping and apply semantics are unchanged. Future rule-based assignment remains a separate path.
 - **Documentation** — README [Roadmap](#roadmap): clarified **Phase 16** (monitoring/ops / Zabbix), **Phase 17** (TeamDynamix + Microsoft Defender enrichment), **Phase 18** (connector completion, including infrastructure APIs), and **Phase 19** (data fusion). No implementation change.

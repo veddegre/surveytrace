@@ -164,6 +164,7 @@ API_FILES=(
   lib_zabbix.php
   zabbix.php
   zabbix_sync_worker.php
+  zabbix_output_worker.php
   scan_scopes.php
   scopes.php
   reporting.php
@@ -412,6 +413,14 @@ check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
 
+check_as_user "surveytrace" "test -f \"$DEST/api/zabbix_sync_worker.php\" && test -r \"$DEST/api/zabbix_sync_worker.php\"" \
+  "surveytrace read: api/zabbix_sync_worker.php"
+check_as_user "surveytrace" "test -f \"$DEST/api/zabbix_output_worker.php\" && test -r \"$DEST/api/zabbix_output_worker.php\"" \
+  "surveytrace read: api/zabbix_output_worker.php"
+check_as_user "www-data" "test -r \"$DEST/api/zabbix_sync_worker.php\"" \
+  "www-data read: api/zabbix_sync_worker.php"
+check_as_user "www-data" "test -r \"$DEST/api/zabbix_output_worker.php\"" \
+  "www-data read: api/zabbix_output_worker.php"
 check_as_user "www-data" "test -r \"$DEST/daemon/feed_sync_worker.php\"" \
   "www-data read: feed_sync_worker.php"
 check_as_user "www-data" "test -r \"$DEST/daemon/sync_nvd.py\"" \
