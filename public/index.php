@@ -1137,28 +1137,28 @@ if (is_readable($dbProbe)) {
         </div>
       </div>
       <div class="flbl">Match review</div>
-      <p class="hint-micro mb6">High-confidence links, near-threshold candidates, unmatched Zabbix hosts, and assets without a link. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+      <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
       <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-      <div id="zb-match-review-body" class="help-mono text-micro mb12" style="max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:8px">Open the tools panel, then click Refresh.</div>
+      <div id="zb-match-review-body" class="mb12" style="max-height:70vh;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:10px">Open the tools panel, then click Refresh.</div>
 
       <div class="flbl">Scope map rules</div>
       <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-      <div id="zb-cache-status" class="hint-micro mb6 text-dim" style="display:none" aria-live="polite"></div>
+      <div id="zb-cache-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
+      <details id="zb-cache-diagnostics" class="mb6 text-micro" style="display:none">
+        <summary style="cursor:pointer">Diagnostics</summary>
+        <div id="zb-cache-diagnostics-body" class="hint-micro mt4 mono-sm text-dim"></div>
+      </details>
       <div id="zb-rules-wrap" class="mb6"></div>
       <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
       <div class="row-wrap gap6 mb8">
         <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
         <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
       </div>
-      <div id="zb-preview" class="help-mono mb12" style="max-height:180px;overflow:auto">—</div>
+      <div id="zb-preview" class="mb12">—</div>
 
       <div id="zb-identity-block" class="mb14">
         <div class="flbl">Identity suggestions</div>
-        <p class="hint-micro mb6">
-          Copy the linked Zabbix <strong>visible</strong> or <strong>technical</strong> host name into SurveyTrace <strong>hostname</strong> when it is blank.
-          <strong>Preview → confirm → apply</strong> only; never automatic. Does not overwrite non-empty hostnames or <strong>hostname_locked</strong> assets.
-          This is separate from <strong>scope mapping</strong>, which only updates <code class="code-accent">scope_id</code>.
-        </p>
+        <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Separate from scope mapping.</p>
         <div class="row-wrap gap6 mb6">
           <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
         </div>
@@ -7921,21 +7921,27 @@ function stZabbixFmtCacheStatusMessage(st) {
 }
 
 function stZabbixApplyCacheStatusHint(z) {
-    const el = document.getElementById('zb-cache-status');
-    if (!el) {
+    const wEl = document.getElementById('zb-cache-warn');
+    const detWrap = document.getElementById('zb-cache-diagnostics');
+    const detBody = document.getElementById('zb-cache-diagnostics-body');
+    if (!wEl || !detWrap || !detBody) {
         return;
     }
+    wEl.style.display = 'none';
+    wEl.innerHTML = '';
+    detWrap.style.display = 'none';
+    detBody.textContent = '';
     if (!z || !z.ok || !z.zabbix_cache_status) {
-        el.style.display = 'none';
-        el.textContent = '';
         return;
     }
     const { warn, detail } = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
-    el.style.display = '';
     if (warn) {
-        el.innerHTML = '<span class="hstate-warn">' + esc(warn) + '</span><div class="text-micro mt4">' + esc(detail) + '</div>';
-    } else {
-        el.innerHTML = '<span>' + esc(detail) + '</span>';
+        wEl.style.display = '';
+        wEl.innerHTML = '<span class="hstate-warn">' + esc(warn) + '</span>';
+    }
+    if (detail) {
+        detBody.textContent = detail;
+        detWrap.style.display = '';
     }
 }
 
@@ -8063,10 +8069,11 @@ function stEnrichmentRefreshZabbixOverview(z) {
     if (z.zabbix_cache_status) {
         const fm = stZabbixFmtCacheStatusMessage(z.zabbix_cache_status);
         if (fm.warn) {
-            html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span>'
-                + '<div class="text-micro mt4">' + esc(fm.detail || '') + '</div></div>';
-        } else if (fm.detail) {
-            html += '<p class="hint-micro text-dim mb6">' + esc(fm.detail) + '</p>';
+            html += '<div class="help-box mb6"><span class="hstate-warn">' + esc(fm.warn) + '</span></div>';
+        }
+        if (fm.detail) {
+            html += '<details class="hint-micro mb6 text-dim"><summary style="cursor:pointer">Diagnostics</summary>'
+                + '<div class="text-micro mt4 mono-sm">' + esc(fm.detail) + '</div></details>';
         }
     }
 
@@ -8679,6 +8686,36 @@ async function stZabbixSync() {
     }
 }
 
+function stZabbixNormScopeId(v) {
+    if (v === null || v === undefined || v === '') {
+        return 0;
+    }
+    const n = parseInt(String(v), 10);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function stZabbixScopePreviewRowStatus(p) {
+    const sug = stZabbixNormScopeId(p.suggested_scope_id);
+    if (sug <= 0) {
+        return { key: 'blocked', label: 'Blocked / invalid' };
+    }
+    const cur = stZabbixNormScopeId(p.current_scope_id);
+    if (cur === sug) {
+        return { key: 'same', label: 'No change needed' };
+    }
+    return { key: 'change', label: 'Will change' };
+}
+
+function stZabbixMrShowAll(cls) {
+    document.querySelectorAll('.zb-mr-extra-' + cls).forEach((tr) => {
+        tr.style.display = '';
+    });
+    const b = document.getElementById('zb-mr-more-' + cls);
+    if (b) {
+        b.style.display = 'none';
+    }
+}
+
 async function stZabbixPreviewRules() {
     if (!stRoleIsAdmin()) return;
     const rules = stZabbixRulesFromDomForSave();
@@ -8691,16 +8728,89 @@ async function stZabbixPreviewRules() {
     }
     const prev = r.preview || [];
     if (!prev.length) {
-        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No matching assets for the current rules.') + '</span>';
+        el.innerHTML = '<p class="hint-micro mb2">No rows matched this preview.</p>'
+            + '<p class="text-dim text-micro mb0">Enable rules with valid patterns, or sync Zabbix so linked hosts have groups/tags that match.</p>';
         return;
     }
-    el.innerHTML = prev.map((p) => {
-        const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
-        const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
-        const curL = zbScopeLabel(cur);
-        const sugL = zbScopeLabel(sug);
-        return `<div>asset #${esc(String(p.asset_id))} ${esc(p.ip || '')} · <span class="text-dim">current</span> ${curL} → <span class="text-dim">suggested</span> ${sugL} (${esc(p.rule_type)}:${esc(p.pattern)}) <span class="text-dim">${esc(p.detail || '')}</span></div>`;
-    }).join('');
+    const annotated = prev.map((p) => {
+        const st = stZabbixScopePreviewRowStatus(p);
+        return { p, st };
+    });
+    const changeRows = annotated.filter((x) => x.st.key === 'change');
+    const sameRows = annotated.filter((x) => x.st.key === 'same');
+    const blockedRows = annotated.filter((x) => x.st.key === 'blocked');
+    let summary = '';
+    if (changeRows.length === 0 && blockedRows.length === 0 && sameRows.length > 0) {
+        summary = '<p class="hint-micro mb8">No changes needed. '
+            + esc(String(sameRows.length))
+            + ' linked asset' + (sameRows.length === 1 ? '' : 's') + ' already match this scope.</p>';
+    } else if (changeRows.length > 0) {
+        summary = '<p class="hint-micro mb8">'
+            + esc(String(changeRows.length))
+            + ' asset' + (changeRows.length === 1 ? '' : 's')
+            + ' can be updated. Use <strong>Build apply plan</strong> to apply saved <strong>enabled</strong> rules.</p>';
+    } else if (blockedRows.length > 0) {
+        summary = '<p class="hint-micro mb8">Preview: '
+            + esc(String(blockedRows.length)) + ' row' + (blockedRows.length === 1 ? '' : 's')
+            + ' need attention (blocked or invalid).</p>';
+    } else {
+        summary = '<p class="hint-micro mb8">Preview: '
+            + esc(String(prev.length)) + ' linked row' + (prev.length === 1 ? '' : 's') + '.</p>';
+    }
+    const lim = 25;
+    const renderSlice = (slice, cls) => {
+        if (!slice.length) {
+            return '';
+        }
+        const head = slice.slice(0, lim);
+        const tail = slice.slice(lim);
+        const body = head.map(({ p, st }) => {
+            const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
+            const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
+            const curL = zbScopeLabel(cur);
+            const sugL = zbScopeLabel(sug);
+            const rule = esc(String(p.rule_type || '')) + ':' + esc(String(p.pattern || ''));
+            const muted = st.key === 'same' ? ' class="text-dim"' : '';
+            return `<tr${muted}><td class="mono-sm">${esc(String(p.asset_id))}</td><td class="mono-sm">${esc(p.ip || '')}</td>`
+                + `<td>${curL}</td><td>${sugL}</td><td class="text-micro">${rule}</td>`
+                + `<td class="text-micro">${esc(st.label)}</td></tr>`;
+        }).join('');
+        const tailRows = tail.map(({ p, st }) => {
+            const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
+            const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
+            const curL = zbScopeLabel(cur);
+            const sugL = zbScopeLabel(sug);
+            const rule = esc(String(p.rule_type || '')) + ':' + esc(String(p.pattern || ''));
+            const muted = st.key === 'same' ? ' class="text-dim"' : '';
+            return `<tr class="zb-mr-extra zb-mr-extra-${cls}" style="display:none"${muted}><td class="mono-sm">${esc(String(p.asset_id))}</td><td class="mono-sm">${esc(p.ip || '')}</td>`
+                + `<td>${curL}</td><td>${sugL}</td><td class="text-micro">${rule}</td>`
+                + `<td class="text-micro">${esc(st.label)}</td></tr>`;
+        }).join('');
+        const more = tail.length
+            ? `<button type="button" class="tbtn btn-xs mt6" id="zb-mr-more-${cls}" onclick="stZabbixMrShowAll('${cls}')">Show all ${slice.length}</button>`
+            : '';
+        return `<div class="tbl-wrap mb6"><table class="tbl"><thead><tr>`
+            + '<th>Asset</th><th>IP</th><th>Current scope</th><th>Suggested scope</th><th>Rule</th><th>Status</th>'
+            + `</tr></thead><tbody>${body}${tailRows}</tbody></table></div>${more}`;
+    };
+    let main = '';
+    let sameBlock = '';
+    if (changeRows.length > 0 || blockedRows.length > 0) {
+        main = renderSlice(changeRows.concat(blockedRows), 'scope-prev-main');
+        if (sameRows.length) {
+            sameBlock = '<details class="mb8"><summary style="cursor:pointer" class="text-strong">Already in target scope ('
+                + esc(String(sameRows.length)) + ')</summary>'
+                + '<p class="hint-micro text-dim mt4 mb6">No write needed for these rows.</p>'
+                + renderSlice(sameRows, 'scope-prev-same')
+                + '</details>';
+        }
+    } else if (sameRows.length > 0) {
+        sameBlock = '<details class="mb8"><summary style="cursor:pointer" class="text-strong">Already in target scope ('
+            + esc(String(sameRows.length)) + ')</summary>'
+            + renderSlice(sameRows, 'scope-prev-same')
+            + '</details>';
+    }
+    el.innerHTML = summary + main + sameBlock;
 }
 
 async function stZabbixSaveRules() {
@@ -8859,17 +8969,22 @@ async function stZabbixLoadApplyPlan() {
     const plan = r.plan || [];
     __stZabbixScopePlan = plan;
     if (!plan.length) {
-        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No plan rows.') + '</span>';
+        el.innerHTML = '<p class="hint-micro mb2">' + esc(r.note || 'No scope updates needed.') + '</p>'
+            + '<p class="text-dim text-micro mb0">No saved enabled rules produced changes, or no linked assets matched those rules.</p>';
         return;
     }
-    const rows = plan.map((p, i) => {
+    const planLim = 25;
+    const rowOne = (p, i, hide) => {
         const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : null;
         const sug = parseInt(String(p.suggested_scope_id || '0'), 10);
         const chg = (cur || 0) !== (sug || 0);
         const checked = chg ? ' checked' : '';
         const dis = chg ? '' : ' disabled';
-        const status = chg ? '' : '<span class="text-dim">no change</span>';
-        return `<tr>
+        const status = chg
+            ? '<span class="text-micro">Will change</span>'
+            : '<span class="text-dim text-micro">No change needed</span>';
+        const hid = hide ? ' class="zb-mr-extra zb-mr-extra-plan" style="display:none"' : '';
+        return `<tr${hid}>
           <td><input type="checkbox" class="zb-plan-chk" data-i="${i}" data-eligible="${chg ? '1' : '0'}"${checked}${dis} onchange="stZabbixScopePlanUpdateCount()"></td>
           <td class="mono-sm">${esc(String(p.asset_id))}</td>
           <td class="mono-sm">${esc(p.ip || '')}</td>
@@ -8878,8 +8993,32 @@ async function stZabbixLoadApplyPlan() {
           <td class="text-micro">${esc(p.rule_type || '')}:${esc(p.pattern || '')}</td>
           <td class="text-micro">${status}</td>
         </tr>`;
-    }).join('');
-    el.innerHTML = `<div class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap">
+    };
+    const rows = plan.map((p, i) => rowOne(p, i, i >= planLim)).join('');
+    const morePlan = plan.length > planLim
+        ? `<button type="button" class="tbtn btn-xs mt6" id="zb-mr-more-plan" onclick="stZabbixMrShowAll('plan')">Show all ${plan.length}</button>`
+        : '';
+    let eligibleN = 0;
+    let noChg = 0;
+    plan.forEach((p) => {
+        const cur = p.current_scope_id != null && p.current_scope_id !== '' ? parseInt(String(p.current_scope_id), 10) : 0;
+        const sug = parseInt(String(p.suggested_scope_id || '0'), 10) || 0;
+        if ((cur || 0) !== (sug || 0)) {
+            eligibleN++;
+        } else {
+            noChg++;
+        }
+    });
+    let sumP = '';
+    if (eligibleN === 0) {
+        sumP = '<p class="hint-micro mb6">No scope updates needed — every row is already at the suggested scope.</p>';
+    } else {
+        sumP = '<p class="hint-micro mb6">' + esc(String(eligibleN)) + ' row(s) can be applied'
+            + (noChg > 0 ? ' · ' + esc(String(noChg)) + ' already at target (disabled)' : '')
+            + '.</p>';
+    }
+    el.innerHTML = sumP
+        + `<div class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap">
       <button type="button" class="tbtn btn-xs" onclick="stZabbixScopePlanSelectAll(true)">Select all</button>
       <button type="button" class="tbtn btn-xs" onclick="stZabbixScopePlanSelectAll(false)">Clear all</button>
       <span class="hint-micro" id="zb-plan-select-count">0 of 0 selected</span>
@@ -8887,8 +9026,8 @@ async function stZabbixLoadApplyPlan() {
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th style="width:36px"><input type="checkbox" id="zb-plan-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixScopePlanHeaderClick(event)"></th>
       <th>Asset</th><th>IP</th><th>Current scope</th><th>New scope</th><th>Rule</th><th>Status</th>
-    </tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint-micro mt4">${plan.length} row(s) — only checked, eligible rows are sent on apply. Rows already at the target scope are disabled.</p>`;
+    </tr></thead><tbody>${rows}</tbody></table></div>${morePlan}
+    <p class="hint-micro mt4">Only checked, eligible rows are sent on apply.</p>`;
     stZabbixScopePlanRestoreSelection(prevKeys, plan);
     stZabbixScopePlanUpdateCount();
 }
@@ -9021,10 +9160,12 @@ async function stZabbixLoadIdentityPlan() {
     const plan = r.plan || [];
     __stZabbixIdentityPlan = plan;
     if (!plan.length) {
-        el.innerHTML = '<span class="text-dim">' + esc(r.note || 'No identity plan rows.') + '</span>';
+        el.innerHTML = '<p class="hint-micro mb2">' + esc(r.note || 'No identity suggestions right now.') + '</p>'
+            + '<p class="text-dim text-micro mb0">Linked assets already have hostnames, have locked hostnames, or Zabbix has no usable name.</p>';
         return;
     }
-    const rows = plan.map((p, i) => {
+    const idLim = 25;
+    const rowId = (p, i, hide) => {
         const curH = p.current_hostname != null ? String(p.current_hostname) : '';
         const sug = p.suggested_hostname != null ? String(p.suggested_hostname) : '';
         const zdn = p.zabbix_display_name != null ? String(p.zabbix_display_name) : '';
@@ -9032,7 +9173,8 @@ async function stZabbixLoadIdentityPlan() {
         const eligible = sug.trim() !== '';
         const dis = eligible ? '' : ' disabled';
         const checked = eligible ? ' checked' : '';
-        return `<tr>
+        const hid = hide ? ' class="zb-mr-extra zb-mr-extra-idplan" style="display:none"' : '';
+        return `<tr${hid}>
           <td><input type="checkbox" class="zb-id-chk" data-i="${i}" data-eligible="${eligible ? '1' : '0'}"${checked}${dis} onchange="stZabbixIdentityPlanUpdateCount()"></td>
           <td class="mono-sm">${esc(String(p.asset_id))}</td>
           <td class="mono-sm">${esc(p.ip || '')}</td>
@@ -9042,7 +9184,11 @@ async function stZabbixLoadIdentityPlan() {
           <td class="mono-sm">${esc(conf)}</td>
           <td class="mono-sm">${esc(sug)}</td>
         </tr>`;
-    }).join('');
+    };
+    const rows = plan.map((p, i) => rowId(p, i, i >= idLim)).join('');
+    const moreId = plan.length > idLim
+        ? `<button type="button" class="tbtn btn-xs mt6" id="zb-mr-more-idplan" onclick="stZabbixMrShowAll('idplan')">Show all ${plan.length}</button>`
+        : '';
     el.innerHTML = `<div class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap">
       <button type="button" class="tbtn btn-xs" onclick="stZabbixIdentityPlanSelectAll(true)">Select all</button>
       <button type="button" class="tbtn btn-xs" onclick="stZabbixIdentityPlanSelectAll(false)">Clear all</button>
@@ -9051,8 +9197,8 @@ async function stZabbixLoadIdentityPlan() {
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
       <th style="width:36px"><input type="checkbox" id="zb-id-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixIdentityPlanHeaderClick(event)"></th>
       <th>Asset</th><th>IP</th><th>Current hostname</th><th>Zabbix host</th><th>Match</th><th>Conf.</th><th>Suggested hostname</th>
-    </tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint-micro mt4">${plan.length} row(s) — only checked, eligible rows are sent on apply.</p>`;
+    </tr></thead><tbody>${rows}</tbody></table></div>${moreId}
+    <p class="hint-micro mt4">Only checked, eligible rows are sent on apply.</p>`;
     stZabbixIdentityPlanRestoreSelection(prevKeys, plan);
     stZabbixIdentityPlanUpdateCount();
 }
@@ -9096,12 +9242,66 @@ async function stZabbixApplyIdentitySelection() {
     }
 }
 
-function stZabbixMatchReviewTable(title, rows, cols) {
-    if (!rows || !rows.length) return `<div class="mb8"><strong>${esc(title)}</strong> <span class="text-dim">(none)</span></div>`;
-    const hdr = cols.map((c) => `<th class="text-micro">${esc(c.label)}</th>`).join('');
-    const body = rows.map((row) => '<tr>' + cols.map((c) => `<td class="mono-sm">${esc(String(row[c.key] != null ? row[c.key] : ''))}</td>`).join('') + '</tr>').join('');
-    return `<div class="mb10"><strong>${esc(title)}</strong> (${rows.length})</div>
-      <div class="tbl-wrap mb8"><table class="tbl"><thead><tr>${hdr}</tr></thead><tbody>${body}</tbody></table></div>`;
+function stZabbixFormatConfidenceCell(v) {
+    if (v === null || v === undefined || v === '') {
+        return '—';
+    }
+    const n = Number(v);
+    if (!Number.isFinite(n)) {
+        return esc(String(v));
+    }
+    return esc(n.toFixed(2));
+}
+
+function stZabbixFormatManualCell(v) {
+    if (v === true || v === 1 || v === '1') {
+        return 'Yes';
+    }
+    if (v === false || v === 0 || v === '0') {
+        return 'No';
+    }
+    const n = parseInt(String(v ?? ''), 10);
+    if (n === 1) {
+        return 'Yes';
+    }
+    if (n === 0) {
+        return 'No';
+    }
+    return '—';
+}
+
+function stZabbixMrCell(row, col) {
+    if (!row || !col) {
+        return '';
+    }
+    if (col.fmt === 'conf') {
+        return stZabbixFormatConfidenceCell(row.confidence);
+    }
+    if (col.fmt === 'yesno') {
+        return stZabbixFormatManualCell(row.is_manual);
+    }
+    const raw = row[col.key] != null ? row[col.key] : '';
+    return esc(String(raw));
+}
+
+/** @param {string} kind safe id fragment for Show all / extra row classes */
+function stZabbixMatchLinkedTableHtml(title, rows, cols, kind) {
+    if (!rows || !rows.length) {
+        return title
+            ? '<div class="mb6"><span class="text-dim">' + esc(title) + ' — none</span></div>'
+            : '<p class="text-dim text-micro mb0">None</p>';
+    }
+    const lim = 25;
+    const hdr = cols.map((c) => `<th>${esc(c.label)}</th>`).join('');
+    const bodyV = rows.slice(0, lim).map((row) => '<tr>'
+        + cols.map((c) => `<td class="mono-sm">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
+    const bodyH = rows.slice(lim).map((row) => '<tr class="zb-mr-extra zb-mr-extra-' + kind + '" style="display:none">'
+        + cols.map((c) => `<td class="mono-sm">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
+    const more = rows.length > lim
+        ? `<button type="button" class="tbtn btn-xs mt6" id="zb-mr-more-${kind}" onclick="stZabbixMrShowAll('${kind}')">Show all ${rows.length}</button>`
+        : '';
+    const ttl = title ? `<div class="text-strong mb4">${esc(title)} <span class="text-dim">(${rows.length})</span></div>` : '';
+    return '<div class="mb10">' + ttl + `<div class="tbl-wrap"><table class="tbl"><thead><tr>${hdr}</tr></thead><tbody>${bodyV}${bodyH}</tbody></table></div>${more}</div>`;
 }
 
 async function stZabbixMatchReviewRefresh() {
@@ -9119,28 +9319,64 @@ async function stZabbixMatchReviewRefresh() {
     const near = mr.near_threshold || [];
     const uh = mr.unmatched_zabbix_hosts || [];
     const ua = mr.unmatched_assets || [];
-    let h = '';
-    h += stZabbixMatchReviewTable('High confidence (≥ 0.9)', hi, [
-        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' },
-        { key: 'zabbix_display_name', label: 'Zabbix host' }, { key: 'hostname', label: 'Asset host' },
-        { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
-        { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
-    ]);
-    h += stZabbixMatchReviewTable('Near threshold (confidence 0.75–0.9)', near, [
-        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' },
-        { key: 'zabbix_display_name', label: 'Zabbix host' }, { key: 'hostname', label: 'Asset host' },
-        { key: 'zabbix_hostid', label: 'Zbx hostid' }, { key: 'match_method', label: 'Method' },
-        { key: 'confidence', label: 'Conf.' }, { key: 'is_manual', label: 'Man?' },
-    ]);
-    h += stZabbixMatchReviewTable('Unmatched Zabbix hosts', uh, [
-        { key: 'hostid', label: 'hostid' }, { key: 'zabbix_display_name', label: 'Display' },
-        { key: 'visible_name', label: 'Visible' }, { key: 'tech_name', label: 'Technical' },
-        { key: 'monitored', label: 'Mon.' }, { key: 'available', label: 'Avail' },
-    ]);
-    h += stZabbixMatchReviewTable('Assets without Zabbix link', ua, [
-        { key: 'asset_id', label: 'Asset' }, { key: 'ip', label: 'IP' }, { key: 'hostname', label: 'Host' },
-    ]);
-    el.innerHTML = h;
+    const MR_LINK_COLS = [
+        { key: 'asset_id', label: 'Asset ID' },
+        { key: 'ip', label: 'IP' },
+        { key: 'hostname', label: 'Asset host' },
+        { key: 'zabbix_display_name', label: 'Zabbix host' },
+        { key: 'zabbix_hostid', label: 'Zabbix hostid' },
+        { key: 'match_method', label: 'Method' },
+        { key: 'confidence', label: 'Confidence', fmt: 'conf' },
+        { key: 'is_manual', label: 'Manual?', fmt: 'yesno' },
+    ];
+    const MR_UH_COLS = [
+        { key: 'hostid', label: 'Zabbix hostid' },
+        { key: 'zabbix_display_name', label: 'Display' },
+        { key: 'visible_name', label: 'Visible name' },
+        { key: 'tech_name', label: 'Technical name' },
+        { key: 'monitored', label: 'Monitored' },
+        { key: 'available', label: 'Availability' },
+    ];
+    const MR_UA_COLS = [
+        { key: 'asset_id', label: 'Asset ID' },
+        { key: 'ip', label: 'IP' },
+        { key: 'hostname', label: 'Asset host' },
+    ];
+    const nHi = hi.length;
+    const nNear = near.length;
+    const nUh = uh.length;
+    const nUa = ua.length;
+    const cardParts = [
+        ['High confidence links', nHi],
+        ['Near threshold candidates', nNear],
+        ['Unmatched Zabbix hosts', nUh],
+        ['Assets without Zabbix link', nUa],
+    ].map(([t, n]) => '<div class="card" style="padding:10px 14px;min-width:152px">'
+        + `<div class="text-micro text-dim">${esc(t)}</div><div class="text-strong mono-sm">${esc(String(n))}</div></div>`).join('');
+    const summaryCards = '<div class="row-wrap gap8 mb10" style="flex-wrap:wrap">' + cardParts + '</div>';
+    const hiBlock = stZabbixMatchLinkedTableHtml('High confidence (≥ 0.9)', hi, MR_LINK_COLS, 'mr-hi');
+    const nearBlock = stZabbixMatchLinkedTableHtml('Near threshold (0.75–0.9)', near, MR_LINK_COLS, 'mr-near');
+    let uhBlock = '';
+    if (nUh === 0) {
+        uhBlock = '<p class="text-micro text-dim mb8">Unmatched Zabbix hosts: none</p>';
+    } else {
+        uhBlock = '<details class="mb10"><summary class="text-strong" style="cursor:pointer">Unmatched Zabbix hosts ('
+            + esc(String(nUh)) + ')</summary><div class="mt6">'
+            + stZabbixMatchLinkedTableHtml('', uh, MR_UH_COLS, 'mr-uh')
+            + '</div></details>';
+    }
+    let uaBlock = '';
+    if (nUa === 0) {
+        uaBlock = '<p class="text-micro text-dim mb8">Assets without Zabbix link: none</p>';
+    } else {
+        const uaOpen = nUa <= 20 ? ' open' : '';
+        uaBlock = '<details class="mb8"' + uaOpen + '><summary class="text-strong" style="cursor:pointer">Assets without Zabbix link ('
+            + esc(String(nUa)) + ')</summary>'
+            + '<p class="hint-micro text-dim mb6">Usually expected unless every asset is monitored by Zabbix.</p><div class="mt6">'
+            + stZabbixMatchLinkedTableHtml('', ua, MR_UA_COLS, 'mr-ua')
+            + '</div></details>';
+    }
+    el.innerHTML = summaryCards + hiBlock + nearBlock + uhBlock + uaBlock;
 }
 
 async function stZabbixManualLink() {
