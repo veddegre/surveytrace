@@ -35,7 +35,7 @@ except ImportError:
 from pathlib import Path
 
 from sqlite_pragmas import apply_surveytrace_pragmas
-from surveytrace_paths import main_db_path
+from surveytrace_paths import install_root, main_db_path
 
 log = logging.getLogger("scheduler")
 logging.basicConfig(
@@ -215,9 +215,16 @@ def _ensure_zabbix_connector_scheduler_columns(conn: sqlite3.Connection) -> None
 
 def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> None:
     """Spawn api/zabbix_sync_worker.php when scheduled Zabbix pull is enabled and next_sync_at is due."""
-    root = Path(__file__).resolve().parent.parent
+    _ = now  # due check uses SQLite datetime('now') to match stored TEXT timestamps
+    root = install_root()
     worker = root / "api" / "zabbix_sync_worker.php"
+    worker_path = str(worker)
     if not worker.is_file():
+        log.info(
+            "Zabbix scheduled sync: worker script missing, skip (install_root=%s worker=%s)",
+            str(root),
+            worker_path,
+        )
         return
     try:
         _ensure_zabbix_connector_scheduler_columns(conn)
@@ -234,8 +241,75 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     except Exception as e:
         log.warning("Zabbix scheduled sync: schema check failed: %s", e)
         return
+
     lock_stale_mod = "-2700 seconds"
     php_bin = (os.environ.get("SURVEYTRACE_PHP_BIN") or os.environ.get("SURVEYTRACE_PHP_CLI") or "php").strip() or "php"
+
+    row = None
+    try:
+        row = conn.execute(
+            f"""
+            SELECT enabled, api_url, api_token, sync_schedule_enabled, next_sync_at,
+                   COALESCE(scheduled_sync_lock, 0) AS scheduled_sync_lock,
+                   scheduled_sync_lock_at,
+                   (next_sync_at IS NULL OR TRIM(COALESCE(next_sync_at, '')) = ''
+                    OR next_sync_at <= datetime('now')) AS sync_due,
+                   (COALESCE(scheduled_sync_lock, 0) = 0 OR scheduled_sync_lock_at IS NULL
+                    OR datetime(scheduled_sync_lock_at) < datetime('now', ?)) AS lock_ok
+            FROM {ZABBIX_CONNECTOR_TABLE}
+            WHERE id = 1
+            """,
+            (lock_stale_mod,),
+        ).fetchone()
+    except Exception as e:
+        log.warning("Zabbix scheduled sync: could not read connector row: %s", e)
+        return
+
+    if row is None:
+        log.info("Zabbix scheduled sync: no connector row id=1, skip")
+        return
+
+    enabled = int(row["enabled"] or 0)
+    api_url = (row["api_url"] or "").strip()
+    api_token = (row["api_token"] or "").strip()
+    sync_schedule_enabled = int(row["sync_schedule_enabled"] or 0)
+    next_sync_at = row["next_sync_at"]
+    sync_due = int(row["sync_due"] or 0)
+    lock_ok = int(row["lock_ok"] or 0)
+    lock_val = int(row["scheduled_sync_lock"] or 0)
+    lock_at = row["scheduled_sync_lock_at"]
+
+    if enabled != 1:
+        log.info("Zabbix scheduled sync: connector disabled (enabled=%s), skip", enabled)
+        return
+    if not api_url:
+        log.info("Zabbix scheduled sync: api_url empty, skip")
+        return
+    if not api_token:
+        log.info("Zabbix scheduled sync: api_token not configured, skip")
+        return
+    if sync_schedule_enabled != 1:
+        log.info("Zabbix scheduled sync: sync_schedule_enabled off (%s), skip", sync_schedule_enabled)
+        return
+    if not sync_due:
+        log.info(
+            "Zabbix scheduled sync: next_sync_at not due (next_sync_at=%r), skip",
+            next_sync_at,
+        )
+        return
+    if not lock_ok:
+        log.info(
+            "Zabbix scheduled sync: lock already active (scheduled_sync_lock=%s scheduled_sync_lock_at=%r), skip",
+            lock_val,
+            lock_at,
+        )
+        return
+
+    log.info(
+        "Zabbix scheduled sync: due (next_sync_at=%r), acquiring lock",
+        next_sync_at,
+    )
+
     try:
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
@@ -246,11 +320,15 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
                   AND (COALESCE(scheduled_sync_lock,0)=0 OR scheduled_sync_lock_at IS NULL
                        OR datetime(scheduled_sync_lock_at) < datetime('now', ?))
                   AND (next_sync_at IS NULL OR TRIM(COALESCE(next_sync_at,''))=''
-                       OR datetime(next_sync_at) <= datetime('now'))""",
+                       OR next_sync_at <= datetime('now'))""",
             (lock_stale_mod,),
         ).rowcount
         if cur != 1:
             conn.rollback()
+            log.info(
+                "Zabbix scheduled sync: lock UPDATE matched %s rows (racy skip or row changed), skip",
+                cur,
+            )
             return
         conn.commit()
     except Exception as e:
@@ -260,17 +338,31 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
             pass
         log.warning("Zabbix scheduled sync: lock/update failed: %s", e)
         return
+
+    log.info("Zabbix scheduled sync: lock acquired (id=1)")
     try:
-        subprocess.Popen(
-            [php_bin, str(worker)],
+        proc = subprocess.Popen(
+            [php_bin, worker_path],
             cwd=str(root),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        log.info("Zabbix scheduled sync: spawned worker")
+        log.info(
+            "Zabbix scheduled sync: worker spawned pid=%s php=%s worker=%s cwd=%s",
+            proc.pid,
+            php_bin,
+            worker_path,
+            str(root),
+        )
     except Exception as e:
-        log.error("Zabbix scheduled sync: spawn failed: %s", e)
+        log.error(
+            "Zabbix scheduled sync: spawn failed: %s (php=%s worker=%s cwd=%s)",
+            e,
+            php_bin,
+            worker_path,
+            str(root),
+        )
         try:
             c2 = db_conn()
             try:
@@ -287,7 +379,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
 
 def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> None:
     """Spawn api/zabbix_output_worker.php when output is enabled and due."""
-    root = Path(__file__).resolve().parent.parent
+    root = install_root()
     worker = root / "api" / "zabbix_output_worker.php"
     if not worker.is_file():
         return
