@@ -183,12 +183,26 @@ def _ensure_zabbix_connector_scheduler_columns(conn: sqlite3.Connection) -> None
             conn.execute(
                 "ALTER TABLE zabbix_connector ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051"
             )
+        if "sync_schedule_enabled" not in cols:
+            conn.execute(
+                "ALTER TABLE zabbix_connector ADD COLUMN sync_schedule_enabled INTEGER NOT NULL DEFAULT 0"
+            )
+        if "sync_interval_minutes" not in cols:
+            conn.execute(
+                "ALTER TABLE zabbix_connector ADD COLUMN sync_interval_minutes INTEGER NOT NULL DEFAULT 60"
+            )
+        if "next_sync_at" not in cols:
+            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN next_sync_at TEXT")
+        if "last_sync_started_at" not in cols:
+            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN last_sync_started_at TEXT")
+        if "last_sync_completed_at" not in cols:
+            conn.execute("ALTER TABLE zabbix_connector ADD COLUMN last_sync_completed_at TEXT")
     except sqlite3.OperationalError as e:
         log.warning("zabbix_connector scheduler columns: %s", e)
 
 
 def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> None:
-    """Spawn api/zabbix_sync_worker.php when connector is enabled, configured, and cache is due."""
+    """Spawn api/zabbix_sync_worker.php when scheduled Zabbix pull is enabled and next_sync_at is due."""
     root = Path(__file__).resolve().parent.parent
     worker = root / "api" / "zabbix_sync_worker.php"
     if not worker.is_file():
@@ -203,12 +217,6 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     except Exception as e:
         log.warning("Zabbix scheduled sync: schema check failed: %s", e)
         return
-    try:
-        interval = int(_cfg_get(conn, "zabbix_auto_sync_interval_secs", "900") or "900")
-    except Exception:
-        interval = 900
-    interval = max(300, min(86400, interval))
-    sync_age_mod = f"-{interval} seconds"
     lock_stale_mod = "-2700 seconds"
     php_bin = (os.environ.get("SURVEYTRACE_PHP_BIN") or os.environ.get("SURVEYTRACE_PHP_CLI") or "php").strip() or "php"
     try:
@@ -216,12 +224,13 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
         cur = conn.execute(
             """UPDATE zabbix_connector SET scheduled_sync_lock=1, scheduled_sync_lock_at=datetime('now')
                 WHERE id=1 AND enabled=1
+                  AND COALESCE(sync_schedule_enabled,0)=1
                   AND TRIM(COALESCE(api_url,''))!='' AND TRIM(COALESCE(api_token,''))!=''
                   AND (COALESCE(scheduled_sync_lock,0)=0 OR scheduled_sync_lock_at IS NULL
                        OR datetime(scheduled_sync_lock_at) < datetime('now', ?))
-                  AND (last_sync_at IS NULL OR TRIM(COALESCE(last_sync_at,''))=''
-                       OR datetime(last_sync_at) <= datetime('now', ?))""",
-            (lock_stale_mod, sync_age_mod),
+                  AND (next_sync_at IS NULL OR TRIM(COALESCE(next_sync_at,''))=''
+                       OR datetime(next_sync_at) <= datetime('now'))""",
+            (lock_stale_mod,),
         ).rowcount
         if cur != 1:
             conn.rollback()
@@ -230,6 +239,31 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     except Exception as e:
         try:
             conn.rollback()
+        except Exception:
+            pass
+        log.warning("Zabbix scheduled sync: lock/update failed: %s", e)
+        return
+    try:
+        subprocess.Popen(
+            [php_bin, str(worker)],
+            cwd=str(root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        log.info("Zabbix scheduled sync: spawned worker")
+    except Exception as e:
+        log.error("Zabbix scheduled sync: spawn failed: %s", e)
+        try:
+            c2 = db_conn()
+            try:
+                c2.execute(
+                    "UPDATE zabbix_connector SET scheduled_sync_lock=0, scheduled_sync_lock_at=NULL "
+                    "WHERE id=1"
+                )
+                c2.commit()
+            finally:
+                c2.close()
         except Exception:
             pass
 

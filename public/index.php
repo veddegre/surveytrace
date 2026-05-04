@@ -1509,6 +1509,19 @@ if (!headers_sent()) {
         <button type="button" class="btnp" onclick="stZabbixSync()">Sync now</button>
         <button type="button" class="tbtn" onclick="stZabbixSendTestMetrics()">Send test metrics</button>
       </div>
+      <p id="zb-schedule-gate" class="hint-micro mb8" style="display:none"></p>
+      <div id="zb-schedule-section" class="mb10" style="display:none">
+        <div class="hint-micro mb6"><strong>Scheduled Zabbix pull</strong> — refreshes cached Zabbix tables and rematch only. Does not apply scope or identity.</div>
+        <label class="text-micro" style="display:block;margin-bottom:6px"><input type="checkbox" id="zb-sync-sched-enabled"> Enable scheduled Zabbix sync</label>
+        <div class="row-wrap gap6 mb6 flex-wrap" style="align-items:flex-end">
+          <div style="flex:1;min-width:140px">
+            <label class="flbl" for="zb-sync-interval-min">Interval (minutes)</label>
+            <input class="finp w100" id="zb-sync-interval-min" type="number" min="5" max="1440" step="1" value="60">
+          </div>
+          <button type="button" class="tbtn" onclick="stZabbixSaveSyncSchedule()">Save sync schedule</button>
+        </div>
+        <div id="zb-schedule-status" class="hint-micro text-dim">—</div>
+      </div>
       <div id="zb-status" class="help-mono mb8">—</div>
       <div id="zb-stats" class="hint-micro mb8">—</div>
       <div id="zb-output-status" class="hint-micro mb8">—</div>
@@ -8212,6 +8225,7 @@ function stZabbixFreshnessBadgeClass(zs) {
     if (st === 'fresh') return 'badge-mini badge-zbx-fresh';
     if (st === 'stale') return 'badge-mini badge-zbx-stale';
     if (st === 'outdated') return 'badge-mini badge-zbx-outdated';
+    if (st === 'disabled' || st === 'not_configured') return 'badge-mini badge-zbx-never';
     return 'badge-mini badge-zbx-never';
 }
 
@@ -8221,7 +8235,20 @@ function stZabbixFreshnessBadgeLabel(zs) {
     if (st === 'fresh') return 'Fresh';
     if (st === 'stale') return 'Stale';
     if (st === 'outdated') return 'Outdated';
+    if (st === 'disabled') return 'Disabled';
+    if (st === 'not_configured') return 'Not configured';
     return 'Never synced';
+}
+
+/** @param {number|null|undefined} sec */
+function stZabbixFormatAgeSeconds(sec) {
+    if (sec == null || !Number.isFinite(Number(sec))) return '—';
+    const s = Number(sec);
+    if (s < 75) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 120) return String(m) + ' minute' + (m === 1 ? '' : 's') + ' ago';
+    const h = Math.floor(m / 60);
+    return String(h) + ' hour' + (h === 1 ? '' : 's') + ' ago';
 }
 
 /** @param {object} zs */
@@ -8264,7 +8291,7 @@ function stZabbixApplyEnrichmentFreshnessBanner(zs) {
     let hint = '';
     const st = String(zs.freshness_state || '');
     if (st === 'stale' || st === 'outdated') {
-        hint = '<p class="hint-micro text-dim mb0 mt6">Data may be stale. Run sync to refresh.</p>';
+        hint = '<p class="hint-micro text-dim mb0 mt6">Zabbix data may be stale. Run sync to refresh.</p>';
     }
     el.innerHTML = '<div class="row-wrap gap8" style="align-items:center;flex-wrap:wrap">' + badge + line + '</div>' + hint;
     el.style.display = '';
@@ -8400,7 +8427,12 @@ function stEnrichmentRefreshZabbixOverview(resp) {
 
     const badge = '<span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
     const line = stZabbixLastSyncLineHtml(zs);
+    let schedHint = '';
+    if (stRoleIsAdmin() && zs.sync_schedule_enabled && zs.next_sync_at) {
+        schedHint = '<p class="hint-micro text-dim mb6">Next scheduled pull: <span class="mono-sm">' + esc(String(zs.next_sync_at)) + '</span></p>';
+    }
     let html = '<div class="row-wrap gap8 mb8" style="align-items:center;flex-wrap:wrap">' + badge + line + '</div>'
+        + schedHint
         + '<p class="hint-micro text-dim mb8" style="margin-bottom:10px">Sync updates cached monitoring data. No automatic changes are applied.</p>';
     if (stRoleIsAdmin() && resp.connector) {
         const c0 = resp.connector || {};
@@ -8935,8 +8967,15 @@ function stZabbixApplyIntegrationPanel(z) {
     const nameEl = document.getElementById('zb-name');
     if (!nameEl) return;
     const stEl = document.getElementById('zb-status');
+    const gateEl = document.getElementById('zb-schedule-gate');
+    const secEl = document.getElementById('zb-schedule-section');
     if (!z || !z.ok) {
         if (stEl) stEl.textContent = (z && z.error) ? z.error : 'Zabbix API unavailable (migrations or role).';
+        if (gateEl) {
+            gateEl.style.display = 'none';
+            gateEl.textContent = '';
+        }
+        if (secEl) secEl.style.display = 'none';
         return;
     }
     const c = z.connector || {};
@@ -8985,6 +9024,37 @@ function stZabbixApplyIntegrationPanel(z) {
             + ' · result: ' + esc(String(c.last_output_push_status || '—'))
             + ' · sent: ' + esc(String(c.last_output_push_count != null ? c.last_output_push_count : 0))
             + pushErr;
+    }
+    const configured = String(c.api_url || '').trim() !== '' && !!c.api_token_set;
+    if (gateEl && secEl) {
+        if (!configured) {
+            gateEl.style.display = '';
+            gateEl.textContent = 'Zabbix enrichment is not configured. Configure API URL and token first.';
+            secEl.style.display = 'none';
+        } else {
+            secEl.style.display = '';
+            gateEl.style.display = c.enabled ? 'none' : '';
+            gateEl.textContent = c.enabled ? '' : 'Zabbix enrichment is disabled. Enable the connector above for sync or schedule to run.';
+        }
+    }
+    const schedEnEl = document.getElementById('zb-sync-sched-enabled');
+    const schedIntEl = document.getElementById('zb-sync-interval-min');
+    const schedStatEl = document.getElementById('zb-schedule-status');
+    if (configured && schedEnEl && schedIntEl && schedStatEl) {
+        const sch = z.schedule || {};
+        const fr = z.freshness || {};
+        schedEnEl.checked = !!sch.sync_schedule_enabled;
+        const iv = sch.sync_interval_minutes != null ? parseInt(String(sch.sync_interval_minutes), 10) : 60;
+        schedIntEl.value = String(Number.isFinite(iv) ? Math.min(1440, Math.max(5, iv)) : 60);
+        const zsFr = { last_sync: fr.last_sync_at, freshness_seconds: fr.last_sync_age_seconds, freshness_state: fr.freshness_state };
+        const badgeSched = '<span class="' + stZabbixFreshnessBadgeClass(zsFr) + '">' + esc(stZabbixFreshnessBadgeLabel(zsFr)) + '</span>';
+        const stLine = fr.last_sync_status != null ? String(fr.last_sync_status) : String(c.last_sync_status || '—');
+        schedStatEl.innerHTML = 'Last pull: <span class="mono-sm">' + esc(String(fr.last_sync_at || '—')) + '</span>'
+            + ' · age: ' + esc(stZabbixFormatAgeSeconds(fr.last_sync_age_seconds))
+            + ' · next: <span class="mono-sm">' + esc(String(sch.next_sync_at || '—')) + '</span>'
+            + ' · ' + badgeSched
+            + ' · status: ' + esc(stLine)
+            + (fr.last_error ? (' · error: ' + esc(String(fr.last_error))) : '');
     }
 }
 
@@ -9102,6 +9172,28 @@ async function stZabbixSendTestMetrics() {
         }
         toast(msg, 'err');
         await loadZabbixIntegrationOnly();
+    }
+}
+
+async function stZabbixSaveSyncSchedule() {
+    if (!stRoleIsAdmin()) return;
+    const body = {
+        action: 'save_sync_schedule',
+        sync_schedule_enabled: !!(document.getElementById('zb-sync-sched-enabled') || {}).checked,
+        sync_interval_minutes: (function () {
+            const el = document.getElementById('zb-sync-interval-min');
+            const raw = el && el.value != null ? String(el.value).trim() : '60';
+            const n = parseInt(raw, 10);
+            return Number.isFinite(n) ? n : 60;
+        })(),
+    };
+    const r = await apiPost('/api/zabbix.php', body);
+    if (r && r.ok) {
+        toast('Sync schedule saved', 'ok');
+        await loadZabbixIntegrationOnly();
+        await loadZabbixEnrichmentPanel();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
     }
 }
 
@@ -15135,7 +15227,7 @@ function renderHostPanelZabbixBlock(a) {
         + stZabbixLastSyncLineHtml(f)
         + ' <span class="' + stZabbixFreshnessBadgeClass(f) + '">' + esc(stZabbixFreshnessBadgeLabel(f)) + '</span></td></tr>';
     const zbxOutdatedNote = fr === 'outdated'
-        ? '<p class="hp-zbx-freshness-warn" style="margin-bottom:0">Zabbix cache is outdated — details below may not match the server.</p>'
+        ? '<p class="hp-zbx-freshness-warn" style="margin-bottom:0">Zabbix data may be outdated.</p>'
         : '';
     return `
       <div class="hp-head">

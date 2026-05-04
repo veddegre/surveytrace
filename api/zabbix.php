@@ -31,8 +31,16 @@ if ($method === 'GET') {
                     'enabled' => false,
                     'last_sync' => null,
                     'last_sync_status' => null,
+                    'last_error' => null,
                     'freshness_state' => 'never_synced',
                     'freshness_seconds' => null,
+                    'last_sync_age_seconds' => null,
+                    'is_stale' => false,
+                    'next_sync_at' => null,
+                    'sync_schedule_enabled' => false,
+                    'sync_interval_minutes' => 60,
+                    'last_sync_started_at' => null,
+                    'last_sync_completed_at' => null,
                     'hosts_cached' => 0,
                 ],
             ]);
@@ -45,10 +53,13 @@ if ($method === 'GET') {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
     $row = st_zabbix_connector_get($db);
+    st_zabbix_ensure_schema($db);
+    $pub = st_zabbix_connector_public($row);
+    $fr = st_zabbix_freshness($db);
     $scopes = st_zabbix_scan_scopes_table_exists($db) ? st_scan_scopes_list($db) : [];
     $out = [
         'ok' => true,
-        'connector' => st_zabbix_connector_public($row),
+        'connector' => $pub,
         'stats' => st_zabbix_stats($db),
         'sample_matches' => st_zabbix_sample_matches($db, 8),
         'scope_rules' => st_zabbix_scope_rules_all($db),
@@ -61,6 +72,12 @@ if ($method === 'GET') {
             'asset_identity_apply' => st_zabbix_table_ready($db),
         ],
         'zabbix_status' => st_zabbix_enrichment_status_for_ui($db),
+        'schedule' => [
+            'sync_schedule_enabled' => (bool) ($pub['sync_schedule_enabled'] ?? false),
+            'sync_interval_minutes' => (int) ($pub['sync_interval_minutes'] ?? 60),
+            'next_sync_at' => $pub['next_sync_at'] ?? null,
+        ],
+        'freshness' => $fr,
     ];
     if (isset($_GET['match_review']) && (string) $_GET['match_review'] === '1') {
         $out['match_review'] = st_zabbix_match_review($db);
@@ -118,6 +135,7 @@ if ($action === 'sync_now') {
     if (! st_zabbix_table_ready($db)) {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
+    st_zabbix_ensure_schema($db);
     $c = st_zabbix_connector_get($db);
     if ((int) ($c['enabled'] ?? 0) !== 1) {
         st_json(['ok' => false, 'error' => 'Enable the connector before syncing'], 400);
@@ -130,6 +148,9 @@ if ($action === 'sync_now') {
         $enc = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($enc === false) {
             st_json(['ok' => false, 'error' => 'json_encode failed'], 500);
+        }
+        if (! st_zabbix_acquire_scheduled_sync_lock($db)) {
+            st_json(['ok' => false, 'error' => 'Another Zabbix sync is already running. Try again shortly.'], 409);
         }
         if (! headers_sent()) {
             http_response_code(200);
@@ -147,18 +168,59 @@ if ($action === 'sync_now') {
         } catch (Throwable $e) {
             $em = st_zabbix_redact_secrets(preg_replace('/[\x00-\x1F\x7F]/u', ' ', $e->getMessage()) ?? '');
             @error_log('SurveyTrace zabbix sync: ' . $em);
+        } finally {
+            try {
+                st_zabbix_clear_scheduled_sync_lock(st_db());
+            } catch (Throwable $e3) {
+            }
         }
         exit(0);
     }
 
+    if (! st_zabbix_acquire_scheduled_sync_lock($db)) {
+        st_json(['ok' => false, 'error' => 'Another Zabbix sync is already running. Try again shortly.'], 409);
+    }
     if (st_zabbix_spawn_worker()) {
         st_json(['ok' => true, 'async' => true, 'started' => true, 'mode' => 'cli_worker']);
     }
 
+    try {
+        st_zabbix_clear_scheduled_sync_lock($db);
+    } catch (Throwable $e4) {
+    }
     st_json([
         'ok' => false,
         'error' => 'Could not start background sync (exec disabled or worker missing). Use PHP-FPM, set SURVEYTRACE_PHP_CLI to a CLI binary, or run: php api/zabbix_sync_worker.php',
     ], 503);
+}
+
+if ($action === 'save_sync_schedule') {
+    if (! st_zabbix_table_ready($db)) {
+        st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
+    }
+    st_zabbix_ensure_schema($db);
+    if (! st_zabbix_connector_fully_configured($db)) {
+        st_json(['ok' => false, 'error' => 'Configure API URL and token before enabling a schedule.'], 400);
+    }
+    $mins = (int) ($body['sync_interval_minutes'] ?? 60);
+    if ($mins < 5 || $mins > 1440) {
+        st_json(['ok' => false, 'error' => 'sync_interval_minutes must be between 5 and 1440.'], 400);
+    }
+    st_zabbix_save_sync_schedule($db, [
+        'sync_schedule_enabled' => filter_var($body['sync_schedule_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        'sync_interval_minutes' => $mins,
+    ]);
+    $row = st_zabbix_connector_get($db);
+    st_json([
+        'ok' => true,
+        'connector' => st_zabbix_connector_public($row),
+        'schedule' => [
+            'sync_schedule_enabled' => (int) ($row['sync_schedule_enabled'] ?? 0) === 1,
+            'sync_interval_minutes' => st_zabbix_normalize_sync_interval_minutes((int) ($row['sync_interval_minutes'] ?? 60)),
+            'next_sync_at' => $row['next_sync_at'] ?? null,
+        ],
+        'freshness' => st_zabbix_freshness($db),
+    ]);
 }
 
 if ($action === 'send_output_test') {

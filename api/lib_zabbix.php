@@ -17,12 +17,6 @@ const ST_ZABBIX_SYNC_PROBLEM_LIMIT = 4000;
 /** HTTP timeout for each Zabbix JSON-RPC call (seconds). */
 const ST_ZABBIX_HTTP_TIMEOUT_SEC = 12;
 
-/** Cache age below this is "fresh" for UI + scheduler cadence (seconds). */
-const ST_ZABBIX_FRESHNESS_FRESH_SEC = 900;
-
-/** "Stale" from fresh up to this age (seconds); older is "outdated". */
-const ST_ZABBIX_FRESHNESS_STALE_MAX_SEC = 3600;
-
 /**
  * Trim and collapse Unicode whitespace for scope-map pattern / Zabbix label comparison.
  */
@@ -451,6 +445,21 @@ function st_zabbix_ensure_schema(PDO $pdo): void
             if (! in_array('output_sender_port', $zcCols, true)) {
                 $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN output_sender_port INTEGER NOT NULL DEFAULT 10051');
             }
+            if (! in_array('sync_schedule_enabled', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN sync_schedule_enabled INTEGER NOT NULL DEFAULT 0');
+            }
+            if (! in_array('sync_interval_minutes', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN sync_interval_minutes INTEGER NOT NULL DEFAULT 60');
+            }
+            if (! in_array('next_sync_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN next_sync_at TEXT');
+            }
+            if (! in_array('last_sync_started_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_sync_started_at TEXT');
+            }
+            if (! in_array('last_sync_completed_at', $zcCols, true)) {
+                $pdo->exec('ALTER TABLE zabbix_connector ADD COLUMN last_sync_completed_at TEXT');
+            }
         }
     } catch (Throwable) {
         // ignore if PRAGMA unsupported in edge contexts
@@ -533,6 +542,11 @@ function st_zabbix_connector_get(PDO $pdo): array
             'last_sync_at' => null,
             'last_sync_status' => null,
             'last_error' => null,
+            'sync_schedule_enabled' => 0,
+            'sync_interval_minutes' => 60,
+            'next_sync_at' => null,
+            'last_sync_started_at' => null,
+            'last_sync_completed_at' => null,
             'updated_at' => null,
         ];
     }
@@ -577,6 +591,11 @@ function st_zabbix_connector_public(array $row): array
         'last_sync_at' => $row['last_sync_at'] ?? null,
         'last_sync_status' => $row['last_sync_status'] ?? null,
         'last_error' => $lastErr,
+        'sync_schedule_enabled' => (int) ($row['sync_schedule_enabled'] ?? 0) === 1,
+        'sync_interval_minutes' => (int) ($row['sync_interval_minutes'] ?? 60),
+        'next_sync_at' => $row['next_sync_at'] ?? null,
+        'last_sync_started_at' => $row['last_sync_started_at'] ?? null,
+        'last_sync_completed_at' => $row['last_sync_completed_at'] ?? null,
         'updated_at' => $row['updated_at'] ?? null,
     ];
 }
@@ -988,6 +1007,10 @@ function st_zabbix_run_full_sync(PDO $pdo): array
     if ((int) ($c['enabled'] ?? 0) !== 1) {
         throw new RuntimeException('Zabbix connector is disabled');
     }
+    try {
+        $pdo->prepare('UPDATE zabbix_connector SET last_sync_started_at = datetime(\'now\') WHERE id = 1')->execute();
+    } catch (Throwable) {
+    }
     $apiUrl = st_zabbix_normalize_api_url($url);
     try {
         $hosts = st_zabbix_jsonrpc($apiUrl, $tok, 'host.get', [
@@ -1167,9 +1190,11 @@ function st_zabbix_run_full_sync(PDO $pdo): array
         st_zabbix_refresh_asset_zabbix_denorm_all($pdo);
 
         $upd = $pdo->prepare(
-            'UPDATE zabbix_connector SET last_sync_at = datetime(\'now\'), last_sync_status = ?, last_error = ?, updated_at = datetime(\'now\') WHERE id = 1'
+            'UPDATE zabbix_connector SET last_sync_at = datetime(\'now\'), last_sync_completed_at = datetime(\'now\'), '
+            . 'last_sync_status = ?, last_error = ?, updated_at = datetime(\'now\') WHERE id = 1'
         );
         $upd->execute(['ok', null]);
+        st_zabbix_recompute_next_sync_after_pull($pdo);
 
         return [
             'hosts_synced' => count($hosts),
@@ -1179,8 +1204,10 @@ function st_zabbix_run_full_sync(PDO $pdo): array
         try {
             $safeErr = st_zabbix_redact_secrets(substr($e->getMessage(), 0, 2000));
             $pdo->prepare(
-                'UPDATE zabbix_connector SET last_sync_at = datetime(\'now\'), last_sync_status = ?, last_error = ?, updated_at = datetime(\'now\') WHERE id = 1'
+                'UPDATE zabbix_connector SET last_sync_at = datetime(\'now\'), last_sync_completed_at = datetime(\'now\'), '
+                . 'last_sync_status = ?, last_error = ?, updated_at = datetime(\'now\') WHERE id = 1'
             )->execute(['error', $safeErr]);
+            st_zabbix_recompute_next_sync_after_pull($pdo);
         } catch (Throwable $e2) {
         }
         throw $e;
@@ -1941,18 +1968,211 @@ function st_zabbix_connector_fully_configured(PDO $pdo): bool
     }
 }
 
+function st_zabbix_normalize_sync_interval_minutes(int $m): int
+{
+    if ($m < 5) {
+        return 5;
+    }
+    if ($m > 1440) {
+        return 1440;
+    }
+
+    return $m;
+}
+
+/**
+ * SQLite datetime('now', ?) modifier, e.g. "+60 minutes".
+ */
+function st_zabbix_compute_next_sync_at_sqlite_offset(int $intervalMinutes): string
+{
+    $intervalMinutes = st_zabbix_normalize_sync_interval_minutes($intervalMinutes);
+
+    return '+' . (string) $intervalMinutes . ' minutes';
+}
+
+/**
+ * Advance next_sync_at after a pull completes (scheduled or manual), when schedule is enabled.
+ */
+function st_zabbix_recompute_next_sync_after_pull(PDO $pdo): void
+{
+    try {
+        $c = st_zabbix_connector_get($pdo);
+        if ((int) ($c['sync_schedule_enabled'] ?? 0) !== 1) {
+            return;
+        }
+        $mins = st_zabbix_normalize_sync_interval_minutes((int) ($c['sync_interval_minutes'] ?? 60));
+        $mod = st_zabbix_compute_next_sync_at_sqlite_offset($mins);
+        $pdo->prepare('UPDATE zabbix_connector SET next_sync_at = datetime(\'now\', ?) WHERE id = 1')->execute([$mod]);
+    } catch (Throwable) {
+    }
+}
+
+/**
+ * Freshness for Zabbix pull cache (interval-based). Redacts last_error.
+ *
+ * @return array{
+ *   last_sync_at: ?string,
+ *   last_sync_age_seconds: ?int,
+ *   sync_interval_minutes: int,
+ *   next_sync_at: mixed,
+ *   freshness_state: string,
+ *   is_stale: bool,
+ *   last_sync_started_at: mixed,
+ *   last_sync_completed_at: mixed,
+ *   last_sync_status: mixed,
+ *   last_error: ?string
+ * }
+ */
+function st_zabbix_freshness(PDO $pdo): array
+{
+    $interval = 60;
+    $base = [
+        'last_sync_at' => null,
+        'last_sync_age_seconds' => null,
+        'sync_interval_minutes' => $interval,
+        'next_sync_at' => null,
+        'freshness_state' => 'not_configured',
+        'is_stale' => false,
+        'last_sync_started_at' => null,
+        'last_sync_completed_at' => null,
+        'last_sync_status' => null,
+        'last_error' => null,
+    ];
+    if (! st_zabbix_table_ready($pdo)) {
+        return $base;
+    }
+    $c = st_zabbix_connector_get($pdo);
+    $interval = st_zabbix_normalize_sync_interval_minutes((int) ($c['sync_interval_minutes'] ?? 60));
+    $base['sync_interval_minutes'] = $interval;
+    $base['next_sync_at'] = $c['next_sync_at'] ?? null;
+    $base['last_sync_started_at'] = $c['last_sync_started_at'] ?? null;
+    $base['last_sync_completed_at'] = $c['last_sync_completed_at'] ?? null;
+    $base['last_sync_status'] = $c['last_sync_status'] ?? null;
+    $le = $c['last_error'] ?? null;
+    $base['last_error'] = is_string($le) && $le !== '' ? st_zabbix_redact_secrets($le) : null;
+    if (! st_zabbix_connector_fully_configured($pdo)) {
+        $base['freshness_state'] = 'not_configured';
+
+        return $base;
+    }
+    if ((int) ($c['enabled'] ?? 0) !== 1) {
+        $base['freshness_state'] = 'disabled';
+
+        return $base;
+    }
+    $ls = $c['last_sync_at'] ?? null;
+    $lsTrim = is_string($ls) ? trim($ls) : '';
+    $base['last_sync_at'] = $lsTrim === '' ? null : $lsTrim;
+    if ($lsTrim === '') {
+        $base['freshness_state'] = 'never_synced';
+
+        return $base;
+    }
+    $ts = strtotime($lsTrim);
+    if ($ts === false) {
+        $base['freshness_state'] = 'never_synced';
+
+        return $base;
+    }
+    $age = max(0, time() - $ts);
+    $base['last_sync_age_seconds'] = $age;
+    $win = $interval * 60;
+    if ($age <= $win) {
+        $base['freshness_state'] = 'fresh';
+    } elseif ($age <= 2 * $win) {
+        $base['freshness_state'] = 'stale';
+        $base['is_stale'] = true;
+    } else {
+        $base['freshness_state'] = 'outdated';
+        $base['is_stale'] = true;
+    }
+
+    return $base;
+}
+
+function st_zabbix_sync_schedule_enabled_configured(PDO $pdo): bool
+{
+    if (! st_zabbix_connector_fully_configured($pdo)) {
+        return false;
+    }
+    $c = st_zabbix_connector_get($pdo);
+
+    return (int) ($c['enabled'] ?? 0) === 1 && (int) ($c['sync_schedule_enabled'] ?? 0) === 1;
+}
+
+function st_zabbix_sync_due(PDO $pdo): bool
+{
+    if (! st_zabbix_sync_schedule_enabled_configured($pdo)) {
+        return false;
+    }
+    $c = st_zabbix_connector_get($pdo);
+    $next = trim((string) ($c['next_sync_at'] ?? ''));
+    if ($next === '') {
+        return true;
+    }
+    try {
+        $st = $pdo->prepare('SELECT 1 AS d WHERE datetime(?) <= datetime(\'now\') LIMIT 1');
+        $st->execute([$next]);
+
+        return (bool) $st->fetchColumn();
+    } catch (Throwable) {
+        return true;
+    }
+}
+
+/**
+ * Acquire pull-sync mutex (scheduled or manual). Separate from scheduled_output_lock.
+ */
+function st_zabbix_acquire_scheduled_sync_lock(PDO $pdo, int $lockStaleSeconds = 2700): bool
+{
+    if (! st_zabbix_table_ready($pdo)) {
+        return false;
+    }
+    try {
+        $cols = $pdo->query('PRAGMA table_info(zabbix_connector)')->fetchAll(PDO::FETCH_COLUMN, 1);
+        if (! is_array($cols) || ! in_array('scheduled_sync_lock', $cols, true)) {
+            return false;
+        }
+        $lockStaleSeconds = max(60, min(86400, $lockStaleSeconds));
+        $rel = '-' . (string) $lockStaleSeconds . ' seconds';
+        $st = $pdo->prepare(
+            'UPDATE zabbix_connector SET scheduled_sync_lock = 1, scheduled_sync_lock_at = datetime(\'now\') '
+            . 'WHERE id = 1 AND (COALESCE(scheduled_sync_lock, 0) = 0 OR scheduled_sync_lock_at IS NULL '
+            . 'OR datetime(scheduled_sync_lock_at) < datetime(\'now\', ?))'
+        );
+        $st->execute([$rel]);
+
+        return $st->rowCount() === 1;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+/**
+ * @param array<string,mixed> $in
+ */
+function st_zabbix_save_sync_schedule(PDO $pdo, array $in): void
+{
+    st_zabbix_ensure_schema($pdo);
+    $enabled = filter_var($in['sync_schedule_enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $m = st_zabbix_normalize_sync_interval_minutes((int) ($in['sync_interval_minutes'] ?? 60));
+    if ($enabled) {
+        $pdo->prepare(
+            'UPDATE zabbix_connector SET sync_schedule_enabled = 1, sync_interval_minutes = ?, '
+            . 'next_sync_at = datetime(\'now\'), updated_at = datetime(\'now\') WHERE id = 1'
+        )->execute([$m]);
+    } else {
+        $pdo->prepare(
+            'UPDATE zabbix_connector SET sync_schedule_enabled = 0, sync_interval_minutes = ?, '
+            . 'next_sync_at = NULL, updated_at = datetime(\'now\') WHERE id = 1'
+        )->execute([$m]);
+    }
+}
+
 /**
  * Read-only enrichment / freshness for UI and lightweight GET ?status=1 (no secrets).
  *
- * @return array{
- *   tables_ready: bool,
- *   configured: bool,
- *   enabled: bool,
- *   last_sync: ?string,
- *   last_sync_status: mixed,
- *   freshness_state: 'never_synced'|'fresh'|'stale'|'outdated',
- *   freshness_seconds: ?int
- * }
+ * @return array<string,mixed>
  */
 function st_zabbix_enrichment_status_for_ui(PDO $pdo): array
 {
@@ -1962,11 +2182,21 @@ function st_zabbix_enrichment_status_for_ui(PDO $pdo): array
         'enabled' => false,
         'last_sync' => null,
         'last_sync_status' => null,
+        'last_error' => null,
         'freshness_state' => 'never_synced',
         'freshness_seconds' => null,
         'hosts_cached' => 0,
+        'last_sync_age_seconds' => null,
+        'is_stale' => false,
+        'next_sync_at' => null,
+        'sync_schedule_enabled' => false,
+        'sync_interval_minutes' => 60,
+        'last_sync_started_at' => null,
+        'last_sync_completed_at' => null,
     ];
     if (! $out['tables_ready']) {
+        $out['freshness_state'] = 'not_configured';
+
         return $out;
     }
     try {
@@ -1977,30 +2207,20 @@ function st_zabbix_enrichment_status_for_ui(PDO $pdo): array
     $c = st_zabbix_connector_get($pdo);
     $out['enabled'] = ((int) ($c['enabled'] ?? 0)) === 1;
     $out['configured'] = st_zabbix_connector_fully_configured($pdo);
-    $ls = $c['last_sync_at'] ?? null;
-    $lsTrim = is_string($ls) ? trim($ls) : '';
-    $out['last_sync_status'] = $c['last_sync_status'] ?? null;
-    if ($lsTrim === '') {
-        $out['freshness_state'] = 'never_synced';
-
-        return $out;
-    }
-    $out['last_sync'] = $lsTrim;
-    $ts = strtotime($lsTrim);
-    if ($ts === false) {
-        $out['freshness_state'] = 'never_synced';
-
-        return $out;
-    }
-    $sec = max(0, time() - $ts);
-    $out['freshness_seconds'] = $sec;
-    if ($sec < ST_ZABBIX_FRESHNESS_FRESH_SEC) {
-        $out['freshness_state'] = 'fresh';
-    } elseif ($sec < ST_ZABBIX_FRESHNESS_STALE_MAX_SEC) {
-        $out['freshness_state'] = 'stale';
-    } else {
-        $out['freshness_state'] = 'outdated';
-    }
+    $out['sync_schedule_enabled'] = ((int) ($c['sync_schedule_enabled'] ?? 0)) === 1;
+    $out['sync_interval_minutes'] = st_zabbix_normalize_sync_interval_minutes((int) ($c['sync_interval_minutes'] ?? 60));
+    $out['next_sync_at'] = $c['next_sync_at'] ?? null;
+    $out['last_sync_started_at'] = $c['last_sync_started_at'] ?? null;
+    $out['last_sync_completed_at'] = $c['last_sync_completed_at'] ?? null;
+    $fr = st_zabbix_freshness($pdo);
+    $out['freshness_state'] = (string) ($fr['freshness_state'] ?? 'never_synced');
+    $out['is_stale'] = (bool) ($fr['is_stale'] ?? false);
+    $out['last_sync'] = $fr['last_sync_at'] ?? null;
+    $out['last_sync_status'] = $fr['last_sync_status'] ?? null;
+    $out['last_error'] = $fr['last_error'] ?? null;
+    $age = $fr['last_sync_age_seconds'] ?? null;
+    $out['freshness_seconds'] = is_int($age) || (is_numeric($age) && (int) $age >= 0) ? (int) $age : null;
+    $out['last_sync_age_seconds'] = $out['freshness_seconds'];
 
     return $out;
 }
