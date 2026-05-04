@@ -21,6 +21,8 @@
  *   scope_id   — optional inventory scope filter (requires assets.scope_id + scan_scopes): omit = all, 0 = unscoped only, N = assets with scope_id = N (invalid/deleted N ignored)
  *   ai_review  — "1" = actionable scan-AI / identity review only: stored suggested category differs from current row, or scan AI recorded a non-benign reason after an attempt, or identity_confidence under 0.75. Ignores operator host-summary cache.
  *   ai_summary — "1" = assets with a saved OK operator host summary (ai_host_explain_cache.status=ok). Informational filter; omit if column missing.
+ *
+ * List JSON also includes ai_needs_review_filter_available and ai_host_summary_filter_available for UI (hide AI filters toolbar when both false).
  *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings|zabbix_problem_count|scope_name (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
@@ -894,6 +896,7 @@ st_json([
     'unscoped_asset_count' => (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes'))
         ? $unscoped_asset_count
         : null,
+    'ai_needs_review_filter_available' => st_assets_has_ai_needs_review_columns($db),
     'ai_host_summary_filter_available' => st_assets_has_ai_host_explain_cache($db),
 ]);
 

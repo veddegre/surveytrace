@@ -189,6 +189,26 @@ function st_assets_has_scope_id(PDO $db): bool
     return $cache;
 }
 
+/** True when assets has columns used by GET ai_review=1 (scan AI + identity). */
+function st_assets_has_ai_needs_review_columns(PDO $db): bool
+{
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    try {
+        $ti = $db->query('PRAGMA table_info(assets)');
+        $cols = array_column($ti ? $ti->fetchAll(PDO::FETCH_ASSOC) : [], 'name');
+        $cache = in_array('ai_last_suggested_category', $cols, true)
+            || in_array('ai_last_attempted', $cols, true)
+            || in_array('identity_confidence', $cols, true);
+    } catch (Throwable $e) {
+        $cache = false;
+    }
+
+    return $cache;
+}
+
 /** True when assets has operator AI host-summary cache column (Phase 16+ migrations). */
 function st_assets_has_ai_host_explain_cache(PDO $db): bool
 {

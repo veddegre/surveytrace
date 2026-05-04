@@ -265,10 +265,7 @@ if (is_readable($dbProbe)) {
       <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
       <option value="scope_name">Sort: Scope</option>
     </select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not include operator &quot;host summary&quot; text (see AI filters).">
-      <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
-      Needs AI review
-    </label>
+    <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" style="display:none" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()" title="Scan-time AI review and optional host summary list filters">AI filters</button>
     <span class="row-wrap gap4" style="display:inline-flex;align-items:center;flex-wrap:wrap">
       <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
       <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
@@ -276,14 +273,14 @@ if (is_readable($dbProbe)) {
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI filters, and Zabbix filters">Clear filters</button>
     <span id="af-filter-active-note" class="text-micro text-dim" style="display:none;flex-basis:100%" aria-live="polite"></span>
   </div>
-  <div id="af-ai-filters-section" class="mb8" style="display:none">
-    <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
-      <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()">AI filters</button>
-    </div>
+  <div id="af-ai-filters-wrap" class="mb8" style="display:none">
     <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
       <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
-        <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
-          <input type="checkbox" id="af-ai-summary" onchange="loadAssets(1)"> Has host summary
+        <label id="af-ai-review-wrap" class="text-micro" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
+          <input type="checkbox" id="af-ai-review" onchange="stAssetsOnAiFilterCheckboxChange()"> Needs AI review
+        </label>
+        <label id="af-ai-summary-wrap" class="text-micro" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
+          <input type="checkbox" id="af-ai-summary" onchange="stAssetsOnAiFilterCheckboxChange()"> Has host summary
         </label>
       </div>
     </div>
@@ -2455,8 +2452,11 @@ var assetOrder   = 'asc';
 var assetDeviceFilter = 0;
 /** Set from GET /api/assets.php zabbix_filters_available after each list load. */
 window.__stAssetsZabbixFiltersAvailable = false;
-/** Set from GET /api/assets.php ai_host_summary_filter_available after each list load. */
+/** Set from GET /api/assets.php after each list load. */
+window.__stAiNeedsReviewFilterAvailable = false;
 window.__stAiSummaryFilterAvailable = false;
+/** True when at least one AI list filter should be offered. */
+window.__stAiFiltersToolbarAvailable = false;
 var devicePage   = 1;
 var vulnPage     = 1;
 var activeJobId  = null;
@@ -4030,26 +4030,61 @@ function stAssetsZbxDisclosureToggle() {
     } catch (_e) {}
 }
 
+function stAssetsAnyAiFilterActive() {
+    const need = !!window.__stAiNeedsReviewFilterAvailable && !!document.getElementById('af-ai-review')?.checked;
+    const sum = !!window.__stAiSummaryFilterAvailable && !!document.getElementById('af-ai-summary')?.checked;
+    return need || sum;
+}
+
+function stAssetsAiFilterActiveCount() {
+    let n = 0;
+    if (window.__stAiNeedsReviewFilterAvailable && document.getElementById('af-ai-review')?.checked) {
+        n += 1;
+    }
+    if (window.__stAiSummaryFilterAvailable && document.getElementById('af-ai-summary')?.checked) {
+        n += 1;
+    }
+    return n;
+}
+
+function stAssetsUpdateAiFiltersButtonLabel() {
+    const btn = document.getElementById('af-ai-filters-disclosure-btn');
+    if (!btn || !window.__stAiFiltersToolbarAvailable) {
+        return;
+    }
+    const n = stAssetsAiFilterActiveCount();
+    btn.textContent = n ? ('AI filters (' + String(n) + ' active)') : 'AI filters';
+}
+
+function stAssetsOnAiFilterCheckboxChange() {
+    stAssetsSyncAiFiltersDisclosureState();
+    stAssetsUpdateAiFiltersButtonLabel();
+    void loadAssets(1);
+}
+
 function stAssetsSyncAiFiltersDisclosureState() {
     const panel = document.getElementById('af-ai-filters-panel');
     const btn = document.getElementById('af-ai-filters-disclosure-btn');
-    if (!panel || !btn || !window.__stAiSummaryFilterAvailable) {
+    if (!panel || !btn || !window.__stAiFiltersToolbarAvailable) {
         return;
     }
-    let open = false;
-    try {
-        open = localStorage.getItem('st_assets_ai_filters_open') === '1';
-    } catch (_e) {
-        open = false;
+    let open = stAssetsAnyAiFilterActive();
+    if (!open) {
+        try {
+            open = localStorage.getItem('st_assets_ai_filters_open') === '1';
+        } catch (_e) {
+            open = false;
+        }
     }
     panel.classList.toggle('hide', !open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    stAssetsUpdateAiFiltersButtonLabel();
 }
 
 function stAssetsAiFiltersDisclosureToggle() {
     const panel = document.getElementById('af-ai-filters-panel');
     const btn = document.getElementById('af-ai-filters-disclosure-btn');
-    if (!panel || !btn || !window.__stAiSummaryFilterAvailable) {
+    if (!panel || !btn || !window.__stAiFiltersToolbarAvailable) {
         return;
     }
     const willOpen = panel.classList.contains('hide');
@@ -4058,21 +4093,48 @@ function stAssetsAiFiltersDisclosureToggle() {
     try {
         localStorage.setItem('st_assets_ai_filters_open', willOpen ? '1' : '0');
     } catch (_e) {}
+    stAssetsUpdateAiFiltersButtonLabel();
 }
 
-function stAssetsApplyAiFiltersFromServer(avail) {
-    window.__stAiSummaryFilterAvailable = !!avail;
-    const sec = document.getElementById('af-ai-filters-section');
-    if (sec) {
-        sec.style.display = avail ? '' : 'none';
+function stAssetsApplyAiFiltersFromServer(d) {
+    const need = d && d.ai_needs_review_filter_available !== false;
+    const sum = !!(d && d.ai_host_summary_filter_available);
+    window.__stAiNeedsReviewFilterAvailable = need;
+    window.__stAiSummaryFilterAvailable = sum;
+    window.__stAiFiltersToolbarAvailable = need || sum;
+
+    const btn = document.getElementById('af-ai-filters-disclosure-btn');
+    const wrap = document.getElementById('af-ai-filters-wrap');
+    const rw = document.getElementById('af-ai-review-wrap');
+    const sw = document.getElementById('af-ai-summary-wrap');
+    if (btn) {
+        btn.style.display = window.__stAiFiltersToolbarAvailable ? '' : 'none';
     }
-    if (!avail) {
+    if (wrap) {
+        wrap.style.display = window.__stAiFiltersToolbarAvailable ? '' : 'none';
+    }
+    if (rw) {
+        rw.style.display = need ? 'inline-flex' : 'none';
+    }
+    if (sw) {
+        sw.style.display = sum ? 'inline-flex' : 'none';
+    }
+
+    if (!need) {
+        const ar = document.getElementById('af-ai-review');
+        if (ar) {
+            ar.checked = false;
+        }
+    }
+    if (!sum) {
         const sm = document.getElementById('af-ai-summary');
         if (sm) {
             sm.checked = false;
         }
+    }
+
+    if (!window.__stAiFiltersToolbarAvailable) {
         const panel = document.getElementById('af-ai-filters-panel');
-        const btn = document.getElementById('af-ai-filters-disclosure-btn');
         if (panel) {
             panel.classList.add('hide');
         }
@@ -4080,11 +4142,12 @@ function stAssetsApplyAiFiltersFromServer(avail) {
             btn.setAttribute('aria-expanded', 'false');
         }
         try {
-            localStorage.setItem('st_assets_ai_filters_open', '0');
+            localStorage.removeItem('st_assets_ai_filters_open');
         } catch (_e) {}
     } else {
         stAssetsSyncAiFiltersDisclosureState();
     }
+    stAssetsUpdateAiFiltersButtonLabel();
 }
 
 function stAssetsApplyZabbixFromServer(avail) {
@@ -4191,6 +4254,18 @@ function clearAllAssetFilters() {
     if (srt) srt.value = 'ip';
     if (aiq) aiq.checked = false;
     if (ais) ais.checked = false;
+    try {
+        localStorage.removeItem('st_assets_ai_filters_open');
+    } catch (_e) {}
+    const aip = document.getElementById('af-ai-filters-panel');
+    const aib = document.getElementById('af-ai-filters-disclosure-btn');
+    if (aip) {
+        aip.classList.add('hide');
+    }
+    if (aib) {
+        aib.setAttribute('aria-expanded', 'false');
+    }
+    stAssetsUpdateAiFiltersButtonLabel();
     if (zm) zm.value = '';
     if (zu) zu.checked = false;
     if (zp) zp.checked = false;
@@ -4896,7 +4971,7 @@ function stAssetsUpdateFilterHint() {
         return;
     }
     const bits = [];
-    if (document.getElementById('af-ai-review')?.checked) {
+    if (window.__stAiNeedsReviewFilterAvailable && document.getElementById('af-ai-review')?.checked) {
         bits.push('Needs AI review');
     }
     if (window.__stAiSummaryFilterAvailable && document.getElementById('af-ai-summary')?.checked) {
@@ -4924,7 +4999,7 @@ async function loadAssets(page) {
     const cat  = document.getElementById('af-cat')?.value  || '';
     const sev  = document.getElementById('af-sev')?.value  || '';
     const sort = document.getElementById('af-sort')?.value || assetSort;
-    const aiReview = !!document.getElementById('af-ai-review')?.checked;
+    const aiReview = !!window.__stAiNeedsReviewFilterAvailable && !!document.getElementById('af-ai-review')?.checked;
     const aiSummaryOn = !!window.__stAiSummaryFilterAvailable && !!document.getElementById('af-ai-summary')?.checked;
     const zbxOkForQuery = !!window.__stAssetsZabbixFiltersAvailable;
     const zbxColBefore = zbxOkForQuery && !!document.getElementById('af-zbx-col')?.checked;
@@ -4974,7 +5049,7 @@ async function loadAssets(page) {
     if (!d) return;
 
     stAssetsApplyZabbixFromServer(!!d.zabbix_filters_available);
-    stAssetsApplyAiFiltersFromServer(!!d.ai_host_summary_filter_available);
+    stAssetsApplyAiFiltersFromServer(d);
 
     try {
         window.__stAssetsScopeColumn = !!d.assets_scope_column;
@@ -15294,7 +15369,7 @@ function exportAssets(format) {
         if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
         if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
     }
-    const aiRev = !!document.getElementById('af-ai-review')?.checked;
+    const aiRev = !!window.__stAiNeedsReviewFilterAvailable && !!document.getElementById('af-ai-review')?.checked;
     const aiQ = aiRev ? '&ai_review=1' : '';
     const aiSumOn = !!window.__stAiSummaryFilterAvailable && !!document.getElementById('af-ai-summary')?.checked;
     const aiSumQ = aiSumOn ? '&ai_summary=1' : '';
