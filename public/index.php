@@ -1177,14 +1177,14 @@ if (!headers_sent()) {
 
       <div id="zb-identity-block" class="mb14">
         <div class="flbl">Identity suggestions</div>
-        <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Separate from scope mapping.</p>
+        <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
         <div class="row-wrap gap6 mb6">
           <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
         </div>
         <div id="zb-identity-plan-body" class="mb6">—</div>
         <label class="text-micro" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <input type="checkbox" id="zb-identity-confirm">
-          I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked).
+          I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
         </label>
         <button type="button" class="btnp" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
       </div>
@@ -14271,6 +14271,16 @@ async function saveReclassify() {
     body.criticality = crit;
     body.environment = env || 'unknown';
 
+    // Sync lock state when hostname is unchanged so we never override PHP's
+    // auto-lock on hostname edits (which would send hostname_locked: 0 from an unlocked modal).
+    const hle = document.getElementById('modal-hl');
+    if (hle && body.hostname === undefined) {
+        const hl = parseInt(String(hle.value), 10);
+        if (!Number.isNaN(hl)) {
+            body.hostname_locked = hl ? 1 : 0;
+        }
+    }
+
     const headers = {'Content-Type': 'application/json'};
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
     const r = await fetch(`/api/assets.php?id=${id}`, {
@@ -14967,6 +14977,16 @@ async function openHostPanel(id, ip) {
     const aiInfluenced = discoverySources.includes('ai_local_inference');
 
     const hn = String(a.hostname || '').trim();
+    const hnTrustChip = (() => {
+        if (Number(a.hostname_locked || 0)) {
+            return '<span class="hp-chip" title="Hostname is locked — scans will not overwrite it">Locked</span>';
+        }
+        const ic = a.identity_confidence != null ? Number(a.identity_confidence) : null;
+        if (ic != null && ic >= 0.75) {
+            return '<span class="hp-chip" title="High identity confidence (manual edit or enrichment)">Operator-approved</span>';
+        }
+        return '';
+    })();
     document.getElementById('hp-title').textContent = hn
         ? `${a.ip} (${a.category || 'unk'} / ${hn})`
         : `${a.ip} (${a.category || 'unk'})`;
@@ -15050,7 +15070,7 @@ async function openHostPanel(id, ip) {
           <span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span>
           ${lifecycleBadgeHtml(a)}
           ${aiInfluenced ? '<span class="hp-chip" title="Category was adjusted by local AI enrichment">AI-assisted</span>' : ''}
-          <span class="hp-meta-host">${esc(a.hostname||'—')}</span>
+          <span class="hp-meta-host">${esc(a.hostname||'—')}</span>${hnTrustChip ? ' ' + hnTrustChip : ''}
         </div>
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>

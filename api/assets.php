@@ -142,6 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
             $updates[]       = 'hostname = :host';
             $params[':host'] = $hostTrim;
             $lockH           = $hostTrim !== '' ? 1 : 0;
+            $updates[]       = 'identity_confidence = :idconf';
+            $params[':idconf'] = 1.0;
+            $updates[]       = 'identity_confidence_reason = :idconfreason';
+            $params[':idconfreason'] = 'manual_hostname';
         }
     }
     if (isset($body['notes'])) {

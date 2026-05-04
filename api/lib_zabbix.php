@@ -2171,7 +2171,9 @@ function st_zabbix_apply_identity_hostname(PDO $pdo, array $applyRows): array
          LIMIT 1'
     );
     $upd = $pdo->prepare(
-        'UPDATE assets SET hostname = ? WHERE id = ? AND TRIM(COALESCE(hostname, \'\')) = TRIM(?) AND COALESCE(hostname_locked, 0) = 0'
+        'UPDATE assets SET hostname = ?, hostname_locked = 1, identity_confidence = 1.0, '
+        . 'identity_confidence_reason = \'zabbix_identity_applied\' WHERE id = ? '
+        . 'AND TRIM(COALESCE(hostname, \'\')) = TRIM(?) AND COALESCE(hostname_locked, 0) = 0'
     );
 
     foreach ($applyRows as $r) {

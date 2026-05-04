@@ -538,8 +538,9 @@ def _asset_upsert(conn: sqlite3.Connection, job_id: int, row: dict) -> tuple[int
         aid = int(existing["id"])
         prev_ports = str(existing["open_ports"] or "")
         prior_ls = str(existing["ls"] or "active").strip().lower()
-        if int(existing["hl"] or 0):
-            fields["hostname"] = str(existing["hostname"] or "")
+        # Keep canonical hostname from DB; scan artifact hostname is applied later via
+        # scan_asset_snapshots + upsert_asset merge rules.
+        fields["hostname"] = str(existing["hostname"] or "")
         if int(existing["cl"] or 0):
             fields["category"] = str(existing["category"] or "unk")
         if int(existing["vl"] or 0):
@@ -631,6 +632,13 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
                 v6 = []
         except Exception:
             v6 = []
+        snap = conn.execute(
+            """SELECT hostname FROM scan_asset_snapshots
+               WHERE job_id=? AND asset_id=? ORDER BY id DESC LIMIT 1""",
+            (job_id, int(row["id"])),
+        ).fetchone()
+        scan_hn = str(snap["hostname"] or "").strip() if snap else ""
+        asset_hostname_arg = scan_hn if scan_hn else str(row["hostname"] or "")
         asset = scanner_daemon.upsert_asset(
             job_id=job_id,
             ip=str(row["ip"] or ""),
@@ -642,7 +650,7 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
             http_probe="",
             discovery_sources=ds,
             connected_via=str(row["connected_via"] or ""),
-            hostname=str(row["hostname"] or ""),
+            hostname=asset_hostname_arg,
             scan_profile=scan_profile,
             scan_mode=scan_mode,
             ai_cfg=ai_cfg,

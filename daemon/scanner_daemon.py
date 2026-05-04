@@ -81,59 +81,152 @@ except ImportError as e:
     def load_source(row): return None
 
 # ---------------------------------------------------------------------------
-# Hostname resolution — tries multiple strategies
+# Hostname resolution — multi-candidate ranking (PTR / mDNS / NetBIOS / nmap)
 # ---------------------------------------------------------------------------
-def resolve_hostname(ip: str) -> str:
-    """
-    Try to resolve a hostname for an IP using multiple strategies:
-    1. Reverse DNS (PTR record)
-    2. mDNS via avahi-resolve (common on Linux/Mac home networks)
-    3. NetBIOS name (Windows hosts)
+def _hostname_norm_ci(s: str) -> str:
+    return str(s or "").strip().lower().rstrip(".")
 
-    Very short PTR labels (e.g. ``pi`` from ``pi.homenet``) are often stale or
-    ambiguous vs LAN discovery; when PTR is <= 3 characters we still query mDNS
-    and NetBIOS and prefer a longer name if found.
-    """
-    import socket
-    import subprocess
 
-    ptr = ""
-    # 1. Reverse DNS (bounded timeout to avoid long resolver stalls)
+# Low-priority / generic names — prefer stable LAN names over these.
+_GENERIC_HOST_EXACT = frozenset({
+    "localhost", "gateway", "router", "unifi", "wlan0", "wlan", "default",
+    "iphone", "ipad", "android", "raspberrypi", "pi",
+})
+_GENERIC_HOST_SUBSTR = (
+    "pi.hole", "pihole", ".localdomain", "in-addr.arpa",
+)
+_GENERIC_HOST_PREFIX = ("device-", "amazon-", "android-", "iphone", "ipad-")
+
+
+def hostname_is_generic(name: str) -> bool:
+    n = _hostname_norm_ci(name)
+    if not n:
+        return True
+    if n in _GENERIC_HOST_EXACT:
+        return True
+    for p in _GENERIC_HOST_PREFIX:
+        if n.startswith(p):
+            return True
+    for sub in _GENERIC_HOST_SUBSTR:
+        if sub in n:
+            return True
+    return False
+
+
+def _hostname_rank_score(
+    name: str,
+    *,
+    zabbix: tuple[str, str],
+    stable: str,
+) -> float:
+    raw = str(name or "").strip()
+    if not raw:
+        return -1e12
+    n = _hostname_norm_ci(raw)
+    score = 0.0
+    zv = _hostname_norm_ci(zabbix[0])
+    zt = _hostname_norm_ci(zabbix[1])
+    for zb in (zv, zt):
+        if not zb:
+            continue
+        if n == zb:
+            score += 500.0
+            continue
+        zb0 = zb.split(".")[0]
+        n0 = n.split(".")[0]
+        if n == zb0 or n0 == zb0:
+            score += 420.0
+        if zb in n or n in zb:
+            score += 60.0
+    st = _hostname_norm_ci(stable)
+    if st and n == st:
+        score += 300.0
+    elif st and n.split(".")[0] == st.split(".")[0]:
+        score += 220.0
+    if hostname_is_generic(n):
+        score -= 400.0
+    labels = n.split(".")
+    if len(labels) >= 3:
+        score += 22.0
+    elif len(labels) == 2 and not hostname_is_generic(n):
+        score += 10.0
+    alnum = len(n.replace(".", ""))
+    if alnum >= 6:
+        score += min(36.0, alnum * 1.8)
+    return score
+
+
+def pick_best_hostname(
+    candidates: list[str],
+    *,
+    zabbix: tuple[str, str] = ("", ""),
+    stable: str = "",
+) -> str:
+    """Pick highest-ranked unique hostname; empty string if none."""
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for c in candidates:
+        t = str(c or "").strip()
+        if not t:
+            continue
+        k = _hostname_norm_ci(t)
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(t)
+    if not uniq:
+        return ""
+    scored = [(c, _hostname_rank_score(c, zabbix=zabbix, stable=stable)) for c in uniq]
+    scored.sort(key=lambda x: (-x[1], -len(x[0]), x[0].lower()))
+    return scored[0][0]
+
+
+def collect_hostname_resolution_signals(ip: str) -> tuple[list[str], str, str]:
+    """
+    Collect PTR names (canonical + aliases, not blindly shortened), mDNS, NetBIOS.
+    Returns (ptr_names, mdns_name, netbios_name).
+    """
+    import concurrent.futures as _cf
+
+    ptr_names: list[str] = []
     try:
-        import concurrent.futures as _cf
         with _cf.ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(socket.gethostbyaddr, ip)
             try:
-                name = fut.result(timeout=1.5)[0]
+                res = fut.result(timeout=1.5)
+                canon = res[0] if res else ""
+                aliases = res[1] if res and len(res) > 1 else []
             except _cf.TimeoutError:
-                name = ""
-        if name and name != ip:
-            ptr = name.split(".")[0]   # strip domain, keep short name
-    except (socket.herror, socket.gaierror, OSError, Exception):
+                canon, aliases = "", []
+        alias_list = list(aliases) if aliases else []
+        for name in (canon, *alias_list):
+            if not name or name == ip:
+                continue
+            n = str(name).strip().rstrip(".")
+            if n:
+                ptr_names.append(n)
+    except (socket.herror, socket.gaierror, OSError, TypeError, ValueError, Exception):
         pass
 
     mdns = ""
-    # 2. mDNS via avahi-resolve (if avahi-utils installed)
     try:
         result = subprocess.run(
             ["avahi-resolve", "--address", ip],
-            capture_output=True, text=True, timeout=3
+            capture_output=True, text=True, timeout=3,
         )
         if result.returncode == 0 and result.stdout.strip():
-            # output: "192.168.86.5	hostname.local"
             parts = result.stdout.strip().split()
             if len(parts) >= 2:
                 name = parts[-1].rstrip(".")
-                mdns = name.replace(".local", "")
+                mdns = name.replace(".local", "").strip()
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
     nb = ""
-    # 3. NetBIOS name via nmblookup (if samba-common installed)
     try:
         result = subprocess.run(
             ["nmblookup", "-A", ip],
-            capture_output=True, text=True, timeout=3
+            capture_output=True, text=True, timeout=3,
         )
         if result.returncode == 0:
             for line in result.stdout.splitlines():
@@ -146,18 +239,103 @@ def resolve_hostname(ip: str) -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
 
-    # Prefer LAN discovery over ambiguously short PTR (wrong DHCP/PTR is common).
-    if ptr and len(ptr) <= 3:
-        for cand in (mdns, nb):
-            if cand and len(cand) > len(ptr):
-                return cand
-    if ptr:
-        return ptr
+    return ptr_names, mdns, nb
+
+
+def resolve_hostname(ip: str, zabbix: tuple[str, str] = ("", "")) -> str:
+    """
+    Resolve hostname using PTR + mDNS + NetBIOS; rank candidates so generic PTR
+    aliases (e.g. pi.hole) do not overwrite better names when Zabbix / stable hints exist.
+    """
+    ptrs, mdns, nb = collect_hostname_resolution_signals(ip)
+    cands: list[str] = list(ptrs)
     if mdns:
-        return mdns
+        cands.append(mdns)
     if nb:
-        return nb
-    return ""
+        cands.append(nb)
+    return pick_best_hostname(cands, zabbix=zabbix, stable="")
+
+
+def merge_hostname_for_scan_upsert(
+    existing: str,
+    locked: int,
+    id_conf: float | None,
+    scan_candidate: str,
+    zabbix_pair: tuple[str, str],
+) -> str:
+    """
+    Merge DB hostname with a new discovery candidate. Never overwrites when locked
+    or when stored identity_confidence is high (operator / enrichment trust).
+    """
+    ex = str(existing or "").strip()
+    sc = str(scan_candidate or "").strip()
+    if int(locked or 0) != 0:
+        return ex
+    if not sc:
+        return ex
+    zb = (str(zabbix_pair[0] or "").strip(), str(zabbix_pair[1] or "").strip())
+    if not ex:
+        return pick_best_hostname([sc], zabbix=zb, stable="")
+    try:
+        ic = float(id_conf) if id_conf is not None else None
+    except (TypeError, ValueError):
+        ic = None
+    if ic is not None and ic >= 0.75:
+        return ex
+    merged_pick = pick_best_hostname([ex, sc], zabbix=zb, stable=ex)
+    if merged_pick == ex:
+        return ex
+    se = _hostname_rank_score(ex, zabbix=zb, stable=ex)
+    ss = _hostname_rank_score(sc, zabbix=zb, stable=ex)
+    if hostname_is_generic(ex) and not hostname_is_generic(sc):
+        return sc
+    if ic is not None and ic < 0.5 and ss > se + 18.0:
+        return sc
+    if ic is None and ss > se + 28.0:
+        return sc
+    if ic is not None and ic < 0.75 and ss > se + 42.0:
+        return sc
+    return ex
+
+
+def _zabbix_names_for_ip(conn: sqlite3.Connection, ip: str) -> tuple[str, str]:
+    try:
+        row = conn.execute(
+            """SELECT TRIM(COALESCE(h.visible_name,'')), TRIM(COALESCE(h.tech_name,''))
+               FROM zabbix_asset_links l
+               JOIN assets a ON a.id = l.asset_id AND a.ip = ?
+               JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
+               LIMIT 1""",
+            (ip,),
+        ).fetchone()
+        if row:
+            return (str(row[0] or ""), str(row[1] or ""))
+    except sqlite3.Error:
+        pass
+    return ("", "")
+
+
+def _zabbix_names_by_ips(conn: sqlite3.Connection, ips: list[str]) -> dict[str, tuple[str, str]]:
+    out: dict[str, tuple[str, str]] = {}
+    if not ips:
+        return out
+    chunk = 400
+    for i in range(0, len(ips), chunk):
+        part = ips[i : i + chunk]
+        ph = ",".join("?" * len(part))
+        try:
+            for row in conn.execute(
+                f"""SELECT a.ip, TRIM(COALESCE(h.visible_name,'')), TRIM(COALESCE(h.tech_name,''))
+                    FROM zabbix_asset_links l
+                    JOIN assets a ON a.id = l.asset_id
+                    JOIN zabbix_hosts h ON h.hostid = l.zabbix_hostid
+                    WHERE a.ip IN ({ph})""",
+                part,
+            ):
+                out[str(row[0] or "")] = (str(row[1] or ""), str(row[2] or ""))
+        except sqlite3.Error:
+            continue
+    return out
 
 # ---------------------------------------------------------------------------
 # Config
@@ -1399,7 +1577,7 @@ def phase_banner(
             nmap_hostnames = nm_scan[host].get("hostnames", [])
             for h in nmap_hostnames:
                 if h.get("name"):
-                    hn_nmap = h["name"].split(".")[0]
+                    hn_nmap = str(h["name"]).strip().rstrip(".")
                     break
             proxmox_hn = ""
             for b in banners.values():
@@ -1407,10 +1585,25 @@ def phase_banner(
                 if m:
                     proxmox_hn = m.group(1)
                     break
+            ptrs, mdns, nb = collect_hostname_resolution_signals(host)
+            extra_nb = [x for x in (mdns, nb) if x]
             if proxmox_hn:
-                hostname = proxmox_hn
+                hostname = pick_best_hostname(
+                    [proxmox_hn.strip()] + ptrs + extra_nb,
+                    zabbix=("", ""),
+                    stable="",
+                )
             elif hn_nmap:
-                hostname = hn_nmap
+                nmap_cands = [hn_nmap]
+                low = hn_nmap.lower()
+                parts = low.rstrip(".").split(".")
+                if len(parts) > 1 and not ("hole" in low and parts[0] == "pi"):
+                    nmap_cands.append(parts[0])
+                hostname = pick_best_hostname(
+                    nmap_cands + ptrs + extra_nb,
+                    zabbix=("", ""),
+                    stable="",
+                )
             else:
                 hostname = resolve_hostname(host)
 
@@ -2711,6 +2904,7 @@ def upsert_asset(job_id: int, ip: str, mac: str,
     self-deadlock: a second connection cannot write while ``reuse_conn`` holds an
     uncommitted writer transaction.
     """
+    scan_hostname_in = (hostname or "").strip()
     # full_tcp / fast_full_tcp can time out or filter before -p- completes, yielding
     # zero opens and wiping a good standard_inventory row. Union with prior opens
     # so inventory evidence is never strictly reduced by these profiles alone.
@@ -2719,19 +2913,22 @@ def upsert_asset(job_id: int, ip: str, mac: str,
     existing_ncpes: list[str] = []
     existing_ipv6: list[str] = []
     lifecycle_pre: str | None = None
+    existing_host = ""
+    locked_host = 0
+    id_conf_host: float | None = None
+    _asset_row_sql = (
+        "SELECT open_ports, banners, nmap_cpes, ipv6_addrs, "
+        "COALESCE(lifecycle_status,'active') AS lifecycle_pre, "
+        "TRIM(COALESCE(hostname,'')) AS cur_hostname, "
+        "COALESCE(hostname_locked,0) AS cur_hostname_locked, "
+        "identity_confidence AS cur_id_conf "
+        "FROM assets WHERE ip=?"
+    )
     if reuse_conn is not None:
-        cur = reuse_conn.execute(
-            "SELECT open_ports, banners, nmap_cpes, ipv6_addrs, "
-            "COALESCE(lifecycle_status,'active') AS lifecycle_pre FROM assets WHERE ip=?",
-            (ip,),
-        ).fetchone()
+        cur = reuse_conn.execute(_asset_row_sql, (ip,)).fetchone()
     else:
         with db_conn() as conn:
-            cur = conn.execute(
-                "SELECT open_ports, banners, nmap_cpes, ipv6_addrs, "
-                "COALESCE(lifecycle_status,'active') AS lifecycle_pre FROM assets WHERE ip=?",
-                (ip,),
-            ).fetchone()
+            cur = conn.execute(_asset_row_sql, (ip,)).fetchone()
     if cur:
         try:
             lifecycle_pre = str(cur["lifecycle_pre"] or "active").strip().lower()
@@ -2765,6 +2962,13 @@ def upsert_asset(job_id: int, ip: str, mac: str,
                 existing_ipv6 = [str(x).strip() for x in ev6 if str(x).strip()]
         except (json.JSONDecodeError, TypeError):
             existing_ipv6 = []
+        existing_host = str(cur["cur_hostname"] or "").strip()
+        locked_host = int(cur["cur_hostname_locked"] or 0)
+        try:
+            raw_ic = cur["cur_id_conf"]
+            id_conf_host = float(raw_ic) if raw_ic is not None else None
+        except (TypeError, ValueError, KeyError, IndexError):
+            id_conf_host = None
 
     if scan_profile in ("full_tcp", "fast_full_tcp") and existing_ports:
         new_port_set = set()
@@ -2809,6 +3013,24 @@ def upsert_asset(job_id: int, ip: str, mac: str,
         except ValueError:
             continue
     merged_ipv6_list = sorted(merged_ipv6)
+
+    zb_pair: tuple[str, str] = ("", "")
+    try:
+        if reuse_conn is not None:
+            zb_pair = _zabbix_names_for_ip(reuse_conn, ip)
+        else:
+            with db_conn() as _zb:
+                zb_pair = _zabbix_names_for_ip(_zb, ip)
+    except Exception:
+        zb_pair = ("", "")
+
+    hostname = merge_hostname_for_scan_upsert(
+        existing_host,
+        locked_host,
+        id_conf_host,
+        scan_hostname_in,
+        zb_pair,
+    )
 
     fp = fingerprint(
         mac,
@@ -3010,7 +3232,7 @@ def upsert_asset(job_id: int, ip: str, mac: str,
             ON CONFLICT(ip) DO UPDATE SET
                 hostname   = CASE
                     WHEN COALESCE(hostname_locked, 0) = 1 THEN hostname
-                    WHEN excluded.hostname != '' THEN excluded.hostname
+                    WHEN NULLIF(TRIM(excluded.hostname), '') IS NOT NULL THEN excluded.hostname
                     ELSE hostname END,
                 mac        = COALESCE(excluded.mac, mac),
                 mac_vendor = COALESCE(excluded.mac_vendor, mac_vendor),
@@ -3384,6 +3606,7 @@ def run_scan(job: dict) -> None:
     # This is important for ARP-only hosts like phones/tablets with randomized MACs
     log.info("[job %d] Resolving hostnames for %d hosts...", job_id, len(all_ips))
     hostname_cache: dict[str, str] = {}
+    zabbix_hints_by_ip: dict[str, tuple[str, str]] = {}
     with db_conn() as conn:
         # Pre-populate from existing DB entries to avoid redundant lookups
         if all_ips:
@@ -3394,6 +3617,7 @@ def run_scan(job: dict) -> None:
             ).fetchall()
             for row in rows:
                 hostname_cache[row["ip"]] = row["hostname"]
+            zabbix_hints_by_ip = _zabbix_names_by_ips(conn, sorted(all_ips))
 
     # ---- Phase 3c: HTTP title grabbing -----------------------------------
     http_titles: dict[str, dict[int, str]] = {}
@@ -3423,7 +3647,8 @@ def run_scan(job: dict) -> None:
 
     for idx, ip in enumerate(sorted(all_ips), start=1):
         if ip not in hostname_cache:
-            hn = resolve_hostname(ip)
+            zb = zabbix_hints_by_ip.get(ip, ("", ""))
+            hn = resolve_hostname(ip, zb)
             hostname_cache[ip] = hn
             if hn:
                 resolved_dns_hosts.add(ip)
