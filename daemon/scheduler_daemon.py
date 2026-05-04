@@ -51,6 +51,9 @@ POLL_SECS = 30   # check every 30 seconds
 # Zabbix connector SQLite table (single source of truth for scheduler SQL — must be zabbix_connector).
 ZABBIX_CONNECTOR_TABLE = "zabbix_connector"
 
+# Log connector "not ready" (disabled / missing creds / schedule off) at INFO only when this changes.
+_zabbix_sync_cfg_snap: tuple[bool, bool, bool, bool] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -215,12 +218,13 @@ def _ensure_zabbix_connector_scheduler_columns(conn: sqlite3.Connection) -> None
 
 def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> None:
     """Spawn api/zabbix_sync_worker.php when scheduled Zabbix pull is enabled and next_sync_at is due."""
+    global _zabbix_sync_cfg_snap
     _ = now  # due check uses SQLite datetime('now') to match stored TEXT timestamps
     root = install_root()
     worker = root / "api" / "zabbix_sync_worker.php"
     worker_path = str(worker)
     if not worker.is_file():
-        log.info(
+        log.warning(
             "Zabbix scheduled sync: worker script missing, skip (install_root=%s worker=%s)",
             str(root),
             worker_path,
@@ -266,7 +270,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
         return
 
     if row is None:
-        log.info("Zabbix scheduled sync: no connector row id=1, skip")
+        log.debug("Zabbix scheduled sync: no connector row id=1, skip")
         return
 
     enabled = int(row["enabled"] or 0)
@@ -279,26 +283,39 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     lock_val = int(row["scheduled_sync_lock"] or 0)
     lock_at = row["scheduled_sync_lock_at"]
 
-    if enabled != 1:
-        log.info("Zabbix scheduled sync: connector disabled (enabled=%s), skip", enabled)
+    cfg_snap = (
+        enabled == 1,
+        bool(api_url),
+        bool(api_token),
+        sync_schedule_enabled == 1,
+    )
+    if not all(cfg_snap):
+        if cfg_snap != _zabbix_sync_cfg_snap:
+            _zabbix_sync_cfg_snap = cfg_snap
+            parts = []
+            if enabled != 1:
+                parts.append("enabled=0")
+            if not api_url:
+                parts.append("api_url empty")
+            if not api_token:
+                parts.append("api_token missing")
+            if sync_schedule_enabled != 1:
+                parts.append("sync_schedule_enabled off")
+            log.info(
+                "Zabbix scheduled sync: not ready (%s), skip",
+                ", ".join(parts) or "unknown",
+            )
         return
-    if not api_url:
-        log.info("Zabbix scheduled sync: api_url empty, skip")
-        return
-    if not api_token:
-        log.info("Zabbix scheduled sync: api_token not configured, skip")
-        return
-    if sync_schedule_enabled != 1:
-        log.info("Zabbix scheduled sync: sync_schedule_enabled off (%s), skip", sync_schedule_enabled)
-        return
+    _zabbix_sync_cfg_snap = (True, True, True, True)
+
     if not sync_due:
-        log.info(
+        log.debug(
             "Zabbix scheduled sync: next_sync_at not due (next_sync_at=%r), skip",
             next_sync_at,
         )
         return
     if not lock_ok:
-        log.info(
+        log.debug(
             "Zabbix scheduled sync: lock already active (scheduled_sync_lock=%s scheduled_sync_lock_at=%r), skip",
             lock_val,
             lock_at,
@@ -325,7 +342,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
         ).rowcount
         if cur != 1:
             conn.rollback()
-            log.info(
+            log.debug(
                 "Zabbix scheduled sync: lock UPDATE matched %s rows (racy skip or row changed), skip",
                 cur,
             )
@@ -382,6 +399,11 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
     root = install_root()
     worker = root / "api" / "zabbix_output_worker.php"
     if not worker.is_file():
+        log.warning(
+            "Zabbix output push: worker script missing, skip (install_root=%s worker=%s)",
+            str(root),
+            str(worker),
+        )
         return
     try:
         _ensure_zabbix_connector_scheduler_columns(conn)
@@ -424,6 +446,7 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
         ).rowcount
         if cur != 1:
             conn.rollback()
+            log.debug("Zabbix output push: not due or gates failed (UPDATE matched 0 rows), skip")
             return
         conn.commit()
     except Exception as e:
@@ -434,14 +457,19 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
         log.warning("Zabbix output push: lock/update failed: %s", e)
         return
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [php_bin, str(worker)],
             cwd=str(root),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        log.info("Zabbix output push: spawned worker (interval=%ss)", interval)
+        log.info(
+            "Zabbix output push: spawned worker (interval=%ss) pid=%s worker=%s",
+            interval,
+            proc.pid,
+            str(worker),
+        )
     except Exception as e:
         log.error("Zabbix output push: spawn failed: %s", e)
         try:
