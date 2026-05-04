@@ -260,9 +260,6 @@ if (!headers_sent()) {
       <option value="stale">Stale</option>
       <option value="retired">Retired</option>
     </select>
-    <select class="finp narrow" id="af-scope-filter" onchange="loadAssets(1)" style="display:none" title="Filter by inventory scope (assets.scope_id). Distinct from Reports job scope.">
-      <option value="">All scopes</option>
-    </select>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
       <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
       <option value="hostname">Hostname</option>
@@ -271,13 +268,22 @@ if (!headers_sent()) {
       <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
       <option value="scope_name">Sort: Scope</option>
     </select>
-    <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" style="display:none" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()" title="Scan-time AI review and optional host summary list filters">AI filters</button>
     <span class="row-wrap gap4" style="display:inline-flex;align-items:center;flex-wrap:wrap">
       <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
       <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     </span>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI filters, and Zabbix filters">Clear filters</button>
-    <span id="af-filter-active-note" class="text-micro text-dim" style="display:none;flex-basis:100%" aria-live="polite"></span>
+  </div>
+  <div id="af-filter-disclosures-row" class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap" role="toolbar" aria-label="Asset list filters">
+    <span id="af-ai-filter-btn-wrap" style="display:none">
+      <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()" title="Scan-time AI review and optional host summary list filters">AI filters</button>
+    </span>
+    <span id="af-zbx-filter-btn-wrap" style="display:none">
+      <button type="button" id="af-zbx-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-zbx-panel" onclick="stAssetsZbxDisclosureToggle()" title="Zabbix monitoring filters">Zabbix filters</button>
+    </span>
+    <span id="af-scope-filter-btn-wrap">
+      <button type="button" id="af-scope-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-scope-panel" disabled aria-disabled="true" onclick="stAssetsScopeDisclosureToggle()" title="Inventory scope filter (assets.scope_id). Not available until the server exposes scope options.">Scope filters</button>
+    </span>
   </div>
   <div id="af-ai-filters-wrap" class="mb8" style="display:none">
     <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
@@ -292,10 +298,6 @@ if (!headers_sent()) {
     </div>
   </div>
   <div id="af-zbx-section" class="mb8" style="display:none">
-    <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
-      <button type="button" id="af-zbx-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-zbx-panel" onclick="stAssetsZbxDisclosureToggle()">Zabbix filters</button>
-      <span id="af-zbx-active-pill" class="text-micro text-dim" style="display:none" aria-live="polite"></span>
-    </div>
     <div id="af-zbx-panel" class="hide" role="region" aria-labelledby="af-zbx-disclosure-btn">
       <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
         <select class="finp narrow" id="af-zbx-monitored" onchange="stAssetsOnZbxFilterDirty()" title="Zabbix monitoring">
@@ -317,6 +319,16 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
+  <div id="af-scope-section" class="mb8">
+    <div id="af-scope-panel" class="hide" role="region" aria-labelledby="af-scope-disclosure-btn">
+      <div class="row-wrap gap6 flex-wrap" style="align-items:flex-start;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+        <p id="af-scope-unavailable-hint" class="text-micro text-dim hide" style="max-width:52rem;line-height:1.45">Named inventory scopes are not available on this database yet (upgrade / migrations). Reports job scope is separate.</p>
+        <select class="finp narrow" id="af-scope-filter" onchange="stAssetsOnScopeFilterChange()" style="display:none" title="Filter by inventory scope (assets.scope_id). Distinct from Reports job scope.">
+          <option value="">All scopes</option>
+        </select>
+      </div>
+    </div>
+  </div>
   <div id="af-bulk-actions-bar" class="mb8" style="display:none">
     <div class="row-between gap10 flex-wrap" style="align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
       <span class="text-secondary mono-sm" id="af-bulk-selected-label">0 selected</span>
@@ -329,6 +341,7 @@ if (!headers_sent()) {
   <div id="af-device-banner" class="device-filter-banner hide">
     <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
   </div>
+  <div id="af-filter-summary-bar" class="af-filter-summary text-micro mb8" role="status" aria-live="polite" aria-atomic="true"></div>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr>
@@ -3966,7 +3979,7 @@ function debounceAssets() {
 }
 
 function debounceAssetsZbxAware() {
-    stAssetsUpdateZabbixFilterPill();
+    stAssetsUpdateZabbixDisclosureButtonLabel();
     stAssetsZbxEnsurePanelOpenForActiveFilters();
     debounceAssets();
 }
@@ -3993,24 +4006,13 @@ function stAssetsZabbixFilterActiveDims() {
     return n;
 }
 
-function stAssetsUpdateZabbixFilterPill() {
-    const pill = document.getElementById('af-zbx-active-pill');
-    if (!pill) {
-        return;
-    }
-    if (!window.__stAssetsZabbixFiltersAvailable) {
-        pill.style.display = 'none';
-        pill.textContent = '';
+function stAssetsUpdateZabbixDisclosureButtonLabel() {
+    const btn = document.getElementById('af-zbx-disclosure-btn');
+    if (!btn || !window.__stAssetsZabbixFiltersAvailable) {
         return;
     }
     const n = stAssetsZabbixFilterActiveDims();
-    if (n === 0) {
-        pill.style.display = 'none';
-        pill.textContent = '';
-        return;
-    }
-    pill.style.display = '';
-    pill.textContent = n === 1 ? 'Zabbix filters (1 active)' : `Zabbix filters (${n} active)`;
+    btn.textContent = n ? ('Zabbix filters (' + String(n) + ' active)') : 'Zabbix filters';
 }
 
 function stAssetsZbxEnsurePanelOpenForActiveFilters() {
@@ -4027,10 +4029,11 @@ function stAssetsZbxEnsurePanelOpenForActiveFilters() {
     }
     panel.classList.remove('hide');
     btn.setAttribute('aria-expanded', 'true');
+    stAssetsUpdateZabbixDisclosureButtonLabel();
 }
 
 function stAssetsOnZbxFilterDirty() {
-    stAssetsUpdateZabbixFilterPill();
+    stAssetsUpdateZabbixDisclosureButtonLabel();
     stAssetsZbxEnsurePanelOpenForActiveFilters();
     loadAssets(1);
 }
@@ -4051,6 +4054,7 @@ function stAssetsSyncZabbixDisclosureState() {
     }
     panel.classList.toggle('hide', !open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    stAssetsUpdateZabbixDisclosureButtonLabel();
 }
 
 function stAssetsZbxDisclosureToggle() {
@@ -4065,6 +4069,7 @@ function stAssetsZbxDisclosureToggle() {
     try {
         localStorage.setItem('st_assets_zbx_filters_open', willOpen ? '1' : '0');
     } catch (_e) {}
+    stAssetsUpdateZabbixDisclosureButtonLabel();
 }
 
 function stAssetsAnyAiFilterActive() {
@@ -4142,10 +4147,14 @@ function stAssetsApplyAiFiltersFromServer(d) {
 
     const btn = document.getElementById('af-ai-filters-disclosure-btn');
     const wrap = document.getElementById('af-ai-filters-wrap');
+    const btnWrap = document.getElementById('af-ai-filter-btn-wrap');
     const rw = document.getElementById('af-ai-review-wrap');
     const sw = document.getElementById('af-ai-summary-wrap');
+    if (btnWrap) {
+        btnWrap.style.display = window.__stAiFiltersToolbarAvailable ? '' : 'none';
+    }
     if (btn) {
-        btn.style.display = window.__stAiFiltersToolbarAvailable ? '' : 'none';
+        btn.style.display = '';
     }
     if (wrap) {
         wrap.style.display = window.__stAiFiltersToolbarAvailable ? '' : 'none';
@@ -4201,6 +4210,10 @@ function stAssetsApplyZabbixFromServer(avail) {
     if (sec) {
         sec.style.display = avail ? '' : 'none';
     }
+    const zbxBtnWrap = document.getElementById('af-zbx-filter-btn-wrap');
+    if (zbxBtnWrap) {
+        zbxBtnWrap.style.display = avail ? '' : 'none';
+    }
     if (!avail) {
         const zm = document.getElementById('af-zbx-monitored');
         const zu = document.getElementById('af-zbx-unavail');
@@ -4229,7 +4242,7 @@ function stAssetsApplyZabbixFromServer(avail) {
             localStorage.setItem('st_assets_zbx_filters_open', '0');
         } catch (_e) {}
     }
-    stAssetsUpdateZabbixFilterPill();
+    stAssetsUpdateZabbixDisclosureButtonLabel();
     if (avail) {
         stAssetsSyncZabbixDisclosureState();
     }
@@ -4319,8 +4332,20 @@ function clearAllAssetFilters() {
     try {
         localStorage.setItem('st_assets_zbx_filters_open', '0');
     } catch (_e) {}
-    stAssetsUpdateZabbixFilterPill();
-    stAssetsUpdateFilterHint();
+    const spp = document.getElementById('af-scope-panel');
+    const sbtn = document.getElementById('af-scope-disclosure-btn');
+    if (spp) {
+        spp.classList.add('hide');
+    }
+    if (sbtn) {
+        sbtn.setAttribute('aria-expanded', 'false');
+    }
+    try {
+        localStorage.removeItem('st_assets_scope_filters_open');
+    } catch (_e) {}
+    stAssetsUpdateZabbixDisclosureButtonLabel();
+    stAssetsUpdateScopeDisclosureButtonLabel();
+    stAssetsRenderFilterSummary();
     assetSort = 'ip';
     assetOrder = 'asc';
     assetDeviceFilter = 0;
@@ -4958,15 +4983,257 @@ async function stScopesDelete(scopeId, scopeName) {
     }
 }
 
+function stAssetsZabbixFilterSummaryLabel() {
+    const bits = [];
+    const zm = document.getElementById('af-zbx-monitored')?.value || '';
+    if (zm === '1') {
+        bits.push('monitored');
+    } else if (zm === '0') {
+        bits.push('not monitored');
+    }
+    if (document.getElementById('af-zbx-unavail')?.checked) {
+        bits.push('unavailable');
+    }
+    if (document.getElementById('af-zbx-problems')?.checked) {
+        bits.push('problems');
+    }
+    if ((document.getElementById('af-zbx-group')?.value || '').trim()) {
+        bits.push('group');
+    }
+    if ((document.getElementById('af-zbx-tag')?.value || '').trim()) {
+        bits.push('tag');
+    }
+    if (!bits.length) {
+        return 'Zabbix';
+    }
+    return 'Zabbix (' + bits.join(', ') + ')';
+}
+
+function stAssetsScopeFilterActiveCount() {
+    const sel = document.getElementById('af-scope-filter');
+    if (!window.__stAssetsScopeColumn || !sel || sel.style.display === 'none') {
+        return 0;
+    }
+    return sel.value !== '' ? 1 : 0;
+}
+
+function stAssetsUpdateScopeDisclosureButtonLabel() {
+    const btn = document.getElementById('af-scope-disclosure-btn');
+    if (!btn) {
+        return;
+    }
+    if (btn.disabled) {
+        btn.textContent = 'Scope filters (unavailable)';
+        return;
+    }
+    const n = stAssetsScopeFilterActiveCount();
+    btn.textContent = n ? ('Scope filters (' + String(n) + ' active)') : 'Scope filters';
+}
+
+function stAssetsSyncScopeDisclosureState() {
+    const panel = document.getElementById('af-scope-panel');
+    const btn = document.getElementById('af-scope-disclosure-btn');
+    if (!panel || !btn || btn.disabled) {
+        return;
+    }
+    const sel = document.getElementById('af-scope-filter');
+    let open = !!(sel && sel.style.display !== 'none' && sel.value !== '');
+    if (!open) {
+        try {
+            open = localStorage.getItem('st_assets_scope_filters_open') === '1';
+        } catch (_e) {
+            open = false;
+        }
+    }
+    panel.classList.toggle('hide', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    stAssetsUpdateScopeDisclosureButtonLabel();
+}
+
+function stAssetsScopeDisclosureToggle() {
+    const panel = document.getElementById('af-scope-panel');
+    const btn = document.getElementById('af-scope-disclosure-btn');
+    if (!panel || !btn || btn.disabled) {
+        return;
+    }
+    const willOpen = panel.classList.contains('hide');
+    panel.classList.toggle('hide', !willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    try {
+        localStorage.setItem('st_assets_scope_filters_open', willOpen ? '1' : '0');
+    } catch (_e) {}
+    stAssetsUpdateScopeDisclosureButtonLabel();
+}
+
+function stAssetsOnScopeFilterChange() {
+    stAssetsUpdateScopeDisclosureButtonLabel();
+    stAssetsSyncScopeDisclosureState();
+    void loadAssets(1);
+}
+
+function stAssetsExpandFilterPanel(which, doScroll) {
+    if (which === 'ai') {
+        if (!window.__stAiFiltersToolbarAvailable) {
+            return;
+        }
+        const wrap = document.getElementById('af-ai-filters-wrap');
+        const panel = document.getElementById('af-ai-filters-panel');
+        const btn = document.getElementById('af-ai-filters-disclosure-btn');
+        if (!panel || !btn) {
+            return;
+        }
+        if (wrap) {
+            wrap.style.display = '';
+        }
+        panel.classList.remove('hide');
+        btn.setAttribute('aria-expanded', 'true');
+        try {
+            localStorage.setItem('st_assets_ai_filters_open', '1');
+        } catch (_e) {}
+        stAssetsUpdateAiFiltersButtonLabel();
+        if (doScroll && wrap) {
+            wrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        return;
+    }
+    if (which === 'zbx') {
+        if (!window.__stAssetsZabbixFiltersAvailable) {
+            return;
+        }
+        const sec = document.getElementById('af-zbx-section');
+        const panel = document.getElementById('af-zbx-panel');
+        const btn = document.getElementById('af-zbx-disclosure-btn');
+        if (!panel || !btn) {
+            return;
+        }
+        if (sec) {
+            sec.style.display = '';
+        }
+        panel.classList.remove('hide');
+        btn.setAttribute('aria-expanded', 'true');
+        try {
+            localStorage.setItem('st_assets_zbx_filters_open', '1');
+        } catch (_e) {}
+        stAssetsUpdateZabbixDisclosureButtonLabel();
+        if (doScroll && sec) {
+            sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        return;
+    }
+    if (which === 'scope') {
+        const btn = document.getElementById('af-scope-disclosure-btn');
+        const panel = document.getElementById('af-scope-panel');
+        if (!btn || btn.disabled || !panel) {
+            return;
+        }
+        panel.classList.remove('hide');
+        btn.setAttribute('aria-expanded', 'true');
+        try {
+            localStorage.setItem('st_assets_scope_filters_open', '1');
+        } catch (_e) {}
+        stAssetsUpdateScopeDisclosureButtonLabel();
+        if (doScroll) {
+            document.getElementById('af-scope-section')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+}
+
+function stAssetsSummarySegmentClick(which) {
+    const w = String(which || '');
+    if (w !== 'ai' && w !== 'zbx' && w !== 'scope') {
+        return;
+    }
+    stAssetsExpandFilterPanel(w, true);
+}
+
+function stAssetsRenderFilterSummary() {
+    const bar = document.getElementById('af-filter-summary-bar');
+    if (!bar) {
+        return;
+    }
+    const parts = [];
+    const sf = document.getElementById('af-scope-filter');
+    const scopeOn = window.__stAssetsScopeColumn && sf && sf.style.display !== 'none' && sf.value !== '';
+    if (scopeOn) {
+        const opt = sf.options[sf.selectedIndex];
+        const raw = opt ? String(opt.textContent || '').trim() : '';
+        const nameOnly = raw.replace(/\s*\([^)]*\)\s*$/, '').trim() || raw || 'Scope';
+        parts.push({ key: 'scope', label: 'Scope=' + nameOnly.slice(0, 48) });
+    }
+    if (window.__stAiNeedsReviewFilterAvailable && document.getElementById('af-ai-review')?.checked) {
+        parts.push({ key: 'ai', label: 'Needs AI review' });
+    }
+    if (window.__stAiSummaryFilterAvailable && document.getElementById('af-ai-summary')?.checked) {
+        parts.push({ key: 'ai', label: 'Has host summary' });
+    }
+    if (window.__stAssetsZabbixFiltersAvailable && stAssetsZabbixFilterActiveDims() > 0) {
+        parts.push({ key: 'zbx', label: stAssetsZabbixFilterSummaryLabel() });
+    }
+    let html = '<span class="af-sum-lbl">Showing:</span> ';
+    if (assetDeviceFilter > 0) {
+        html += '<span class="af-sum-seg af-sum-seg--dim">Device #' + esc(String(assetDeviceFilter)) + '</span>';
+    }
+    if (!parts.length) {
+        if (assetDeviceFilter > 0) {
+            html += ' <span class="text-dim">·</span> <span class="text-dim">no extra list filters</span>';
+        } else {
+            html += '<span class="text-dim">no extra list filters</span>';
+        }
+    } else {
+        if (assetDeviceFilter > 0) {
+            html += ' <span class="text-dim">·</span> ';
+        }
+        for (let i = 0; i < parts.length; i++) {
+            if (i) {
+                html += ' <span class="text-dim">·</span> ';
+            }
+            const p = parts[i];
+            const segKey = p.key === 'scope' || p.key === 'zbx' || p.key === 'ai' ? p.key : 'ai';
+            html += '<button type="button" class="af-sum-seg" onclick="stAssetsSummarySegmentClick(\'' + segKey + '\')">' + esc(p.label) + '</button>';
+        }
+    }
+    bar.innerHTML = html;
+}
+
 function stAssetsFillScopeFilter(d) {
     const sel = document.getElementById('af-scope-filter');
+    const hint = document.getElementById('af-scope-unavailable-hint');
+    const btn = document.getElementById('af-scope-disclosure-btn');
     if (!sel) {
         return;
     }
     if (!d || !d.assets_scope_column || !Array.isArray(d.asset_scope_filter_options)) {
-        sel.style.display = 'none';
         sel.innerHTML = '<option value="">All scopes</option>';
+        sel.value = '';
+        sel.style.display = 'none';
+        if (hint) {
+            hint.classList.remove('hide');
+        }
+        if (btn) {
+            btn.disabled = true;
+            btn.setAttribute('aria-disabled', 'true');
+            btn.title = 'Inventory scope filter requires the assets.scope_id column and scope catalog (migrations / Scopes tab).';
+        }
+        const panel = document.getElementById('af-scope-panel');
+        if (panel) {
+            panel.classList.add('hide');
+        }
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'false');
+        }
+        try {
+            localStorage.removeItem('st_assets_scope_filters_open');
+        } catch (_e) {}
+        stAssetsUpdateScopeDisclosureButtonLabel();
         return;
+    }
+    if (hint) {
+        hint.classList.add('hide');
+    }
+    if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute('aria-disabled');
+        btn.title = 'Filter by inventory scope (assets.scope_id). Distinct from Reports job scope.';
     }
     const prev = sel.value;
     sel.innerHTML = '<option value="">All scopes</option>';
@@ -5000,33 +5267,8 @@ function stAssetsFillScopeFilter(d) {
         sel.value = '';
     }
     sel.style.display = '';
-}
-
-function stAssetsUpdateFilterHint() {
-    const el = document.getElementById('af-filter-active-note');
-    if (!el) {
-        return;
-    }
-    const bits = [];
-    if (window.__stAiNeedsReviewFilterAvailable && document.getElementById('af-ai-review')?.checked) {
-        bits.push('Needs AI review');
-    }
-    if (window.__stAiSummaryFilterAvailable && document.getElementById('af-ai-summary')?.checked) {
-        bits.push('Has host summary');
-    }
-    const sf = document.getElementById('af-scope-filter');
-    if (sf && sf.style.display !== 'none' && sf.value !== '') {
-        const opt = sf.options[sf.selectedIndex];
-        const lab = opt ? String(opt.textContent || '').trim() : '';
-        bits.push(lab ? 'Scope: ' + lab : 'Scope filter');
-    }
-    if (!bits.length) {
-        el.style.display = 'none';
-        el.textContent = '';
-        return;
-    }
-    el.style.display = '';
-    el.textContent = 'Showing: ' + bits.join(' · ');
+    stAssetsSyncScopeDisclosureState();
+    stAssetsUpdateScopeDisclosureButtonLabel();
 }
 
 async function loadAssets(page) {
@@ -5145,7 +5387,7 @@ async function loadAssets(page) {
     document.getElementById('aprev').disabled = page <= 1;
     document.getElementById('anext').disabled = page >= d.pages;
     stAssetsUpdateBulkBarVisibility();
-    stAssetsUpdateFilterHint();
+    stAssetsRenderFilterSummary();
 }
 
 // --------------------------------------------------------------------------

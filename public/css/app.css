@@ -201,6 +201,12 @@ body.light-mode .life-retired{background:#fee2e2;color:#7f1d1d}
 
 /* Filter bar */
 .fbar{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+/* Assets tab — unified filter summary (Pass 1) */
+.af-filter-summary{line-height:1.45;color:var(--tx2)}
+.af-filter-summary .af-sum-lbl{color:var(--tx3);font-weight:600;margin-right:6px}
+.af-sum-seg{margin:0 1px;padding:2px 4px;border:none;background:none;color:var(--acc);font:inherit;font-size:inherit;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px;border-radius:4px}
+.af-sum-seg:hover{color:var(--tx);background:var(--adim2)}
+.af-sum-seg:disabled,.af-sum-seg.af-sum-seg--dim{color:var(--tx3);cursor:default;text-decoration:none;font-weight:500;background:transparent}
 .finp{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--radius);padding:8px 11px;color:var(--tx);font-family:var(--sf);font-size:14px;outline:none;transition:border-color .12s, box-shadow .12s}
 .finp:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(23,135,251,.22)}
 body.light-mode .finp:focus{box-shadow:0 0 0 2px rgba(0,111,255,.18)}
