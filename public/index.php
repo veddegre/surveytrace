@@ -254,6 +254,9 @@ if (is_readable($dbProbe)) {
       <option value="stale">Stale</option>
       <option value="retired">Retired</option>
     </select>
+    <select class="finp narrow" id="af-scope-filter" onchange="loadAssets(1)" style="display:none" title="Filter by inventory scope (assets.scope_id). Distinct from Reports job scope.">
+      <option value="">All scopes</option>
+    </select>
     <select class="finp narrow" id="af-sort" onchange="loadAssets(1)">
       <option value="ip">Sort: IP</option><option value="device_id">Sort: Device ID</option>
       <option value="hostname">Hostname</option>
@@ -262,7 +265,7 @@ if (is_readable($dbProbe)) {
       <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
       <option value="scope_name">Sort: Scope</option>
     </select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)" title="Show assets that may need attention: AI suggestion differs from category, AI not applied, AI confidence under 0.85, AI reason text, or identity confidence under 0.75.">
       <input type="checkbox" id="af-ai-review" onchange="loadAssets(1)">
       AI review
     </label>
@@ -270,7 +273,8 @@ if (is_readable($dbProbe)) {
       <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
       <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     </span>
-    <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, and device filter">Clear filters</button>
+    <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI review, and Zabbix filters">Clear filters</button>
+    <span id="af-filter-active-note" class="text-micro text-dim" style="display:none;flex-basis:100%" aria-live="polite"></span>
   </div>
   <div id="af-zbx-section" class="mb8" style="display:none">
     <div class="row-wrap gap10" style="align-items:center;flex-wrap:wrap">
@@ -4110,6 +4114,8 @@ function clearAllAssetFilters() {
     if (cat) cat.value = '';
     if (sev) sev.value = '';
     if (life) life.value = '';
+    const scf = document.getElementById('af-scope-filter');
+    if (scf) scf.value = '';
     if (srt) srt.value = 'ip';
     if (aiq) aiq.checked = false;
     if (zm) zm.value = '';
@@ -4129,6 +4135,7 @@ function clearAllAssetFilters() {
         localStorage.setItem('st_assets_zbx_filters_open', '0');
     } catch (_e) {}
     stAssetsUpdateZabbixFilterPill();
+    stAssetsUpdateFilterHint();
     assetSort = 'ip';
     assetOrder = 'asc';
     assetDeviceFilter = 0;
@@ -4766,6 +4773,74 @@ async function stScopesDelete(scopeId, scopeName) {
     }
 }
 
+function stAssetsFillScopeFilter(d) {
+    const sel = document.getElementById('af-scope-filter');
+    if (!sel) {
+        return;
+    }
+    if (!d || !d.assets_scope_column || !Array.isArray(d.asset_scope_filter_options)) {
+        sel.style.display = 'none';
+        sel.innerHTML = '<option value="">All scopes</option>';
+        return;
+    }
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">All scopes</option>';
+    const un = d.unscoped_asset_count != null ? Number(d.unscoped_asset_count) : 0;
+    const o0 = document.createElement('option');
+    o0.value = '0';
+    o0.textContent = 'Unscoped (' + String(un) + ')';
+    sel.appendChild(o0);
+    (d.asset_scope_filter_options || []).forEach((s) => {
+        const id = parseInt(String(s.id || '0'), 10);
+        if (!id) {
+            return;
+        }
+        const op = document.createElement('option');
+        op.value = String(id);
+        const nm = String(s.name || 'Scope #' + id).slice(0, 80);
+        const c = s.asset_count != null ? Number(s.asset_count) : 0;
+        op.textContent = nm + ' (' + String(c) + ')';
+        sel.appendChild(op);
+    });
+    const ok = new Set(['', '0']);
+    (d.asset_scope_filter_options || []).forEach((s) => {
+        const id = parseInt(String(s.id || '0'), 10);
+        if (id > 0) {
+            ok.add(String(id));
+        }
+    });
+    if (prev && ok.has(prev)) {
+        sel.value = prev;
+    } else {
+        sel.value = '';
+    }
+    sel.style.display = '';
+}
+
+function stAssetsUpdateFilterHint() {
+    const el = document.getElementById('af-filter-active-note');
+    if (!el) {
+        return;
+    }
+    const bits = [];
+    if (document.getElementById('af-ai-review')?.checked) {
+        bits.push('AI review');
+    }
+    const sf = document.getElementById('af-scope-filter');
+    if (sf && sf.style.display !== 'none' && sf.value !== '') {
+        const opt = sf.options[sf.selectedIndex];
+        const lab = opt ? String(opt.textContent || '').trim() : '';
+        bits.push(lab ? 'Scope: ' + lab : 'Scope filter');
+    }
+    if (!bits.length) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    el.style.display = '';
+    el.textContent = 'Showing: ' + bits.join(' · ');
+}
+
 async function loadAssets(page) {
     refreshBadges();
     assetPage = page;
@@ -4812,7 +4887,11 @@ async function loadAssets(page) {
     const aiQ = aiReview ? '&ai_review=1' : '';
     const life = document.getElementById('af-life')?.value || '';
     const lifeQ = life ? `&lifecycle_status=${enc(life)}` : '';
-    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}${zbxQ}`;
+    const sfEl = document.getElementById('af-scope-filter');
+    const scopeQ = (window.__stAssetsScopeColumn && sfEl && sfEl.style.display !== 'none' && sfEl.value !== '')
+        ? `&scope_id=${encodeURIComponent(sfEl.value)}`
+        : '';
+    const url = `/api/assets.php?page=${page}&per_page=50&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&sort=${sort}&order=${assetOrder}${devQ}${aiQ}${lifeQ}${scopeQ}${zbxQ}`;
     const d   = await api(url);
     if (!d) return;
 
@@ -4821,6 +4900,7 @@ async function loadAssets(page) {
     try {
         window.__stAssetsScopeColumn = !!d.assets_scope_column;
     } catch (_e) {}
+    stAssetsFillScopeFilter(d);
     const headChk = document.getElementById('af-select-all');
     if (headChk) {
         headChk.checked = false;
@@ -4874,6 +4954,7 @@ async function loadAssets(page) {
     document.getElementById('aprev').disabled = page <= 1;
     document.getElementById('anext').disabled = page >= d.pages;
     stAssetsUpdateBulkBarVisibility();
+    stAssetsUpdateFilterHint();
 }
 
 // --------------------------------------------------------------------------
@@ -15134,7 +15215,13 @@ function exportAssets(format) {
         if (zGr) zbxQ += `&zabbix_group=${enc(zGr)}`;
         if (zTg) zbxQ += `&zabbix_tag=${enc(zTg)}`;
     }
-    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${zbxQ}`;
+    const aiRev = !!document.getElementById('af-ai-review')?.checked;
+    const aiQ = aiRev ? '&ai_review=1' : '';
+    const sfE = document.getElementById('af-scope-filter');
+    const scopeQ = (window.__stAssetsScopeColumn && sfE && sfE.style.display !== 'none' && sfE.value !== '')
+        ? `&scope_id=${encodeURIComponent(sfE.value)}`
+        : '';
+    const url  = `/api/export.php?format=${format}&q=${enc(q)}&category=${enc(cat)}&severity=${enc(sev)}&findings=${incf}${devQ}${lifeQ}${aiQ}${scopeQ}${zbxQ}`;
     // Trigger download
     const a = document.createElement('a');
     a.href = url;

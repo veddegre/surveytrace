@@ -18,6 +18,8 @@
  *   new_only   — "1" = only assets first seen in last 24h
  *   device_id  — if > 0, only assets for this logical device
  *   lifecycle_status — active|stale|retired (optional)
+ *   scope_id   — optional inventory scope filter (requires assets.scope_id + scan_scopes): omit = all, 0 = unscoped only, N = assets with scope_id = N (invalid/deleted N ignored)
+ *   ai_review  — "1" = only assets that likely need AI/identity review (AI suggestion vs category, unapplied AI, low AI confidence, AI reason text, or low identity_confidence)
  *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings|zabbix_problem_count|scope_name (default: ip)
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
@@ -679,7 +681,36 @@ if ($new_only) {
     $where[]          = "a.first_seen >= datetime('now', '-1 day')";
 }
 if ($ai_review) {
-    $where[] = "(COALESCE(a.ai_last_attempted,0)=1 AND (COALESCE(a.ai_last_applied,0)=1 OR COALESCE(a.ai_last_confidence,0) < 0.80))";
+    // Meaningful "needs review": AI mismatch / not applied / low confidence, operator AI reason, or weak identity confidence.
+    $where[] = '('
+        . '(COALESCE(a.ai_last_attempted,0)=1 AND ('
+        . 'COALESCE(a.ai_last_applied,0)=0 '
+        . 'OR COALESCE(a.ai_last_confidence,0) < 0.85 '
+        . 'OR (TRIM(COALESCE(a.ai_last_suggested_category,\'\')) != \'\' '
+        . "AND LOWER(TRIM(COALESCE(a.ai_last_suggested_category,''))) != LOWER(TRIM(COALESCE(a.category,''))))"
+        . ')) '
+        . "OR TRIM(COALESCE(a.ai_last_reason,'')) != '' "
+        . 'OR (a.identity_confidence IS NOT NULL AND a.identity_confidence < 0.75)'
+        . ')';
+}
+
+if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes') && isset($_GET['scope_id'])) {
+    $sr = trim((string) $_GET['scope_id']);
+    if ($sr !== '') {
+        if ($sr === '0' || strcasecmp($sr, 'unscoped') === 0) {
+            $where[] = '(a.scope_id IS NULL OR a.scope_id = 0)';
+        } else {
+            $sid = (int) $sr;
+            if ($sid > 0) {
+                $chk = $db->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
+                $chk->execute([$sid]);
+                if ($chk->fetchColumn()) {
+                    $where[] = 'a.scope_id = :st_asset_scope_f';
+                    $params[':st_asset_scope_f'] = $sid;
+                }
+            }
+        }
+    }
 }
 
 $device_filter = st_int('device_id', 0, 0, PHP_INT_MAX);
@@ -821,6 +852,31 @@ $stmt->bindValue(':off', $offset,   PDO::PARAM_INT);
 $stmt->execute();
 $rows = array_map('decode_asset', $stmt->fetchAll());
 
+$asset_scope_filter_options = [];
+$unscoped_asset_count = null;
+if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes')) {
+    try {
+        $unscoped_asset_count = (int) $db->query('SELECT COUNT(*) FROM assets WHERE scope_id IS NULL OR scope_id = 0')->fetchColumn();
+        $rq = $db->query(
+            'SELECT sc.id, sc.name, COUNT(a.id) AS cnt FROM scan_scopes sc '
+            . 'LEFT JOIN assets a ON a.scope_id = sc.id GROUP BY sc.id ORDER BY LOWER(sc.name)'
+        );
+        foreach ($rq ? $rq->fetchAll(PDO::FETCH_ASSOC) : [] as $rx) {
+            if (! is_array($rx)) {
+                continue;
+            }
+            $asset_scope_filter_options[] = [
+                'id' => (int) ($rx['id'] ?? 0),
+                'name' => trim((string) ($rx['name'] ?? '')),
+                'asset_count' => (int) ($rx['cnt'] ?? 0),
+            ];
+        }
+    } catch (Throwable $e) {
+        $asset_scope_filter_options = [];
+        $unscoped_asset_count = null;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Category breakdown counts (for UI filter badges)
 // ---------------------------------------------------------------------------
@@ -837,6 +893,12 @@ st_json([
     'assets'     => $rows,
     'zabbix_filters_available' => $zbxFilters,
     'assets_scope_column'      => st_assets_has_scope_id($db),
+    'asset_scope_filter_options' => (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes'))
+        ? $asset_scope_filter_options
+        : [],
+    'unscoped_asset_count' => (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes'))
+        ? $unscoped_asset_count
+        : null,
 ]);
 
 // ---------------------------------------------------------------------------

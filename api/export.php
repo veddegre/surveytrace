@@ -12,12 +12,15 @@
  *   device_id — if > 0, only assets for this logical device
  *   lifecycle_status — active|stale|retired (optional; Phase 12)
  *   zabbix_monitored — ''|0|1, zabbix_unavailable=1, zabbix_has_problems=1, zabbix_group, zabbix_tag (Phase 16.2; when migrations applied)
+ *   scope_id — optional: same semantics as GET /api/assets.php (inventory scope on assets)
+ *   ai_review — "1" — same semantics as GET /api/assets.php
  *
  * CSV/JSON include Phase 12 lifecycle and business-context columns on asset rows.
  */
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
+require_once __DIR__ . '/lib_scan_scopes.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 st_method('GET');
@@ -80,6 +83,39 @@ $lifecycle_status = st_str('lifecycle_status', '', ['', 'active', 'stale', 'reti
 if ($lifecycle_status !== '') {
     $where[]          = "COALESCE(a.lifecycle_status,'active') = :lfs";
     $params[':lfs']   = $lifecycle_status;
+}
+
+$ai_review = st_str('ai_review') === '1';
+if ($ai_review) {
+    $where[] = '('
+        . '(COALESCE(a.ai_last_attempted,0)=1 AND ('
+        . 'COALESCE(a.ai_last_applied,0)=0 '
+        . 'OR COALESCE(a.ai_last_confidence,0) < 0.85 '
+        . 'OR (TRIM(COALESCE(a.ai_last_suggested_category,\'\')) != \'\' '
+        . "AND LOWER(TRIM(COALESCE(a.ai_last_suggested_category,''))) != LOWER(TRIM(COALESCE(a.category,''))))"
+        . ')) '
+        . "OR TRIM(COALESCE(a.ai_last_reason,'')) != '' "
+        . 'OR (a.identity_confidence IS NOT NULL AND a.identity_confidence < 0.75)'
+        . ')';
+}
+
+if (st_assets_has_scope_id($db) && st_sqlite_table_exists($db, 'scan_scopes') && isset($_GET['scope_id'])) {
+    $sr = trim((string) $_GET['scope_id']);
+    if ($sr !== '') {
+        if ($sr === '0' || strcasecmp($sr, 'unscoped') === 0) {
+            $where[] = '(a.scope_id IS NULL OR a.scope_id = 0)';
+        } else {
+            $sid = (int) $sr;
+            if ($sid > 0) {
+                $chk = $db->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
+                $chk->execute([$sid]);
+                if ($chk->fetchColumn()) {
+                    $where[] = 'a.scope_id = :st_export_scope_f';
+                    $params[':st_export_scope_f'] = $sid;
+                }
+            }
+        }
+    }
 }
 
 $zbxFilters = st_zabbix_filters_available_for_assets($db);
