@@ -2008,6 +2008,7 @@ if (!headers_sent()) {
       <button type="button" class="modal-close-x" onclick="closeStAssetScopeModal()" title="Close" aria-label="Close">×</button>
     </div>
     <p class="hint-micro mb6 mono-sm" id="st-asset-scope-ip"></p>
+    <p class="hint-micro mb8 text-dim" id="st-asset-scope-count-hint" style="display:none">Applying to 1 asset.</p>
     <div class="hint-micro mb10 text-dim" id="st-asset-scope-summary" style="line-height:1.45"></div>
     <label class="flbl" for="st-asset-scope-sel" title="Inventory tag on this host. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
     <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
@@ -4757,6 +4758,10 @@ function closeStAssetScopeModal() {
     if (sum) {
         sum.textContent = '';
     }
+    const cntHint = document.getElementById('st-asset-scope-count-hint');
+    if (cntHint) {
+        cntHint.style.display = 'none';
+    }
 }
 
 function stAssetScopeLabelForId(scopeId) {
@@ -4782,9 +4787,22 @@ function stAssetScopeModalSyncLabels() {
         '<strong>Current scope:</strong> ' + esc(curL) + '<br><strong>Target scope:</strong> ' + esc(tgt);
 }
 
-async function openStAssetScopeModal(assetId, ip, currentScopeId) {
+/**
+ * Single-asset inventory scope modal (Host detail, etc.). Uses `dataset.assetId` / `dataset.ip`;
+ * submit sends `asset_ids: [id]` to `set_scope_bulk` — not table selection.
+ * @param {number|string} assetId
+ * @param {string} ip
+ * @param {number|string} currentScopeId
+ * @param {{ singleAssetHint?: boolean }} [opts]
+ */
+async function openStAssetScopeModal(assetId, ip, currentScopeId, opts) {
     if (!stRoleCanManageScans()) {
         toast('Scan editor or admin role required.', 'err');
+        return;
+    }
+    const aid = parseInt(String(assetId != null ? assetId : '0'), 10) || 0;
+    if (aid <= 0) {
+        toast('Invalid asset.', 'err');
         return;
     }
     await ensureStScopeSelects(false);
@@ -4800,9 +4818,9 @@ async function openStAssetScopeModal(assetId, ip, currentScopeId) {
         errEl.style.display = 'none';
     }
     if (ipEl) {
-        ipEl.textContent = 'Asset #' + assetId + ' · ' + String(ip || '');
+        ipEl.textContent = 'Asset #' + aid + ' · ' + String(ip || '');
     }
-    bg.dataset.assetId = String(assetId);
+    bg.dataset.assetId = String(aid);
     bg.dataset.ip = String(ip || '');
     stAssetPopulateScopeSelect(sel, { chooseLabel: '— none (clear scope) —' });
     const cur = parseInt(String(currentScopeId != null ? currentScopeId : 0), 10) || 0;
@@ -4812,6 +4830,10 @@ async function openStAssetScopeModal(assetId, ip, currentScopeId) {
     const ck = document.getElementById('st-asset-scope-confirm');
     if (ck) {
         ck.checked = false;
+    }
+    const cntHint = document.getElementById('st-asset-scope-count-hint');
+    if (cntHint) {
+        cntHint.style.display = opts && opts.singleAssetHint ? '' : 'none';
     }
     bg.style.display = 'flex';
 }
@@ -15748,7 +15770,7 @@ async function openHostPanel(id, ip) {
           <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Logical device overview">${esc(String(a.device_id))}</span>` : '—'}</td></tr>
           ${scopeAssignable ? `<tr><td class="hp-meta-key">Scope</td><td class="hp-meta-val-dim">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}${
               stRoleCanManageScans()
-                  ? ` <button type="button" class="tbtn btn-xs" onclick="void openStAssetScopeModal(${id},${JSON.stringify(String(a.ip || ''))},${(a.scope_id != null && a.scope_id !== '') ? Number(a.scope_id) : 0})">Change scope</button>`
+                  ? ` <button type="button" class="tbtn btn-xs" onclick='void openStAssetScopeModal(${id},${JSON.stringify(String(a.ip || ''))},${(a.scope_id != null && a.scope_id !== '') ? Number(a.scope_id) : 0},{ singleAssetHint: true })'>Change scope</button>`
                   : ''
           }</td></tr>` : ''}
           <tr><td class="hp-meta-key">MAC</td><td class="hp-meta-val">
