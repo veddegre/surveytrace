@@ -788,6 +788,59 @@ function st_zabbix_availability_label(mixed $code): string
 }
 
 /**
+ * @param array<string,mixed> $host
+ * @param list<array<string,mixed>> $ifaces
+ * @return list<int>
+ */
+function st_zabbix_collect_availability_codes(array $host, array $ifaces): array
+{
+    $codes = [];
+    $pushCode = static function (mixed $v) use (&$codes): void {
+        if ($v === null || $v === '') {
+            return;
+        }
+        if (! is_numeric($v)) {
+            return;
+        }
+        $i = (int) $v;
+        if ($i < 0 || $i > 2) {
+            return;
+        }
+        $codes[] = $i;
+    };
+    foreach (['available', 'active_available', 'jmx_available', 'ipmi_available', 'snmp_available'] as $k) {
+        if (array_key_exists($k, $host)) {
+            $pushCode($host[$k]);
+        }
+    }
+    foreach ($ifaces as $iface) {
+        if (! is_array($iface)) {
+            continue;
+        }
+        if (array_key_exists('available', $iface)) {
+            $pushCode($iface['available']);
+        }
+    }
+
+    return $codes;
+}
+
+/**
+ * @param list<int> $codes
+ */
+function st_zabbix_availability_label_from_codes(array $codes): string
+{
+    if (in_array(2, $codes, true)) {
+        return 'unavailable';
+    }
+    if (in_array(1, $codes, true)) {
+        return 'available';
+    }
+
+    return 'unknown';
+}
+
+/**
  * Single display string for UI / APIs: Zabbix visible (name) when set, else technical host, else hostid.
  */
 function st_zabbix_host_display_name(string $visibleName, string $techName, string $hostid): string
@@ -1013,9 +1066,9 @@ function st_zabbix_run_full_sync(PDO $pdo): array
     }
     $apiUrl = st_zabbix_normalize_api_url($url);
     try {
-        $hosts = st_zabbix_jsonrpc($apiUrl, $tok, 'host.get', [
-            'output' => ['hostid', 'host', 'name', 'status', 'available'],
-            'selectInterfaces' => ['interfaceid', 'ip', 'dns', 'port', 'type', 'main', 'useip', 'macaddress'],
+        $hostGetParams = [
+            'output' => ['hostid', 'host', 'name', 'status', 'available', 'active_available', 'jmx_available', 'ipmi_available', 'snmp_available'],
+            'selectInterfaces' => ['interfaceid', 'ip', 'dns', 'port', 'type', 'main', 'useip', 'macaddress', 'available'],
             // Zabbix 6.x: `groups`; Zabbix 7+: prefer `selectHostGroups` → `hostgroups` (`selectGroups` is deprecated).
             'selectGroups' => ['groupid', 'name'],
             'selectHostGroups' => ['groupid', 'name'],
@@ -1024,7 +1077,23 @@ function st_zabbix_run_full_sync(PDO $pdo): array
             'selectInventory' => 'extend',
             'limit' => ST_ZABBIX_SYNC_HOST_LIMIT,
             'sortfield' => 'hostid',
-        ], ST_ZABBIX_HTTP_TIMEOUT_SEC);
+        ];
+        try {
+            $hosts = st_zabbix_jsonrpc($apiUrl, $tok, 'host.get', $hostGetParams, ST_ZABBIX_HTTP_TIMEOUT_SEC);
+        } catch (Throwable $e) {
+            // Fallback for API versions that reject one or more availability fields in output/selectInterfaces.
+            $hosts = st_zabbix_jsonrpc($apiUrl, $tok, 'host.get', [
+                'output' => ['hostid', 'host', 'name', 'status', 'available'],
+                'selectInterfaces' => ['interfaceid', 'ip', 'dns', 'port', 'type', 'main', 'useip', 'macaddress'],
+                'selectGroups' => ['groupid', 'name'],
+                'selectHostGroups' => ['groupid', 'name'],
+                'selectParentTemplates' => ['templateid', 'name'],
+                'selectTags' => ['tag', 'value'],
+                'selectInventory' => 'extend',
+                'limit' => ST_ZABBIX_SYNC_HOST_LIMIT,
+                'sortfield' => 'hostid',
+            ], ST_ZABBIX_HTTP_TIMEOUT_SEC);
+        }
         if (! is_array($hosts)) {
             $hosts = [];
         }
@@ -1067,11 +1136,30 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                     $vis = $tech;
                 }
                 $monitored = ((int) ($h['status'] ?? 1)) === 0 ? 1 : 0;
-                $avail = st_zabbix_availability_label($h['available'] ?? 0);
                 // Keep host + name in status_raw_json for repair if columns were ever blank; mirrors Zabbix host / name.
+                $ifaces = $h['interfaces'] ?? [];
+                if (! is_array($ifaces)) {
+                    $ifaces = [];
+                }
+                $availCodes = $monitored === 1
+                    ? st_zabbix_collect_availability_codes($h, $ifaces)
+                    : [];
+                $avail = $monitored === 1
+                    ? st_zabbix_availability_label_from_codes($availCodes)
+                    : 'unknown';
                 $statusJson = json_encode([
                     'status' => $h['status'] ?? null,
                     'available' => $h['available'] ?? null,
+                    'active_available' => $h['active_available'] ?? null,
+                    'jmx_available' => $h['jmx_available'] ?? null,
+                    'ipmi_available' => $h['ipmi_available'] ?? null,
+                    'snmp_available' => $h['snmp_available'] ?? null,
+                    'interface_available' => array_values(array_map(
+                        static fn ($x) => is_array($x) ? ($x['available'] ?? null) : null,
+                        $ifaces
+                    )),
+                    'availability_codes' => $availCodes,
+                    'availability_label' => $avail,
                     'host' => $h['host'] ?? null,
                     'name' => $h['name'] ?? null,
                 ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}';
@@ -1088,10 +1176,6 @@ function st_zabbix_run_full_sync(PDO $pdo): array
                 $tmpls = $h['parentTemplates'] ?? [];
                 if (! is_array($tmpls)) {
                     $tmpls = [];
-                }
-                $ifaces = $h['interfaces'] ?? [];
-                if (! is_array($ifaces)) {
-                    $ifaces = [];
                 }
                 $insHost->execute([
                     $hostid,
