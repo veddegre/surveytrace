@@ -2286,7 +2286,7 @@ if (!headers_sent()) {
       <div class="help-line mb6">Secret: <code class="code-accent" id="mfa-secret"></code></div>
       <div class="help-line mb8">Copy the setup link (or enter the secret manually), then type the 6-digit code to finish setup.</div>
       <div class="mb8">
-        <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--bd);padding:6px;background:#fff">
+        <img id="mfa-qr" src="" alt="MFA setup QR code" class="hide" style="width:160px;height:160px;border-radius:8px;border:1px solid var(--border);padding:6px;background:var(--card)">
       </div>
       <div id="mfa-qr-status" class="hint-micro mb8"></div>
       <div class="row-wrap mb8">
