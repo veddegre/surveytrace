@@ -714,6 +714,7 @@ if (!headers_sent()) {
     <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="queued" id="st-shsf-queued">Queued</button>
     <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="completed" id="st-shsf-completed">Completed</button>
     <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="failed" id="st-shsf-failed">Failed</button>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="aborted" id="st-shsf-aborted">Aborted</button>
   </div>
   <!-- Job queue — primary status view -->
   <div class="sth section-top">Job queue</div>
@@ -1081,34 +1082,78 @@ if (!headers_sent()) {
     </div>
   </div>
 
-  <div id="scan-hist-detail-bg" class="modal-bg z101">
-    <div class="modal-card modal-w760">
-      <div class="row-between mb10 gap10">
-        <div class="modal-title section-title-reset" id="scan-hist-detail-title">Scan detail</div>
-        <div class="row-wrap gap6" style="align-items:center">
-          <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
-          <button type="button" class="tbtn" id="scan-hist-detail-refresh-ai" style="display:none" onclick="void refreshScanHistAiSummary()">Refresh AI summary</button>
-          <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="scanHistoryPrimaryAction(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Move to trash</button>
-          <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
+  <div id="scan-hist-detail-bg" class="modal-bg z101" onclick="if(event.target===this)closeScanHistDetailModal(false)">
+    <div class="modal-card modal-w760 scan-hist-detail-card" role="dialog" aria-modal="true" aria-labelledby="scan-hist-detail-title" onclick="event.stopPropagation()">
+      <header class="scan-hist-detail-hd">
+        <div class="scan-hist-detail-hd-text">
+          <h2 id="scan-hist-detail-title" class="scan-hist-detail-title">Scan detail</h2>
+          <div id="scan-hist-detail-header-sub" class="scan-hist-detail-header-sub"></div>
         </div>
+        <button type="button" class="modal-close-x" onclick="closeScanHistDetailModal()" title="Close" aria-label="Close">×</button>
+      </header>
+      <div class="scan-hist-detail-body">
+        <div id="scan-hist-detail-stats" class="scan-hist-detail-stats" aria-label="Scan snapshot figures"></div>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-compare">
+          <h3 id="scan-hist-detail-sec-compare" class="scan-hist-detail-sec-title">Compare</h3>
+          <div class="scan-hist-detail-sec-body row-wrap gap6" style="align-items:center">
+            <label for="scan-hist-compare-select" class="text-micro text-dim">Against</label>
+            <select id="scan-hist-compare-select" class="finp narrow w130"></select>
+            <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-target"> same target</label>
+            <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
+            <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
+          </div>
+        </section>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-progress">
+          <h3 id="scan-hist-detail-sec-progress" class="scan-hist-detail-sec-title">Progress &amp; status</h3>
+          <div id="scan-hist-detail-progress" class="scan-hist-detail-panel scan-hist-detail-panel--muted"></div>
+        </section>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-summary">
+          <h3 id="scan-hist-detail-sec-summary" class="scan-hist-detail-sec-title">Summary</h3>
+          <details class="scan-hist-detail-disclosure" id="scan-hist-detail-summary-details">
+            <summary class="scan-hist-detail-disclosure-sum">Full summary snapshot <span class="text-dim">(collapsed by default)</span></summary>
+            <div id="scan-hist-detail-summary" class="scan-hist-detail-panel help-mono"></div>
+          </details>
+        </section>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-findings">
+          <h3 id="scan-hist-detail-sec-findings" class="scan-hist-detail-sec-title">Findings / drift</h3>
+          <div id="scan-hist-detail-diff" class="scan-hist-detail-panel help-mono"></div>
+        </section>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-assets">
+          <h3 id="scan-hist-detail-sec-assets" class="scan-hist-detail-sec-title">Assets discovered</h3>
+          <div class="tbl-wrap tbl-scan-hist scan-hist-detail-asset-wrap">
+            <table class="tbl scan-hist-detail-asset-tbl">
+              <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
+              <tbody id="scan-hist-detail-assets"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <p id="scan-hist-detail-assets-hint" class="hint-micro mt8 scan-hist-detail-assets-hint" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
+        </section>
+
+        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-logs">
+          <h3 id="scan-hist-detail-sec-logs" class="scan-hist-detail-sec-title">Logs / raw details</h3>
+          <details class="scan-hist-detail-disclosure" id="scan-hist-detail-log-details">
+            <summary class="scan-hist-detail-disclosure-sum">Show scan log tail &amp; raw fields</summary>
+            <div id="scan-hist-detail-log" class="scan-hist-detail-log-body"></div>
+          </details>
+        </section>
+
+        <section class="scan-hist-detail-sec scan-hist-detail-actions" aria-labelledby="scan-hist-detail-sec-actions">
+          <h3 id="scan-hist-detail-sec-actions" class="scan-hist-detail-sec-title">Actions</h3>
+          <div class="row-wrap gap6 scan-hist-detail-actions-inner">
+            <button type="button" class="tbtn" id="scan-hist-detail-rerun" style="display:none" onclick="rerunScanJob(parseInt(document.getElementById('scan-hist-detail-rerun').dataset.jobId||'0',10))">Re-run</button>
+            <button type="button" class="tbtn" id="scan-hist-detail-refresh-ai" style="display:none" onclick="void refreshScanHistAiSummary()">Refresh AI summary</button>
+            <button type="button" class="tbtn" id="scan-hist-detail-delete" style="display:none;color:var(--red)" onclick="scanHistoryPrimaryAction(parseInt(document.getElementById('scan-hist-detail-delete').dataset.jobId||'0',10))">Move to trash</button>
+            <button type="button" class="tbtn" id="scan-hist-detail-open-assets" onclick="stScanHistDetailGoAssets()">Open Assets</button>
+            <button type="button" class="tbtn" id="scan-hist-detail-open-report" onclick="stScanHistDetailGoReport()">Open Reports</button>
+            <button type="button" class="tbtn" onclick="closeScanHistDetailModal()">Close</button>
+          </div>
+        </section>
       </div>
-      <div id="scan-hist-detail-meta" class="status-text mb8"></div>
-      <div class="row-wrap gap6 mb8" style="align-items:center">
-        <label for="scan-hist-compare-select" class="text-micro" style="color:var(--tx3)">Compare against</label>
-        <select id="scan-hist-compare-select" class="finp narrow w130"></select>
-        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)"><input type="checkbox" id="scan-hist-compare-same-target"> same target</label>
-        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
-        <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
-      </div>
-      <div id="scan-hist-detail-summary" class="help-mono mb10"></div>
-      <div id="scan-hist-detail-diff" class="help-mono mb10"></div>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
-          <tbody id="scan-hist-detail-assets"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
-        </table>
-      </div>
-      <p id="scan-hist-detail-assets-hint" class="hint-micro mt8" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
     </div>
   </div>
 
@@ -6598,7 +6643,7 @@ function stFlushPendingScanHistoryFocus() {
 }
 
 function stScanHistChipClass(st) {
-    const s = String(st || '');
+    const s = String(st || '').toLowerCase();
     if (s === 'running') return 'scan-hist-chip scan-hist-chip--running';
     if (s === 'queued') return 'scan-hist-chip scan-hist-chip--queued';
     if (s === 'retrying') return 'scan-hist-chip scan-hist-chip--retrying';
@@ -6609,14 +6654,16 @@ function stScanHistChipClass(st) {
 }
 
 function stScanHistChipLabel(st) {
-    const s = String(st || '');
+    const s = String(st || '').toLowerCase();
     if (s === 'running') return '\u25b6 Running';
     if (s === 'retrying') return 'Retrying';
     if (s === 'queued') return 'Queued';
     if (s === 'done') return 'Completed';
     if (s === 'failed') return 'Failed';
     if (s === 'aborted') return 'Aborted';
-    return s || '\u2014';
+    const raw = String(st || '').trim();
+    if (!raw) return '\u2014';
+    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
 function stSyncScanHistStatusFilterButtons() {
@@ -6628,7 +6675,7 @@ function stSyncScanHistStatusFilterButtons() {
 }
 
 function stSetScanHistStatusFilter(mode) {
-    const ok = { all: 1, running: 1, queued: 1, completed: 1, failed: 1 };
+    const ok = { all: 1, running: 1, queued: 1, completed: 1, failed: 1, aborted: 1 };
     if (!ok[mode]) return;
     stScanHistStatusFilter = mode;
     stSyncScanHistStatusFilterButtons();
@@ -6649,7 +6696,7 @@ function stRenderQueuePanelFromCache() {
         pool = activeJobs.filter((j) => ['running', 'retrying'].includes(j.status));
     } else if (f === 'queued') {
         pool = activeJobs.filter((j) => j.status === 'queued');
-    } else if (f === 'completed' || f === 'failed') {
+    } else if (f === 'completed' || f === 'failed' || f === 'aborted') {
         pool = [];
     }
     pool.sort((a, b) => {
@@ -6768,9 +6815,11 @@ function stRenderCompletedScanHistFromCache() {
     if (f === 'running' || f === 'queued') {
         rows = [];
     } else if (f === 'completed') {
-        rows = rows.filter((j) => ['done', 'aborted'].includes(j.status));
+        rows = rows.filter((j) => String(j.status || '').toLowerCase() === 'done');
     } else if (f === 'failed') {
-        rows = rows.filter((j) => j.status === 'failed');
+        rows = rows.filter((j) => String(j.status || '').toLowerCase() === 'failed');
+    } else if (f === 'aborted') {
+        rows = rows.filter((j) => String(j.status || '').toLowerCase() === 'aborted');
     }
     rows.sort((a, b) => {
         const da = String(a.finished_at || a.created_at || '');
@@ -6783,6 +6832,8 @@ function stRenderCompletedScanHistFromCache() {
     let emptyMsg;
     if (q && !rows.length) {
         emptyMsg = 'No scans match this search.';
+    } else if (!rows.length && f === 'aborted') {
+        emptyMsg = 'No aborted scans in this list.';
     } else if (!rows.length && (f === 'running' || f === 'queued' || f === 'completed' || f === 'failed')) {
         emptyMsg = 'No matching jobs for this filter.';
     } else if (!rows.length) {
@@ -7449,28 +7500,144 @@ function renderCompareOptions(jobId, job, options, selectedCompareId, scope) {
     if (sameProfileEl) sameProfileEl.onchange = runCompare;
 }
 
+function stScanHistDetailGoAssets() {
+    closeScanHistDetailModal(false);
+    goTab('assets');
+    hiNav('nassets');
+}
+
+function stScanHistDetailGoReport() {
+    closeScanHistDetailModal(false);
+    goTab('report');
+    hiNav('nreport');
+}
+
+function stScanHistDetailCritHighFromSummary(summary) {
+    const o = summary && summary.open_findings_by_severity && typeof summary.open_findings_by_severity === 'object'
+        ? summary.open_findings_by_severity
+        : null;
+    if (!o) return '\u2014';
+    const c = Number(o.critical ?? 0) || 0;
+    const h = Number(o.high ?? 0) || 0;
+    return String(c + h);
+}
+
+function stScanHistDetailStatCardsHtml(j, summary) {
+    const assetsVal = String(j.hosts_found != null ? Number(j.hosts_found) : 0);
+    const assetsLabel = 'Assets found';
+    const openF = summary && summary.open_findings != null ? String(summary.open_findings) : '\u2014';
+    const critHi = stScanHistDetailCritHighFromSummary(summary);
+    const dur = fmtDuration(j.duration_secs || 0);
+    const src = j.collector_id ? String(j.collector_name || ('Collector #' + j.collector_id)) : 'Master';
+    return `<div class="scan-hist-detail-stat-grid">
+      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">${esc(assetsLabel)}</div><div class="scan-hist-detail-stat-val">${esc(assetsVal)}</div></div>
+      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Open findings</div><div class="scan-hist-detail-stat-val">${esc(openF)}</div></div>
+      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Critical + high</div><div class="scan-hist-detail-stat-val">${esc(critHi)}</div></div>
+      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Duration</div><div class="scan-hist-detail-stat-val">${esc(dur)}</div></div>
+      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Source</div><div class="scan-hist-detail-stat-val mono-sm">${esc(src)}</div></div>
+    </div>`;
+}
+
+function stScanHistDetailProgressHtml(j) {
+    const phases = Array.isArray(j.phases) && j.phases.length ? esc(j.phases.join(', ')) : '\u2014';
+    const scanned = j.hosts_scanned != null ? j.hosts_scanned : 0;
+    const found = j.hosts_found != null ? j.hosts_found : 0;
+    let err = '';
+    if (String(j.status || '').toLowerCase() === 'failed' && j.error_msg) {
+        err = `<div class="scan-hist-detail-callout scan-hist-detail-callout--err mt6"><strong>Error</strong> \u2014 ${esc(String(j.error_msg))}</div>`;
+    }
+    const trashed = j.deleted_at ? `<div class="text-micro text-dim mt4">Trashed ${esc(localTime(j.deleted_at))}</div>` : '';
+    const batch = Number(j.batch_total || 0) > 1
+        ? `<div class="text-micro text-dim mt4">Batch ${esc(String(j.batch_index || 0))} / ${esc(String(j.batch_total))}</div>`
+        : '';
+    return `<div class="scan-hist-detail-meta-grid text-micro">
+      <div><span class="text-dim">Profile</span> <span class="text-primary">${esc(String((j.profile || '').replace(/_/g, ' ') || '\u2014'))}</span></div>
+      <div><span class="text-dim">Mode</span> <span class="text-primary">${esc(String(j.scan_mode || '\u2014'))}</span></div>
+      <div><span class="text-dim">Hosts scanned</span> <b>${esc(String(scanned))}</b> <span class="text-dim">/</span> <span class="text-dim">found</span> <b>${esc(String(found))}</b></div>
+      <div><span class="text-dim">Phases run</span> <span class="mono-sm">${phases}</span></div>
+    </div>${batch}${trashed}${err}`;
+}
+
+function stScanHistDetailHeaderSubHtml(j) {
+    const chip = `<span class="${stScanHistChipClass(j.status)}">${esc(stScanHistChipLabel(j.status))}</span>`;
+    const tgt = `<span class="mono-sm">${esc(j.target_cidr || '\u2014')}</span>`;
+    let scopeLine = '';
+    if (j.scope_id != null && Number(j.scope_id) > 0) {
+        scopeLine = `<div class="scan-hist-detail-hd-row text-micro text-dim">Scope <span class="mono-sm">#${esc(String(j.scope_id))}</span></div>`;
+    }
+    const start = j.started_at ? esc(localTime(j.started_at)) : '\u2014';
+    const fin = j.finished_at ? esc(localTime(j.finished_at)) : '\u2014';
+    const times = `<div class="scan-hist-detail-hd-row text-micro"><span class="text-dim">Started</span> ${start} <span class="text-dim">\u00b7</span> <span class="text-dim">Finished</span> ${fin}</div>`;
+    return `<div class="scan-hist-detail-hd-id text-micro text-dim mono-sm">#${esc(String(j.id))}</div>
+      <div class="scan-hist-detail-hd-chips">${chip}</div>
+      <div class="scan-hist-detail-hd-row scan-hist-detail-hd-target"><span class="text-dim text-micro">Target</span> ${tgt}</div>
+      ${scopeLine}
+      ${times}`;
+}
+
+function stScanHistDetailLogHtml(j, logTail) {
+    const lines = Array.isArray(logTail) ? logTail : [];
+    const rows = lines.length
+        ? lines.map((r) => {
+            const ts = esc((r.ts || '').split(' ')[1] || r.ts || '');
+            const lv = esc(String(r.level || ''));
+            const ip = r.ip ? '<b>' + esc(String(r.ip)) + '</b> ' : '';
+            const m = esc(String(r.message || ''));
+            return `<tr><td class="mono font10 scan-hist-detail-log-ts">${ts}</td><td class="font10"><span class="scan-hist-detail-log-lv">${lv}</span></td><td class="font11 scan-hist-detail-log-msg">${ip}${m}</td></tr>`;
+        }).join('')
+        : `<tr><td colspan="3" class="loading scan-hist-empty">No log lines returned for this job.</td></tr>`;
+    const rawBits = {
+        phases: j.phases,
+        profile: j.profile,
+        scan_mode: j.scan_mode,
+        error_msg: j.error_msg || null,
+    };
+    let rawPre = '';
+    try {
+        const rawStr = JSON.stringify(rawBits, null, 2);
+        if (rawStr.length < 120000) {
+            rawPre = '<details class="scan-hist-detail-disclosure inner-log-raw mt8"><summary class="scan-hist-detail-disclosure-sum text-micro">Raw job fields (JSON)</summary><pre class="scan-hist-detail-raw-pre" tabindex="0">' + esc(rawStr) + '</pre></details>';
+        } else {
+            rawPre = '<p class="hint-micro text-dim mt6">Raw job JSON omitted (too large for inline display).</p>';
+        }
+    } catch (_e) {
+        rawPre = '';
+    }
+    return '<div class="tbl-wrap tbl-scan-hist"><table class="tbl scan-hist-detail-log-tbl"><thead><tr><th>Time</th><th>Lvl</th><th>Message</th></tr></thead><tbody>' + rows + '</tbody></table></div>' + rawPre;
+}
+
 async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', triedAutoCompare = false) {
     const bg = document.getElementById('scan-hist-detail-bg');
     const title = document.getElementById('scan-hist-detail-title');
-    const meta = document.getElementById('scan-hist-detail-meta');
+    const headerSub = document.getElementById('scan-hist-detail-header-sub');
+    const stats = document.getElementById('scan-hist-detail-stats');
+    const progress = document.getElementById('scan-hist-detail-progress');
     const sum = document.getElementById('scan-hist-detail-summary');
     const diff = document.getElementById('scan-hist-detail-diff');
     const tbody = document.getElementById('scan-hist-detail-assets');
-    if (!bg || !title || !meta || !sum || !diff || !tbody) return;
+    const logEl = document.getElementById('scan-hist-detail-log');
+    if (!bg || !title || !headerSub || !stats || !progress || !sum || !diff || !tbody || !logEl) return;
     // Modal is declared near tab markup; ensure it is attached to body so it
     // can render even when its original tab container is hidden.
     if (bg.parentElement !== document.body) {
         document.body.appendChild(bg);
     }
     bg.style.display = 'flex';
+    const sumDet = document.getElementById('scan-hist-detail-summary-details');
+    if (sumDet) sumDet.open = false;
+    const logDet = document.getElementById('scan-hist-detail-log-details');
+    if (logDet) logDet.open = false;
     const rerunBtn = document.getElementById('scan-hist-detail-rerun');
     if (rerunBtn) { rerunBtn.style.display = 'none'; rerunBtn.dataset.jobId = ''; }
     const delBtn = document.getElementById('scan-hist-detail-delete');
     if (delBtn) { delBtn.style.display = 'none'; delBtn.dataset.jobId = ''; delBtn.dataset.action = 'trash'; }
     const hint0 = document.getElementById('scan-hist-detail-assets-hint');
     if (hint0) hint0.style.display = 'none';
-    title.textContent = 'Scan #' + id + ' detail';
-    meta.textContent = 'Loading…';
+    title.textContent = 'Loading…';
+    headerSub.innerHTML = '';
+    stats.innerHTML = '';
+    progress.innerHTML = '';
+    logEl.innerHTML = '';
     sum.innerHTML = '';
     diff.innerHTML = '';
     tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
@@ -7479,16 +7646,21 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const scopeQ = '&compare_scope=' + encodeURIComponent(compareScope || 'any');
     const d = await api('/api/scan_history.php?id=' + encodeURIComponent(id) + cmpQ + scopeQ, {quiet:true});
     if (!d || !d.job) {
-        meta.textContent = 'Could not load scan details';
+        title.textContent = 'Scan detail';
+        headerSub.innerHTML = '<p class="text-dim">Could not load scan details.</p>';
+        stats.innerHTML = '';
+        progress.innerHTML = '';
+        logEl.innerHTML = '';
         tbody.innerHTML = '<tr><td colspan="6" class="loading">No data</td></tr>';
         return;
     }
 
     const j = d.job;
     const isTrashed = !!j.deleted_at;
+    const stNorm = String(j.status || '').toLowerCase();
     if (rerunBtn) {
         rerunBtn.dataset.jobId = String(j.id);
-        const showRerun = stRoleCanManageScans() && !isTrashed && ['done', 'aborted', 'failed'].includes(j.status);
+        const showRerun = stRoleCanManageScans() && !isTrashed && ['done', 'aborted', 'failed'].includes(stNorm);
         rerunBtn.style.display = showRerun ? '' : 'none';
     }
     if (delBtn) {
@@ -7496,25 +7668,19 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         delBtn.dataset.action = isTrashed ? (stRoleIsAdmin() ? 'purge' : 'restore') : 'trash';
         delBtn.textContent = isTrashed ? (stRoleIsAdmin() ? 'Delete permanently' : 'Restore') : 'Move to trash';
         delBtn.style.color = isTrashed && stRoleIsAdmin() ? 'var(--red)' : '';
-        delBtn.style.display = (stRoleCanManageScans() && ['done', 'aborted', 'failed'].includes(j.status)) ? '' : 'none';
+        delBtn.style.display = (stRoleCanManageScans() && ['done', 'aborted', 'failed'].includes(stNorm)) ? '' : 'none';
     }
     const aiRefBtn = document.getElementById('scan-hist-detail-refresh-ai');
     if (aiRefBtn) {
         aiRefBtn.dataset.jobId = String(j.id);
-        aiRefBtn.style.display = (!isTrashed && j.status === 'done' && stRoleCanManageScans()) ? '' : 'none';
+        aiRefBtn.style.display = (!isTrashed && stNorm === 'done' && stRoleCanManageScans()) ? '' : 'none';
     }
-    title.textContent = `Scan #${j.id} — ${j.label || 'Untitled run'}`;
-    const phasesRan = Array.isArray(j.phases) && j.phases.length ? j.phases.join(', ') : '—';
-    meta.innerHTML = `
-      Target: <span class="mono">${esc(j.target_cidr || '—')}</span>
-      &nbsp;|&nbsp; Status: <b>${esc(j.status || '—')}</b>
-      &nbsp;|&nbsp; Source: <b>${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</b>
-      &nbsp;|&nbsp; Started: ${esc(localTime(j.started_at))}
-      &nbsp;|&nbsp; Finished: ${esc(localTime(j.finished_at))}
-      &nbsp;|&nbsp; Duration: <b>${esc(fmtDuration(j.duration_secs || 0))}</b>
-      ${isTrashed ? `&nbsp;|&nbsp; Trashed: <b>${esc(localTime(j.deleted_at))}</b>` : ''}
-      <div style="margin-top:4px">Phases run: <span class="mono">${esc(phasesRan)}</span></div>
-    `;
+    const labelTrim = j.label != null && String(j.label).trim() ? String(j.label).trim() : '';
+    title.textContent = labelTrim || ('Scan #' + j.id);
+    headerSub.innerHTML = stScanHistDetailHeaderSubHtml(j);
+    stats.innerHTML = stScanHistDetailStatCardsHtml(j, j.summary);
+    progress.innerHTML = stScanHistDetailProgressHtml(j);
+    logEl.innerHTML = stScanHistDetailLogHtml(j, d.log_tail);
     renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
     sum.innerHTML = renderScanSummary(j.summary);
     diff.innerHTML = renderScanDiff(d.compare);
@@ -7531,11 +7697,11 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (!assets.length) {
         if (hint) hint.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent `last_scan_id` per asset.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="loading scan-hist-empty">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent <code class="code-accent">last_scan_id</code> per asset.</td></tr>';
         return;
     }
     if (hint) hint.style.display = 'block';
-    tbody.innerHTML = assets.map(a => {
+    tbody.innerHTML = assets.map((a) => {
         const ports = Array.isArray(a.open_ports) && a.open_ports.length
             ? a.open_ports.join(', ')
             : '—';
@@ -7543,13 +7709,14 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         const tip = did > 0 ? 'Open device #' + did : 'Open host at ' + (a.ip || '');
         const ipAttr = esc(String(a.ip || ''));
         const devAttr = did > 0 ? String(did) : 'null';
-        return `<tr class="scan-hist-asset-row" style="cursor:pointer" title="${esc(tip)}" data-asset-id="${a.id}" data-device-id="${devAttr}" data-ip="${ipAttr}">
-          <td class="mono">${esc(a.ip || '')}</td>
-          <td>${esc(a.hostname || '—')}</td>
+        const hn = esc(a.hostname || '—');
+        return `<tr class="scan-hist-asset-row scan-hist-detail-asset-row" style="cursor:pointer" title="${esc(tip)}" data-asset-id="${a.id}" data-device-id="${devAttr}" data-ip="${ipAttr}">
+          <td class="mono scan-hist-detail-asset-ip">${esc(a.ip || '')}</td>
+          <td class="scan-hist-detail-asset-host">${hn}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
-          <td class="mono" style="font-size:11px">${esc(ports)}</td>
-          <td class="mono" style="font-size:11px">${esc(a.top_cve || '—')}</td>
-          <td class="mono">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
+          <td class="mono scan-hist-detail-asset-muted font11">${esc(ports)}</td>
+          <td class="mono scan-hist-detail-asset-muted font11">${esc(a.top_cve || '—')}</td>
+          <td class="mono scan-hist-detail-asset-muted">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
         </tr>`;
     }).join('');
 }
