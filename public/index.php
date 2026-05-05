@@ -592,22 +592,22 @@ if (!headers_sent()) {
           <div>
             <div class="tl">Auto</div>
             <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
-    </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-auto" value="auto" checked>
+          </div>
+          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-auto" value="auto" checked aria-label="Discovery mode: Auto — ARP on same subnet, ping scan when routed"></label>
         </div>
         <div class="tr2">
           <div>
             <div class="tl">Routed</div>
             <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
           </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-routed" value="routed">
+          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-routed" value="routed" aria-label="Discovery mode: Routed — ICMP/TCP ping only, no ARP"></label>
         </div>
         <div class="tr2">
           <div>
             <div class="tl">Force (-Pn)</div>
             <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
           </div>
-          <input class="accent-radio" type="radio" name="scan_mode" id="sm-force" value="force">
+          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-force" value="force" aria-label="Discovery mode: Force (-Pn) — treat all targets as up"></label>
         </div>
       </div>
       <div class="card">
@@ -1392,7 +1392,7 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
           </div>
           <div id="zb-identity-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk" style="display:flex;align-items:flex-start;gap:8px">
+              <label class="text-micro zb-enrich-confirm-row chk chk-confirm-block" style="display:flex;align-items:flex-start;gap:8px">
                 <input type="checkbox" class="chk-input" id="zb-identity-confirm" style="margin-top:3px;flex-shrink:0">
             <span class="chk-label">I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.</span>
           </label>
@@ -1406,7 +1406,7 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
           </div>
           <div id="zb-apply-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk" style="display:flex;align-items:flex-start;gap:8px">
+              <label class="text-micro zb-enrich-confirm-row chk chk-confirm-block" style="display:flex;align-items:flex-start;gap:8px">
                 <input type="checkbox" class="chk-input" id="zb-apply-confirm" style="margin-top:3px;flex-shrink:0">
             <span class="chk-label">I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.</span>
           </label>
@@ -2223,7 +2223,7 @@ if (!headers_sent()) {
     <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
       <option value="0">— none (clear scope) —</option>
     </select>
-    <label class="text-micro chk" style="display:flex;align-items:flex-start;gap:8px;color:var(--tx3)">
+    <label class="text-micro chk chk-confirm-block" style="display:flex;align-items:flex-start;gap:8px">
       <input type="checkbox" class="chk-input" id="st-asset-scope-confirm" style="margin-top:3px;flex-shrink:0"><span class="chk-label">I confirm applying this scope change.</span>
     </label>
     <div id="st-asset-scope-err" class="help-mono mb8" style="display:none"></div>
@@ -2244,7 +2244,7 @@ if (!headers_sent()) {
     <p class="hint-micro mb8 mono-sm" id="st-bulk-scope-count"></p>
     <label class="flbl" for="st-bulk-scope-sel" title="Inventory tag. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
     <select class="finp w100 mb10" id="st-bulk-scope-sel"></select>
-    <label class="text-micro chk" style="display:flex;align-items:flex-start;gap:8px;color:var(--tx3)">
+    <label class="text-micro chk chk-confirm-block" style="display:flex;align-items:flex-start;gap:8px">
       <input type="checkbox" class="chk-input" id="st-bulk-scope-confirm" style="margin-top:3px;flex-shrink:0"><span class="chk-label">I confirm applying this scope to the selected assets.</span>
     </label>
     <div id="st-bulk-scope-err" class="help-mono mb8" style="display:none"></div>
@@ -2424,15 +2424,15 @@ if (!headers_sent()) {
       <div class="ct mb4 mt8">Discovery mode</div>
       <div class="tr2">
         <div><div class="tl">Auto</div><div class="tsubl">ARP for same-subnet, ping scan for routed</div></div>
-        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-auto" value="auto" checked>
+        <label class="chk tr2-check"><input type="radio" class="chk-input" name="hr_scan_mode" id="hr-sm-auto" value="auto" checked aria-label="Discovery mode: Auto — ARP on same subnet, ping scan when routed"></label>
       </div>
       <div class="tr2">
         <div><div class="tl">Routed</div><div class="tsubl">ICMP/TCP ping scan only — no ARP</div></div>
-        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-routed" value="routed">
+        <label class="chk tr2-check"><input type="radio" class="chk-input" name="hr_scan_mode" id="hr-sm-routed" value="routed" aria-label="Discovery mode: Routed — ICMP/TCP ping only, no ARP"></label>
       </div>
       <div class="tr2">
         <div><div class="tl">Force (-Pn)</div><div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping</div></div>
-        <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-force" value="force">
+        <label class="chk tr2-check"><input type="radio" class="chk-input" name="hr_scan_mode" id="hr-sm-force" value="force" aria-label="Discovery mode: Force (-Pn) — treat all targets as up"></label>
       </div>
       <div class="ct mb4 mt8">Scan steps</div>
       <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS — zero packets sent</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-passive" checked aria-label="Include passive discovery for this rescan"></label></div>
