@@ -4204,109 +4204,205 @@ function healthFmtTime(iso) {
  * @param {object} h — GET /api/health.php (read-only health snapshot for the System health tab)
  */
 function renderHealthHtml(h) {
-    const rows = [];
-    const r = (label, valueHtml) => {
-        rows.push(`<div class="health-row"><span class="health-label">${esc(label)}</span><span class="health-value">${valueHtml}</span></div>`);
+    const sv = h.services || {};
+    const scans = h.scans || {};
+    const collectors = h.collectors || {};
+    const feeds = h.feeds || {};
+    const db = h.database || {};
+    const disk = h.disk || {};
+    const ai = h.ai || {};
+    const sched = h.schedules || {};
+    const nvd = h.nvd || {};
+    const daemon = sv.daemon || null;
+    const schedulerSvc = sv.scheduler || null;
+    const collectorSvc = sv.collector_ingest || null;
+
+    const isOkService = (x) => x && String(x.state || '') === 'active';
+    const appOk = !!(h.data_dir && h.data_dir.writable) && !!db.reachable;
+    const schedulerOk = isOkService(schedulerSvc);
+    const scannerOk = isOkService(daemon);
+    const collectorOk = isOkService(collectorSvc);
+    const dbOk = !!db.file_bytes_human;
+    const feedRunning = !!feeds.job_running;
+    const feedLast = feeds.last_result || null;
+    const feedLastOk = !!(feedLast && feedLast.ok && !feedLast.error && !feedLast.cancelled);
+    const feedStatusLabel = feedRunning ? 'running' : (feedLast ? (feedLast.cancelled ? 'cancelled' : (feedLastOk ? 'ok' : 'failed')) : 'idle');
+    const feedStatusClass = feedRunning ? 'hstate-warn' : (feedLast ? (feedLastOk ? 'hstate-ok' : (feedLast.cancelled ? 'hstate-warn' : 'hstate-err')) : 'hstate-ok');
+    const queueCount = parseInt(String(collectors.queued_chunks || 0), 10) || 0;
+    const failCount = parseInt(String(collectors.failed_chunks || 0), 10) || 0;
+    const collectorStateText = collectorOk ? 'active' : 'inactive';
+    const collectorStateClass = collectorOk ? 'hstate-ok' : 'hstate-err';
+
+    const overallItems = [
+        appOk ? '<span class="hstate-ok">app</span>' : '<span class="hstate-err">app</span>',
+        dbOk ? '<span class="hstate-ok">database</span>' : '<span class="hstate-warn">database</span>',
+        schedulerOk ? '<span class="hstate-ok">scheduler</span>' : '<span class="hstate-err">scheduler</span>',
+        scannerOk ? '<span class="hstate-ok">scanner</span>' : '<span class="hstate-err">scanner</span>',
+        collectorOk ? '<span class="hstate-ok">collector ingest</span>' : '<span class="hstate-err">collector ingest</span>',
+    ];
+
+    const summaryCards = [
+        {
+            label: 'App',
+            value: appOk ? 'Healthy' : 'Needs attention',
+            helper: appOk ? 'Config and writable data dir look good.' : 'Check data directory write access.',
+            cls: appOk ? 'hstate-ok' : 'hstate-err',
+        },
+        {
+            label: 'Database',
+            value: db.file_bytes_human ? esc(String(db.file_bytes_human)) : 'Missing/empty',
+            helper: db.file_bytes_human ? 'Primary app database file size.' : 'Database file status has not been reported yet.',
+            cls: db.file_bytes_human ? 'hstate-ok' : 'hstate-warn',
+        },
+        {
+            label: 'Scheduler',
+            value: schedulerSvc ? esc(String(schedulerSvc.state || 'unknown')) : 'Unknown',
+            helper: schedulerSvc ? esc(String(schedulerSvc.detail || '—')) : 'Service status has not been reported yet.',
+            cls: schedulerSvc ? healthStateClass(schedulerSvc.state) : 'hstate-unk',
+        },
+        {
+            label: 'Scanner daemon',
+            value: daemon ? esc(String(daemon.state || 'unknown')) : 'Unknown',
+            helper: daemon ? esc(String(daemon.detail || '—')) : 'Service status has not been reported yet.',
+            cls: daemon ? healthStateClass(daemon.state) : 'hstate-unk',
+        },
+        {
+            label: 'Collector ingest',
+            value: collectorStateText,
+            helper: `pending ${esc(String(queueCount))} · failed ${esc(String(failCount))}`,
+            cls: collectorStateClass,
+        },
+        {
+            label: 'Feed sync',
+            value: `<span class="${feedStatusClass}">${esc(feedStatusLabel)}</span>`,
+            helper: feedLast && feedLast.finished_at
+                ? esc(new Date(feedLast.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))
+                : 'No recent feed result.',
+            cls: feedStatusClass,
+            rawValue: true,
+        },
+    ];
+
+    if (h.zabbix && typeof h.zabbix === 'object') {
+        const zb = h.zabbix;
+        const zOk = !!zb.enabled;
+        summaryCards.push({
+            label: 'Zabbix sync/output',
+            value: zOk ? 'Enabled' : 'Disabled',
+            helper: esc(String(zb.last_sync || zb.last_output || 'No sync/output status reported.')),
+            cls: zOk ? 'hstate-ok' : 'hstate-unk',
+        });
+    }
+
+    const mkTable = (headers, rows, emptyText) => {
+        const th = headers.map((x) => `<th class="tbl-th-no-sort">${esc(x)}</th>`).join('');
+        const body = rows.length
+            ? rows.join('')
+            : `<tr><td colspan="${headers.length}" class="loading tbl-empty">${esc(emptyText)}</td></tr>`;
+        return `<div class="tbl-wrap tbl-wrap--data"><table class="tbl tbl--data"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>`;
     };
 
-    const daemon = h.services && h.services.daemon;
-    if (daemon) {
-        r('Scanner daemon (systemd)', `<span class="${healthStateClass(daemon.state)}">${esc(daemon.state)}</span><span class="h-vsep text-dim">${esc(daemon.detail)}</span>`);
+    const serviceRows = [];
+    [
+        ['Scanner daemon', daemon],
+        ['Scheduler daemon', schedulerSvc],
+        ['Collector ingest daemon', collectorSvc],
+    ].forEach(([nm, row]) => {
+        if (!row) return;
+        serviceRows.push(
+            `<tr><td class="tbl-cell-primary">${esc(String(nm))}</td><td class="tbl-cell-muted"><span class="${healthStateClass(row.state)}">${esc(String(row.state || 'unknown'))}</span></td><td class="tbl-cell-muted">${esc(String(row.detail || '—'))}</td></tr>`
+        );
+    });
+
+    const storageRows = [];
+    storageRows.push(
+        `<tr><td class="tbl-cell-primary">Data directory writable</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.writable ? '<span class="hstate-ok">yes</span>' : '<span class="hstate-err">no</span>'}</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.exists ? 'exists' : 'missing'}</td></tr>`
+    );
+    if (disk.data_dir_free_human) {
+        const low = disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024;
+        storageRows.push(`<tr><td class="tbl-cell-primary">Free space (data dir)</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(disk.data_dir_free_human))}</td><td class="tbl-cell-muted">${low ? '<span class="hstate-warn">low</span>' : '<span class="hstate-ok">ok</span>'}</td></tr>`);
+    } else {
+        storageRows.push(`<tr><td class="tbl-cell-primary">Free space (data dir)</td><td class="tbl-cell-muted"><span class="hstate-warn">unavailable</span></td><td class="tbl-cell-muted">${esc(String(disk.hint || '—'))}</td></tr>`);
     }
-    const schedS = h.services && h.services.scheduler;
-    if (schedS) {
-        r('Job scheduler (systemd)', `<span class="${healthStateClass(schedS.state)}">${esc(schedS.state)}</span><span class="h-vsep text-dim">${esc(schedS.detail)}</span>`);
-    }
+    storageRows.push(`<tr><td class="tbl-cell-primary">App database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(db.file_bytes_human || '—'))}</td><td class="tbl-cell-muted">${db.file_bytes_human ? '<span class="hstate-ok">present</span>' : '<span class="hstate-warn">missing or empty</span>'}</td></tr>`);
+    storageRows.push(`<tr><td class="tbl-cell-primary">NVD database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(nvd.db_bytes_human || '—'))}</td><td class="tbl-cell-muted">${nvd.db_exists ? '<span class="hstate-ok">present</span>' : '<span class="hstate-warn">not found</span>'}</td></tr>`);
 
-    r('Data directory', h.data_dir && h.data_dir.writable
-        ? '<span class="hstate-ok">writable</span>'
-        : '<span class="hstate-err">not writable</span>');
+    const integrationRows = [];
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'active and not paused' : 'schedule table not available'}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : 'idle')}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector chunks</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">online ${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td></tr>`);
+    const aiConfigured = !!ai.configured;
+    const aiRunning = !!ai.running;
+    integrationRows.push(`<tr><td class="tbl-cell-primary">AI enrichment</td><td class="tbl-cell-muted">${aiConfigured ? (aiRunning ? '<span class="hstate-ok">ready</span>' : '<span class="hstate-warn">not running</span>') : '<span class="hstate-unk">disabled</span>'}</td><td class="tbl-cell-muted">${esc(String(ai.provider || 'ollama'))} · ${esc(String(ai.model || 'phi3:mini'))}</td></tr>`);
 
-    if (h.disk && h.disk.data_dir_free_human) {
-        const low = h.disk.data_dir_free_bytes && h.disk.data_dir_free_bytes < 100 * 1024 * 1024;
-        r('Free space (data dir)', low
-            ? `<span class="hstate-warn">${esc(h.disk.data_dir_free_human)}</span><span class="h-vsep text-dim">(low)</span>`
-            : esc(h.disk.data_dir_free_human));
-    } else if (h.disk && h.disk.source === 'unavailable') {
-        r('Free space (data dir)', `<span class="hstate-warn">unavailable</span><span class="h-vsep text-dim">${h.disk.hint ? esc(h.disk.hint) : '—'}</span>`);
-    }
+    const warnings = [];
+    if (!appOk) warnings.push('Application storage/config check needs attention.');
+    if (!scannerOk) warnings.push('Scanner daemon is not active.');
+    if (!schedulerOk) warnings.push('Scheduler daemon is not active.');
+    if (!collectorOk) warnings.push('Collector ingest daemon is not active.');
+    if (failCount > 0) warnings.push(`${failCount} collector chunk(s) are in failed state.`);
+    if (disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024) warnings.push('Data directory free space is low.');
+    if (feedLast && !feedLastOk && !feedLast.cancelled) warnings.push('Last feed sync failed.');
+    if (aiConfigured && !aiRunning) warnings.push('AI is configured but runtime is not reachable.');
 
-    r('App database', h.database && h.database.file_bytes_human
-        ? `<span class="hstate-ok">ok</span><span class="h-vsep text-dim">${esc(h.database.file_bytes_human)}</span>`
-        : '<span class="hstate-warn">missing or empty</span>');
-
-    if (h.nvd) {
-        const nd = h.nvd.db_exists
-            ? `<span class="hstate-ok">present</span><span class="h-vsep text-dim">${esc(h.nvd.db_bytes_human || '')}</span>`
-            : '<span class="hstate-warn">not found — run NVD sync in Settings</span>';
-        r('NVD database', nd);
-        if (h.nvd.last_config_sync) {
-            r('NVD last sync (config)', esc(String(h.nvd.last_config_sync)));
-        }
-    }
-
-    if (h.scans) {
-        const qd = h.scans.queued || 0;
-        const run = h.scans.running || 0;
-        const rt = h.scans.retrying || 0;
-        const jobW = run > 0
-            ? `<span class="hstate-warn">${run} running</span>`
-            : '<span class="hstate-ok">none running</span>';
-        r('Scan jobs', `${jobW}<span class="h-vsep text-dim">${qd} queued · ${rt} retrying</span>`);
-    }
-
+    const advancedRows = [];
+    advancedRows.push(`<tr><td class="tbl-cell-primary">Server time</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(h.server_time || '—'))}</td></tr>`);
+    advancedRows.push(`<tr><td class="tbl-cell-primary">PHP runtime</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String((h.php && h.php.sapi) ? h.php.sapi : '—'))}</td></tr>`);
     if (h.last_completed_scan) {
         const s = h.last_completed_scan;
-        r('Last finished scan', esc(`${s.status || '—'} · ${s.target_cidr || '—'} · ${healthFmtTime(s.finished_at)}`));
+        advancedRows.push(`<tr><td class="tbl-cell-primary">Last finished scan</td><td class="tbl-cell-mono tbl-cell-muted">${esc(`${s.status || '—'} · ${s.target_cidr || '—'} · ${healthFmtTime(s.finished_at)}`)}</td></tr>`);
     } else {
-        r('Last finished scan', '<span class="text-dim">none yet</span>');
+        advancedRows.push('<tr><td class="tbl-cell-primary">Last finished scan</td><td class="tbl-cell-muted">No scan data available yet.</td></tr>');
+    }
+    if (stRoleIsAdmin() && h.diagnostics && h.diagnostics.paths) {
+        const p = h.diagnostics.paths;
+        Object.keys(p).forEach((k) => {
+            advancedRows.push(`<tr><td class="tbl-cell-primary">${esc(String(k))}</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(p[k] || '—'))}</td></tr>`);
+        });
     }
 
-    if (h.schedules && h.schedules.table_ok) {
-        r('Schedules (enabled, not paused)', String(h.schedules.enabled_active != null ? h.schedules.enabled_active : '—'));
-    }
+    const summaryCardsHtml = summaryCards.map((c) => {
+        const v = c.rawValue ? String(c.value) : esc(String(c.value));
+        return `<div class="health-kpi card"><div class="health-kpi-label">${esc(String(c.label))}</div><div class="health-kpi-value ${esc(String(c.cls || ''))}">${v}</div><div class="health-kpi-help text-dim">${esc(String(c.helper || ''))}</div></div>`;
+    }).join('');
 
-    if (h.feeds) {
-        if (h.feeds.job_running) {
-            r('Feed sync', `<span class="hstate-warn">running</span><span class="h-vsep text-dim">${esc(h.feeds.job_target || '?')}</span>`);
-        } else {
-            r('Feed sync', '<span class="hstate-ok">idle</span>');
-        }
-        const fr = h.feeds.last_result;
-        if (fr && fr.finished_at) {
-            const ok = fr.ok && !fr.error;
-            const tag = fr.cancelled ? 'cancelled' : (ok ? 'ok' : 'failed');
-            const cls = ok ? 'hstate-ok' : (fr.cancelled ? 'hstate-warn' : 'hstate-err');
-            r('Last feed job', `<span class="${cls}">${esc(tag)}</span><span class="h-vsep text-dim">${esc(fr.target || '—')} · ${esc(new Date(fr.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))}</span>`);
-        }
-    }
+    return `
+      <section class="health-section">
+        <h3 class="health-sec-title">Overall health</h3>
+        <div class="hint-micro text-dim mb8">Snapshot status: ${overallItems.join(' · ')}</div>
+        <div class="health-kpi-grid">${summaryCardsHtml}</div>
+      </section>
 
-    if (h.ai) {
-        const ai = h.ai;
-        const configured = !!ai.configured;
-        const installed = !!ai.installed;
-        const running = !!ai.running;
-        const models = Array.isArray(ai.models) ? ai.models : [];
-        const stateTag = !configured
-            ? '<span class="hstate-unk">disabled</span>'
-            : (running ? '<span class="hstate-ok">ready</span>' : (installed ? '<span class="hstate-warn">not running</span>' : '<span class="hstate-err">not installed</span>'));
-        r(
-            'AI enrichment',
-            `${stateTag}<span class="h-vsep text-dim">${esc(ai.provider || 'ollama')} · model=${esc(ai.model || 'phi3:mini')} · timeout=${esc(String(ai.timeout_ms || 700))}ms</span>`
-        );
-        r(
-            'AI runtime',
-            `<span class="${running ? 'hstate-ok' : (installed ? 'hstate-warn' : 'hstate-err')}">${running ? 'reachable' : (installed ? 'not responding' : 'missing')}</span>`
-            + `<span class="h-vsep text-dim">${esc(ai.detail || '—')}</span>`
-        );
-        r('AI models', models.length ? esc(models.join(', ')) : '<span class="text-dim">none</span>');
-    }
+      <section class="health-section">
+        <h3 class="health-sec-title">Services / daemons</h3>
+        ${mkTable(['Service', 'State', 'Detail'], serviceRows, 'Service status has not been reported yet.')}
+      </section>
 
-    r('Server time', esc(h.server_time || '—'));
-    r('PHP', esc((h.php && h.php.sapi) ? h.php.sapi : '—'));
+      <section class="health-section">
+        <h3 class="health-sec-title">Storage / database</h3>
+        ${mkTable(['Component', 'Value', 'Status'], storageRows, 'Health data unavailable.')}
+      </section>
 
-    return `<div class="health-panel">${rows.join('')}</div>
-      <p class="help-line text-dim mt8" style="font-size:11px">Figures are a point-in-time picture for monitoring. To act on them, use Scan, Schedules, Enrichment, and Settings.</p>`;
+      <section class="health-section">
+        <h3 class="health-sec-title">Integrations / scheduler</h3>
+        ${mkTable(['Item', 'State', 'Detail'], integrationRows, 'Health data unavailable.')}
+      </section>
+
+      <section class="health-section">
+        <h3 class="health-sec-title">Recent errors / warnings</h3>
+        ${warnings.length
+            ? `<ul class="exec-brief-ul">${warnings.map((w) => `<li>${esc(String(w))}</li>`).join('')}</ul>`
+            : '<div class="text-dim">No recent errors.</div>'}
+      </section>
+
+      <section class="health-section">
+        <details class="health-adv-details">
+          <summary class="health-sec-title">Advanced diagnostics</summary>
+          <div class="hint-micro text-dim mt6 mb8">${stRoleIsAdmin() ? 'Raw runtime details and file paths.' : 'Detailed diagnostics are limited to reduce sensitive data exposure.'}</div>
+          ${mkTable(['Field', 'Value'], advancedRows, 'Health data unavailable.')}
+        </details>
+      </section>
+    `;
 }
 
 async function loadHealth() {
