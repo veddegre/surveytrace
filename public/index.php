@@ -1276,31 +1276,59 @@ if (!headers_sent()) {
 <div class="tab" id="t-enrich">
   <div class="sth section-top">Enrichment</div>
   <p class="hint-micro enrich-intro mb12">
-    Phase 3b sources and optional vendor connectors add context to assets and scans. Configure network sources below; optional integrations (for example Zabbix) add dashboards you already trust.
+    Phase 3b sources and optional vendor connectors add context to assets and scans. Configure <strong>active sources</strong> first; optional <strong>Zabbix</strong> adds monitoring you already trust (sync, match review, and scope workflows below).
   </p>
 
-  <div class="enrich-main-panels mb12">
-    <div class="card enrich-overview-card enrich-network-card">
-      <div class="ct">Network enrichment</div>
-      <p class="hint-micro mb6">SNMP, files, APIs, and similar sources run during scans (narrow per job on <strong>Scan</strong> / <strong>Schedules</strong>).</p>
-      <p class="hint-micro text-dim mb0">Active sources appear in the grid below.</p>
+  <div class="enrich-stack enrich-sources-stack mb12">
+    <div>
+      <div class="card">
+        <div class="ct">Active sources</div>
+        <p class="hint-micro text-dim mb8" style="line-height:1.45">
+          SNMP, files, APIs, and similar enrichment sources run during scans or scheduled jobs where configured. Sources listed here are used when enabled.
+        </p>
+        <div id="enrich-list"><div class="loading">Loading…</div></div>
+        <div class="enrich-card-actions mt12">
+          <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
+        </div>
+      </div>
     </div>
-    <div class="enrich-zabbix-stack">
+    <div>
+      <div class="card">
+        <div class="ct">Available source types</div>
+        <div id="enrich-types"><div class="loading">Loading…</div></div>
+      </div>
+      <div class="card">
+        <div class="ct">How enrichment works</div>
+        <div class="help-line" style="line-height:1.8">
+          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
+          They add hostnames, MACs, VLANs, and other context the scanner may not see on its own — especially across routers or for hosts that barely respond to probes.<br><br>
+          <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
+          <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
+          <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="enrich-stack enrich-zabbix-suite mb12">
       <div class="card enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
         <div class="ct enrich-zabbix-ct">Zabbix monitoring</div>
+        <p class="hint-micro text-dim mb6" style="line-height:1.45">
+          Status below reflects whether the connector is configured and enabled, cache freshness, and (for admins) output push status. <strong>Run sync now</strong> refreshes cached hosts. When the workflows card is visible, <strong>Open tools</strong> there opens match review, scope rules, and apply actions.
+        </p>
         <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body enrich-zabbix-overview-body"><p class="hint-micro text-dim mb0">Loading…</p></div>
         <div class="enrich-zbx-overview-actions">
           <button type="button" class="btnp btn-sm" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
-          <button type="button" class="tbtn btn-sm" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel" title="Expand or collapse match review, scope rules, and apply workflows">Open tools</button>
+          <button type="button" class="tbtn btn-sm" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel" title="Open or close match review, scope rules, and apply workflows">Open tools</button>
         </div>
       </div>
       <div class="card enrich-zabbix-tools-card mb0" id="st-zabbix-enrich-tools-wrap" style="display:none">
         <div class="zb-enrich-tools-head">
           <div>
             <div id="zb-enrich-tools-heading" class="ct mb0">Workflows &amp; match review</div>
-            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>.</p>
+            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>. Advanced diagnostics for scope rules stay in this panel.</p>
           </div>
-          <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Expand</button>
+          <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open tools</button>
         </div>
         <div id="zb-enrich-freshness-banner" class="mb8" style="display:none" aria-live="polite"></div>
         <p class="hint-micro mb8" id="zb-enrich-tools-intro">
@@ -1390,43 +1418,7 @@ if (!headers_sent()) {
           </div>
         </div>
       </div>
-    </div>
   </div>
-
-  <div class="scgrid enrich-sources-grid">
-    <div>
-      <div class="card">
-        <div class="ct">Active sources</div>
-        <div id="enrich-list"><div class="loading">Loading…</div></div>
-        <div class="enrich-card-actions mt12">
-          <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
-        </div>
-      </div>
-    </div>
-    <div>
-      <div class="card">
-        <div class="ct">Available source types</div>
-        <div id="enrich-types"><div class="loading">Loading…</div></div>
-      </div>
-      <div class="card">
-        <div class="ct">How enrichment works</div>
-        <div class="help-line" style="line-height:1.8">
-          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
-          They add hostnames, MACs, VLANs, and other context the scanner may not see on its own — especially across routers or for hosts that barely respond to probes.<br><br>
-          <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
-          <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
-          <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
-        </div>
-      </div>
-    </div>
-  </div>
-  <details class="enrich-planned-details">
-    <summary>Planned enrichment sources</summary>
-    <div class="hint-micro mt6 text-dim" style="line-height:1.55">
-      <strong>TeamDynamix</strong> — planned (future phase).<br>
-      <strong>Defender</strong> — planned (future phase).
-    </div>
-  </details>
 </div>
 
 <!-- ================================================================ SYSTEM HEALTH -->
@@ -9438,7 +9430,7 @@ function stZabbixEnrichToolsApplyDomOpen(open, opts) {
         else panel.classList.add('hide');
     }
     if (innerToggle) {
-        innerToggle.textContent = open ? 'Collapse' : 'Expand';
+        innerToggle.textContent = open ? 'Close tools' : 'Open tools';
         innerToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
     if (cta && cta.style.display !== 'none') {
