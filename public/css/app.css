@@ -586,13 +586,14 @@ button[data-st-ai-action]:disabled{opacity:.88;cursor:wait}
 .modal-confirm{padding:16px;width:min(520px,92vw)}
 .code-accent{color:var(--acc)}
 /* Host details — centered wide modal (Pass 1; docs/HOST_DETAILS_REDESIGN.md) */
-.host-modal-backdrop.host-panel-backdrop{background:rgba(0,0,0,.48)}
+/* Z-index: .bar 10; host centered modal 90–91 (below .modal-bg overlays 100+); device rail 201–202; toasts 999 */
+.host-modal-backdrop.host-panel-backdrop{background:rgba(0,0,0,.48);z-index:89}
 body.light-mode .host-modal-backdrop.host-panel-backdrop{background:rgba(0,0,0,.28)}
 .host-modal{
   display:none;
   position:fixed;
   inset:0;
-  z-index:200;
+  z-index:90;
   align-items:center;
   justify-content:center;
   padding:24px;
@@ -696,7 +697,7 @@ body.light-mode .host-modal-dialog{box-shadow:0 16px 40px rgba(0,0,0,.12)}
 .scan-hist-row{cursor:pointer}
 .scan-hist-row:hover{background:var(--bg3)}
 .fsync-pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:12px;font-family:var(--mf);color:var(--tx2)}
-.z100{z-index:100}.z101{z-index:101}.z210{z-index:210}.z215{z-index:215}.z218{z-index:218}.z219{z-index:219}.z220{z-index:220}.z260{z-index:260}
+.z100{z-index:100}.z101{z-index:101}.z102{z-index:102}.z103{z-index:103}.z210{z-index:210}.z215{z-index:215}.z216{z-index:216}.z218{z-index:218}.z219{z-index:219}.z220{z-index:220}.z260{z-index:260}
 
 /* Session/OIDC: hide full UI until signed in; gate screen if login modal is dismissed */
 body.st-auth-locked .shell{display:none!important}

@@ -15469,11 +15469,27 @@ function stIsHostPanelOpen() {
 
 let stHostPanelReturnFocusEl = null;
 
+/** True if any `.modal-bg` overlay is visible (flex), or auth gate is shown — excludes host panel itself. */
+function stAnyModalBgOpen() {
+    const nodes = document.querySelectorAll('.modal-bg');
+    for (let i = 0; i < nodes.length; i++) {
+        const el = nodes[i];
+        try {
+            if (el.style.display === 'flex') return true;
+            if (window.getComputedStyle(el).display === 'flex') return true;
+        } catch (_e) {}
+    }
+    const gate = document.getElementById('st-auth-gate');
+    if (gate && !gate.classList.contains('hide')) return true;
+    return false;
+}
+
 function stHostPanelAttachEsc() {
     if (window.__stHostPanelEscHandler) return;
     window.__stHostPanelEscHandler = function (ev) {
         if (ev.key !== 'Escape') return;
         if (!stIsHostPanelOpen()) return;
+        if (stAnyModalBgOpen()) return;
         ev.preventDefault();
         ev.stopPropagation();
         closeHostPanel();
@@ -15815,10 +15831,6 @@ async function openHostPanel(id, ip) {
       <div class="mb10">${scanHistoryRows}</div>
       </section>`;
     syncHostPanelExplainBusyUi();
-    queueMicrotask(() => {
-        const c = document.querySelector('#host-panel .host-modal-close');
-        if (c && typeof c.focus === 'function') c.focus();
-    });
 }
 
 function closeHostPanel() {
@@ -15832,7 +15844,7 @@ function closeHostPanel() {
     syncHostPanelExplainBusyUi();
     const ret = stHostPanelReturnFocusEl;
     stHostPanelReturnFocusEl = null;
-    if (ret && typeof ret.focus === 'function') {
+    if (ret && typeof ret.focus === 'function' && !stAnyModalBgOpen()) {
         try {
             ret.focus();
         } catch (_e) {}
@@ -16025,6 +16037,21 @@ document.addEventListener('keydown', e => {
     const intTokBg = document.getElementById('st-int-pull-token-bg');
     if (intTokBg && intTokBg.style.display === 'flex') {
         stIntegrationPullTokenModalClose();
+        return;
+    }
+    const hResBg = document.getElementById('host-rescan-bg');
+    if (hResBg && hResBg.style.display === 'flex') {
+        closeHostRescanModal(null);
+        return;
+    }
+    const rclBg = document.getElementById('modal-bg');
+    if (rclBg && rclBg.style.display === 'flex') {
+        closeModal();
+        return;
+    }
+    const scopeAssetBg = document.getElementById('st-asset-scope-bg');
+    if (scopeAssetBg && scopeAssetBg.style.display === 'flex') {
+        closeStAssetScopeModal();
         return;
     }
     closeDevicePanel();
