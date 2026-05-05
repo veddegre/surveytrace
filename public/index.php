@@ -1560,7 +1560,7 @@ if (!headers_sent()) {
           <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
-      <div class="hint-micro mb8"><strong>Edit</strong> focuses the row. <strong>Save</strong> writes changes. <strong>Password</strong> sets a temporary password.</div>
+      <div class="hint-micro mb8"><strong>Edit</strong> or <strong>Password</strong> opens the save dialog (optional temporary password). <strong>Save</strong> applies row changes immediately without that dialog.</div>
       <div class="row-wrap mb10">
         <input class="finp" id="new-auth-user" placeholder="new username">
         <select class="finp" id="new-auth-role">
@@ -8756,15 +8756,13 @@ async function saveAccessControlSettings() {
     }
 }
 
-function focusAuthUserRow(id) {
-    const el = document.getElementById('u-name-' + id);
-    if (!el) return;
-    try {
-        el.focus();
-        el.select();
-    } catch (e) {
-        el.focus();
-    }
+/** Optional email for admin user forms: empty string if blank or placeholder junk. */
+function stNormalizeAdminUserEmail(raw) {
+    const t = String(raw ?? '').trim();
+    if (!t) return '';
+    const l = t.toLowerCase();
+    if (l === 'optional' || l === 'n/a' || l === 'na' || l === 'none') return '';
+    return t;
 }
 
 async function loadAuthUsers() {
@@ -8796,7 +8794,7 @@ async function loadAuthUsers() {
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="tbl-cell-actions">
           <div class="user-row-actions">
-            <button type="button" class="tbtn btn-xs" onclick="focusAuthUserRow(${u.id})" title="Focus this row for editing">Edit</button>
+            <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Open save dialog (optional temporary password)">Edit</button>
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
             ${u.auth_source === 'local' && u.mfa_enabled ? `<button type="button" class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
@@ -8965,7 +8963,7 @@ async function deleteAuthUser(id) {
 async function saveAuthUser(id) {
     const username = (document.getElementById(`u-name-${id}`)?.value || '').trim();
     const displayName = (document.getElementById(`u-dn-${id}`)?.value || '').trim();
-    const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
+    const email = stNormalizeAdminUserEmail(document.getElementById(`u-em-${id}`)?.value);
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
     if (!username) {
@@ -8979,7 +8977,7 @@ async function saveAuthUser(id) {
 async function saveAuthUserQuick(id) {
     const username = (document.getElementById(`u-name-${id}`)?.value || '').trim();
     const displayName = (document.getElementById(`u-dn-${id}`)?.value || '').trim();
-    const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
+    const email = stNormalizeAdminUserEmail(document.getElementById(`u-em-${id}`)?.value);
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
     if (!username) {
@@ -9033,7 +9031,7 @@ async function submitAuthUserSave() {
     const body = {
         username: pendingUserSave.username,
         display_name: pendingUserSave.displayName || '',
-        email: pendingUserSave.email || '',
+        email: stNormalizeAdminUserEmail(pendingUserSave.email),
         role: pendingUserSave.role,
         disabled: pendingUserSave.disabled
     };
@@ -9240,7 +9238,7 @@ function confirmDisableMfa() {
 async function resetUserMfa(id) {
     const username = (document.getElementById(`u-name-${id}`)?.value || '').trim() || `#${id}`;
     const displayName = (document.getElementById(`u-dn-${id}`)?.value || '').trim();
-    const email = (document.getElementById(`u-em-${id}`)?.value || '').trim();
+    const email = stNormalizeAdminUserEmail(document.getElementById(`u-em-${id}`)?.value);
     const role = document.getElementById(`u-role-${id}`)?.value || 'viewer';
     const disabled = !!document.getElementById(`u-dis-${id}`)?.checked;
     const ok = await showConfirmModal(

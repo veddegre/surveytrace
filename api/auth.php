@@ -102,6 +102,20 @@ function st_login_ip(): string {
     return trim((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 }
 
+/** Optional email from JSON body — only real strings; ignore arrays/objects so we never validate the literal "Array". */
+function st_optional_email_from_input(mixed $raw): string {
+    if ($raw === null || $raw === '') {
+        return '';
+    }
+    if (is_string($raw)) {
+        return substr(trim($raw), 0, 254);
+    }
+    if (is_int($raw) || is_float($raw)) {
+        return substr(trim((string)$raw), 0, 254);
+    }
+    return '';
+}
+
 $mode = st_auth_mode();
 $legacyHash = st_config('auth_hash');
 $breakglassEnabled = st_config('breakglass_enabled', '1') === '1';
@@ -420,7 +434,7 @@ if (isset($_GET['profile'])) {
     $u = st_current_user();
     if ($u['id'] <= 0) st_json(['error' => 'Profile update unavailable for legacy account'], 400);
     $displayName = substr(trim((string)($body['display_name'] ?? '')), 0, 120);
-    $email = substr(trim((string)($body['email'] ?? '')), 0, 254);
+    $email = st_optional_email_from_input($body['email'] ?? '');
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         st_json(['error' => 'Invalid email address'], 400);
     }
@@ -441,8 +455,9 @@ if (isset($_GET['users'])) {
     $resetMfa = !empty($body['reset_mfa']);
     $deleteUser = !empty($body['delete_user']);
     $displayName = substr(trim((string)($body['display_name'] ?? '')), 0, 120);
-    $email = substr(trim((string)($body['email'] ?? '')), 0, 254);
-    $mustChangePassword = !empty($body['must_change_password']) ? 1 : 0;
+    $email = st_optional_email_from_input($body['email'] ?? '');
+    $mustChangePasswordSupplied = array_key_exists('must_change_password', $body);
+    $mustChangePassword = $mustChangePasswordSupplied ? (!empty($body['must_change_password']) ? 1 : 0) : null;
     $disabled = !empty($body['disabled']) ? 1 : 0;
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         st_json(['error' => 'Invalid email address'], 400);
@@ -484,8 +499,11 @@ if (isset($_GET['users'])) {
                 st_json(['error' => 'Cannot remove or disable the last active admin'], 400);
             }
         }
+        $mustChangePasswordFinal = $mustChangePasswordSupplied
+            ? (int)$mustChangePassword
+            : (int)($existing['must_change_password'] ?? 0);
         $stmt = $db->prepare("UPDATE users SET username=?, role=?, display_name=?, email=?, disabled=?, must_change_password=?, updated_at=datetime('now') WHERE id=?");
-        $stmt->execute([$username, $role, $displayName, $email, $disabled, $mustChangePassword, $id]);
+        $stmt->execute([$username, $role, $displayName, $email, $disabled, $mustChangePasswordFinal, $id]);
         $actor = st_current_user();
         st_audit_log('admin.user_update', (int)$actor['id'], (string)$actor['username'], $id, $username, [
             'prev_username' => (string)$existing['username'],
@@ -498,7 +516,7 @@ if (isset($_GET['users'])) {
             'new_display_name' => $displayName,
             'new_email' => $email,
             'new_disabled' => $disabled,
-            'new_must_change_password' => $mustChangePassword,
+            'new_must_change_password' => $mustChangePasswordFinal,
         ]);
         if ($password !== '') {
             $pwErrors = st_validate_password_strength($password);
