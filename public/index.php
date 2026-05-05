@@ -5661,8 +5661,9 @@ async function loadAssets(page) {
     const listCols = zbxColRender ? (showRowChk ? 14 : 13) : (showRowChk ? 13 : 12);
     const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
     const chkTd = showRowChk
-        ? `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
-        : '';
+        ? (a) =>
+              `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
+        : () => '';
     const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
         `<td class="mono-sm text-dim" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
@@ -5682,7 +5683,7 @@ async function loadAssets(page) {
             ? `<button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>`
             : '';
         return `<tr>
-          ${chkTd}
+          ${chkTd(a)}
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
