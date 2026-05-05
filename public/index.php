@@ -1103,6 +1103,9 @@ if (!headers_sent()) {
             <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
             <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
           </div>
+          <div id="scan-hist-detail-diff-wrap" class="scan-hist-detail-diff-wrap" style="display:none" aria-live="polite">
+            <div id="scan-hist-detail-diff" class="scan-hist-detail-panel help-mono mt8"></div>
+          </div>
         </section>
 
         <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-progress">
@@ -1116,11 +1119,6 @@ if (!headers_sent()) {
             <summary class="scan-hist-detail-disclosure-sum">Full summary snapshot <span class="text-dim">(collapsed by default)</span></summary>
             <div id="scan-hist-detail-summary" class="scan-hist-detail-panel help-mono"></div>
           </details>
-        </section>
-
-        <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-findings">
-          <h3 id="scan-hist-detail-sec-findings" class="scan-hist-detail-sec-title">Findings / drift</h3>
-          <div id="scan-hist-detail-diff" class="scan-hist-detail-panel help-mono"></div>
         </section>
 
         <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-assets">
@@ -7614,6 +7612,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const progress = document.getElementById('scan-hist-detail-progress');
     const sum = document.getElementById('scan-hist-detail-summary');
     const diff = document.getElementById('scan-hist-detail-diff');
+    const diffWrap = document.getElementById('scan-hist-detail-diff-wrap');
     const tbody = document.getElementById('scan-hist-detail-assets');
     const logEl = document.getElementById('scan-hist-detail-log');
     if (!bg || !title || !headerSub || !stats || !progress || !sum || !diff || !tbody || !logEl) return;
@@ -7640,6 +7639,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     logEl.innerHTML = '';
     sum.innerHTML = '';
     diff.innerHTML = '';
+    if (diffWrap) diffWrap.style.display = 'none';
     tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
 
     const cmpQ = compareToId > 0 ? '&compare_to=' + encodeURIComponent(String(compareToId)) : '';
@@ -7651,6 +7651,8 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         stats.innerHTML = '';
         progress.innerHTML = '';
         logEl.innerHTML = '';
+        diff.innerHTML = '';
+        if (diffWrap) diffWrap.style.display = 'none';
         tbody.innerHTML = '<tr><td colspan="6" class="loading">No data</td></tr>';
         return;
     }
@@ -7683,7 +7685,9 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     logEl.innerHTML = stScanHistDetailLogHtml(j, d.log_tail);
     renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
     sum.innerHTML = renderScanSummary(j.summary);
-    diff.innerHTML = renderScanDiff(d.compare);
+    const diffHtml = renderScanDiff(d.compare);
+    diff.innerHTML = diffHtml;
+    if (diffWrap) diffWrap.style.display = diffHtml.trim() !== '' ? '' : 'none';
     if (!d.compare && !triedAutoCompare) {
         const opts = Array.isArray(d.compare_options) ? d.compare_options : [];
         const auto = opts.find(o => Number(o.id) > 0);
@@ -16915,6 +16919,11 @@ document.addEventListener('keydown', e => {
     const scopeAssetBg = document.getElementById('st-asset-scope-bg');
     if (scopeAssetBg && scopeAssetBg.style.display === 'flex') {
         closeStAssetScopeModal();
+        return;
+    }
+    const scanHistDetailBg = document.getElementById('scan-hist-detail-bg');
+    if (scanHistDetailBg && scanHistDetailBg.style.display === 'flex') {
+        closeScanHistDetailModal(false);
         return;
     }
     closeDevicePanel();
