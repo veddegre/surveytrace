@@ -87,6 +87,10 @@ See full documentation:
 
 - [docs/wiki/README.md](docs/wiki/README.md)
 
+## Roadmap
+
+See [ROADMAP.md](./ROADMAP.md) for capability direction and planned development areas.
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
