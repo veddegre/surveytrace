@@ -9,13 +9,21 @@
 
 ## How to do it
 
+### Step-by-step reporting usage
+
 1. Open **Reports & Analysis**.
-2. Pick report mode:
-   - **Job scope reports** for historical scan evidence.
-   - **Inventory scope reports** for current asset state.
-3. Select the scope filter.
-4. Review generated cards/sections.
-5. If results look empty, switch mode before troubleshooting further.
+2. Select scope filter.
+3. Choose reporting mode:
+   - **Job scope** for historical scan snapshots.
+   - **Inventory scope** for current asset state.
+4. Review generated sections/cards.
+5. If data is missing, validate mode/scope before deeper troubleshooting.
+
+### How to choose job vs inventory scope
+
+1. Use **Job scope** for drift/trend/compare questions.
+2. Use **Inventory scope** for current posture/count questions.
+3. If unsure, check `concepts.md` and run both views to compare expectations.
 
 ## What to expect
 
@@ -33,6 +41,10 @@
   - Expected: one is historical snapshots, the other is current state.
 - **Users think reports are broken**
   - Usually mode/scope mismatch, not missing data pipeline.
+- **Scope mismatch confusion**
+  - Historical job scope and live inventory scope are intentionally separate models.
+- **Inventory-only data expectation in job mode**
+  - Run or complete a scoped scan if historical job output is required.
 
 ## Quick mode choice
 

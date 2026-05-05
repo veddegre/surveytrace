@@ -8,13 +8,27 @@
 
 ## How to do it
 
-1. Open **Enrichment** and go to the Zabbix section.
-2. Check top status and last sync indicator.
-3. Click **Run sync now** when data is stale or missing.
-4. Open **Match review** tools.
-5. Review suggested links and scope actions.
-6. Apply only validated matches.
-7. Confirm updated host context in **Assets/Host details**.
+### Full enrichment workflow
+
+1. Configure integration settings (Zabbix/API requirements).
+2. Run sync.
+3. Review matches.
+4. Apply validated matches.
+5. Verify asset updates in Assets/Host details.
+
+### How to run sync
+
+1. Open Enrichment Zabbix section.
+2. Confirm connector status is configured/enabled.
+3. Click **Run sync now**.
+4. Wait for last sync/result indicators to refresh.
+
+### How to use Zabbix match review
+
+1. Open match review tools.
+2. Inspect candidate link rows and scope suggestions.
+3. Apply only high-confidence or manually confirmed mappings.
+4. Re-check affected assets after apply.
 
 ## What to expect
 
@@ -35,6 +49,10 @@
   - Sync may not have imported availability fields yet; run sync again and verify mapping.
 - **Matches look wrong**
   - Review manually before applying; do not bulk-apply uncertain rows.
+- **No matches found**
+  - Sync may have no overlapping identifiers yet (run sync and verify host data).
+- **Data looks stale**
+  - Last sync may be old; run sync and check scheduler health.
 
 ## Status meanings (quick reference)
 

@@ -8,17 +8,54 @@
 
 ## How to do it
 
-1. Identify which feature requires a key (AI provider, integration, feed).
-2. Add/update the key in the matching Settings/Integrations section.
-3. Save configuration.
-4. Run the related test/sync action if available.
-5. Confirm status changes to healthy/connected.
+1. Identify which system needs credentials (NVD, Zabbix API, AI provider).
+2. Enter/update key/token in the relevant Settings/Integrations form.
+3. Save settings.
+4. Run test/sync action for that integration.
+5. Confirm status updates in UI health/integration indicators.
 
 ## What to expect
 
 - Features depending on the key become active after save/test.
 - Invalid keys usually surface as connection/auth errors in status messages.
 - Rotated keys require updating stored config before old key expiry.
+
+### NVD (critical)
+
+- Why it matters:
+  - NVD provides CVE feed data used for vulnerability correlation.
+- How to get key:
+  - request from NVD API key portal (NIST).
+- Where to configure:
+  - Settings -> NVD/API key section (or supported environment variable path if used operationally).
+- How to verify:
+  1. Trigger sync from UI or run feed worker flow.
+  2. Check sync status/last result in UI.
+  3. Confirm no auth/rate-limit errors in logs.
+
+### Zabbix API
+
+- Required permissions:
+  - read access for host/sync-relevant API methods.
+- URL format:
+  - API endpoint must include correct Zabbix API path (not just base host).
+- Token/user setup:
+  - create API token/user with minimum required read scope.
+- Common mistakes:
+  - wrong URL path
+  - expired/revoked token
+  - insufficient API permissions
+
+### AI provider (optional)
+
+- Local vs remote:
+  - local runtime (for local model deployment) vs remote hosted provider API.
+- Configuration:
+  - provider selection + key/token/base URL fields in settings.
+- Verification:
+  1. Save provider/key settings.
+  2. Run an AI-backed action (summary/explain path).
+  3. Confirm response and no auth/runtime errors.
 
 ## Common issues
 
