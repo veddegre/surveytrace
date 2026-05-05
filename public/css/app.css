@@ -817,6 +817,29 @@ body.light-mode .host-modal-dialog{box-shadow:0 22px 56px rgba(15,23,42,.2)}
   -webkit-overflow-scrolling:touch;
   background:var(--host-modal-body-bg);
 }
+/* Host modal — Pass 2 in-modal tabs (docs/HOST_DETAILS_REDESIGN.md) */
+.host-tab-shell{display:flex;flex-direction:column;gap:0;min-height:0}
+.host-tablist{
+  display:flex;flex-wrap:nowrap;align-items:stretch;gap:2px;flex-shrink:0;
+  margin:0 0 14px;padding:0 0 10px;
+  position:sticky;top:0;z-index:3;
+  border-bottom:1px solid var(--border);
+  background:var(--host-modal-body-bg);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+}
+.host-tab-btn{
+  flex:0 0 auto;margin:0;padding:8px 12px 10px;border:none;border-radius:var(--radius) var(--radius) 0 0;
+  background:transparent;font-family:var(--sf);font-size:13px;font-weight:600;color:var(--text-muted);
+  cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;
+  transition:color .12s,border-color .12s,background .12s;
+}
+.host-tab-btn:hover{color:var(--text);background:rgba(0,0,0,.04)}
+body.light-mode .host-tab-btn:hover{background:rgba(15,23,42,.04)}
+.host-tab-btn.active{color:var(--text);border-bottom-color:var(--primary)}
+.host-tab-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.host-tab-panels{min-height:0}
+.host-tab-panel[hidden]{display:none !important}
 .host-section{
   background:var(--section-bg);
   border:1px solid var(--section-border);

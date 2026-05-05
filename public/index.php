@@ -15924,6 +15924,69 @@ function renderHostPanelZabbixBlock(a) {
       </div>`;
 }
 
+const ST_HOST_TAB_ORDER = ['overview', 'enrichment', 'ports', 'vulns', 'history', 'ai'];
+
+function stHostSetTab(tab) {
+    const body = document.getElementById('hp-body');
+    if (!body || !body.querySelector('.host-tablist')) {
+        return;
+    }
+    let t = tab;
+    if (!ST_HOST_TAB_ORDER.includes(t)) {
+        t = 'overview';
+    }
+    body.querySelectorAll('.host-tab-btn').forEach((btn) => {
+        const isSel = btn.getAttribute('data-tab') === t;
+        btn.classList.toggle('active', isSel);
+        btn.setAttribute('aria-selected', isSel ? 'true' : 'false');
+        btn.setAttribute('tabindex', isSel ? '0' : '-1');
+    });
+    body.querySelectorAll('.host-tab-panel').forEach((panel) => {
+        const show = panel.getAttribute('data-tab') === t;
+        if (show) {
+            panel.removeAttribute('hidden');
+        } else {
+            panel.setAttribute('hidden', '');
+        }
+    });
+}
+
+function stHostTablistKeydown(ev) {
+    if (!ev || (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft' && ev.key !== 'Home' && ev.key !== 'End')) {
+        return;
+    }
+    const list = ev.currentTarget;
+    if (!list || !list.classList.contains('host-tablist')) {
+        return;
+    }
+    const body = document.getElementById('hp-body');
+    if (!body) {
+        return;
+    }
+    const btns = [...body.querySelectorAll('.host-tab-btn')];
+    if (!btns.length) {
+        return;
+    }
+    let idx = btns.findIndex((b) => b.getAttribute('aria-selected') === 'true');
+    if (idx < 0) {
+        idx = 0;
+    }
+    let next = idx;
+    if (ev.key === 'ArrowRight') {
+        next = (idx + 1) % btns.length;
+    } else if (ev.key === 'ArrowLeft') {
+        next = (idx - 1 + btns.length) % btns.length;
+    } else if (ev.key === 'Home') {
+        next = 0;
+    } else if (ev.key === 'End') {
+        next = btns.length - 1;
+    }
+    ev.preventDefault();
+    const t = btns[next].getAttribute('data-tab') || 'overview';
+    stHostSetTab(t);
+    btns[next].focus();
+}
+
 async function openHostPanel(id, ip) {
     closeDevicePanel();
     stHostPanelReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -16068,10 +16131,32 @@ async function openHostPanel(id, ip) {
         }).join('')
         : '<div class="hp-empty" style="padding:4px 0">No per-scan history yet</div>';
 
+    const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
+        ? `<div class="hp-actions hp-actions-host-primary mt14">
+        ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
+        <button type="button" class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>` : ''}
+        ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
+      </div>`
+        : '';
+
     const zbxHtml = renderHostPanelZabbixBlock(a);
+    const enrichmentBody = zbxHtml
+        ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
+        : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty">No Zabbix enrichment data for this host.</div></section>`;
+
     document.getElementById('hp-body').innerHTML = `
+      <div class="host-tab-shell">
+        <div class="host-tablist" role="tablist" aria-label="Host detail sections" onkeydown="stHostTablistKeydown(event)">
+          <button type="button" role="tab" class="host-tab-btn active" data-tab="overview" id="hp-tab-overview" aria-selected="true" aria-controls="hp-panel-overview" tabindex="0" onclick="stHostSetTab('overview')">Overview</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="enrichment" id="hp-tab-enrichment" aria-selected="false" aria-controls="hp-panel-enrichment" tabindex="-1" onclick="stHostSetTab('enrichment')">Enrichment</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="ports" id="hp-tab-ports" aria-selected="false" aria-controls="hp-panel-ports" tabindex="-1" onclick="stHostSetTab('ports')">Ports &amp; services</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="vulns" id="hp-tab-vulns" aria-selected="false" aria-controls="hp-panel-vulns" tabindex="-1" onclick="stHostSetTab('vulns')">Vulnerabilities</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="history" id="hp-tab-history" aria-selected="false" aria-controls="hp-panel-history" tabindex="-1" onclick="stHostSetTab('history')">History</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="ai" id="hp-tab-ai" aria-selected="false" aria-controls="hp-panel-ai" tabindex="-1" onclick="stHostSetTab('ai')">AI summary</button>
+        </div>
+        <div class="host-tab-panels">
+          <div class="host-tab-panel" data-tab="overview" role="tabpanel" id="hp-panel-overview" aria-labelledby="hp-tab-overview">
       <section class="host-section" aria-label="Overview">
-        <h3 class="host-section-heading">Overview</h3>
         <div class="host-overview-identity-line">${esc(a.hostname || '—')}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
         <div class="hp-meta host-meta-well">
         <table class="hp-meta-table">
@@ -16110,37 +16195,29 @@ async function openHostPanel(id, ip) {
           ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
         </table>
         </div>
+        ${hpActionsHtml}
       </section>
-
-      ${zbxHtml ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>` : ''}
-
+          </div>
+          <div class="host-tab-panel" data-tab="enrichment" role="tabpanel" id="hp-panel-enrichment" aria-labelledby="hp-tab-enrichment" hidden>
+      ${enrichmentBody}
+          </div>
+          <div class="host-tab-panel" data-tab="ports" role="tabpanel" id="hp-panel-ports" aria-labelledby="hp-tab-ports" hidden>
       <section class="host-section" aria-label="Detected services">
         <h3 class="host-section-heading">Detected services</h3>
       <div class="host-inner-surface">${serviceRows}</div>
       </section>
-
       <section class="host-section" aria-label="Open ports">
         <h3 class="host-section-heading">Open ports (${ports.length})</h3>
-      <div class="mb14 host-inner-surface">${portRows}</div>
+      <div class="mb0 host-inner-surface">${portRows}</div>
       </section>
-
-      <section class="host-section" aria-label="AI summary">${renderHpAiOperatorSection(a, id, a.ip)}</section>
-
-      ${(stRoleCanManageScans() || (openFindings.length || acceptedFindings.length)) ? `<section class="host-section" aria-label="Host actions">
-      <div class="hp-actions hp-actions-host-primary mb14">
-        ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
-        <button type="button" class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>` : ''}
-        ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
-      </div>
-      </section>` : ''}
-
+          </div>
+          <div class="host-tab-panel" data-tab="vulns" role="tabpanel" id="hp-panel-vulns" aria-labelledby="hp-tab-vulns" hidden>
       <section class="host-section" aria-label="Open vulnerabilities">
         <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
       <div class="mb14 host-inner-surface">${findingRows}</div>
       </section>
-
       <section class="host-section" aria-label="Accepted risk">
-      <details class="mb14"${acceptedFindings.length ? ' open' : ''}>
+      <details class="mb0"${acceptedFindings.length ? ' open' : ''}>
         <summary class="hp-head" style="cursor:pointer;list-style:none">
           Accepted risk (${acceptedFindings.length})
           <span class="text-dim mono-sm" style="font-weight:normal;margin-left:6px">acknowledged CVEs</span>
@@ -16149,7 +16226,8 @@ async function openHostPanel(id, ip) {
         <div class="mt8 host-inner-surface">${acceptedFindingRows}</div>
       </details>
       </section>
-
+          </div>
+          <div class="host-tab-panel" data-tab="history" role="tabpanel" id="hp-panel-history" aria-labelledby="hp-tab-history" hidden>
       <section class="host-section" aria-label="Port history">
         <h3 class="host-section-heading">Port history</h3>
       <div class="mb8 host-inner-surface">${
@@ -16160,11 +16238,17 @@ async function openHostPanel(id, ip) {
           </div>`).join('') || '<div class="hp-empty" style="padding:4px 0">No history yet</div>'
       }</div>
       </section>
-
       <section class="host-section" aria-label="Scan change history">
         <h3 class="host-section-heading">Scan change history</h3>
-      <div class="mb10 host-inner-surface">${scanHistoryRows}</div>
-      </section>`;
+      <div class="mb0 host-inner-surface">${scanHistoryRows}</div>
+      </section>
+          </div>
+          <div class="host-tab-panel" data-tab="ai" role="tabpanel" id="hp-panel-ai" aria-labelledby="hp-tab-ai" hidden>
+      <section class="host-section" aria-label="AI summary">${renderHpAiOperatorSection(a, id, a.ip)}</section>
+          </div>
+        </div>
+      </div>`;
+    stHostSetTab('overview');
     syncHostPanelExplainBusyUi();
 }
 
