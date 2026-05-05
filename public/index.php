@@ -1437,13 +1437,12 @@ if (!headers_sent()) {
     <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
   </div>
   <p class="help-line mb16" style="max-width:min(100%, 52rem)">
-    Use this view to see whether the installation is in good order: services, disk, DB files, the scan queue, and feed
-    activity. It is <strong>read only</strong> and does not change configuration—use the other tabs for that.
-    <b>Refresh</b> loads the latest snapshot.
+    This view summarizes operational health: core services, storage, database files, the scan queue, and feed activity.
+    It is <strong>read-only</strong> and does not change configuration. Use <b>Refresh</b> to load the latest snapshot.
   </p>
   <div class="card health-page">
     <div class="ct">Summary</div>
-    <div id="health-snapshot"><div class="text-dim">Select this tab to load, or use Refresh for the latest data.</div></div>
+    <div id="health-snapshot"><div class="text-dim">Open this tab or choose Refresh to load the latest health snapshot.</div></div>
   </div>
 </div>
 
@@ -4203,6 +4202,16 @@ function healthStateClass(state) {
     return 'hstate-unk';
 }
 
+/** Human-readable service state for the System health tab (API may send active/inactive/degraded/unknown). */
+function healthHumanizeServiceState(state) {
+    const s = String(state || '').toLowerCase();
+    if (s === 'active') return 'Running';
+    if (s === 'inactive') return 'Stopped';
+    if (s === 'degraded') return 'Degraded';
+    if (s === 'unknown') return 'Unknown';
+    return state ? String(state) : 'Unknown';
+}
+
 function healthFmtTime(iso) {
     if (!iso) return '—';
     return String(iso).replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
@@ -4236,7 +4245,11 @@ function renderHealthHtml(h, zbxResp) {
     const feedRunning = !!feeds.job_running;
     const feedLast = feeds.last_result || null;
     const feedLastOk = !!(feedLast && feedLast.ok && !feedLast.error && !feedLast.cancelled);
-    const feedStatusLabel = feedRunning ? 'running' : (feedLast ? (feedLast.cancelled ? 'cancelled' : (feedLastOk ? 'ok' : 'failed')) : 'idle');
+    const feedStatusLabel = feedRunning
+        ? 'In progress'
+        : (feedLast
+            ? (feedLast.cancelled ? 'Cancelled' : (feedLastOk ? 'Completed successfully' : 'Failed'))
+            : 'No recent run');
     const feedStatusClass = feedRunning ? 'hstate-warn' : (feedLast ? (feedLastOk ? 'hstate-ok' : (feedLast.cancelled ? 'hstate-warn' : 'hstate-err')) : 'hstate-ok');
     const queueCount = parseInt(String(collectors.queued_chunks || 0), 10) || 0;
     const failCount = parseInt(String(collectors.failed_chunks || 0), 10) || 0;
@@ -4278,18 +4291,18 @@ function renderHealthHtml(h, zbxResp) {
         : (zbx && zbx.last_error ? String(zbx.last_error) : '—');
 
     const overallItems = [
-        appOk ? '<span class="hstate-ok">app</span>' : '<span class="hstate-err">app</span>',
-        dbOk ? '<span class="hstate-ok">database</span>' : '<span class="hstate-warn">database</span>',
-        schedulerOk ? '<span class="hstate-ok">scheduler</span>' : '<span class="hstate-err">scheduler</span>',
-        scannerOk ? '<span class="hstate-ok">scanner</span>' : '<span class="hstate-err">scanner</span>',
-        collectorOk ? '<span class="hstate-ok">collector ingest</span>' : '<span class="hstate-err">collector ingest</span>',
+        appOk ? '<span class="hstate-ok">Application</span>' : '<span class="hstate-err">Application</span>',
+        dbOk ? '<span class="hstate-ok">Database</span>' : '<span class="hstate-warn">Database</span>',
+        schedulerOk ? '<span class="hstate-ok">Scheduler</span>' : '<span class="hstate-err">Scheduler</span>',
+        scannerOk ? '<span class="hstate-ok">Scanner</span>' : '<span class="hstate-err">Scanner</span>',
+        collectorOk ? '<span class="hstate-ok">Collector ingest</span>' : '<span class="hstate-err">Collector ingest</span>',
     ];
 
     const summaryCards = [
         {
-            label: 'App',
+            label: 'Application',
             value: appOk ? 'Healthy' : 'Needs attention',
-            helper: appOk ? 'Config and writable data dir look good.' : 'Check data directory write access.',
+            helper: appOk ? 'Configuration and writable data directory are within expected state.' : 'Verify data directory permissions and disk access.',
             cls: appOk ? 'hstate-ok' : 'hstate-err',
         },
         {
@@ -4300,20 +4313,20 @@ function renderHealthHtml(h, zbxResp) {
         },
         {
             label: 'Scheduler',
-            value: schedulerSvc ? esc(String(schedulerSvc.state || 'unknown')) : 'Unknown',
+            value: schedulerSvc ? esc(healthHumanizeServiceState(schedulerSvc.state)) : 'Unknown',
             helper: schedulerSvc ? esc(String(schedulerSvc.detail || '—')) : 'Service status has not been reported yet.',
             cls: schedulerSvc ? healthStateClass(schedulerSvc.state) : 'hstate-unk',
         },
         {
             label: 'Scanner daemon',
-            value: daemon ? esc(String(daemon.state || 'unknown')) : 'Unknown',
+            value: daemon ? esc(healthHumanizeServiceState(daemon.state)) : 'Unknown',
             helper: daemon ? esc(String(daemon.detail || '—')) : 'Service status has not been reported yet.',
             cls: daemon ? healthStateClass(daemon.state) : 'hstate-unk',
         },
         {
             label: 'Collector ingest',
-            value: collectorStateText,
-            helper: `pending ${esc(String(queueCount))} · failed ${esc(String(failCount))}`,
+            value: esc(healthHumanizeServiceState(collectorStateText)),
+            helper: `Queued ${esc(String(queueCount))} · failed ${esc(String(failCount))}`,
             cls: collectorStateClass,
         },
         {
@@ -4321,7 +4334,7 @@ function renderHealthHtml(h, zbxResp) {
             value: `<span class="${feedStatusClass}">${esc(feedStatusLabel)}</span>`,
             helper: feedLast && feedLast.finished_at
                 ? esc(new Date(feedLast.finished_at * 1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'))
-                : 'No recent feed result.',
+                : 'No completed feed sync recorded for this snapshot.',
             cls: feedStatusClass,
             rawValue: true,
         },
@@ -4354,30 +4367,30 @@ function renderHealthHtml(h, zbxResp) {
     ].forEach(([nm, row]) => {
         if (!row) return;
         serviceRows.push(
-            `<tr><td class="tbl-cell-primary">${esc(String(nm))}</td><td class="tbl-cell-muted"><span class="${healthStateClass(row.state)}">${esc(String(row.state || 'unknown'))}</span></td><td class="tbl-cell-muted">${esc(String(row.detail || '—'))}</td></tr>`
+            `<tr><td class="tbl-cell-primary">${esc(String(nm))}</td><td class="tbl-cell-muted"><span class="${healthStateClass(row.state)}">${esc(healthHumanizeServiceState(row.state))}</span></td><td class="tbl-cell-muted">${esc(String(row.detail || '—'))}</td></tr>`
         );
     });
 
     const storageRows = [];
     storageRows.push(
-        `<tr><td class="tbl-cell-primary">Data directory writable</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.writable ? '<span class="hstate-ok">yes</span>' : '<span class="hstate-err">no</span>'}</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.exists ? 'exists' : 'missing'}</td></tr>`
+        `<tr><td class="tbl-cell-primary">Data directory writable</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.writable ? '<span class="hstate-ok">Yes</span>' : '<span class="hstate-err">No</span>'}</td><td class="tbl-cell-muted">${h.data_dir && h.data_dir.exists ? 'Path present' : 'Path missing'}</td></tr>`
     );
     if (disk.data_dir_free_human) {
         const low = disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024;
-        storageRows.push(`<tr><td class="tbl-cell-primary">Free space (data dir)</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(disk.data_dir_free_human))}</td><td class="tbl-cell-muted">${low ? '<span class="hstate-warn">low</span>' : '<span class="hstate-ok">ok</span>'}</td></tr>`);
+        storageRows.push(`<tr><td class="tbl-cell-primary">Free space (data dir)</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(disk.data_dir_free_human))}</td><td class="tbl-cell-muted">${low ? '<span class="hstate-warn">Low</span>' : '<span class="hstate-ok">Adequate</span>'}</td></tr>`);
     } else {
         storageRows.push(`<tr><td class="tbl-cell-primary">Free space (data dir)</td><td class="tbl-cell-muted"><span class="hstate-warn">unavailable</span></td><td class="tbl-cell-muted">${esc(String(disk.hint || '—'))}</td></tr>`);
     }
-    storageRows.push(`<tr><td class="tbl-cell-primary">App database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(db.file_bytes_human || '—'))}</td><td class="tbl-cell-muted">${db.file_bytes_human ? '<span class="hstate-ok">present</span>' : '<span class="hstate-warn">missing or empty</span>'}</td></tr>`);
-    storageRows.push(`<tr><td class="tbl-cell-primary">NVD database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(nvd.db_bytes_human || '—'))}</td><td class="tbl-cell-muted">${nvd.db_exists ? '<span class="hstate-ok">present</span>' : '<span class="hstate-warn">not found</span>'}</td></tr>`);
+    storageRows.push(`<tr><td class="tbl-cell-primary">App database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(db.file_bytes_human || '—'))}</td><td class="tbl-cell-muted">${db.file_bytes_human ? '<span class="hstate-ok">Present</span>' : '<span class="hstate-warn">Missing or empty</span>'}</td></tr>`);
+    storageRows.push(`<tr><td class="tbl-cell-primary">NVD database</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(nvd.db_bytes_human || '—'))}</td><td class="tbl-cell-muted">${nvd.db_exists ? '<span class="hstate-ok">Present</span>' : '<span class="hstate-warn">Not found</span>'}</td></tr>`);
 
     const integrationRows = [];
-    integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'active and not paused' : 'schedule table not available'}</td></tr>`);
-    integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : 'idle')}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'Active and not paused' : 'Schedule table not available'}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : '—')}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Collector chunks</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">online ${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td></tr>`);
     const aiConfigured = !!ai.configured;
     const aiRunning = !!ai.running;
-    integrationRows.push(`<tr><td class="tbl-cell-primary">AI enrichment</td><td class="tbl-cell-muted">${aiConfigured ? (aiRunning ? '<span class="hstate-ok">ready</span>' : '<span class="hstate-warn">not running</span>') : '<span class="hstate-unk">disabled</span>'}</td><td class="tbl-cell-muted">${esc(String(ai.provider || 'ollama'))} · ${esc(String(ai.model || 'phi3:mini'))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">AI enrichment</td><td class="tbl-cell-muted">${aiConfigured ? (aiRunning ? '<span class="hstate-ok">Available</span>' : '<span class="hstate-warn">Not reachable</span>') : '<span class="hstate-unk">Disabled</span>'}</td><td class="tbl-cell-muted">${esc(String(ai.provider || 'ollama'))} · ${esc(String(ai.model || 'phi3:mini'))}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix status</td><td class="tbl-cell-muted"><span class="${zbxStatusClass}">${esc(zbxStatusLabel)}</span></td><td class="tbl-cell-muted">${zbx && zbx.last_sync ? esc(String(zbx.last_sync)) : '—'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix sync result</td><td class="tbl-cell-muted"><span class="${zbxSyncResultClass}">${esc(zbxSyncResultLabel)}</span></td><td class="tbl-cell-muted">${zbx && zbx.last_sync ? esc(String(zbx.last_sync)) : '—'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix output result</td><td class="tbl-cell-muted"><span class="${zbxOutResultClass}">${esc(zbxOutResultLabel)}</span></td><td class="tbl-cell-muted">${zbxOut && zbxOut.last_output ? esc(String(zbxOut.last_output)) : '—'}</td></tr>`);
@@ -4441,7 +4454,7 @@ function renderHealthHtml(h, zbxResp) {
         <h3 class="health-sec-title">Recent errors / warnings</h3>
         ${warnings.length
             ? `<ul class="exec-brief-ul">${warnings.map((w) => `<li>${esc(String(w))}</li>`).join('')}</ul>`
-            : '<div class="text-dim">No recent errors.</div>'}
+            : '<div class="text-dim">No outstanding issues reported for this snapshot.</div>'}
       </section>
 
       <section class="health-section">
