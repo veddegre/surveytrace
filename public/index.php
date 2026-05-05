@@ -394,25 +394,25 @@ if (!headers_sent()) {
     <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
   </div>
   <div id="af-filter-summary-bar" class="af-filter-summary text-micro mb8" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div class="tbl-wrap">
-    <table class="tbl">
+  <div class="tbl-wrap tbl-wrap--data">
+    <table class="tbl tbl--data">
       <thead><tr>
-        <th id="af-th-select" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
+        <th id="af-th-select" class="tbl-th-no-sort" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
         <th onclick="sortAssets('ip')">IP address</th>
         <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
         <th onclick="sortAssets('category')">Type</th>
-        <th title="Coverage-based lifecycle">Life</th>
-        <th>Vendor / model</th>
-        <th>Open ports</th>
+        <th class="tbl-th-no-sort" title="Coverage-based lifecycle">Life</th>
+        <th class="tbl-th-no-sort">Vendor / model</th>
+        <th class="tbl-th-no-sort">Open ports</th>
         <th onclick="sortAssets('open_findings')">CVEs</th>
         <th onclick="sortAssets('top_cvss')">CVSS</th>
         <th id="af-th-zbx" class="hide" onclick="sortAssets('zabbix_problem_count')" title="Zabbix denormalized trust fields">Zbx</th>
         <th onclick="sortAssets('scope_name')" title="Inventory scope; reporting uses scan job scope for historical snapshots.">Scope</th>
         <th onclick="sortAssets('last_seen')">Last seen</th>
-        <th>Edit</th>
+        <th class="tbl-th-action tbl-th-no-sort">Edit</th>
       </tr></thead>
-      <tbody id="asset-tbody"><tr><td colspan="14" class="loading">Loading…</td></tr></tbody>
+      <tbody id="asset-tbody"><tr><td colspan="14" class="loading tbl-empty">Loading assets…</td></tr></tbody>
     </table>
   </div>
   <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
@@ -439,10 +439,10 @@ if (!headers_sent()) {
     </div>
   </div>
   <div id="st-scopes-err" class="help-mono mb8" style="display:none"></div>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Name</th><th>Description</th><th>Environment</th><th>Assets</th><th title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th title="Schedules defaulting to this scope">Schedules</th><th style="min-width:200px"></th></tr></thead>
-      <tbody id="st-scopes-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+  <div class="tbl-wrap tbl-wrap--data">
+    <table class="tbl tbl--data">
+      <thead><tr><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">Environment</th><th class="tbl-th-no-sort">Assets</th><th class="tbl-th-no-sort" title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th class="tbl-th-no-sort" title="Schedules defaulting to this scope">Schedules</th><th class="tbl-th-action tbl-th-no-sort" style="min-width:200px">Actions</th></tr></thead>
+      <tbody id="st-scopes-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading scopes…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -520,10 +520,10 @@ if (!headers_sent()) {
     <button class="tbtn" onclick="exportFindings('csv')" title="Export filtered CVEs as CSV">&#8595; CSV</button>
     <button class="tbtn" onclick="exportFindings('json')" title="Export filtered CVEs as JSON">&#8595; JSON</button>
   </div>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>CVE ID</th><th>Asset IP</th><th>Hostname</th><th>Type</th><th>Description</th><th>CVSS</th><th>Triage</th><th>Match</th><th>Published</th><th>Action</th></tr></thead>
-      <tbody id="vuln-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+  <div class="tbl-wrap tbl-wrap--data">
+    <table class="tbl tbl--data">
+      <thead><tr><th class="tbl-th-no-sort">CVE ID</th><th class="tbl-th-no-sort">Asset IP</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">CVSS</th><th class="tbl-th-no-sort">Triage</th><th class="tbl-th-no-sort">Match</th><th class="tbl-th-no-sort">Published</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+      <tbody id="vuln-tbody"><tr><td colspan="10" class="loading tbl-empty">Loading vulnerabilities…</td></tr></tbody>
     </table>
   </div>
   <div class="pgn">
@@ -690,9 +690,9 @@ if (!headers_sent()) {
   <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap-scan">
     <div id="job-queue-scan" class="mb8" style="display:none">
-      <div class="tbl-wrap tbl-scan-hist">
-        <table class="tbl">
-          <thead><tr><th>#</th><th>Job / target</th><th>Profile</th><th>Status / progress</th><th>Priority</th><th>Started</th><th></th></tr></thead>
+      <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
+        <table class="tbl tbl--data">
+          <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
           <tbody id="queue-tbody-scan"></tbody>
         </table>
       </div>
@@ -720,9 +720,9 @@ if (!headers_sent()) {
   <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap">
     <div id="job-queue" class="mb8" style="display:none">
-      <div class="tbl-wrap tbl-scan-hist">
-        <table class="tbl">
-          <thead><tr><th>#</th><th>Job / target</th><th>Profile</th><th>Status / progress</th><th>Priority</th><th>Started</th><th></th></tr></thead>
+      <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
+        <table class="tbl tbl--data">
+          <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
           <tbody id="queue-tbody"></tbody>
         </table>
       </div>
@@ -745,10 +745,10 @@ if (!headers_sent()) {
     <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
     <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
   </div>
-  <div class="tbl-wrap tbl-scan-hist">
-    <table class="tbl">
-      <thead><tr><th>#</th><th>Job / target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>AI</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
-      <tbody id="scan-hist"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
+  <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
+    <table class="tbl tbl--data">
+      <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Status</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Hosts</th><th class="tbl-th-no-sort">AI</th><th class="tbl-th-no-sort">Duration</th><th class="tbl-th-no-sort">Completed</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+      <tbody id="scan-hist"><tr><td colspan="9" class="loading tbl-empty">Loading scan history…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -1123,10 +1123,10 @@ if (!headers_sent()) {
 
         <section class="scan-hist-detail-sec" aria-labelledby="scan-hist-detail-sec-assets">
           <h3 id="scan-hist-detail-sec-assets" class="scan-hist-detail-sec-title">Assets discovered</h3>
-          <div class="tbl-wrap tbl-scan-hist scan-hist-detail-asset-wrap">
-            <table class="tbl scan-hist-detail-asset-tbl">
-              <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th></tr></thead>
-              <tbody id="scan-hist-detail-assets"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
+          <div class="tbl-wrap tbl-scan-hist tbl-wrap--data scan-hist-detail-asset-wrap">
+            <table class="tbl tbl--data scan-hist-detail-asset-tbl">
+              <thead><tr><th class="tbl-th-no-sort">IP</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Category</th><th class="tbl-th-no-sort">Ports</th></tr></thead>
+              <tbody id="scan-hist-detail-assets"><tr><td colspan="4" class="loading tbl-empty">Loading assets…</td></tr></tbody>
             </table>
           </div>
           <p id="scan-hist-detail-assets-hint" class="hint-micro mt8 scan-hist-detail-assets-hint" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
@@ -5179,10 +5179,10 @@ async function loadScopesTab() {
         err.style.display = 'none';
         err.textContent = '';
     }
-    tb.innerHTML = '<tr><td colspan="7" class="loading">Loading…</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty">Loading scopes…</td></tr>';
     const d = await api('/api/scopes.php', { quiet: true });
     if (!d || !d.ok || !Array.isArray(d.scopes)) {
-        tb.innerHTML = '<tr><td colspan="7" class="loading">Could not load scopes</td></tr>';
+        tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty">Could not load scopes.</td></tr>';
         if (err) {
             err.textContent = (d && d.error) ? d.error : 'API error';
             err.style.display = '';
@@ -5210,13 +5210,13 @@ async function loadScopesTab() {
         const env = esc(String(sc.environment != null && String(sc.environment).trim() ? sc.environment : 'unknown'));
         const act = stRoleCanManageScans()
             ? `<button type="button" class="tbtn btn-xs" onclick="void stScopesOpenEditModal(${id})">Edit</button> `
-                + `<button type="button" class="tbtn btn-xs" style="color:var(--red)" onclick="void stScopesDelete(${id},${JSON.stringify(String(sc.name || ''))})">Delete</button>`
+                + `<button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="void stScopesDelete(${id},${JSON.stringify(String(sc.name || ''))})">Delete</button>`
             : '—';
-        return `<tr><td><strong>${nm}</strong> <span class="text-dim mono-sm">#${id}</span></td><td class="st-scope-desc-cell">${descCell}</td><td>${env}</td><td class="mono">${cnt}</td><td class="mono">${jn}</td><td class="mono">${sn}</td><td>${act}</td></tr>`;
+        return `<tr><td class="tbl-cell-primary"><strong>${nm}</strong> <span class="tbl-cell-muted mono-sm">#${id}</span></td><td class="st-scope-desc-cell tbl-cell-muted">${descCell}</td><td class="tbl-cell-muted">${env}</td><td class="mono tbl-cell-mono tbl-cell-muted">${cnt}</td><td class="mono tbl-cell-mono tbl-cell-muted">${jn}</td><td class="mono tbl-cell-mono tbl-cell-muted">${sn}</td><td class="tbl-cell-actions">${act}</td></tr>`;
     });
     tb.innerHTML = rows.length
         ? rows.join('')
-        : `<tr><td colspan="7" class="loading">${stRoleCanManageScans()
+        : `<tr><td colspan="7" class="loading tbl-empty">${stRoleCanManageScans()
             ? 'No scopes yet — create one from <strong>+ New scope</strong>.'
             : 'No scopes in catalog yet.'}</td></tr>`;
 }
@@ -5680,7 +5680,7 @@ async function loadAssets(page) {
 
     // Show loading state immediately
     tbody.innerHTML =
-        `<tr><td colspan="${listColsLoading}" class="loading">Loading assets…</td></tr>`;
+        `<tr><td colspan="${listColsLoading}" class="loading tbl-empty">Loading assets…</td></tr>`;
     stAssetsUpdateBulkBarVisibility();
 
     const b = document.getElementById('af-device-banner');
@@ -5722,14 +5722,14 @@ async function loadAssets(page) {
     const zbxColRender = !!window.__stAssetsZabbixFiltersAvailable && !!document.getElementById('af-zbx-col')?.checked;
     if (thZbx) thZbx.classList.toggle('hide', !zbxColRender);
     const listCols = zbxColRender ? (showRowChk ? 14 : 13) : (showRowChk ? 13 : 12);
-    const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
+    const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm tbl-cell-mono tbl-cell-muted">${stAssetZabbixCellHtml(a)}</td>` : '');
     const chkTd = showRowChk
         ? (a) =>
               `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
         : () => '';
     const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
-        `<td class="mono-sm text-dim" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
+        `<td class="mono-sm tbl-cell-mono tbl-cell-muted" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
     tbody.innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
@@ -5747,24 +5747,24 @@ async function loadAssets(page) {
             : '';
         return `<tr>
           ${chkTd(a)}
-          <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-          <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
-          <td class="text-primary">${esc(a.hostname||'—')}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-primary click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
+          <td class="tbl-cell-primary">${esc(a.hostname||'—')}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
           <td style="white-space:nowrap">${lifecycleBadgeHtml(a)}</td>
-          <td class="text-primary" style="font-size:12px">${vendorCell}</td>
-          <td><div class="pts">${ports}${more}</div></td>
-          <td class="mono">${a.open_findings||0}</td>
+          <td class="tbl-cell-primary" style="font-size:12px">${vendorCell}</td>
+          <td class="tbl-cell-muted"><div class="pts">${ports}${more}</div></td>
+          <td class="mono tbl-cell-mono tbl-cell-muted">${a.open_findings||0}</td>
           <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss?a.top_cvss:'—'}</span></td>
           ${zbxTd(a)}
           ${scopeCell(a)}
-          <td class="mono mono-sm">${relTime(a.last_seen)}</td>
-          <td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${relTime(a.last_seen)}</td>
+          <td class="tbl-cell-actions">
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
             ${editBtn}
           </td>
         </tr>`;
-    }).join('') || `<tr><td colspan="${listCols}" class="loading">No assets found</td></tr>`;
+    }).join('') || `<tr><td colspan="${listCols}" class="loading tbl-empty">No assets match the current filters.</td></tr>`;
 
     const apgn = document.getElementById('apgn-info');
     if (apgn) {
@@ -5835,7 +5835,7 @@ async function loadFindings(page) {
     refreshBadges();
     // Show loading state immediately
     document.getElementById('vuln-tbody').innerHTML =
-        '<tr><td colspan="10" class="loading">Loading vulnerabilities…</td></tr>';
+        '<tr><td colspan="10" class="loading tbl-empty">Loading vulnerabilities…</td></tr>';
 
     vulnPage = page;
     const cve  = document.getElementById('vf-cve').value;
@@ -5852,26 +5852,26 @@ async function loadFindings(page) {
     if (!d) return;
 
     document.getElementById('vuln-tbody').innerHTML = (d.findings || []).map(f => `<tr>
-      <td class="mono mono-sm">${esc(f.cve_id)}</td>
-      <td class="mono click-ip"
+      <td class="mono mono-sm tbl-cell-mono tbl-cell-primary">${esc(f.cve_id)}</td>
+      <td class="mono tbl-cell-mono click-ip"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.ip)}</td>
-      <td class="click-ip" style="font-size:12px"
+      <td class="click-ip tbl-cell-primary" style="font-size:12px"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
           title="Filter to this host">${esc(f.hostname||'—')}</td>
       <td><span class="cat ${esc(f.category||'unk')}">${esc(f.category||'unk')}</span></td>
-      <td class="text-secondary" style="font-size:12px;max-width:220px">${esc(f.description||'—')}</td>
+      <td class="tbl-cell-muted" style="font-size:12px;max-width:220px">${esc(f.description||'—')}</td>
       <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
-      <td class="mono-sm" style="white-space:nowrap;text-align:right" title="Triage score (0–100, CVSS weighted by detection confidence)">
+      <td class="mono-sm tbl-cell-mono tbl-cell-muted" style="white-space:nowrap;text-align:right" title="Triage score (0–100, CVSS weighted by detection confidence)">
         <span>${f.risk_score != null ? esc(String(f.risk_score)) : '—'}</span>
         <span class="${findingConfidenceChipClass(f.confidence)}">${esc((f.confidence || 'low').toUpperCase())}</span>
       </td>
-      <td class="text-dim mono-sm" style="max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+      <td class="mono-sm tbl-cell-muted" style="max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
           title="${esc(findingEvidenceTitle(f).replace(/\n/g, ' '))}">${esc(findingTriageMethodLabel(f.detection_method))}</td>
-      <td class="mono mono-sm">${localDate(f.published)}</td>
-      <td>${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
-          : `<span class="row-wrap" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`}</td>
-    </tr>`).join('') || '<tr><td colspan="10" class="loading">No findings</td></tr>';
+      <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${localDate(f.published)}</td>
+      <td class="tbl-cell-actions">${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
+          : `<span class="row-wrap" style="gap:4px;justify-content:flex-end"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`}</td>
+    </tr>`).join('') || '<tr><td colspan="10" class="loading tbl-empty">No findings match the current filters.</td></tr>';
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
     document.getElementById('vprev').disabled = page <= 1;
@@ -6789,7 +6789,7 @@ function stRenderQueuePanelFromCache() {
           </td>
           <td class="mono font10 scan-hist-cell-muted">${j.priority || 10}</td>
           <td class="mono font10 scan-hist-cell-muted">${started}</td>
-          <td class="nowrap-cell">
+          <td class="nowrap-cell tbl-cell-actions">
             ${isRun
                 ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">\u25a0 Abort</button>`
                 : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
@@ -6854,7 +6854,7 @@ function stRenderCompletedScanHistFromCache() {
     };
 
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="loading scan-hist-empty">' + emptyMsg + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="loading tbl-empty scan-hist-empty">' + emptyMsg + '</td></tr>';
         return;
     }
 
@@ -6882,12 +6882,12 @@ function stRenderCompletedScanHistFromCache() {
       <td class="mono scan-hist-cell-muted" title="AI attempted/applied">${aiStat(j)}</td>
       <td class="mono font10 scan-hist-cell-muted">${fmtDuration(j.duration_secs)}</td>
       <td class="mono font10 scan-hist-cell-muted">${fin}</td>
-      <td class="nowrap-cell">
+      <td class="nowrap-cell tbl-cell-actions">
         <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
         ${canRerun(j.status) && !j.deleted_at && canManage ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
-        ${canTrash(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Move to trash</button>` : ''}
+        ${canTrash(j) ? `<button type="button" class="tbtn text-micro tbtn--danger-quiet" data-scan-action="delete" data-job-id="${j.id}">Move to trash</button>` : ''}
         ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
-        ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
+        ${canPurge(j) ? `<button type="button" class="tbtn text-micro tbtn--danger-quiet" data-scan-action="purge" data-job-id="${j.id}">Delete permanently</button>` : ''}
       </td>
     </tr>`;
     }).join('');
@@ -7626,7 +7626,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     sum.innerHTML = '';
     diff.innerHTML = '';
     if (diffWrap) diffWrap.style.display = 'none';
-    tbody.innerHTML = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="loading tbl-empty">Loading assets…</td></tr>';
 
     const cmpQ = compareToId > 0 ? '&compare_to=' + encodeURIComponent(String(compareToId)) : '';
     const scopeQ = '&compare_scope=' + encodeURIComponent(compareScope || 'any');
@@ -7639,7 +7639,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         logEl.innerHTML = '';
         diff.innerHTML = '';
         if (diffWrap) diffWrap.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="4" class="loading">No data</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading tbl-empty">Could not load assets for this scan.</td></tr>';
         return;
     }
 
@@ -7687,7 +7687,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (!assets.length) {
         if (hint) hint.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="4" class="loading scan-hist-empty">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent <code class="code-accent">last_scan_id</code> per asset.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading tbl-empty scan-hist-empty">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent <code class="code-accent">last_scan_id</code> per asset.</td></tr>';
         return;
     }
     if (hint) hint.style.display = 'block';
@@ -7701,10 +7701,10 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         const devAttr = did > 0 ? String(did) : 'null';
         const hn = esc(a.hostname || '—');
         return `<tr class="scan-hist-asset-row scan-hist-detail-asset-row" style="cursor:pointer" title="${esc(tip)}" data-asset-id="${a.id}" data-device-id="${devAttr}" data-ip="${ipAttr}">
-          <td class="mono scan-hist-detail-asset-ip">${esc(a.ip || '')}</td>
-          <td class="scan-hist-detail-asset-host">${hn}</td>
+          <td class="mono tbl-cell-mono scan-hist-detail-asset-ip tbl-cell-primary">${esc(a.ip || '')}</td>
+          <td class="scan-hist-detail-asset-host tbl-cell-primary">${hn}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
-          <td class="mono scan-hist-detail-asset-muted font11">${esc(ports)}</td>
+          <td class="mono tbl-cell-mono scan-hist-detail-asset-muted font11 tbl-cell-muted">${esc(ports)}</td>
         </tr>`;
     }).join('');
 }
@@ -10853,23 +10853,23 @@ function stZabbixMatchLinkedTableHtml(title, rows, cols, kind) {
             : '<p class="text-dim text-micro mb0">None</p>';
     }
     const lim = 25;
-    const hdr = cols.map((c) => `<th>${esc(c.label)}</th>`).join('');
+    const hdr = cols.map((c) => `<th class="tbl-th-no-sort">${esc(c.label)}</th>`).join('');
     const bodyV = rows.slice(0, lim).map((row) => '<tr>'
-        + cols.map((c) => `<td class="mono-sm">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
+        + cols.map((c) => `<td class="mono-sm tbl-cell-mono tbl-cell-muted">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
     const bodyH = rows.slice(lim).map((row) => '<tr class="zb-mr-extra zb-mr-extra-' + kind + '" style="display:none">'
-        + cols.map((c) => `<td class="mono-sm">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
+        + cols.map((c) => `<td class="mono-sm tbl-cell-mono tbl-cell-muted">${stZabbixMrCell(row, c)}</td>`).join('') + '</tr>').join('');
     const more = rows.length > lim
         ? `<button type="button" class="tbtn btn-xs mt6" id="zb-mr-more-${kind}" onclick="stZabbixMrShowAll('${kind}')">Show all ${rows.length}</button>`
         : '';
     const ttl = title ? `<div class="text-strong mb4">${esc(title)} <span class="text-dim">(${rows.length})</span></div>` : '';
-    return '<div class="mb10">' + ttl + `<div class="tbl-wrap"><table class="tbl"><thead><tr>${hdr}</tr></thead><tbody>${bodyV}${bodyH}</tbody></table></div>${more}</div>`;
+    return '<div class="mb10">' + ttl + `<div class="tbl-wrap tbl-wrap--data zb-mr-tbl-wrap"><table class="tbl tbl--data"><thead><tr>${hdr}</tr></thead><tbody>${bodyV}${bodyH}</tbody></table></div>${more}</div>`;
 }
 
 async function stZabbixMatchReviewRefresh() {
     if (!stRoleIsAdmin()) return;
     const el = document.getElementById('zb-match-review-body');
     if (!el) return;
-    el.textContent = 'Loading…';
+    el.innerHTML = '<p class="tbl-empty-inline">Loading match review…</p>';
     const z = await api('/api/zabbix.php?match_review=1', { quiet: true });
     if (!z || !z.ok) {
         el.textContent = (z && z.error) ? z.error : 'Could not load match review';

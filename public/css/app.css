@@ -282,6 +282,91 @@ body.light-mode .tbl-wrap{box-shadow:var(--card-shadow-light)}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--tbl-row-hover)}
 .tbl tr.selected td{background:var(--bg4)}
+
+/* --------------------------------------------------------------------------
+   Data-heavy tables — shared utilities (extends .tbl / .tbl-wrap; non-breaking)
+   -------------------------------------------------------------------------- */
+.tbl-wrap.tbl-wrap--data .tbl,
+.tbl.tbl--data{
+  font-size:13px;
+}
+.tbl-wrap.tbl-wrap--data .tbl th,
+.tbl.tbl--data > thead > tr > th{
+  font-family:var(--sf);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+  border-bottom:1px solid var(--border);
+  background:var(--tbl-header-bg);
+}
+.tbl th.tbl-th-no-sort{
+  cursor:default;
+  user-select:none;
+}
+.tbl th.tbl-th-no-sort:hover{
+  color:var(--text-muted);
+}
+.tbl th.tbl-th-action,
+.tbl td.tbl-cell-actions{
+  text-align:right;
+  white-space:nowrap;
+}
+.tbl td.tbl-cell-actions .tbtn{
+  vertical-align:middle;
+}
+.tbl td.tbl-cell-primary,
+.tbl .tbl-cell-primary{
+  font-weight:600;
+  color:var(--text);
+}
+.tbl td.tbl-cell-muted,
+.tbl .tbl-cell-muted{
+  font-size:12px;
+  font-weight:400;
+  color:var(--text-faint);
+}
+.tbl td.tbl-cell-mono,
+.tbl .tbl-cell-mono{
+  font-family:var(--mf);
+  font-variant-numeric:tabular-nums;
+}
+.tbl td.loading.tbl-empty,
+.tbl td.tbl-empty{
+  color:var(--text-muted);
+  font-family:var(--sf);
+  font-size:13px;
+  line-height:1.5;
+  padding:22px 16px !important;
+  text-align:center;
+  vertical-align:middle;
+  cursor:default;
+}
+.tbl td.loading.tbl-empty strong,
+.tbl td.tbl-empty strong{
+  color:var(--text);
+  font-weight:600;
+}
+.tbl-empty-inline{
+  margin:0;
+  padding:10px 0;
+  color:var(--text-muted);
+  font-size:13px;
+  text-align:center;
+}
+.tbtn.tbtn--danger-quiet{
+  color:var(--text-muted);
+  border-color:transparent;
+}
+.tbtn.tbtn--danger-quiet:hover{
+  color:var(--danger);
+  border-color:color-mix(in srgb,var(--danger) 35%,transparent);
+}
+body.light-mode .tbtn.tbtn--danger-quiet:hover{
+  color:var(--danger);
+}
+
 /* Scopes tab — description readable but capped width; full text via native tooltip */
 .st-scope-desc-cell{max-width:16rem;min-width:7rem;vertical-align:middle}
 .st-scope-desc-truncate{display:block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text);line-height:1.4}
@@ -465,7 +550,7 @@ body.light-mode .log-wrap{box-shadow:var(--card-shadow-light)}
 .toast.err{background:var(--rdim);border-color:var(--rbrd);color:var(--red)}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
-/* Loading indicator */
+/* Loading indicator (tables often combine with .tbl-empty) */
 .loading{color:var(--tx2);font-family:var(--mf);font-size:13px;padding:20px;text-align:center}
 
 /* Dashboard view mode */
@@ -934,7 +1019,13 @@ tr.st-scan-hist-row.st-scan-hist-row-flash{
 /* Scan History tab — readability, status chips, zebra (light/dark via tokens) */
 .st-shsf-wrap{align-items:center}
 .st-shsf-label{margin-right:2px}
-.tbl-wrap.tbl-scan-hist .tbl td{padding-top:10px;padding-bottom:10px;vertical-align:top}
+.tbl-wrap.tbl-wrap--data .tbl td,
+.tbl-wrap.tbl-scan-hist .tbl td{
+  padding-top:10px;
+  padding-bottom:10px;
+  vertical-align:middle;
+}
+.tbl-wrap.tbl-wrap--data .tbl tbody tr:nth-child(even) td,
 .tbl-wrap.tbl-scan-hist .tbl tbody tr:nth-child(even) td{
   background-color:color-mix(in srgb,var(--bg2) 90%,var(--tx) 5%);
 }
@@ -1120,13 +1211,24 @@ tr.scan-hist-row--active td:first-child{box-shadow:inset 3px 0 0 0 var(--acc)}
   white-space:pre-wrap
 }
 .scan-hist-detail-asset-wrap{margin-top:4px}
-.scan-hist-detail-asset-tbl td{padding-top:7px;padding-bottom:7px;vertical-align:top}
 .scan-hist-detail-asset-ip{font-weight:600;color:var(--tx)}
 .scan-hist-detail-asset-host{color:var(--tx);font-weight:500}
 .scan-hist-detail-asset-muted{color:var(--tx3)}
 .scan-hist-detail-assets-hint{color:var(--tx3);max-width:52rem}
 .scan-hist-detail-actions{border-top:1px solid var(--bd);padding-top:14px;margin-top:4px}
 .scan-hist-detail-actions-inner{align-items:center}
+/* Zabbix match review — nested tables inside disclosure (dense but aligned with .tbl-wrap--data) */
+.zb-mr-tbl-wrap .tbl thead th{
+  font-size:10px;
+  padding-top:8px;
+  padding-bottom:8px;
+}
+.zb-mr-tbl-wrap .tbl tbody td{
+  padding-top:7px;
+  padding-bottom:7px;
+  font-size:12px;
+  vertical-align:middle;
+}
 .fsync-pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:72vh;background:var(--bg);border:1px solid var(--bd);padding:12px;font-size:12px;font-family:var(--mf);color:var(--tx2)}
 .z100{z-index:100}.z101{z-index:101}.z102{z-index:102}.z103{z-index:103}.z210{z-index:210}.z215{z-index:215}.z216{z-index:216}.z218{z-index:218}.z219{z-index:219}.z220{z-index:220}.z260{z-index:260}
 
