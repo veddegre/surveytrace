@@ -5709,7 +5709,11 @@ async function loadAssets(page) {
     document.getElementById('aprev').disabled = page <= 1;
     document.getElementById('anext').disabled = page >= d.pages;
     stAssetsUpdateBulkBarVisibility();
-    stAssetsRenderFilterSummary();
+    try {
+        stAssetsRenderFilterSummary();
+    } catch (e) {
+        console.error('stAssetsRenderFilterSummary', e);
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -6884,7 +6888,7 @@ bindScanDetailAssetDelegates();
  */
 function bindHostPanelAiDelegatesOnce() {
     const panel = document.getElementById('host-panel');
-    if (!panel || panel.dataset.stAiDelegate === '1') return;
+    if (!panel || panel.dataset.stHostDelegates === '1') return;
     panel.addEventListener('click', (ev) => {
         const el = ev.target;
         const btn = el && el.closest ? el.closest('button[data-st-ai-action]') : null;
@@ -6898,7 +6902,12 @@ function bindHostPanelAiDelegatesOnce() {
         if (!assetId) return;
         void runAiHostExplain(assetId, ip, force);
     });
-    panel.dataset.stAiDelegate = '1';
+    panel.addEventListener('keydown', (ev) => {
+        const list = ev.target && ev.target.closest ? ev.target.closest('.host-tablist') : null;
+        if (!list || !panel.contains(list)) return;
+        stHostTablistKeydown(ev, list);
+    });
+    panel.dataset.stHostDelegates = '1';
 }
 bindHostPanelAiDelegatesOnce();
 
@@ -15927,36 +15936,41 @@ function renderHostPanelZabbixBlock(a) {
 const ST_HOST_TAB_ORDER = ['overview', 'enrichment', 'ports', 'vulns', 'history', 'ai'];
 
 function stHostSetTab(tab) {
-    const body = document.getElementById('hp-body');
-    if (!body || !body.querySelector('.host-tablist')) {
-        return;
-    }
-    let t = tab;
-    if (!ST_HOST_TAB_ORDER.includes(t)) {
-        t = 'overview';
-    }
-    body.querySelectorAll('.host-tab-btn').forEach((btn) => {
-        const isSel = btn.getAttribute('data-tab') === t;
-        btn.classList.toggle('active', isSel);
-        btn.setAttribute('aria-selected', isSel ? 'true' : 'false');
-        btn.setAttribute('tabindex', isSel ? '0' : '-1');
-    });
-    body.querySelectorAll('.host-tab-panel').forEach((panel) => {
-        const show = panel.getAttribute('data-tab') === t;
-        if (show) {
-            panel.removeAttribute('hidden');
-        } else {
-            panel.setAttribute('hidden', '');
+    try {
+        const body = document.getElementById('hp-body');
+        if (!body || !body.querySelector('.host-tablist')) {
+            return;
         }
-    });
+        let t = tab;
+        if (!ST_HOST_TAB_ORDER.includes(t)) {
+            t = 'overview';
+        }
+        body.querySelectorAll('.host-tab-btn').forEach((btn) => {
+            const isSel = btn.getAttribute('data-tab') === t;
+            btn.classList.toggle('active', isSel);
+            btn.setAttribute('aria-selected', isSel ? 'true' : 'false');
+            btn.setAttribute('tabindex', isSel ? '0' : '-1');
+        });
+        body.querySelectorAll('.host-tab-panel').forEach((panel) => {
+            const show = panel.getAttribute('data-tab') === t;
+            if (show) {
+                panel.removeAttribute('hidden');
+            } else {
+                panel.setAttribute('hidden', '');
+            }
+        });
+    } catch (e) {
+        console.error('stHostSetTab', e);
+    }
 }
 
-function stHostTablistKeydown(ev) {
+/** @param {KeyboardEvent} ev @param {Element} [listEl] tablist root (use when delegating from #host-panel) */
+function stHostTablistKeydown(ev, listEl) {
     if (!ev || (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft' && ev.key !== 'Home' && ev.key !== 'End')) {
         return;
     }
-    const list = ev.currentTarget;
-    if (!list || !list.classList.contains('host-tablist')) {
+    const list = listEl || ev.currentTarget;
+    if (!list || !list.classList || !list.classList.contains('host-tablist')) {
         return;
     }
     const body = document.getElementById('hp-body');
@@ -15981,24 +15995,37 @@ function stHostTablistKeydown(ev) {
     } else if (ev.key === 'End') {
         next = btns.length - 1;
     }
+    const btn = btns[next];
+    if (!btn) {
+        return;
+    }
     ev.preventDefault();
-    const t = btns[next].getAttribute('data-tab') || 'overview';
+    const t = btn.getAttribute('data-tab') || 'overview';
     stHostSetTab(t);
-    btns[next].focus();
+    try {
+        btn.focus();
+    } catch (_e) {}
 }
+
+window.stHostSetTab = stHostSetTab;
+window.stHostTablistKeydown = stHostTablistKeydown;
 
 async function openHostPanel(id, ip) {
     closeDevicePanel();
     stHostPanelReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const hpEl = document.getElementById('host-panel');
+    const hpBody = document.getElementById('hp-body');
     const hpBadges = document.getElementById('hp-header-badges');
+    if (!hpEl || !hpBody) {
+        return;
+    }
     hpEl.style.display = 'flex';
     document.getElementById('host-panel-bg').style.display = 'block';
     stHostPanelAttachEsc();
     hpEl.dataset.hpAssetId = String(id);
     document.getElementById('hp-title').textContent = ip;
     if (hpBadges) hpBadges.innerHTML = '';
-    document.getElementById('hp-body').innerHTML = '<div class="loading">Loading…</div>';
+    hpBody.innerHTML = '<div class="loading">Loading…</div>';
     syncHostPanelExplainBusyUi();
 
     const [assetData, openFindingsData, acceptedFindingsData] = await Promise.all([
@@ -16008,7 +16035,7 @@ async function openHostPanel(id, ip) {
     ]);
 
     if (!assetData || !assetData.asset) {
-        document.getElementById('hp-body').innerHTML = '<div class="loading">Failed to load</div>';
+        hpBody.innerHTML = '<div class="loading">Failed to load</div>';
         if (hpBadges) hpBadges.innerHTML = '';
         delete hpEl.dataset.hpAssetId;
         syncHostPanelExplainBusyUi();
@@ -16144,9 +16171,10 @@ async function openHostPanel(id, ip) {
         ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
         : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty">No Zabbix enrichment data for this host.</div></section>`;
 
-    document.getElementById('hp-body').innerHTML = `
+    try {
+    hpBody.innerHTML = `
       <div class="host-tab-shell">
-        <div class="host-tablist" role="tablist" aria-label="Host detail sections" onkeydown="stHostTablistKeydown(event)">
+        <div class="host-tablist" role="tablist" aria-label="Host detail sections">
           <button type="button" role="tab" class="host-tab-btn active" data-tab="overview" id="hp-tab-overview" aria-selected="true" aria-controls="hp-panel-overview" tabindex="0" onclick="stHostSetTab('overview')">Overview</button>
           <button type="button" role="tab" class="host-tab-btn" data-tab="enrichment" id="hp-tab-enrichment" aria-selected="false" aria-controls="hp-panel-enrichment" tabindex="-1" onclick="stHostSetTab('enrichment')">Enrichment</button>
           <button type="button" role="tab" class="host-tab-btn" data-tab="ports" id="hp-tab-ports" aria-selected="false" aria-controls="hp-panel-ports" tabindex="-1" onclick="stHostSetTab('ports')">Ports &amp; services</button>
@@ -16249,11 +16277,18 @@ async function openHostPanel(id, ip) {
         </div>
       </div>`;
     stHostSetTab('overview');
+    } catch (e) {
+        console.error('openHostPanel render', e);
+        hpBody.innerHTML = '<div class="loading">Could not render host detail.</div>';
+    }
     syncHostPanelExplainBusyUi();
 }
 
 function closeHostPanel() {
     const hpEl = document.getElementById('host-panel');
+    if (!hpEl) {
+        return;
+    }
     const hpBadges = document.getElementById('hp-header-badges');
     stHostPanelDetachEsc();
     hpEl.style.display = 'none';
