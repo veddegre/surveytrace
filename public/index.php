@@ -1556,11 +1556,11 @@ if (!headers_sent()) {
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap tbl-wrap--data mb8">
         <table class="tbl tbl--data" id="auth-users-table">
-          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort">Edit</th></tr></thead>
+          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
           <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
-      <div class="hint-micro mb8"><strong>Edit</strong> or <strong>Password</strong> opens the save dialog (optional temporary password). <strong>Save</strong> applies row changes immediately without that dialog.</div>
+      <div class="hint-micro mb8"><strong>Save</strong> applies account fields immediately. <strong>Password</strong> opens a dialog to set an optional temporary password.</div>
       <div class="row-wrap mb10">
         <input class="finp" id="new-auth-user" placeholder="new username">
         <select class="finp" id="new-auth-role">
@@ -2884,6 +2884,7 @@ function applyRoleAwareUi() {
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
     disableByOnclick('saveAuthUser(', !isAdmin);
+    disableByOnclick('saveAuthUserQuick(', !isAdmin);
     disableByOnclick('deleteAuthUser(', !isAdmin);
     disableByOnclick('resetUserMfa(', !isAdmin);
     disableByOnclick('runFeedSync(', !isAdmin);
@@ -8794,7 +8795,6 @@ async function loadAuthUsers() {
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
         <td class="tbl-cell-actions">
           <div class="user-row-actions">
-            <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Open save dialog (optional temporary password)">Edit</button>
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
             ${u.auth_source === 'local' && u.mfa_enabled ? `<button type="button" class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
