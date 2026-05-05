@@ -39,6 +39,8 @@ SurveyTrace documentation for installation, operation, and understanding how the
 
 - [API keys](api-keys.md) — Configure NVD, Zabbix, and AI credentials, including validation and troubleshooting.
 - [Integrations](integrations.md) — Set up and operate Zabbix integration, including sync, matching, availability, and output.
+- [Integration Event Model](integrations-event-model.md) — Event schema and payload structure used across integrations.
+- [Integrations (Data Flow)](integrations-data-flow.md) — Pull and push integration patterns, endpoints, and delivery behavior.
 
 ---
 

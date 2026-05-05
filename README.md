@@ -87,6 +87,11 @@ See full documentation:
 
 - [docs/wiki/README.md](docs/wiki/README.md)
 
+Integration references:
+
+- [Integration Event Model](docs/wiki/integrations-event-model.md)
+- [Integrations (Data Flow)](docs/wiki/integrations-data-flow.md)
+
 ## Roadmap
 
 See [ROADMAP.md](./ROADMAP.md) for capability direction and planned development areas.

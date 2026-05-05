@@ -27,6 +27,11 @@ Key entry point:
 
 - [Wiki home](wiki/README.md)
 
+Integration workflow references:
+
+- [Integration Event Model](wiki/integrations-event-model.md)
+- [Integrations (Data Flow)](wiki/integrations-data-flow.md)
+
 ---
 
 ## Advanced / internal documentation
