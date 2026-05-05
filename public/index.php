@@ -5587,6 +5587,10 @@ function stAssetsFillScopeFilter(d) {
 }
 
 async function loadAssets(page) {
+    const tbody = document.getElementById('asset-tbody');
+    if (!tbody) {
+        return;
+    }
     refreshBadges();
     assetPage = page;
     const q    = document.getElementById('af-q')?.value    || '';
@@ -5616,7 +5620,7 @@ async function loadAssets(page) {
     }
 
     // Show loading state immediately
-    document.getElementById('asset-tbody').innerHTML =
+    tbody.innerHTML =
         `<tr><td colspan="${listColsLoading}" class="loading">Loading assets…</td></tr>`;
     stAssetsUpdateBulkBarVisibility();
 
@@ -5667,7 +5671,7 @@ async function loadAssets(page) {
     const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
         `<td class="mono-sm text-dim" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
-    document.getElementById('asset-tbody').innerHTML = (d.assets || []).map(a => {
+    tbody.innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
         const svcHits = detectServiceHitsFromAsset(a);
@@ -5703,12 +5707,17 @@ async function loadAssets(page) {
         </tr>`;
     }).join('') || `<tr><td colspan="${listCols}" class="loading">No assets found</td></tr>`;
 
-    document.getElementById('apgn-info').textContent =
-        assetDeviceFilter > 0
-            ? `Page ${d.page} of ${d.pages} (${d.total} assets for device ${assetDeviceFilter})`
-            : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
-    document.getElementById('aprev').disabled = page <= 1;
-    document.getElementById('anext').disabled = page >= d.pages;
+    const apgn = document.getElementById('apgn-info');
+    if (apgn) {
+        apgn.textContent =
+            assetDeviceFilter > 0
+                ? `Page ${d.page} of ${d.pages} (${d.total} assets for device ${assetDeviceFilter})`
+                : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
+    }
+    const aprev = document.getElementById('aprev');
+    const anext = document.getElementById('anext');
+    if (aprev) aprev.disabled = page <= 1;
+    if (anext) anext.disabled = page >= d.pages;
     stAssetsUpdateBulkBarVisibility();
     try {
         stAssetsRenderFilterSummary();
@@ -16020,11 +16029,13 @@ async function openHostPanel(id, ip) {
     if (!hpEl || !hpBody) {
         return;
     }
+    const hpBg = document.getElementById('host-panel-bg');
+    const hpTitle = document.getElementById('hp-title');
     hpEl.style.display = 'flex';
-    document.getElementById('host-panel-bg').style.display = 'block';
+    if (hpBg) hpBg.style.display = 'block';
     stHostPanelAttachEsc();
     hpEl.dataset.hpAssetId = String(id);
-    document.getElementById('hp-title').textContent = ip;
+    if (hpTitle) hpTitle.textContent = ip;
     if (hpBadges) hpBadges.innerHTML = '';
     hpBody.innerHTML = '<div class="loading">Loading…</div>';
     syncHostPanelExplainBusyUi();
@@ -16073,7 +16084,7 @@ async function openHostPanel(id, ip) {
         }
         return '';
     })();
-    document.getElementById('hp-title').textContent = hn ? `${hn} · ${a.ip}` : String(a.ip);
+    if (hpTitle) hpTitle.textContent = hn ? `${hn} · ${a.ip}` : String(a.ip);
     if (hpBadges) {
         let badgeHtml = `<span class="cat ${esc(a.category || 'unk')}">${esc(a.category || 'unk')}</span>${lifecycleBadgeHtml(a)}`;
         if (aiInfluenced) {
@@ -16293,7 +16304,8 @@ function closeHostPanel() {
     const hpBadges = document.getElementById('hp-header-badges');
     stHostPanelDetachEsc();
     hpEl.style.display = 'none';
-    document.getElementById('host-panel-bg').style.display = 'none';
+    const hpBg = document.getElementById('host-panel-bg');
+    if (hpBg) hpBg.style.display = 'none';
     delete hpEl.dataset.hpAssetId;
     if (hpBadges) hpBadges.innerHTML = '';
     syncHostPanelExplainBusyUi();
