@@ -6312,6 +6312,7 @@ async function queueHostRescan(ip, triggerBtn) {
         'Scan #' + r.job_id + ' queued (' + profileVal.replace(/_/g, ' ') + ') for ' + ipTrim + '. Scan tab updated.',
         'ok'
     );
+    closeHostPanel();
     stPendingScanHistoryFocusJobId = Number(r.job_id) || 0;
     goTab('scanhist');
     hiNav('nscanhist');
