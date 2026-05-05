@@ -48,6 +48,13 @@ SurveyTrace documentation for installation, operation, and understanding how the
 
 ---
 
+## Advanced / internal documentation
+
+- [Device identity](../DEVICE_IDENTITY.md) — How assets map to logical devices and how merging works.
+- [Connector development guide](../CONNECTOR_DEVELOPMENT_GUIDE.md) — Internal guide for building new integrations.
+
+---
+
 ## How to use this documentation
 
 - Start with **Getting started** if this is a new install.
@@ -55,8 +62,3 @@ SurveyTrace documentation for installation, operation, and understanding how the
 - Refer to **Core concepts** when behavior is unclear.
 - Use **System Guide** to understand how everything fits together.
 - Use **Troubleshooting** when something does not behave as expected.
-
----
-
-See also:
-- [Documentation home](README.md)
