@@ -755,153 +755,196 @@ if (!headers_sent()) {
 
 <!-- ================================================================ REPORTS & ANALYSIS (Phase 13) -->
 <div class="tab" id="t-report">
-  <div class="sth section-top" style="margin-bottom:8px">Reports &amp; Analysis</div>
-  <div class="hint-micro mb12">
-    This page extends the <strong>Executive View</strong> with <strong>snapshot-based</strong> reporting: baseline drift, compliance checks, per-job trends, and saved report artifacts. Numbers from completed scans reflect frozen inventory and findings at job time — not the same as live Dashboard totals. Read-only except <strong>Set baseline</strong> (scan editor or admin).
-    <span class="text-dim"><strong>All scopes</strong> shows every finished job (overview only — not one shared baseline for all networks). Unscoped jobs are not assumed comparable unless they share a schedule, batch, target CIDR, or label signal. Narrow to a scope for per-network baselines and drift.</span>
-  </div>
+  <div class="sth section-top report-page-title">Reports &amp; Analysis</div>
+  <p class="hint-micro report-page-lead mb12" style="max-width:min(100%,52rem);line-height:1.5">
+    <strong>Start here:</strong> choose a <strong>report scope</strong> below (which <em>finished</em> scans are in view), then read summaries, drift, and trends. Numbers are from scan-time snapshots — not the live Dashboard.
+  </p>
 
-  <div class="card mb10" id="report-scope-card">
-    <div class="sth" style="font-size:13px;margin-bottom:6px">Reporting scope</div>
-    <div class="row-wrap gap10" style="align-items:flex-end">
-      <div>
-        <label class="flbl" for="report-scope-select">Scope</label>
-        <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
-          <option value="all">All scopes (default)</option>
-          <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
-        </select>
+  <section class="report-section" aria-labelledby="report-sec-glance-heading">
+    <h2 class="report-section-title" id="report-sec-glance-heading">At a glance</h2>
+
+    <div class="card mb10" id="report-scope-card">
+      <div class="report-card-title">Report scope</div>
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        <strong>Report scope filters completed scan jobs, not live asset scope.</strong> Parentheses on named options show how many assets are <em>currently</em> tagged with that catalog scope (coverage hint only).
+      </p>
+      <div class="row-wrap gap10" style="align-items:flex-end">
+        <div>
+          <label class="flbl" for="report-scope-select">Which completed scans</label>
+          <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
+            <option value="all">All scopes (default)</option>
+            <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
+          </select>
+        </div>
+        <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
+        <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
       </div>
-      <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
-      <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
-    </div>
-    <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
-    <div class="hint-micro mt6 text-dim" style="line-height:1.45">
-      <strong>How filtering works:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches (set when the job was queued). Counts in parentheses are <strong>live assets</strong> currently tagged with that catalog scope (<code class="code-accent">assets.scope_id</code>) — useful for coverage; they do not redefine which historical jobs appear in the list.
-    </div>
-    <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
-      <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
-    </div>
-  </div>
-
-  <div class="sth section-top">At a glance</div>
-  <div class="card mb10" id="report-at-glance-card">
-    <div class="hint-micro mb8">
-      <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan</em> matching your scope filter (<strong>All scopes</strong> = globally latest; named scope = latest in that scope); job number is called out in the sentence.
-    </div>
-    <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
-    <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
-  </div>
-
-  <div class="sth section-top">Snapshot drift</div>
-  <div class="card mb10">
-    <div class="hint-micro mb8">
-      <strong>Snapshot-based</strong> — <strong>All scopes</strong>: drift uses the latest scan’s <em>named scope</em> baseline when applicable, else an operator-set legacy global baseline for unscoped jobs only, else the prior finished job in the <strong>same named scope</strong>. For <strong>unscoped</strong> latest scans, the prior reference is chosen only when a compatibility signal matches (same schedule, batch, target CIDR, or label prefix); unrelated legacy scans are not auto-paired. <strong>Named / Unscoped filter</strong>: baseline rules for that bucket, then a compatible prior when unscoped.
-    </div>
-    <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
-  </div>
-
-  <div class="sth section-top">Scan history (snapshots)</div>
-  <div class="card mb10">
-    <div class="hint-micro mb8">
-      <strong>Snapshot-based trend (not real-time)</strong> — each point is one finished job matching the scope filter (<strong>All scopes</strong> = every completed job in the list; otherwise only that scope or unscoped). Charts use the same bounded history list.
-    </div>
-    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-      <div>
-        <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
-        <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
-          <option value="10">10</option>
-          <option value="20">20</option>
-          <option value="30" selected>30</option>
-          <option value="50">50</option>
-        </select>
-      </div>
-      <button type="button" class="tbtn" onclick="loadReportingTrendsSummary(false)">Reload history</button>
-    </div>
-    <div id="report-trends-out" class="report-trends-out text-dim">History loads when you open this tab.</div>
-  </div>
-
-  <div id="report-analysis-region" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);opacity:0.94">
-  <div class="sth section-top" style="font-size:15px">Analysis &amp; tools</div>
-  <div class="hint-micro mb10 text-dim">
-    Secondary controls: baseline, manual compare, full compliance text, scheduled report artifacts, and admin diagnostics.
-  </div>
-
-  <div class="sth" style="font-size:13px;margin-bottom:6px">Baseline</div>
-  <div class="card mb10">
-    <div id="report-baseline-status" class="help-mono">Loading…</div>
-    <div id="report-baseline-validation" class="hint-micro mt8" style="display:none"></div>
-    <div id="report-baseline-set-wrap" class="mt10" style="display:none">
-      <label class="flbl" id="report-baseline-set-label">Set baseline</label>
-      <div class="row-wrap gap6">
-        <select class="finp" id="report-baseline-job" style="min-width:280px" aria-label="Completed scan for baseline"></select>
-        <button type="button" class="tbtn" id="report-baseline-save" onclick="saveReportingBaseline()">Set baseline</button>
-      </div>
-      <div id="report-baseline-set-hint" class="hint-micro mt6">
-        Pick a <strong>completed</strong> job that already has asset snapshots. Same role rules as queueing scans: <strong>scan editor</strong> or <strong>admin</strong>.
+      <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
+      <details class="report-scope-details mt8">
+        <summary class="report-details-summary">Job scope vs asset tags (technical)</summary>
+        <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+          <strong>Job list filter:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches the tag stored when the job was queued.<br><br>
+          <strong>Parentheses on the dropdown:</strong> counts of <strong>live</strong> assets currently tagged with that catalog scope (<code class="code-accent">assets.scope_id</code>) — useful for coverage; they do not change which historical jobs appear in the list.
+        </div>
+      </details>
+      <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
+        <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
       </div>
     </div>
-    <div id="report-baseline-debug-wrap" class="mt10" style="display:none">
-      <div class="hint-micro mb6 hstate-warn" style="line-height:1.45">
-        <strong>Admin debug</strong> — the <span class="mono-sm">baseline_debug</span> JSON below is raw diagnostic output only. It is <em>not</em> the operator baseline summary shown above.
-      </div>
-      <button type="button" class="tbtn btn-xs" onclick="loadReportingBaselineDebug()">Load baseline_debug</button>
-      <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px" title="Raw baseline_debug JSON (admin diagnostic)"></pre>
-    </div>
-  </div>
 
-  <div class="sth" style="font-size:13px;margin-bottom:6px">Manual compare (snapshots)</div>
-  <div class="card mb10">
-    <div class="hint-micro mb8">
-      Pick any two completed jobs for a custom snapshot diff — same summary style as <strong>Snapshot drift</strong> above, with full metric cards and a technical counter table.
+    <div class="card mb10" id="report-at-glance-card">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Summary for the <strong>latest completed scan</strong> that matches your report scope, plus a quick compliance readout when available.
+      </p>
+      <details class="report-glance-details mb8">
+        <summary class="report-details-summary">What “Live” and the compliance line mean</summary>
+        <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+          <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan</em> matching your scope filter (<strong>All scopes</strong> = globally latest; named scope = latest in that scope); the job number is called out in the sentence.
+        </div>
+      </details>
+      <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
+      <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
     </div>
-    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-      <div>
-        <label class="flbl" for="report-cmp-a">Reference scan</label>
-        <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Reference completed scan"></select>
-      </div>
-      <div>
-        <label class="flbl" for="report-cmp-b">Current scan</label>
-        <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Current completed scan"></select>
-      </div>
-      <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
-    </div>
-    <div id="report-cmp-out" class="help-mono text-dim">Pick a reference scan and a current scan, then <strong>Compare</strong>.</div>
-    <div id="report-cmp-debug-wrap" class="mt10" style="display:none">
-      <div class="hint-micro mb6">Admin-only: sample rows (<span class="mono-sm">compare_debug</span>).</div>
-      <button type="button" class="tbtn btn-xs" onclick="runReportingCompareDebug()">Load compare_debug</button>
-      <pre id="report-cmp-debug-out" class="help-mono mt8" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap"></pre>
-    </div>
-  </div>
+  </section>
 
-  <div class="sth" style="font-size:13px;margin-bottom:6px">Compliance detail</div>
-  <div class="card mb10">
-    <div class="hint-micro mb8">
-      Full rule text for a chosen job (optional vs-baseline rules). The <strong>At a glance</strong> line above is a quick pass/fail for the latest completed scan only.
+  <section class="report-section" aria-labelledby="report-sec-drift-heading">
+    <h2 class="report-section-title" id="report-sec-drift-heading">Snapshot drift</h2>
+    <div class="card mb10">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        <strong>Automatic drift</strong> compares the latest finished scan in your filter to a <strong>reference</strong> scan (saved baseline, prior job in the same scope, or a compatible prior for unscoped jobs). Read-only.
+      </p>
+      <details class="report-drift-details mb8">
+        <summary class="report-details-summary">How automatic drift picks a reference scan</summary>
+        <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+          <strong>All scopes:</strong> drift uses the latest scan’s <em>named scope</em> baseline when applicable, else an operator-set legacy global baseline for unscoped jobs only, else the prior finished job in the <strong>same named scope</strong>.<br><br>
+          <strong>Unscoped latest scans:</strong> the prior reference is chosen only when a compatibility signal matches (same schedule, batch, target CIDR, or label prefix); unrelated legacy scans are not auto-paired.<br><br>
+          <strong>Named / Unscoped filter:</strong> baseline rules for that bucket, then a compatible prior when unscoped.
+        </div>
+      </details>
+      <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
     </div>
-    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-      <div>
-        <label class="flbl" for="report-compliance-job">Completed scan job</label>
-        <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
-      </div>
-      <label class="flbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
-        <input type="checkbox" id="report-compliance-vs-baseline" checked>
-        <span>Vs baseline rules</span>
-      </label>
-      <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
-    </div>
-    <div id="report-compliance-out" class="help-mono text-dim">Select a job and <strong>Load compliance</strong> for rule-by-rule output.</div>
-  </div>
+  </section>
 
-  <div class="sth" id="report-artifacts-heading" style="font-size:13px;margin-bottom:6px;display:none">Saved report artifacts</div>
-  <div id="report-artifacts-wrap" class="card mb10" style="display:none">
-    <div class="tbl-wrap">
-      <table class="tbl">
-        <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
-        <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
-      </table>
+  <section class="report-section" aria-labelledby="report-sec-trends-heading">
+    <h2 class="report-section-title" id="report-sec-trends-heading">Trends</h2>
+    <div class="card mb10">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Each point is one <strong>finished</strong> job in the current report scope (last <em>N</em> jobs). Not real-time.
+      </p>
+      <details class="report-trends-details mb8">
+        <summary class="report-details-summary">More about snapshot trends</summary>
+        <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+          Charts use the same bounded history list as the job count above. <strong>All scopes</strong> includes every completed job in the list; a named scope or Unscoped only limits which jobs appear.
+        </div>
+      </details>
+      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+        <div>
+          <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
+          <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="30" selected>30</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+        <button type="button" class="tbtn" onclick="loadReportingTrendsSummary(false)">Reload history</button>
+      </div>
+      <div id="report-trends-out" class="report-trends-out text-dim">History loads when you open this tab.</div>
     </div>
-  </div>
-  </div>
+  </section>
+
+  <section class="report-section report-manual-tools" aria-labelledby="report-sec-manual-heading">
+    <h2 class="report-section-title" id="report-sec-manual-heading">Manual analysis tools</h2>
+    <p class="hint-micro report-manual-lead mb10 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
+      Actions you choose explicitly. <strong>Compare</strong> and <strong>Load compliance</strong> are available to all roles (read-only). <strong>Set baseline</strong> and saved report <strong>Details</strong> require scan editor or admin.
+    </p>
+
+    <h3 class="report-subheading">Compare any two completed scans</h3>
+    <div class="card mb10 report-manual-card">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Pick any two finished jobs for a custom snapshot diff (same style as automatic drift above). Use when you need a specific pair or automatic drift is not available.
+      </p>
+      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+        <div>
+          <label class="flbl" for="report-cmp-a">Reference scan</label>
+          <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Reference completed scan"></select>
+        </div>
+        <div>
+          <label class="flbl" for="report-cmp-b">Current scan</label>
+          <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Current completed scan"></select>
+        </div>
+        <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
+      </div>
+      <div id="report-cmp-out" class="help-mono text-dim">Pick a reference scan and a current scan, then <strong>Compare</strong>.</div>
+    </div>
+
+    <h3 class="report-subheading">Compliance detail</h3>
+    <div class="card mb10 report-manual-card">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Full rule text for one completed job. Optional: evaluate extra rules against the saved baseline. The <strong>At a glance</strong> section shows a quick pass/fail for the latest job only.
+      </p>
+      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+        <div>
+          <label class="flbl" for="report-compliance-job">Completed scan job</label>
+          <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
+        </div>
+        <label class="flbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
+          <input type="checkbox" id="report-compliance-vs-baseline" checked>
+          <span>Vs baseline rules</span>
+        </label>
+        <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
+      </div>
+      <div id="report-compliance-out" class="help-mono text-dim">Select a job and <strong>Load compliance</strong> for rule-by-rule output.</div>
+    </div>
+
+    <h3 class="report-subheading">Baseline for this report scope</h3>
+    <div class="card mb10 report-manual-card">
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Which scan is used as the <strong>reference</strong> for automatic drift and optional compliance-vs-baseline checks. Status is read-only; scan editors can set a baseline when a named scope or Unscoped only is selected (not <strong>All scopes</strong>).
+      </p>
+      <div id="report-baseline-status" class="help-mono">Loading…</div>
+      <div id="report-baseline-validation" class="hint-micro mt8" style="display:none"></div>
+      <div id="report-baseline-set-wrap" class="mt10" style="display:none">
+        <label class="flbl" id="report-baseline-set-label">Set baseline</label>
+        <div class="row-wrap gap6">
+          <select class="finp" id="report-baseline-job" style="min-width:280px" aria-label="Completed scan for baseline"></select>
+          <button type="button" class="tbtn" id="report-baseline-save" onclick="saveReportingBaseline()">Set baseline</button>
+        </div>
+        <div id="report-baseline-set-hint" class="hint-micro mt6">
+          Pick a <strong>completed</strong> job that already has asset snapshots. Same role rules as queueing scans: <strong>scan editor</strong> or <strong>admin</strong>.
+        </div>
+      </div>
+    </div>
+
+    <h3 class="report-subheading" id="report-artifacts-heading" style="display:none">Saved report artifacts</h3>
+    <div id="report-artifacts-wrap" class="card mb10 report-manual-card" style="display:none">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
+          <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="report-advanced-region" class="report-section report-advanced-region" style="display:none" aria-labelledby="report-sec-advanced-heading">
+    <details class="report-advanced-details">
+      <summary class="report-advanced-summary" id="report-sec-advanced-heading">Advanced — admin diagnostics</summary>
+      <p class="hint-micro text-dim mb10" style="line-height:1.45">Raw JSON and samples for troubleshooting. Does not replace the baseline summary or compare results above.</p>
+      <div id="report-baseline-debug-wrap" class="mt10">
+        <div class="hint-micro mb6 hstate-warn" style="line-height:1.45">
+          <strong>baseline_debug</strong> — raw diagnostic output only; not the operator-facing baseline text.
+        </div>
+        <button type="button" class="tbtn btn-xs" onclick="loadReportingBaselineDebug()">Load baseline_debug</button>
+        <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px" title="Raw baseline_debug JSON (admin diagnostic)"></pre>
+      </div>
+      <div id="report-cmp-debug-wrap" class="mt10">
+        <div class="hint-micro mb6">Sample rows: <span class="mono-sm">compare_debug</span> (admin).</div>
+        <button type="button" class="tbtn btn-xs" onclick="runReportingCompareDebug()">Load compare_debug</button>
+        <pre id="report-cmp-debug-out" class="help-mono mt8" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap"></pre>
+      </div>
+    </details>
+  </section>
 </div>
 
 <!-- Report artifact detail (slim summary; raw JSON admin-only on demand) -->
@@ -1206,36 +1249,136 @@ if (!headers_sent()) {
 <!-- ================================================================ ENRICHMENT -->
 <div class="tab" id="t-enrich">
   <div class="sth section-top">Enrichment</div>
-  <p class="hint-micro mb12" style="max-width:min(100%, 52rem)">
+  <p class="hint-micro enrich-intro mb12">
     Phase 3b sources and optional vendor connectors add context to assets and scans. Configure network sources below; optional integrations (for example Zabbix) add dashboards you already trust.
   </p>
 
-  <div class="row-wrap gap10 mb14" style="align-items:stretch">
-    <div class="card" style="flex:1;min-width:min(100%,220px);padding:14px 14px 12px">
+  <div class="enrich-overview-grid mb12">
+    <div class="card enrich-overview-card">
       <div class="ct">Network enrichment</div>
       <p class="hint-micro mb6">SNMP, files, APIs, and similar sources run during scans (narrow per job on <strong>Scan</strong> / <strong>Schedules</strong>).</p>
-      <p class="hint-micro text-dim mb0">Active sources appear in the card below.</p>
+      <p class="hint-micro text-dim mb0">Active sources appear in the grid below.</p>
     </div>
-    <div class="card" id="enrich-zbx-overview-card" style="flex:1;min-width:min(100%,220px);padding:14px 14px 12px;display:flex;flex-direction:column">
-      <div class="ct">Zabbix</div>
-      <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body" style="flex:1"><p class="hint-micro text-dim mb0">Loading…</p></div>
-      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
-      <button type="button" class="btnp btn-xs mt8" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open Zabbix enrichment tools</button>
+    <div class="enrich-zabbix-stack">
+      <div class="card enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
+        <div class="ct enrich-zabbix-ct">Zabbix monitoring</div>
+        <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body enrich-zabbix-overview-body"><p class="hint-micro text-dim mb0">Loading…</p></div>
+        <div class="enrich-zbx-overview-actions">
+          <button type="button" class="btnp btn-sm" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
+          <button type="button" class="tbtn btn-sm" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel" title="Expand or collapse match review, scope rules, and apply workflows">Open tools</button>
+        </div>
+      </div>
+      <div class="card enrich-zabbix-tools-card mb0" id="st-zabbix-enrich-tools-wrap" style="display:none">
+        <div class="zb-enrich-tools-head">
+          <div>
+            <div id="zb-enrich-tools-heading" class="ct mb0">Workflows &amp; match review</div>
+            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>.</p>
+          </div>
+          <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Expand</button>
+        </div>
+        <div id="zb-enrich-freshness-banner" class="mb8" style="display:none" aria-live="polite"></div>
+        <p class="hint-micro mb8" id="zb-enrich-tools-intro">
+          Match review, scope rules, apply plan, and manual link/unlink use the cached Zabbix host data from that integration.
+        </p>
+        <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
+          <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
+            <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
+            <div class="row-wrap gap6 mt6">
+              <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
+              <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
+            </div>
+          </div>
+
+          <div class="zb-enrich-section">
+            <div class="flbl">Match review</div>
+            <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+            <button type="button" class="tbtn btn-sm mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+            <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open the tools panel, then click Refresh.</div>
+          </div>
+
+          <div class="zb-enrich-section">
+            <div class="flbl">Scope map rules</div>
+            <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+            <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
+              <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
+              <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
+                <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
+                <div id="zb-diagnostics-detail" class="hint-micro mono-sm text-dim"></div>
+              </div>
+            </div>
+            <div id="zb-rules-wrap" class="mb6"></div>
+            <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
+            <div class="row-wrap gap6 mb8">
+              <button type="button" class="tbtn btn-sm" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+              <button type="button" class="tbtn btn-sm" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+            </div>
+            <div id="zb-preview" class="mb0">—</div>
+          </div>
+
+          <div class="zb-enrich-section">
+            <div class="flbl">Apply actions</div>
+            <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
+            <div id="zb-identity-block">
+              <div class="zb-subhead">Identity</div>
+              <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
+              <div class="row-wrap gap6 mb6">
+                <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
+              </div>
+              <div id="zb-identity-plan-body" class="mb6">—</div>
+              <label class="text-micro zb-enrich-confirm-row">
+                <input type="checkbox" id="zb-identity-confirm">
+                I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
+              </label>
+              <button type="button" class="btnp mt10" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
+            </div>
+
+            <div id="zb-scope-apply-block" class="zb-enrich-scope-apply" style="display:none">
+              <div class="zb-subhead">Scope map apply</div>
+              <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
+              <div class="row-wrap gap6 mb6">
+                <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
+              </div>
+              <div id="zb-apply-plan-body" class="mb6">—</div>
+              <label class="text-micro zb-enrich-confirm-row">
+                <input type="checkbox" id="zb-apply-confirm">
+                I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+              </label>
+              <button type="button" class="btnp mt10" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
+            </div>
+          </div>
+
+          <div class="zb-enrich-section">
+            <div class="flbl">Manual link / unlink</div>
+            <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
+            <div class="row-wrap gap6 mb6">
+              <input class="finp narrow zb-manual-inp zb-manual-inp--aid" id="zb-link-aid" type="number" min="1" placeholder="Asset id">
+              <input class="finp narrow zb-manual-inp zb-manual-inp--hid" id="zb-link-hid" placeholder="Zabbix hostid">
+              <input class="finp narrow zb-manual-inp zb-manual-inp--meth" id="zb-link-method" placeholder="match_method" value="manual">
+              <input class="finp narrow zb-manual-inp zb-manual-inp--conf" id="zb-link-conf" placeholder="confidence" value="1">
+              <button type="button" class="tbtn btn-sm" onclick="stZabbixManualLink()">Link</button>
+            </div>
+            <div class="row-wrap gap6">
+              <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
+              <button type="button" class="tbtn btn-sm tbtn--danger-quiet" onclick="stZabbixManualUnlink()">Unlink asset</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="card" style="flex:1;min-width:min(100%,220px);opacity:0.95;padding:14px 14px 12px">
+    <div class="card enrich-overview-card enrich-overview-card--muted">
       <div class="ct">More integrations</div>
       <p class="hint-micro mb4"><strong>TeamDynamix</strong> — planned (future phase).</p>
       <p class="hint-micro mb0"><strong>Defender</strong> — planned (future phase).</p>
     </div>
   </div>
 
-  <div class="scgrid">
+  <div class="scgrid enrich-sources-grid">
     <div>
       <div class="card">
         <div class="ct">Active sources</div>
         <div id="enrich-list"><div class="loading">Loading…</div></div>
-        <div class="mt12">
-          <button class="btnp" onclick="openAddSource()">+ Add source</button>
+        <div class="enrich-card-actions mt12">
+          <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
         </div>
       </div>
     </div>
@@ -1252,100 +1395,6 @@ if (!headers_sent()) {
           <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
           <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
           <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card mb14" id="st-zabbix-enrich-tools-wrap" style="display:none">
-    <div class="zb-enrich-tools-head">
-      <div id="zb-enrich-tools-heading" class="ct">Zabbix enrichment tools</div>
-      <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Expand</button>
-    </div>
-    <div id="zb-enrich-freshness-banner" class="mb10" style="display:none" aria-live="polite"></div>
-    <p class="hint-micro mb10" id="zb-enrich-tools-intro">
-      Match review, scope rules, apply plan, and manual link/unlink use data from <strong>Integrations → Zabbix</strong>. Read-only Zabbix context also appears on host <strong>Details</strong>.
-    </p>
-    <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
-      <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
-        <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
-        <div class="row-wrap gap6 mt6">
-          <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
-          <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
-        </div>
-      </div>
-
-      <div class="zb-enrich-section">
-        <div class="flbl">Match review</div>
-        <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
-        <button type="button" class="tbtn mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-        <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open the tools panel, then click Refresh.</div>
-      </div>
-
-      <div class="zb-enrich-section">
-        <div class="flbl">Scope map rules</div>
-        <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-        <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
-          <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
-          <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
-            <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
-            <div id="zb-diagnostics-detail" class="hint-micro mono-sm text-dim"></div>
-          </div>
-        </div>
-        <div id="zb-rules-wrap" class="mb6"></div>
-        <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
-        <div class="row-wrap gap6 mb8">
-          <button type="button" class="tbtn" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
-          <button type="button" class="tbtn" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
-        </div>
-        <div id="zb-preview" class="mb0">—</div>
-      </div>
-
-      <div class="zb-enrich-section">
-        <div class="flbl">Apply actions</div>
-        <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
-        <div id="zb-identity-block">
-          <div class="zb-subhead">Identity</div>
-          <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
-          <div class="row-wrap gap6 mb6">
-            <button type="button" class="tbtn" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
-          </div>
-          <div id="zb-identity-plan-body" class="mb6">—</div>
-          <label class="text-micro zb-enrich-confirm-row">
-            <input type="checkbox" id="zb-identity-confirm">
-            I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
-          </label>
-          <button type="button" class="btnp" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
-        </div>
-
-        <div id="zb-scope-apply-block" class="zb-enrich-scope-apply" style="display:none">
-          <div class="zb-subhead">Scope map apply</div>
-          <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
-          <div class="row-wrap gap6 mb6">
-            <button type="button" class="tbtn" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
-          </div>
-          <div id="zb-apply-plan-body" class="mb6">—</div>
-          <label class="text-micro zb-enrich-confirm-row">
-            <input type="checkbox" id="zb-apply-confirm">
-            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
-          </label>
-          <button type="button" class="btnp" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
-        </div>
-      </div>
-
-      <div class="zb-enrich-section">
-        <div class="flbl">Manual link / unlink</div>
-        <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
-        <div class="row-wrap gap6 mb6">
-          <input class="finp narrow zb-manual-inp zb-manual-inp--aid" id="zb-link-aid" type="number" min="1" placeholder="Asset id">
-          <input class="finp narrow zb-manual-inp zb-manual-inp--hid" id="zb-link-hid" placeholder="Zabbix hostid">
-          <input class="finp narrow zb-manual-inp zb-manual-inp--meth" id="zb-link-method" placeholder="match_method" value="manual">
-          <input class="finp narrow zb-manual-inp zb-manual-inp--conf" id="zb-link-conf" placeholder="confidence" value="1">
-          <button type="button" class="tbtn" onclick="stZabbixManualLink()">Link</button>
-        </div>
-        <div class="row-wrap gap6">
-          <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
-          <button type="button" class="tbtn" onclick="stZabbixManualUnlink()">Unlink asset</button>
         </div>
       </div>
     </div>
@@ -9365,7 +9414,7 @@ function stZabbixEnrichToolsApplyDomOpen(open, opts) {
         innerToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
     if (cta && cta.style.display !== 'none') {
-        cta.textContent = open ? 'Close Zabbix enrichment tools' : 'Open Zabbix enrichment tools';
+        cta.textContent = open ? 'Close tools' : 'Open tools';
         cta.setAttribute('aria-expanded', open ? 'true' : 'false');
         cta.setAttribute('aria-controls', 'zb-enrich-tools-panel');
     }
@@ -13706,7 +13755,7 @@ async function loadReportingChangeSince() {
             'No completed scans yet — snapshot drift appears after at least one job finishes.';
         if (reportingScopeApiFilter > 0) {
             emptyMsg =
-                'No completed scans match this named scope in the recent window. Run a finished scan in this scope, switch to All scopes, or use Manual compare.';
+                'No completed scans match this named scope in the recent window. Run a finished scan in this scope, switch to All scopes, or use Compare two scans (below).';
         } else if (reportingScopeApiFilter === 0) {
             emptyMsg =
                 'No unscoped completed scans in the recent window (jobs need no scope tag). Try All scopes if you expect legacy data here.';
@@ -13716,7 +13765,7 @@ async function loadReportingChangeSince() {
     }
     if (ts.length === 1 && reportingScopeApiFilter !== null && reportingScopeApiFilter !== undefined) {
         out.innerHTML =
-            '<div class="hint-micro text-dim">Only <strong>one</strong> completed scan matches this scope filter in the recent window. Drift needs a second finished job in the same scope, a valid baseline for that scope, or switch to <strong>All scopes</strong> / <strong>Manual compare</strong>.</div>';
+            '<div class="hint-micro text-dim">Only <strong>one</strong> completed scan matches this scope filter in the recent window. Drift needs a second finished job in the same scope, a valid baseline for that scope, or switch to <strong>All scopes</strong> / use <strong>Compare two scans</strong> (below).</div>';
         return;
     }
     const newest = parseInt(String(ts[0].job_id), 10);
@@ -13779,7 +13828,7 @@ async function loadReportingChangeSince() {
                         ? ' <span class="text-dim">(Legacy global baseline points at a named-scope job, so it is not used for unscoped drift here.)</span>'
                         : '';
                 out.innerHTML =
-                    '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">This scan is unscoped, so Reports cannot safely choose a previous scan for drift. Assign it to a scope or use <strong>Manual Compare</strong>.' +
+                    '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">This scan is unscoped, so Reports cannot safely choose a previous scan for drift. Assign it to a scope or use <strong>Compare two scans</strong> (below).' +
                     baselineNote +
                     '</div>';
                 return;
@@ -13796,7 +13845,7 @@ async function loadReportingChangeSince() {
                 esc(scopeLabel) +
                 '). <strong>No comparable reference</strong> in that same scope in the last ' +
                 esc(String(driftLimit)) +
-                ' finished jobs — add another scan in this scope, set a scoped baseline for that network, or use <strong>Manual compare</strong>.' +
+                ' finished jobs — add another scan in this scope, set a scoped baseline for that network, or use <strong>Compare two scans</strong> (below).' +
                 esc(baselineNote) +
                 '</div>';
             return;
@@ -13832,7 +13881,7 @@ async function loadReportingChangeSince() {
     if (!jobA || jobA === newest) {
         if (reportingScopeApiFilter === 0) {
             out.innerHTML =
-                '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">Unscoped-only mode: no <strong>compatible</strong> prior scan was found in this list (same schedule, batch, target CIDR, or matching label prefix). Automatic snapshot drift is not shown — history charts below still list unscoped jobs. Set a baseline for this bucket, assign scans to a named scope, or use <strong>Manual compare</strong>.</div>';
+                '<div class="hint-micro text-dim hstate-warn" style="line-height:1.5">Unscoped-only mode: no <strong>compatible</strong> prior scan was found in this list (same schedule, batch, target CIDR, or matching label prefix). Automatic snapshot drift is not shown — history charts below still list unscoped jobs. Set a baseline for this bucket, assign scans to a named scope, or use <strong>Compare two scans</strong> (below).</div>';
             return;
         }
         const narrow =
@@ -14338,19 +14387,19 @@ async function loadReportingTab() {
             if (overviewMode) {
                 html +=
                     '<div class="hint-micro mb10" style="line-height:1.5">' +
-                    '<strong>Baselines are per scope.</strong> <em>All scopes</em> is an overview: trends list every finished job; automatic drift compares within the latest scan’s scope only. ' +
-                    'The legacy global row below is diagnostic — it is <em>not</em> a single baseline for all networks in this view. ' +
-                    'Select a <strong>named scope</strong> or <strong>Unscoped only</strong> above to view or set that bucket’s baseline.</div>';
+                    '<strong>Baselines are per scope.</strong> With <em>All scopes</em>, trends include every finished job; automatic drift only compares within the latest job’s own scope. ' +
+                    'The <strong>legacy global</strong> row is a special-case reference for unscoped jobs — not one baseline for every network on this page. ' +
+                    'Pick a <strong>named scope</strong> or <strong>Unscoped only</strong> to view or set that bucket’s baseline.</div>';
             }
             html +=
-                '<div class="text-dim" style="font-size:11px;margin-bottom:4px"><strong>Legacy global baseline</strong> (<span class="mono-sm">config.phase13_baseline_job_id</span>) — historical; does not apply to every network or drive All-scopes drift by itself.</div>' +
+                '<div class="text-dim" style="font-size:11px;margin-bottom:4px"><strong>Legacy global baseline</strong> (<span class="mono-sm">config.phase13_baseline_job_id</span>) — optional reference for unscoped comparisons; see technical details in Advanced (admin).</div>' +
                 '<div><strong>Configured id:</strong> ' +
                 (cfg == null ? '— none —' : esc(String(cfg))) +
                 '</div><div><strong>Effective job:</strong> ' +
                 (eff == null ? '— none —' : esc(String(eff))) +
                 (d.scoping_enabled ? ' <span class="text-dim">(scope: ' + gScopeTxt + ')</span>' : '') +
-                '</div><div><strong>Unusable for diffs:</strong> ' +
-                (un ? '<span class="hstate-warn">yes</span>' : 'no') +
+                '</div><div><strong>Usable as drift reference:</strong> ' +
+                (un ? '<span class="hstate-warn">No — see note below</span>' : '<span class="text-dim">Yes</span>') +
                 '</div>';
             if (d.scoping_enabled) {
                 html +=
@@ -14367,14 +14416,14 @@ async function loadReportingTab() {
                     (scfg == null ? '— none —' : esc(String(scfg))) +
                     '</div><div><strong>Named scope effective:</strong> ' +
                     (seff == null ? '— none —' : esc(String(seff))) +
-                    '</div><div><strong>Named scope baseline unusable:</strong> ' +
-                    (sun ? '<span class="hstate-warn">yes</span>' : 'no') +
+                    '</div><div><strong>Baseline usable for this scope:</strong> ' +
+                    (sun ? '<span class="hstate-warn">No — see note below</span>' : '<span class="text-dim">Yes</span>') +
                     '</div>';
                 {
                     const scfgNum = scfg != null && String(scfg) !== '' ? parseInt(String(scfg), 10) : 0;
                     if (!(scfgNum > 0) && !sun) {
                         html +=
-                            '<div class="hint-micro mt6 text-dim">No baseline saved for this named scope yet — pick a completed scan in this scope and use <strong>Set baseline</strong>.</div>';
+                            '<div class="hint-micro mt6 text-dim">No baseline saved for this scope yet. Choose a completed scan in this scope from <strong>Set baseline</strong> below.</div>';
                     }
                 }
             }
@@ -14394,24 +14443,24 @@ async function loadReportingTab() {
             const parts = [];
             if (un) {
                 parts.push(
-                    'Legacy global baseline: configured id is not usable (missing job, not completed, in trash, or no asset snapshots).'
+                    'Baseline not available: the configured reference scan is missing, not finished, in trash, or has no asset snapshots. Set a different baseline from a valid completed job.'
                 );
             }
             if (namedMode && d.scope_baseline_config_job_id != null && parseInt(String(d.scope_baseline_config_job_id), 10) > 0 && d.scope_baseline_unavailable) {
-                parts.push('Named scope baseline: saved id is not usable for this scope.');
+                parts.push('Baseline not available for this named scope: the saved reference scan cannot be used. Choose another completed scan in this scope and set baseline again.');
             }
             if (overviewMode && legNamed) {
                 parts.push(
-                    'Legacy global baseline points at a named-scope job — it is not an “all networks” baseline and is not used for unscoped-only drift until repointed to an unscoped completed job.'
+                    'Global baseline points at a named-scope scan, so it is not used as a single “all networks” reference. For unscoped drift, set the global baseline to an unscoped completed job or switch to a named scope.'
                 );
             }
             if (unscopedMode && legNamed) {
                 parts.push(
-                    'The legacy global baseline points at a named-scope scan — it is not used as the unscoped comparison baseline. Set a new baseline from an unscoped completed job, or pick a named scope.'
+                    'Unscoped comparisons cannot use a baseline that points at a named-scope scan. Set baseline from an unscoped completed job, or select a named report scope.'
                 );
             }
             if (unscopedMode && (upePool == null || upePool === '') && !legNamed) {
-                parts.push('No unscoped comparison baseline is set yet. Choose a completed unscoped scan and set baseline.');
+                parts.push('No baseline set yet for unscoped jobs. Pick a finished unscoped scan in the list below and use Set baseline.');
             }
             if (parts.length) {
                 valEl.style.display = '';
@@ -14443,8 +14492,10 @@ async function loadReportingTab() {
             }
         }
     }
-    if (dbgWrap) dbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
-    if (cmpDbgWrap) cmpDbgWrap.style.display = stRoleIsAdmin() ? '' : 'none';
+    const advRegion = document.getElementById('report-advanced-region');
+    if (advRegion) {
+        advRegion.style.display = stRoleIsAdmin() ? '' : 'none';
+    }
     try {
         await loadReportingAtGlance();
     } catch (_e) {}

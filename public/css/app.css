@@ -470,8 +470,9 @@ body:not(.light-mode) .card{box-shadow:var(--card-shadow-dark)}
 body.light-mode .card{box-shadow:var(--card-shadow-light)}
 .card:last-child{margin-bottom:0}
 /* Enrichment — Zabbix tools panel (UI Pass 2) */
-.zb-enrich-tools-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.zb-enrich-tools-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;margin-bottom:10px}
 .zb-enrich-tools-head .ct{margin-bottom:0}
+.zb-enrich-tools-head > div:first-child{flex:1;min-width:min(100%, 12rem)}
 .zb-enrich-section{border-top:1px solid var(--bd);padding-top:14px;margin-top:14px}
 .zb-enrich-section:first-child{border-top:none;padding-top:0;margin-top:0}
 .zb-enrich-match-box{max-height:70vh;overflow:auto;border:1px solid var(--bd);border-radius:var(--radius-lg);padding:10px}
@@ -745,6 +746,33 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .badge-zbx-outdated{background:var(--rdim);color:var(--red)}
 .badge-zbx-never{background:var(--bg4);color:var(--tx3)}
 .enrich-zbx-card-body{padding:2px 2px 0}
+/* Enrichment tab — overview grid + Zabbix stack (integrated layout) */
+.enrich-intro{max-width:min(100%, 52rem)}
+.enrich-overview-grid{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  gap:12px;
+  align-items:stretch;
+}
+@media (max-width: 960px){
+  .enrich-overview-grid{grid-template-columns:1fr}
+}
+.enrich-overview-card{min-width:0;display:flex;flex-direction:column}
+.enrich-overview-card--muted{opacity:0.96}
+.enrich-zabbix-stack{display:flex;flex-direction:column;gap:10px;min-width:0}
+.enrich-zabbix-overview{flex:1;display:flex;flex-direction:column;min-height:0}
+.enrich-zabbix-overview-body{flex:1;min-height:2.5rem}
+.enrich-zbx-overview-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:auto;padding-top:12px}
+.enrich-zabbix-tools-card{
+  border-top:2px solid color-mix(in srgb, var(--primary) 55%, var(--border));
+  padding-top:14px;
+}
+body.light-mode .enrich-zabbix-tools-card{
+  border-top-color:color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.enrich-zabbix-tools-sub{margin-top:6px;line-height:1.45;color:var(--text-muted)}
+.enrich-sources-grid{align-items:start}
+.enrich-card-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .hp-zbx-freshness{font-size:11px;color:var(--tx3);margin:6px 0 4px}
 .hp-zbx-freshness-warn{font-size:11px;color:var(--amber);margin-top:6px}
 .hp-port-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd)}
@@ -1328,6 +1356,90 @@ body.light-mode .health-row{border-bottom-color:rgba(0,0,0,.07)}
 .report-snapshot-narrative{color:var(--tx)}
 .report-snapshot-drift-out{font-family:var(--sf),system-ui,sans-serif;font-size:13px;line-height:1.5}
 .report-trends-out{font-family:var(--sf),system-ui,sans-serif;font-size:13px;line-height:1.45}
+
+/* Reports & Analysis — Pass 1 layout (sections + manual tools band) */
+.report-page-title{margin-bottom:6px}
+.report-page-lead{color:var(--text-muted)}
+.report-section{
+  margin-bottom:22px;
+}
+.report-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--text-muted);
+  margin:0 0 10px;
+  padding-bottom:6px;
+  border-bottom:1px solid color-mix(in srgb,var(--border) 75%,transparent);
+}
+.report-card-title{
+  font-family:var(--mf);
+  font-size:12px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:var(--text-muted);
+  margin-bottom:8px;
+}
+.report-subheading{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:600;
+  color:var(--text);
+  margin:18px 0 8px;
+}
+.report-subheading:first-of-type{
+  margin-top:0;
+}
+.report-manual-tools{
+  margin-top:8px;
+  padding-top:18px;
+  border-top:1px solid var(--border);
+  background:color-mix(in srgb,var(--section-bg) 55%,transparent);
+  border-radius:var(--radius-lg);
+  padding-left:14px;
+  padding-right:14px;
+  padding-bottom:16px;
+}
+.report-manual-lead{margin-top:4px!important}
+.report-manual-card{
+  border-color:color-mix(in srgb,var(--border) 90%,var(--text) 4%);
+}
+.report-details-summary,
+.report-advanced-summary{
+  cursor:pointer;
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-muted);
+  list-style-position:outside;
+}
+.report-scope-details,
+.report-glance-details,
+.report-drift-details,
+.report-trends-details{
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:6px 10px;
+  background:color-mix(in srgb,var(--bg2) 92%,var(--text) 3%);
+}
+.report-advanced-region{
+  margin-top:4px;
+}
+.report-advanced-details{
+  border:1px dashed color-mix(in srgb,var(--border) 70%,var(--text-muted) 30%);
+  border-radius:var(--radius);
+  padding:8px 12px 12px;
+  background:color-mix(in srgb,var(--bg2) 88%,transparent);
+}
+.report-advanced-details[open] > .report-advanced-summary{
+  margin-bottom:8px;
+}
+body.light-mode .report-manual-tools{
+  background:color-mix(in srgb,var(--surface-muted) 70%,transparent);
+}
+
 .btn-busy{
   opacity:.85;
   position:relative;
