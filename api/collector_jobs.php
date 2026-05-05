@@ -9,6 +9,8 @@ st_collector_bootstrap_schema();
 $auth = st_collector_auth_required('collector:jobs:read');
 $collectorId = (int)$auth['collector_id'];
 $db = st_db();
+require_once __DIR__ . '/lib_rate_limit.php';
+st_rate_limit_consume_or_429($db, 'collector_jobs_cid:' . $collectorId, 120);
 $body = st_input();
 $maxJobs = max(1, min(10, (int)($body['max_jobs'] ?? 3)));
 

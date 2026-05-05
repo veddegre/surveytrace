@@ -1142,8 +1142,8 @@ function st_ai_normalize_explain_doc(?array $doc): array {
 st_auth();
 st_require_role(['scan_editor', 'admin']);
 st_method('POST');
-// st_require_csrf() re-opened the session; release before DB + Ollama so other tabs/polls are not
-// blocked for minutes on the session file lock (same pattern as api/feeds.php long POST paths).
+// CSRF is enforced inside st_method('POST'). Release the session lock before long Ollama/DB work so
+// other tabs are not blocked on the session file (same idea as api/feeds.php long POST paths).
 st_release_session_lock();
 
 $body = st_input();

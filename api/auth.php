@@ -249,6 +249,8 @@ st_method('POST');
 $body = st_input();
 
 if (isset($_GET['login'])) {
+    require_once __DIR__ . '/lib_rate_limit.php';
+    st_rate_limit_consume_or_429($db, 'auth_login_ip:' . st_login_ip(), 30);
     if (!in_array($mode, ['session', 'oidc'], true)) {
         st_release_session_lock();
         st_json(['error' => 'Login endpoint available only in session/SSO modes', 'auth_mode' => $mode], 400);

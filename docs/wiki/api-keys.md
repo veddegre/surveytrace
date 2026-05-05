@@ -11,6 +11,15 @@
 
 ---
 
+## Integration pull APIs (metrics, events, dashboards)
+
+Pull endpoints (for example `/api/integrations_metrics.php`, `/api/integrations_events.php`, `/api/integrations_dashboard.php`, `/api/integrations_report_summary.php`) authenticate with the **per-integration** token from **Settings → Integrations**.
+
+- **Use in production:** `Authorization: Bearer <token>` on every request.
+- **Legacy:** `?token=` on the URL is still accepted for backward compatibility, but it is **deprecated** (responses include a `Warning` header). Prefer the header so tokens are less likely to appear in logs, history, or `Referer` headers.
+
+---
+
 ## How to do it
 
 1. Identify the integration:

@@ -9,6 +9,8 @@ st_collector_bootstrap_schema();
 $auth = st_collector_auth_required('collector:submit:write');
 $collectorId = (int)$auth['collector_id'];
 $db = st_db();
+require_once __DIR__ . '/lib_rate_limit.php';
+st_rate_limit_consume_or_429($db, 'collector_submit_cid:' . $collectorId, 120);
 $body = st_input();
 
 $stmt = $db->prepare("SELECT max_rps, max_submit_mbps FROM collectors WHERE id=? LIMIT 1");

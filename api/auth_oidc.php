@@ -276,7 +276,12 @@ if (
     st_json(['ok' => false, 'error' => 'OIDC discovery returned unsafe endpoint URL(s)'], 400);
 }
 
+$db = st_db();
+require_once __DIR__ . '/lib_rate_limit.php';
+$rlIp = st_request_ip();
+
 if (isset($_GET['start'])) {
+    st_rate_limit_consume_or_429($db, 'oidc_start_ip:' . $rlIp, 30);
     $state = bin2hex(random_bytes(16));
     $nonce = bin2hex(random_bytes(16));
     $_SESSION['oidc_state'] = $state;
@@ -295,6 +300,7 @@ if (isset($_GET['start'])) {
 }
 
 if (isset($_GET['callback'])) {
+    st_rate_limit_consume_or_429($db, 'oidc_callback_ip:' . $rlIp, 60);
     $state = (string)($_GET['state'] ?? '');
     $code = (string)($_GET['code'] ?? '');
     $savedState = (string)($_SESSION['oidc_state'] ?? '');

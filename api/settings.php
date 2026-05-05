@@ -17,6 +17,8 @@
  *   - ai_openwebui_base_url — http(s) origin of Open WebUI (no trailing slash required); env OPENWEBUI_BASE_URL overrides DB
  *   - ai_openwebui_api_key — Bearer token for Open WebUI API; env OPENWEBUI_API_KEY overrides DB
  *   - security_allow_private_outbound_targets: bool (default false; allow private/loopback OIDC/OpenWebUI endpoints)
+ *   - security_health_requires_scan_editor: bool (default false; when true, GET /api/health.php requires scan_editor or admin)
+ *   - security_export_requires_scan_editor: bool (default false; when true, GET /api/export.php requires scan_editor or admin)
  *   - integration_webhook_enabled: bool — reserved legacy flag (no server path calls `st_integrations_outbound_emit()`; use **Integrations** push rows + test/sample instead)
  *   - integration_webhook_url: string — HTTPS URL (http allowed only when security_allow_private_outbound_targets is on)
  *   - integration_webhook_secret: optional HMAC secret (X-SurveyTrace-Signature: sha256=…); never returned on GET
@@ -282,6 +284,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'breakglass_enabled' => st_config('breakglass_enabled', '1') === '1',
         'breakglass_username' => (string)st_config('breakglass_username', 'admin'),
         'security_allow_private_outbound_targets' => st_config('security_allow_private_outbound_targets', '0') === '1',
+        'security_health_requires_scan_editor' => st_config('security_health_requires_scan_editor', '0') === '1',
+        'security_export_requires_scan_editor' => st_config('security_export_requires_scan_editor', '0') === '1',
         'password_policy' => st_password_policy(),
         'password_hash_algo' => st_password_hash_algo(),
         'login_max_attempts' => st_login_max_attempts(),
@@ -511,6 +515,16 @@ if (array_key_exists('security_allow_private_outbound_targets', $body)) {
     $v = !empty($body['security_allow_private_outbound_targets']);
     st_config_set('security_allow_private_outbound_targets', $v ? '1' : '0');
     $changed['security_allow_private_outbound_targets'] = $v;
+}
+if (array_key_exists('security_health_requires_scan_editor', $body)) {
+    $v = !empty($body['security_health_requires_scan_editor']);
+    st_config_set('security_health_requires_scan_editor', $v ? '1' : '0');
+    $changed['security_health_requires_scan_editor'] = $v;
+}
+if (array_key_exists('security_export_requires_scan_editor', $body)) {
+    $v = !empty($body['security_export_requires_scan_editor']);
+    st_config_set('security_export_requires_scan_editor', $v ? '1' : '0');
+    $changed['security_export_requires_scan_editor'] = $v;
 }
 if (array_key_exists('integration_webhook_enabled', $body)) {
     $v = !empty($body['integration_webhook_enabled']);

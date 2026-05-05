@@ -30,8 +30,15 @@ Pull integrations allow external systems to retrieve data from SurveyTrace.
 
 ### Authentication
 
-- Uses Bearer tokens
-- Each integration consumer should have its own token
+- **Recommended:** send the integration secret with an HTTP header:
+
+```text
+Authorization: Bearer <token>
+```
+
+- **Deprecated (still accepted):** `?token=` on the query string. SurveyTrace continues to honor this for existing dashboards and scripts, but responses include a `Warning` header advising migration to `Authorization`. Query tokens are easier to leak via `Referer`, proxy logs, and browser history—avoid them for new integrations.
+
+- Each external consumer should use its own token (separate integration row in the UI).
 
 ---
 

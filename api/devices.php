@@ -134,6 +134,21 @@ if ($method === 'POST') {
         st_json(['ok' => false, 'error' => 'Merge failed'], 500);
     }
 
+    $actor = st_current_user();
+    st_audit_log(
+        'device.merge',
+        (int)($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null,
+        (string)($actor['username'] ?? '') !== '' ? (string)$actor['username'] : null,
+        null,
+        null,
+        [
+            'survivor_id'    => $survivor,
+            'merged_ids'     => $mergeIds,
+            'merged_count'   => count($mergeIds),
+            'assets_updated' => $assetsUpdated,
+        ]
+    );
+
     st_json([
         'ok'             => true,
         'survivor_id'    => $survivor,

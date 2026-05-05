@@ -199,6 +199,7 @@ function st_integrations_pull_token_from_request_meta(): array
             return ['plain' => $plain, 'source' => 'bearer_header'];
         }
     }
+    // Deprecated: ?token= remains supported for backward compatibility; prefer Authorization: Bearer (see Warning header when query token is used).
     $q = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
     if ($q !== '') {
         return ['plain' => $q, 'source' => 'query_token'];
@@ -208,7 +209,22 @@ function st_integrations_pull_token_from_request_meta(): array
 }
 
 /**
- * Verify pull request: Authorization: Bearer … or ?token=
+ * Log + RFC 7234 Warning when clients use deprecated query-string pull tokens.
+ */
+function st_integrations_deprecated_query_token_notify(string $route, string $source): void
+{
+    if ($source !== 'query_token' || headers_sent()) {
+        return;
+    }
+    header('Warning: 299 - "Deprecated token usage. Use Authorization header."');
+    @error_log('SurveyTrace.integrations ' . json_encode([
+        '_event' => 'integrations.pull_deprecated_query_token',
+        'route'  => $route,
+    ], JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Verify pull request: Authorization: Bearer … or ?token= (deprecated; see st_integrations_deprecated_query_token_notify).
  */
 function st_integrations_pull_token_from_request(): string
 {
@@ -349,9 +365,15 @@ function st_integrations_pull_require_token_for(PDO $db, string $route, array $r
         st_integrations_pull_auth_failure_log($route, 'no_candidates', 'none', 0, $types);
         st_json(['ok' => false, 'error' => 'no enabled pull integration token configured for this endpoint'], 503);
     }
+    require_once __DIR__ . '/lib_rate_limit.php';
+    $ip = st_integrations_pull_client_ip();
+    st_rate_limit_consume_or_429($db, 'int_pull:' . $route . ':ip:' . $ip, 60);
     $meta = st_integrations_pull_token_from_request_meta();
     $plain = $meta['plain'];
     $source = $meta['source'];
+    if ($plain !== '') {
+        st_rate_limit_consume_or_429($db, 'int_pull:' . $route . ':tok:' . hash('sha256', $plain), 60);
+    }
     if ($plain === '') {
         $candidates = st_integrations_pull_candidate_rows($db, $types);
         st_integrations_pull_auth_failure_log($route, 'missing_token', $source, count($candidates), $types);
@@ -364,8 +386,9 @@ function st_integrations_pull_require_token_for(PDO $db, string $route, array $r
         st_json(['ok' => false, 'error' => 'invalid token for this endpoint'], 401);
     }
     if (($ctx['integration_id'] ?? 0) > 0) {
-        st_integrations_pull_touch_used($db, (int) $ctx['integration_id'], st_integrations_pull_client_ip());
+        st_integrations_pull_touch_used($db, (int) $ctx['integration_id'], $ip);
     }
+    st_integrations_deprecated_query_token_notify($route, $source);
 
     return $ctx;
 }

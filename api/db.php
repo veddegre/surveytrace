@@ -1103,6 +1103,36 @@ function st_json(mixed $data, int $status = 200): never {
 }
 
 /**
+ * JSON 429 with Retry-After (rate limiting). Same baseline headers as st_json().
+ */
+function st_json_rate_limited(string $message = 'Too many requests', int $retryAfterSeconds = 60): never {
+    if (!headers_sent()) {
+        http_response_code(429);
+        $ra = max(1, min(86400, $retryAfterSeconds));
+        header('Retry-After: ' . $ra);
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        header('Referrer-Policy: strict-origin-when-cross-origin');
+        header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        $xf = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+        if ($https || $xf === 'https') {
+            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+        }
+        header('Cache-Control: no-store');
+    }
+    $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT
+        | JSON_INVALID_UTF8_SUBSTITUTE;
+    $out = json_encode(['ok' => false, 'error' => $message], $flags);
+    if ($out === false) {
+        $out = '{"ok":false,"error":"Too many requests"}';
+    }
+    echo $out;
+    exit;
+}
+
+/**
  * Emit JSON body only (no SurveyTrace envelope). Used for Grafana Infinity ?view= slices on pull APIs.
  */
 function st_json_raw(mixed $data, int $status = 200): never

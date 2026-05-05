@@ -7,10 +7,13 @@ require_once __DIR__ . '/lib_collectors.php';
 st_collector_require_post();
 st_collector_bootstrap_schema();
 $db = st_db();
+require_once __DIR__ . '/lib_rate_limit.php';
+st_rate_limit_consume_or_429($db, 'collector_checkin_ip:' . st_request_ip(), 180);
 $body = st_input();
 $action = strtolower(trim((string)($body['action'] ?? 'heartbeat')));
 
 if ($action === 'register') {
+    st_rate_limit_consume_or_429($db, 'collector_register_ip:' . st_request_ip(), 30);
     $installToken = trim((string)($_SERVER['HTTP_X_COLLECTOR_INSTALL_TOKEN'] ?? ''));
     $expected = trim(st_config('collector_install_token', ''));
     if ($expected === '' || !hash_equals($expected, $installToken)) {
@@ -68,6 +71,7 @@ if ($action === 'register') {
 
 $auth = st_collector_auth_required('collector:checkin');
 $collectorId = (int)$auth['collector_id'];
+st_rate_limit_consume_or_429($db, 'collector_checkin_cid:' . $collectorId, 120);
 $stmt = $db->prepare("SELECT max_rps FROM collectors WHERE id=? LIMIT 1");
 $stmt->execute([$collectorId]);
 $maxRps = (float)($stmt->fetchColumn() ?: 5.0);

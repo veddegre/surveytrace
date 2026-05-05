@@ -101,6 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $aRow->execute([$fid]);
             $aidTop = (int)($aRow->fetchColumn());
             st_refresh_asset_top_cve($db, $aidTop);
+            st_audit_log('finding.resolve', null, null, null, null, [
+                'finding_id' => $fid,
+                'asset_id'   => $aidTop,
+                'username'   => (string)($actor['username'] ?? ''),
+            ]);
             st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => true, 'lifecycle_state' => 'mitigated']);
 
         case 'unresolve':
@@ -114,6 +119,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $aRow->execute([$fid]);
             $aidTop = (int)($aRow->fetchColumn());
             st_refresh_asset_top_cve($db, $aidTop);
+            $actor = st_current_user();
+            st_audit_log('finding.unresolve', null, null, null, null, [
+                'finding_id' => $fid,
+                'asset_id'   => $aidTop,
+                'username'   => (string)($actor['username'] ?? ''),
+            ]);
             st_json(['ok' => true, 'finding_id' => $fid, 'resolved' => false, 'lifecycle_state' => 'active']);
 
         case 'resolve_all':
@@ -133,6 +144,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([$notes, $aid]);
             $count = $db->query("SELECT changes()")->fetchColumn();
             st_refresh_asset_top_cve($db, $aid);
+            st_audit_log('finding.resolve_all', null, null, null, null, [
+                'asset_id'        => $aid,
+                'resolved_count'  => (int)$count,
+                'username'        => (string)($actor['username'] ?? ''),
+            ]);
             st_json(['ok' => true, 'asset_id' => $aid, 'resolved_count' => (int)$count]);
 
         case 'accept_risk':
@@ -150,6 +166,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $aRow->execute([$fid]);
             $aidTop = (int)($aRow->fetchColumn());
             st_refresh_asset_top_cve($db, $aidTop);
+            st_audit_log('finding.accept_risk', null, null, null, null, [
+                'finding_id' => $fid,
+                'asset_id'   => $aidTop,
+                'username'   => (string)($actor['username'] ?? ''),
+            ]);
             st_json(['ok' => true, 'finding_id' => $fid, 'lifecycle_state' => 'accepted']);
 
         default:

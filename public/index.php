@@ -38,6 +38,12 @@ if (!headers_sent()) {
     header('X-Frame-Options: SAMEORIGIN');
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()');
+    header('Cache-Control: no-store');
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $xf = strtolower(trim((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if ($https || $xf === 'https') {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
 }
 ?><!DOCTYPE html>
 <html lang="en">
@@ -1734,7 +1740,7 @@ if (!headers_sent()) {
     </div>
 
     <p class="help-line text-dim mt10 text-micro">
-      Pull APIs accept <code class="code-accent">Authorization: Bearer &lt;token&gt;</code> (or <code class="code-accent">?token=</code> — less ideal for logs).
+      Pull APIs: use <code class="code-accent">Authorization: Bearer &lt;token&gt;</code> in production. Legacy <code class="code-accent">?token=</code> still works but is deprecated (responses include a <code class="code-accent">Warning</code> header).
       Starter files: <code class="code-accent">integrations/starter/</code> (see README).
     </p>
   </div>
@@ -1809,6 +1815,23 @@ if (!headers_sent()) {
           <input class="finp" type="text" id="st-extra-safe-ports" style="min-width:280px;flex:1" placeholder="10000,15672,11434">
           <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
         </div>
+      </div>
+      <div class="card" id="st-security-controls-card">
+        <div class="ct">Security controls</div>
+        <p class="help-line mb10 text-dim">
+          When enabled, <strong>viewer</strong> accounts can no longer call the System Health or inventory export APIs—only <strong>scan editor</strong> and <strong>admin</strong> roles. Default is off (unchanged from prior releases).
+        </p>
+        <div class="stack8 mb10">
+          <label class="stack8" title="Restricts GET /api/health.php to scan_editor and admin.">
+            <input type="checkbox" id="st-sec-health-scan-editor" class="accent-radio">
+            <span class="text-secondary">Require scan editor/admin for System Health</span>
+          </label>
+          <label class="stack8" title="Restricts GET /api/export.php to scan_editor and admin.">
+            <input type="checkbox" id="st-sec-export-scan-editor" class="accent-radio">
+            <span class="text-secondary">Require scan editor/admin for exports</span>
+          </label>
+        </div>
+        <button class="tbtn" type="button" onclick="saveSecurityControlsSettings()">Save security controls</button>
       </div>
       <div class="card">
         <div class="ct">NVD, CVE intelligence &amp; offline fingerprint feeds</div>
@@ -2834,6 +2857,7 @@ function applyRoleAwareUi() {
     setHidden('nintegrations', !isAdmin);
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
+    setHidden('st-security-controls-card', !isAdmin);
 
     const barNewScan = document.getElementById('bar-btn-new-scan');
     if (barNewScan) barNewScan.style.display = canScanManage ? '' : 'none';
@@ -2881,6 +2905,7 @@ function applyRoleAwareUi() {
     disableByOnclick('submitStBulkAssetScopeModal(', !canScanManage);
     disableByOnclick('stBulkScopeGoToScopesTab(', !canScanManage);
     disableByOnclick('saveAccessControlSettings(', !isAdmin);
+    disableByOnclick('saveSecurityControlsSettings(', !isAdmin);
     disableByOnclick('savePasswordPolicy(', !isAdmin);
     disableByOnclick('createAuthUser(', !isAdmin);
     disableByOnclick('saveAuthUser(', !isAdmin);
@@ -3913,7 +3938,7 @@ async function loadDashboard() {
     if (ciTs) ciTs.textContent = d.cve_intel_last_sync || 'never';
     if (ciRows) ciRows.textContent = String(d.cve_intel_row_count != null ? d.cve_intel_row_count : 0);
 
-    // Top vulnerable
+    // Top vulnerable (WARNING: innerHTML requires escaped content — all dynamic strings use esc())
     const tv = d.top_vulnerable || [];
     document.getElementById('dash-top-vuln').innerHTML = tv.length
         ? tv.map(a => `<tr>
@@ -6240,6 +6265,7 @@ async function loadFindings(page) {
     const d   = await api(url);
     if (!d) return;
 
+    // WARNING: innerHTML — row cells must stay escaped via esc() for API fields.
     document.getElementById('vuln-tbody').innerHTML = (d.findings || []).map(f => `<tr>
       <td class="mono mono-sm tbl-cell-mono tbl-cell-primary">${esc(f.cve_id)}</td>
       <td class="mono tbl-cell-mono click-ip"
@@ -8181,6 +8207,8 @@ function updateStatusPill(lastScan) {
 // ==========================================================================
 // Helpers
 // ==========================================================================
+// SECURITY: Many code paths assign API-derived strings via innerHTML. Any interpolated text MUST go through esc().
+// WARNING: innerHTML requires escaped content; use textContent when HTML structure is not required.
 function esc(s) {
     if (s === null || s === undefined) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -8505,6 +8533,10 @@ async function loadUiSettings() {
     if (inp) inp.value = String(d.session_timeout_minutes);
     const extra = document.getElementById('st-extra-safe-ports');
     if (extra) extra.value = String(d.extra_safe_ports || '');
+    const secHealth = document.getElementById('st-sec-health-scan-editor');
+    if (secHealth) secHealth.checked = !!d.security_health_requires_scan_editor;
+    const secExport = document.getElementById('st-sec-export-scan-editor');
+    if (secExport) secExport.checked = !!d.security_export_requires_scan_editor;
     closeCollectorInstallTokenRevealModal();
     collectorInstallTokenConfigured = !!d.collector_install_token_configured;
     const cTokSt = document.getElementById('st-collector-install-token-status');
@@ -8707,6 +8739,20 @@ async function copyAiInstallHelp() {
     const txt = el.textContent || '';
     if (await stCopyTextToClipboard(txt)) toast('Commands copied', 'ok');
     else toast('Could not copy commands', 'err');
+}
+
+async function saveSecurityControlsSettings() {
+    const body = {
+        security_health_requires_scan_editor: !!document.getElementById('st-sec-health-scan-editor')?.checked,
+        security_export_requires_scan_editor: !!document.getElementById('st-sec-export-scan-editor')?.checked,
+    };
+    const r = await apiPost('/api/settings.php', body);
+    if (r && r.ok) {
+        toast('Security controls updated', 'ok');
+        await loadUiSettings();
+    } else {
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
 }
 
 async function savePasswordPolicy() {

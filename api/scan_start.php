@@ -34,6 +34,10 @@ st_method('POST');
 $body = st_input();
 $db   = st_db();
 $actor = st_current_user();
+require_once __DIR__ . '/lib_rate_limit.php';
+$uidRl = (int)($actor['id'] ?? 0);
+$rlBucket = $uidRl > 0 ? ('scan_start:u:' . $uidRl) : ('scan_start:ip:' . st_request_ip());
+st_rate_limit_consume_or_429($db, $rlBucket, 30);
 
 function st_ip4_to_u32(string $ip): ?int {
     $bin = @inet_pton($ip);
