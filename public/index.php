@@ -1125,8 +1125,8 @@ if (!headers_sent()) {
           <h3 id="scan-hist-detail-sec-assets" class="scan-hist-detail-sec-title">Assets discovered</h3>
           <div class="tbl-wrap tbl-scan-hist scan-hist-detail-asset-wrap">
             <table class="tbl scan-hist-detail-asset-tbl">
-              <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th><th>Top CVE</th><th>CVSS</th></tr></thead>
-              <tbody id="scan-hist-detail-assets"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+              <thead><tr><th>IP</th><th>Hostname</th><th>Category</th><th>Ports</th></tr></thead>
+              <tbody id="scan-hist-detail-assets"><tr><td colspan="4" class="loading">Loading…</td></tr></tbody>
             </table>
           </div>
           <p id="scan-hist-detail-assets-hint" class="hint-micro mt8 scan-hist-detail-assets-hint" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
@@ -7411,7 +7411,7 @@ function renderScanSummary(summary) {
     ` : '';
     return `
       <div>Profile: <b>${esc(summary.profile || '—')}</b> &nbsp;|&nbsp; Mode: <b>${esc(summary.scan_mode || '—')}</b></div>
-      <div class="summary-line">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open findings: <b>${summary.open_findings || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
+      <div class="summary-line">Assets catalogued: <b>${summary.assets_catalogued || 0}</b> &nbsp;|&nbsp; Open ports observed: <b>${summary.open_ports_total || 0}</b></div>
       <div class="summary-line">Top ports: <span class="mono">${esc(portText)}</span></div>
       <div class="summary-line">Categories: <span class="mono">${esc(cats || '—')}</span></div>
       <div class="summary-line">AI enrichment: attempted <b>${summary.ai_enrichment_attempts || 0}</b> &nbsp;|&nbsp; applied <b>${summary.ai_enrichment_applied || 0}</b></div>
@@ -7510,27 +7510,13 @@ function stScanHistDetailGoReport() {
     hiNav('nreport');
 }
 
-function stScanHistDetailCritHighFromSummary(summary) {
-    const o = summary && summary.open_findings_by_severity && typeof summary.open_findings_by_severity === 'object'
-        ? summary.open_findings_by_severity
-        : null;
-    if (!o) return '\u2014';
-    const c = Number(o.critical ?? 0) || 0;
-    const h = Number(o.high ?? 0) || 0;
-    return String(c + h);
-}
-
-function stScanHistDetailStatCardsHtml(j, summary) {
+function stScanHistDetailStatCardsHtml(j) {
     const assetsVal = String(j.hosts_found != null ? Number(j.hosts_found) : 0);
     const assetsLabel = 'Assets found';
-    const openF = summary && summary.open_findings != null ? String(summary.open_findings) : '\u2014';
-    const critHi = stScanHistDetailCritHighFromSummary(summary);
     const dur = fmtDuration(j.duration_secs || 0);
     const src = j.collector_id ? String(j.collector_name || ('Collector #' + j.collector_id)) : 'Master';
     return `<div class="scan-hist-detail-stat-grid">
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">${esc(assetsLabel)}</div><div class="scan-hist-detail-stat-val">${esc(assetsVal)}</div></div>
-      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Open findings</div><div class="scan-hist-detail-stat-val">${esc(openF)}</div></div>
-      <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Critical + high</div><div class="scan-hist-detail-stat-val">${esc(critHi)}</div></div>
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Duration</div><div class="scan-hist-detail-stat-val">${esc(dur)}</div></div>
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Source</div><div class="scan-hist-detail-stat-val mono-sm">${esc(src)}</div></div>
     </div>`;
@@ -7640,7 +7626,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     sum.innerHTML = '';
     diff.innerHTML = '';
     if (diffWrap) diffWrap.style.display = 'none';
-    tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
 
     const cmpQ = compareToId > 0 ? '&compare_to=' + encodeURIComponent(String(compareToId)) : '';
     const scopeQ = '&compare_scope=' + encodeURIComponent(compareScope || 'any');
@@ -7653,7 +7639,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
         logEl.innerHTML = '';
         diff.innerHTML = '';
         if (diffWrap) diffWrap.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">No data</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">No data</td></tr>';
         return;
     }
 
@@ -7680,7 +7666,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const labelTrim = j.label != null && String(j.label).trim() ? String(j.label).trim() : '';
     title.textContent = labelTrim || ('Scan #' + j.id);
     headerSub.innerHTML = stScanHistDetailHeaderSubHtml(j);
-    stats.innerHTML = stScanHistDetailStatCardsHtml(j, j.summary);
+    stats.innerHTML = stScanHistDetailStatCardsHtml(j);
     progress.innerHTML = stScanHistDetailProgressHtml(j);
     logEl.innerHTML = stScanHistDetailLogHtml(j, d.log_tail);
     renderCompareOptions(j.id, j, d.compare_options || [], compareToId, d.compare_scope || compareScope || 'any');
@@ -7701,7 +7687,7 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const hint = document.getElementById('scan-hist-detail-assets-hint');
     if (!assets.length) {
         if (hint) hint.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" class="loading scan-hist-empty">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent <code class="code-accent">last_scan_id</code> per asset.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading scan-hist-empty">No assets available for this run. Older runs can be empty because inventory rows keep only the most recent <code class="code-accent">last_scan_id</code> per asset.</td></tr>';
         return;
     }
     if (hint) hint.style.display = 'block';
@@ -7719,8 +7705,6 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
           <td class="scan-hist-detail-asset-host">${hn}</td>
           <td><span class="chip">${esc((a.category || 'unk').toUpperCase())}</span></td>
           <td class="mono scan-hist-detail-asset-muted font11">${esc(ports)}</td>
-          <td class="mono scan-hist-detail-asset-muted font11">${esc(a.top_cve || '—')}</td>
-          <td class="mono scan-hist-detail-asset-muted">${a.top_cvss != null ? esc(a.top_cvss) : '—'}</td>
         </tr>`;
     }).join('');
 }
