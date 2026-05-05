@@ -667,7 +667,8 @@ if (!headers_sent()) {
 <!-- ================================================================ SCAN HISTORY -->
 <div class="tab" id="t-scanhist">
   <div class="hint-micro mb10">
-    Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.
+    <span id="scan-hist-intro-viewer" style="display:none">Job queue and finished scans. Scan creation requires scan editor access.</span>
+    <span id="scan-hist-intro-editor">Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.</span>
   </div>
   <!-- Job queue — primary status view -->
   <div class="sth section-top">Job queue</div>
@@ -2644,6 +2645,12 @@ function applyRoleAwareUi() {
     if (barSettings) barSettings.style.display = isAdmin ? '' : 'none';
     const barAccess = document.getElementById('bar-account-access');
     if (barAccess) barAccess.style.display = isAdmin ? '' : 'none';
+    const scanHistIntroV = document.getElementById('scan-hist-intro-viewer');
+    const scanHistIntroE = document.getElementById('scan-hist-intro-editor');
+    if (scanHistIntroV && scanHistIntroE) {
+        scanHistIntroV.style.display = canScanManage ? 'none' : '';
+        scanHistIntroE.style.display = canScanManage ? '' : 'none';
+    }
     ['scan-view-trash', 'scan-view-all'].forEach((id) => {
         const b = document.getElementById(id);
         if (b) b.style.display = canScanManage ? '' : 'none';
@@ -6340,7 +6347,7 @@ async function loadScanHistory(history) {
       <td class="mono font10">${localDate(j.finished_at)}</td>
       <td class="nowrap-cell">
         <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
-        ${canRerun(j.status) && !j.deleted_at ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
+        ${canRerun(j.status) && !j.deleted_at && canManage ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
         ${canTrash(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Move to trash</button>` : ''}
         ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
         ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
@@ -6731,6 +6738,10 @@ async function setQueuedJobPriority(jobId, currentPriority) {
 }
 
 async function rerunScanJob(id) {
+    if (!stRoleCanManageScans()) {
+        toast('You do not have permission to start scans.', 'err');
+        return;
+    }
     const r = await apiPost('/api/scan_start.php', {retry_job_id: id});
     if (r && r.job_id) {
         closeScanHistDetailModal(false);
@@ -7000,7 +7011,8 @@ async function openScanHistDetail(id, compareToId = 0, compareScope = 'any', tri
     const isTrashed = !!j.deleted_at;
     if (rerunBtn) {
         rerunBtn.dataset.jobId = String(j.id);
-        rerunBtn.style.display = (!isTrashed && ['done', 'aborted', 'failed'].includes(j.status)) ? '' : 'none';
+        const showRerun = stRoleCanManageScans() && !isTrashed && ['done', 'aborted', 'failed'].includes(j.status);
+        rerunBtn.style.display = showRerun ? '' : 'none';
     }
     if (delBtn) {
         delBtn.dataset.jobId = String(j.id);
