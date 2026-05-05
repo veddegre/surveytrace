@@ -459,18 +459,21 @@ if (!headers_sent()) {
     </select>
     <button class="tbtn" onclick="loadDevices(1)" title="Reload">&#8635; Refresh</button>
   </div>
-  <div class="tbl-wrap">
-    <table class="tbl">
+  <p class="hint-micro mb8 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
+    Devices represent discovered systems and infrastructure sources used during scans and enrichment.
+  </p>
+  <div class="tbl-wrap tbl-wrap--data">
+    <table class="tbl tbl--data">
       <thead><tr>
-        <th>ID</th>
-        <th>MAC (norm)</th>
-        <th># Assets</th>
-        <th>IP sample</th>
-        <th>Last activity</th>
-        <th>Created</th>
-        <th></th>
+        <th class="tbl-th-no-sort">ID</th>
+        <th class="tbl-th-no-sort">MAC (norm)</th>
+        <th class="tbl-th-no-sort"># Assets</th>
+        <th class="tbl-th-no-sort">IP sample</th>
+        <th class="tbl-th-no-sort">Last activity</th>
+        <th class="tbl-th-no-sort">Created</th>
+        <th class="tbl-th-action tbl-th-no-sort"></th>
       </tr></thead>
-      <tbody id="device-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+      <tbody id="device-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
     </table>
   </div>
   <div class="pgn">
@@ -1450,10 +1453,10 @@ if (!headers_sent()) {
   <div class="card">
     <div class="ct">Open alerts</div>
     <div id="alerts-summary" class="help-line mb8 text-dim">Loading…</div>
-    <div class="tbl-wrap">
-      <table class="tbl" id="alerts-table">
-        <thead><tr><th>When</th><th>Type</th><th>Target</th><th>Detail</th><th>Actions</th></tr></thead>
-        <tbody id="alerts-table-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data" id="alerts-table">
+        <thead><tr><th class="tbl-th-no-sort">When</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Target</th><th class="tbl-th-no-sort">Detail</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+        <tbody id="alerts-table-body"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1541,10 +1544,10 @@ if (!headers_sent()) {
       </details>
       <div class="flbl">Local users and roles</div>
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
-      <div class="tbl-wrap mb8">
-        <table class="tbl" id="auth-users-table">
-          <thead><tr><th>User</th><th>Name</th><th>Email</th><th>Role</th><th>MFA</th><th>Disabled</th><th>Actions</th></tr></thead>
-          <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+      <div class="tbl-wrap tbl-wrap--data mb8">
+        <table class="tbl tbl--data" id="auth-users-table">
+          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+          <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
       <div class="hint-micro mb8"><strong>Save</strong> updates fields. <strong>Password</strong> sets a temporary password.</div>
@@ -1559,18 +1562,18 @@ if (!headers_sent()) {
       </div>
       <div class="flbl">Live auth operations (non-historical)</div>
       <div class="hint-micro mb6">Operational view of current failed/locked sign-in state. This is not a permanent history.</div>
-      <div class="tbl-wrap mb8">
-        <table class="tbl">
-          <thead><tr><th>User</th><th>Failed attempts</th><th>Last failed (UTC)</th><th>Locked until (UTC)</th><th>IP</th></tr></thead>
-          <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      <div class="tbl-wrap tbl-wrap--data mb8">
+        <table class="tbl tbl--data">
+          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Failed attempts</th><th class="tbl-th-no-sort">Last failed (UTC)</th><th class="tbl-th-no-sort">Locked until (UTC)</th><th class="tbl-th-no-sort">IP</th></tr></thead>
+          <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
       <div class="flbl">Historical user audit</div>
       <div class="hint-micro mb6">Persistent trail of sign-ins, account, and scan operator actions.</div>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Target</th><th>IP</th></tr></thead>
-          <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+      <div class="tbl-wrap tbl-wrap--data">
+        <table class="tbl tbl--data">
+          <thead><tr><th class="tbl-th-no-sort">When (UTC)</th><th class="tbl-th-no-sort">Action</th><th class="tbl-th-no-sort">Actor</th><th class="tbl-th-no-sort">Target</th><th class="tbl-th-no-sort">IP</th></tr></thead>
+          <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </details>
@@ -4265,11 +4268,11 @@ async function loadChangeAlerts() {
             ? `<span class="row-wrap" style="gap:4px;justify-content:flex-end">${[accept, dismiss].filter(Boolean).join('')}</span>`
             : '';
         return `<tr>
-          <td class="mono mono-sm">${esc(r.created_at || '')}</td>
-          <td>${esc(_alertTypeLabel(r.alert_type))}</td>
-          <td class="mono">${ip || '—'} <span class="text-dim mono-sm">job ${esc(jid)}</span></td>
-          <td class="text-secondary" style="max-width:28rem">${esc(_alertDetailSummary(r))}</td>
-          <td style="white-space:nowrap">${actions}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${esc(r.created_at || '')}</td>
+          <td class="tbl-cell-primary">${esc(_alertTypeLabel(r.alert_type))}</td>
+          <td class="mono tbl-cell-mono tbl-cell-muted">${ip || '—'} <span class="text-dim mono-sm">job ${esc(jid)}</span></td>
+          <td class="tbl-cell-muted" style="max-width:28rem">${esc(_alertDetailSummary(r))}</td>
+          <td class="tbl-cell-actions">${actions}</td>
         </tr>`;
     }).join('');
 }
@@ -4743,7 +4746,7 @@ async function loadDevices(page) {
         order = 'desc';
     }
     document.getElementById('device-tbody').innerHTML =
-        '<tr><td colspan="7" class="loading">Loading devices…</td></tr>';
+        '<tr><td colspan="7" class="loading tbl-empty">Loading devices…</td></tr>';
 
     const url = `/api/devices.php?page=${page}&per_page=50&q=${enc(q)}&sort=${enc(sort)}&order=${order}`;
     const d   = await api(url);
@@ -4755,15 +4758,15 @@ async function loadDevices(page) {
         const last = dev.last_seen_max ? relTime(dev.last_seen_max) : '—';
         const created = dev.created_at ? relTime(dev.created_at) : '—';
         return `<tr>
-          <td class="mono mono-sm"><span class="click-ip" onclick="openDevicePanel(${dev.id})" title="Device detail">${dev.id}</span></td>
-          <td class="mono mono-sm">${mac}</td>
-          <td class="mono">${dev.asset_count}</td>
-          <td class="mono mono-sm" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ips}">${ips}</td>
-          <td class="mono mono-sm">${last}</td>
-          <td class="mono mono-sm">${created}</td>
-          <td><button type="button" class="tbtn btn-xs" onclick="viewDeviceAssets(${dev.id})">Assets</button></td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-primary"><span class="click-ip" onclick="openDevicePanel(${dev.id})" title="Device detail">${dev.id}</span></td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${mac}</td>
+          <td class="mono tbl-cell-mono tbl-cell-muted">${dev.asset_count}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ips}">${ips}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${last}</td>
+          <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${created}</td>
+          <td class="tbl-cell-actions"><button type="button" class="tbtn btn-xs" onclick="viewDeviceAssets(${dev.id})">Assets</button></td>
         </tr>`;
-    }).join('') || '<tr><td colspan="7" class="loading">No devices found</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="loading tbl-empty">No devices found.</td></tr>';
 
     document.getElementById('dpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} devices)`;
     document.getElementById('dprev').disabled = page <= 1;
@@ -4775,6 +4778,41 @@ function detectServiceHitsFromAsset(asset) {
     const httpProbe = String(banners._http || '');
     const ports = asset.open_ports || [];
     return collectDetectedServiceChips(ports, banners, httpProbe);
+}
+
+/**
+ * Vendor summary display shared by Assets table + host details.
+ * Returns a primary label with optional +N suffix and a full-list tooltip.
+ * @param {Record<string, unknown>} asset
+ * @returns {{label:string, title:string}}
+ */
+function stVendorSummaryForAsset(asset) {
+    const primaryRaw = String(asset && asset.vendor != null ? asset.vendor : '').trim();
+    const hitsRaw = detectServiceHitsFromAsset(asset || {});
+    /** @type {string[]} */
+    const ordered = [];
+    const seen = new Set();
+    const pushUnique = (v) => {
+        const s = String(v || '').trim();
+        if (!s) return;
+        const k = s.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        ordered.push(s);
+    };
+    if (primaryRaw) {
+        pushUnique(primaryRaw);
+    }
+    (hitsRaw || []).forEach((h) => pushUnique(h));
+    if (!ordered.length) {
+        return { label: '—', title: '—' };
+    }
+    const displayPrimary = ordered[0];
+    const extra = Math.max(0, ordered.length - 1);
+    return {
+        label: displayPrimary + (extra > 0 ? ' +' + String(extra) : ''),
+        title: ordered.join(', '),
+    };
 }
 
 function lifecycleBadgeHtml(asset) {
@@ -5800,15 +5838,9 @@ async function loadAssets(page) {
     tbody.innerHTML = (d.assets || []).map(a => {
         const ports = (a.open_ports || []).slice(0,6).map(p => `<span class="pt">${Number(p)}</span>`).join('');
         const more  = a.open_ports && a.open_ports.length > 6 ? `<span class="pt">+${a.open_ports.length-6}</span>` : '';
-        const svcHits = detectServiceHitsFromAsset(a);
-        const primaryVendor = a.vendor || '—';
-        let vendorCell = esc(primaryVendor) + (a.model ? '<span class="text-secondary"> ' + esc(a.model) + '</span>' : '');
-        if (svcHits.length > 1) {
-            const extra = svcHits.filter(s => s.toLowerCase() !== String(primaryVendor).toLowerCase());
-            if (extra.length) {
-                vendorCell += ` <span class="status-text" title="${esc(svcHits.join(', '))}">+${extra.length} services</span>`;
-            }
-        }
+        const vendorSummary = stVendorSummaryForAsset(a);
+        let vendorCell = `<span title="${esc(vendorSummary.title)}">${esc(vendorSummary.label)}</span>`;
+        vendorCell += a.model ? '<span class="text-secondary"> ' + esc(a.model) + '</span>' : '';
         const editBtn = stRoleCanManageScans()
             ? `<button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>`
             : '';
@@ -17105,6 +17137,7 @@ async function openHostPanel(id, ip) {
     const enrichmentBody = zbxHtml
         ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
         : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty">No Zabbix enrichment data for this host.</div></section>`;
+    const hostVendorSummary = stVendorSummaryForAsset(a);
 
     try {
     hpBody.innerHTML = `
@@ -17140,7 +17173,7 @@ async function openHostPanel(id, ip) {
               '<span class="hp-randomized" title="Locally administered (randomized) MAC — OUI lookup not available">randomized</span>'
               : ''}
           </td></tr>
-          <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val">${esc(a.vendor||'—')}</td></tr>
+          <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val"><span title="${esc(hostVendorSummary.title)}">${esc(hostVendorSummary.label)}</span></td></tr>
           <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${esc(a.os_guess||'—')}</td></tr>
           <tr><td class="hp-meta-key">CPE</td><td class="hp-meta-val-dim cpe-break">${esc(a.cpe||'—')}</td></tr>
           <tr><td class="hp-meta-key">IPv6</td><td class="hp-meta-val-dim cpe-break">${
