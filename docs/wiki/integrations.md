@@ -2,46 +2,41 @@
 
 [← Back to Documentation](README.md)
 
-## Zabbix integration overview
+## When to use this
 
-- Zabbix integration supports:
-  - sync of host/monitoring context into SurveyTrace
-  - match review workflows for linking data to assets
-  - optional output back to Zabbix via `zabbix_sender`
+- Use this page when configuring or operating Zabbix integration.
+- For deeper scope-model behavior, refer to `concepts.md`.
 
-## Sync
+## How to do it
 
-- Sync pulls Zabbix data into SurveyTrace cache tables.
-- Run manually from Enrichment/Integrations or use scheduled sync if enabled.
-- Freshness/state is updated after sync attempts.
+1. Open **Integrations** and configure Zabbix connector values.
+2. Enable sync and run **Sync now**.
+3. Open **Enrichment** and review match suggestions.
+4. Apply validated matches.
+5. If output is needed, enable output settings and verify sender prerequisites.
+6. Check status in Enrichment/System Health.
 
-## Match review
+## What to expect
 
-- Use Enrichment match review tools to inspect and apply mappings.
-- Apply operations are explicit operator actions, not silent background changes.
+- Sync updates cached host/monitoring context.
+- Match review requires explicit operator actions.
+- Output uses `zabbix_sender` and reports last push result separately.
+- Status meanings:
+  - **Connected**: healthy recent sync state
+  - **Degraded**: stale/warning condition
+  - **Error**: last sync/output failed
+  - **Not configured**: connector disabled/incomplete
 
-## Output (`zabbix_sender`)
+## Common issues
 
-- Output is optional and separate from sync.
-- Requires `zabbix_sender` on Debian/Ubuntu when output is enabled.
-- Output status includes last push time/result when configured.
-
-## Status meanings
-
-- **Connected**
-  - Configured and enabled with healthy recent sync state.
-- **Degraded**
-  - Configured but stale/warning condition.
-- **Error**
-  - Last sync or output failed.
-- **Not configured**
-  - Connector not configured or disabled.
-
-## Where configuration lives
-
-- Integrations tab (Zabbix connector settings)
-- Enrichment tab (operational review/match workflows)
-- System Health (integration status visibility)
+- **Status remains Not configured**
+  - Missing API URL/token or connector still disabled.
+- **Status is Degraded**
+  - Sync interval/freshness stale; run sync and re-check.
+- **Status is Error**
+  - Last sync/output failed; review error summary.
+- **Output not working**
+  - `zabbix_sender` missing or sender target/host settings invalid.
 
 ---
 

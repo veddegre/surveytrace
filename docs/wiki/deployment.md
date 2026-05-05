@@ -2,34 +2,35 @@
 
 [← Back to Documentation](README.md)
 
-## How to run deploy
+## When to use this
 
-- From the repository root:
-  - `sudo ./deploy.sh`
+- Use this page for routine updates to an existing install.
+- For first install, use setup docs instead.
 
-## What deploy updates
+## How to do it
 
-- Syncs updated application/runtime files to the install path.
-- Refreshes expected permissions and ownership where applicable.
-- Restarts expected services for the node role.
+1. Pull the latest code to the target host.
+2. Run `sudo ./deploy.sh` from repository root.
+3. Wait for file sync, permission normalization, and service restart.
+4. Review post-deploy validation output.
+5. Confirm health/status in the UI.
 
-## Validation checks
+## What to expect
 
-- Deploy runs post-deploy validation checks.
-- Checks include required paths/files, read/execute access, and unit presence.
-- Critical issues fail the deploy; warnings are printed for non-blocking conditions.
+- Updated files copied into install path.
+- Expected services restarted for current node role.
+- Validation checks run for files, permissions, and service/unit readiness.
 
-## Deploy vs setup
+## Common issues
 
-- Use **setup** for first-time installation.
-- Use **deploy** for updates to an existing installation.
-
-## Safe update workflow
-
-- Pull latest code on the target host.
-- Run `sudo ./deploy.sh`.
-- Confirm service status and health indicators in the UI.
-- If needed, review system logs for failed units or permission errors.
+- **Deploy check fails on mode/owner**
+  - Re-run deploy; verify expected permission policy.
+- **Service restart fails**
+  - Review `systemctl status` and related journal output.
+- **UI shows stale behavior**
+  - Confirm deploy ran on the correct host and version file updated.
+- **Collector/master mismatch**
+  - Use role-appropriate setup/deploy path on each node type.
 
 ---
 

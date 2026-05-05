@@ -2,39 +2,36 @@
 
 [← Back to Documentation](README.md)
 
-## How to run setup
+## When to use this
 
-- From the repository root:
-  - `sudo ./setup.sh`
-- Choose full server/master when prompted.
+- Use this page for first-time master installation or master rebuild.
+- Do not use this for routine updates; use deployment workflow instead.
 
-## What setup installs
+## How to do it
 
-- Application files under `/opt/surveytrace`
-- Required runtime dependencies
-- System services (scanner, scheduler, ingest)
-- Initial database and data directories
+1. From repository root, run `sudo ./setup.sh`.
+2. Choose full server/master when prompted.
+3. Wait for package install, file copy, service setup, and permission steps.
+4. Review post-install validation output.
+5. Confirm services are active and UI is reachable.
 
-## Permissions model
+## What to expect
 
-- `surveytrace` runs daemon/scheduler workers.
-- `www-data` serves web/API access.
-- API and data paths are permissioned so scheduler and web access can coexist safely.
-
-## Validation behavior
-
-- Setup runs post-install validation checks.
-- Checks include required files, directories, modes, ownership, and service/unit presence.
-- Critical failures stop setup; warnings are shown for non-blocking issues.
+- Master files install under `/opt/surveytrace`.
+- Core services are installed/enabled (scanner, scheduler, ingest).
+- Permissions are normalized for `surveytrace` and `www-data`.
+- Validation checks fail on critical issues and warn on optional ones.
 
 ## Common issues
 
-- **Service not active**
-  - Check `systemctl status` for the specific unit.
-- **Permission/readability errors**
-  - Re-run setup or deploy to normalize ownership/modes.
-- **Missing optional tools**
-  - `zabbix_sender` is warning-only unless output features are actively used.
+- **Service not active after setup**
+  - Check `systemctl status surveytrace-daemon surveytrace-scheduler`.
+- **Permission check failed**
+  - Re-run setup/deploy to re-apply owner/group/mode policy.
+- **Database or data path not writable**
+  - Verify `surveytrace`/`www-data` access under `/opt/surveytrace/data`.
+- **zabbix_sender warning**
+  - Install `zabbix-sender` only if you plan to use output push.
 
 ---
 

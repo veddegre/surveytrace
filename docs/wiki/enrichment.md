@@ -2,44 +2,41 @@
 
 [← Back to Documentation](README.md)
 
-## What enrichment is
+## When to use this
 
-- Enrichment adds context to discovered assets after or alongside scan processing.
-- It helps operators map technical scan output to operational identity and ownership signals.
+- Use this page when you need to sync Zabbix data, review matches, and confirm enrichment health.
 
-## Zabbix integration
+## How to do it
 
-### How to run sync
+1. Open **Enrichment** and go to the Zabbix section.
+2. Check top status and last sync indicator.
+3. Click **Run sync now** when data is stale or missing.
+4. Open **Match review** tools.
+5. Review suggested links and scope actions.
+6. Apply only validated matches.
+7. Confirm updated host context in **Assets/Host details**.
 
-- Open the Enrichment or Integrations area for Zabbix.
-- Run sync to refresh cached Zabbix host/monitoring context.
-- Verify the last sync/result indicators after completion.
+## What to expect
 
-### How to use Zabbix match review
+- Sync refreshes cached Zabbix host/monitoring context.
+- Match review shows candidates and lets you apply explicit changes.
+- Status should move toward **Connected** after successful sync.
+- Optional output push state is separate from sync state.
 
-- Open Zabbix match review tools in Enrichment.
-- Review suggested links/mappings.
-- Apply only validated matches or scope actions you intend to keep.
+## Common issues
 
-### Matching assets
+- **Status stays Not configured**
+  - Connector settings are incomplete or disabled.
+- **Status shows Degraded**
+  - Sync is stale; run sync and verify schedule.
+- **Status shows Error**
+  - Last sync/output failed; inspect message in health/integrations.
+- **Zabbix availability remains unknown**
+  - Sync may not have imported availability fields yet; run sync again and verify mapping.
+- **Matches look wrong**
+  - Review manually before applying; do not bulk-apply uncertain rows.
 
-- Zabbix host data can be matched to SurveyTrace assets.
-- Match review and workflow tools help validate and apply mappings.
-
-### Sync behavior
-
-- Sync pulls Zabbix host/monitoring data into SurveyTrace caches.
-- Manual sync and scheduled sync both update freshness and status indicators.
-
-### Output (`zabbix_sender`)
-
-- Optional output pushes SurveyTrace metrics back to Zabbix.
-- Requires `zabbix_sender` on Debian/Ubuntu when output is enabled.
-- Output status is tracked separately from sync status.
-
-## Status meanings
-
-### How to interpret status
+## Status meanings (quick reference)
 
 - **Connected**
   - Configured and enabled, with healthy recent sync state.

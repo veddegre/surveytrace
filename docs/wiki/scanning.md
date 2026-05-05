@@ -2,43 +2,37 @@
 
 [← Back to Documentation](README.md)
 
-## How to start a scan
+## When to use this
 
-- Use **Scan control** to start new scans.
-- Choose targets, scan options, and submit to the queue.
+- Use this page when you need to run scans, monitor queue state, and review results quickly.
 
-## How to read scan history
+## How to do it
 
-- Use **Scan history** to monitor active and completed runs.
-- Review run status, timing, and result summaries in one place.
+1. Go to **Scan control**.
+2. Select scan profile and options.
+3. Enter target CIDR/range.
+4. Click **Start scan**.
+5. Open **Scan history** to watch queue and run status.
+6. Open the completed run for details.
+7. Re-run from scan history if you need a fresh snapshot.
 
-## Queue vs completed scans
+## What to expect
 
-- **Queued/running**
-  - Jobs waiting for execution or currently executing.
-  - Status updates as workers process the job.
-- **Completed**
-  - Jobs finished as done/failed/aborted.
-  - Results are stored as historical snapshots.
+- Scan appears as **queued**, then **running**, then **done/failed/aborted**.
+- Completed jobs remain as historical snapshots.
+- Assets/finding views update after processing completes.
+- Results are visible in **Scan history**, **Assets**, and **Host details**.
 
-## How to re-run a scan
+## Common issues
 
-- Open the prior run in **Scan history** and use available run actions.
-- Re-run creates a new job and new historical snapshot.
-- Compare the new run against prior runs in reporting views.
-
-## What happens after a scan finishes
-
-- Results are saved and reflected in historical scan data.
-- Inventory views are updated from processed results.
-- Related sections (assets, findings, reporting) become available for review.
-
-## Where to view results
-
-- **Scan history** for per-job details and timeline context.
-- **Assets** for current host and device state.
-- **Host details** for ports, findings, enrichment, and AI summary context.
-- **Reports & Analysis** for historical and current-state reporting views.
+- **Scan stays queued**
+  - Scanner daemon may be down; check service status.
+- **Scan fails quickly**
+  - Target/options may be invalid or unreachable.
+- **No new assets after completion**
+  - Run may have found nothing, or filters hide results.
+- **Need to compare with prior runs**
+  - Use reports and pick job-based history mode.
 
 ---
 

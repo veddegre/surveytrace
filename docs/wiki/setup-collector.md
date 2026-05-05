@@ -2,35 +2,37 @@
 
 [← Back to Documentation](README.md)
 
-## Collector role
+## When to use this
 
-- A collector is an optional remote scan worker.
-- It runs scans close to remote networks and submits results to the master.
+- Use this page when adding or rebuilding a remote collector node.
+- Collectors are optional and used for distributed scanning.
 
-## How to run collector setup
+## How to do it
 
-- From repository root:
-  - `cd collector`
-  - `sudo ./setup.sh`
+1. On the collector host, go to repository root.
+2. Run:
+   - `cd collector`
+   - `sudo ./setup.sh`
+3. Configure collector connection values (master URL/install token).
+4. Start/confirm collector service.
+5. Verify collector appears online on the master.
 
-## Service user expectations
+## What to expect
 
-- Collector runtime uses the collector service account model (typically `surveytrace` on collector hosts).
-- Files and config are permissioned for service runtime, not world-readable.
+- Collector-specific files/services are installed and validated.
+- Service user permissions are enforced for runtime paths.
+- Collector polls master for work and uploads results back.
 
-## Validation checks
+## Common issues
 
-- Collector setup runs collector-specific validation.
-- Checks include:
-  - required collector files and directories
-  - service unit/config presence
-  - ownership/mode expectations
-  - service-user readability/executability
-
-## How collectors connect to master
-
-- Collector config points to the master base URL and uses install-token-based registration.
-- The collector polls for work, executes assigned scans, and uploads results back to the master.
+- **Collector not visible on master**
+  - Check base URL/install token in collector config.
+- **Collector service failing**
+  - Check `systemctl status surveytrace-collector`.
+- **Permission/readability failures**
+  - Re-run collector setup/deploy to normalize modes/ownership.
+- **No jobs assigned**
+  - Validate collector assignment/ranges on master scheduling side.
 
 ---
 

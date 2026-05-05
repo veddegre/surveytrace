@@ -2,30 +2,34 @@
 
 [← Back to Documentation](README.md)
 
-## Where API keys are used
+## When to use this
 
-- External AI providers (when configured)
-- Integration endpoints that require authenticated outbound or pull access
-- Feed and connector features that rely on third-party services
+- Use this page when adding, rotating, or troubleshooting external service credentials.
 
-## How to configure keys
+## How to do it
 
-- Configure keys in the appropriate Settings/Integrations screens.
-- Use environment variables where supported for operational separation.
-- Keep configuration consistent across service restarts/deploys.
+1. Identify which feature requires a key (AI provider, integration, feed).
+2. Add/update the key in the matching Settings/Integrations section.
+3. Save configuration.
+4. Run the related test/sync action if available.
+5. Confirm status changes to healthy/connected.
 
-## Security considerations
+## What to expect
 
-- Treat keys as secrets.
-- Do not commit keys to git or plaintext config in shared repos.
-- Use least-privilege keys scoped to required APIs only.
-- Restrict access to hosts/users that need operational control.
+- Features depending on the key become active after save/test.
+- Invalid keys usually surface as connection/auth errors in status messages.
+- Rotated keys require updating stored config before old key expiry.
 
-## Rotation and updates
+## Common issues
 
-- Rotate keys on a schedule and after any suspected exposure.
-- Update keys in SurveyTrace settings/integration config.
-- Verify connectivity/status after rotation (sync/test action where available).
+- **Auth failed after key update**
+  - Key may be malformed, expired, or missing required scope.
+- **Feature still disabled**
+  - Verify key was saved in correct section and service can reach endpoint.
+- **Unexpected key exposure risk**
+  - Remove keys from scripts/repos and rotate immediately.
+- **Rotation caused outage**
+  - Stage new key, validate, then revoke old key.
 
 ---
 
