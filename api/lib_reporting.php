@@ -1743,6 +1743,129 @@ function st_reporting_compare_scope_alignment(PDO $db, int $jobA, int $jobB): ar
     }
 }
 
+/**
+ * Live inventory + open findings for Reports "Inventory scope" mode (filters by assets.scope_id, not scan_jobs).
+ *
+ * @param int|null $scopeFilter null = all assets; 0 = unscoped inventory; >0 = catalog scope id
+ *
+ * @return array<string, mixed>
+ */
+function st_reporting_inventory_scope_summary(PDO $db, ?int $scopeFilter): array
+{
+    $out = [
+        'report_mode'                => 'inventory',
+        'scope_filter'               => $scopeFilter,
+        'scope_id'                   => $scopeFilter !== null && $scopeFilter > 0 ? $scopeFilter : ($scopeFilter === 0 ? 0 : null),
+        'scope_name'                 => null,
+        'assets_scope_column'        => false,
+        'assets_total'               => 0,
+        'lifecycle_counts'           => [],
+        'open_findings_total'        => 0,
+        'open_findings_by_severity'  => [],
+        'open_critical'              => 0,
+        'open_high'                  => 0,
+        'top_assets'                 => [],
+        'note'                       => null,
+    ];
+    if (! st_assets_has_scope_id($db)) {
+        $out['note'] = 'assets.scope_id is not available on this database (run migrations).';
+
+        return $out;
+    }
+    $out['assets_scope_column'] = true;
+    $scopeWhere = '';
+    $scopeParams = [];
+    if ($scopeFilter === null) {
+        $out['scope_name'] = null;
+    } elseif ($scopeFilter === 0) {
+        $scopeWhere = ' AND (a.scope_id IS NULL OR a.scope_id = 0) ';
+        $out['scope_name'] = 'Unscoped inventory';
+    } else {
+        $sid = (int) $scopeFilter;
+        $chk = $db->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
+        $chk->execute([$sid]);
+        if ((int) $chk->fetchColumn() !== 1) {
+            $out['note'] = 'Unknown scan scope id.';
+
+            return $out;
+        }
+        $out['scope_name'] = st_scan_scopes_resolve_name($db, $sid) ?? ('Scope #' . $sid);
+        $scopeWhere = ' AND a.scope_id = ? ';
+        $scopeParams[] = $sid;
+    }
+
+    try {
+        $st = $db->prepare('SELECT COUNT(*) FROM assets a WHERE 1 = 1 ' . $scopeWhere);
+        $st->execute($scopeParams);
+        $out['assets_total'] = (int) $st->fetchColumn();
+
+        $lc = $db->prepare(
+            'SELECT COALESCE(a.lifecycle_status, \'unknown\') AS ls, COUNT(*) AS c
+             FROM assets a
+             WHERE 1 = 1 ' . $scopeWhere . '
+             GROUP BY COALESCE(a.lifecycle_status, \'unknown\')'
+        );
+        $lc->execute($scopeParams);
+        $lifecycle = [];
+        foreach ($lc->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $lifecycle[(string) ($r['ls'] ?? 'unknown')] = (int) ($r['c'] ?? 0);
+        }
+        $out['lifecycle_counts'] = $lifecycle;
+
+        $fj = $db->prepare(
+            'SELECT LOWER(TRIM(COALESCE(f.severity, \'\'))) AS sv, COUNT(*) AS c
+             FROM findings f
+             INNER JOIN assets a ON a.id = f.asset_id
+             WHERE COALESCE(f.resolved, 0) = 0 ' . $scopeWhere . '
+             GROUP BY LOWER(TRIM(COALESCE(f.severity, \'\')))'
+        );
+        $fj->execute($scopeParams);
+        $bySev = [];
+        $totalOpen = 0;
+        foreach ($fj->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $c = (int) ($r['c'] ?? 0);
+            $k = strtolower(trim((string) ($r['sv'] ?? '')));
+            if ($k === '') {
+                $k = 'unknown';
+            }
+            $bySev[$k] = ($bySev[$k] ?? 0) + $c;
+            $totalOpen += $c;
+        }
+        $out['open_findings_by_severity'] = $bySev;
+        $out['open_findings_total'] = $totalOpen;
+        $out['open_critical'] = (int) ($bySev['critical'] ?? 0);
+        $out['open_high'] = (int) ($bySev['high'] ?? 0);
+
+        $top = $db->prepare(
+            'SELECT a.id, a.ip, a.hostname, a.category, COALESCE(a.lifecycle_status, \'\') AS lifecycle_status, a.top_cvss,
+                (SELECT COUNT(*) FROM findings f2 WHERE f2.asset_id = a.id AND COALESCE(f2.resolved, 0) = 0) AS open_findings
+             FROM assets a
+             WHERE 1 = 1 ' . $scopeWhere . '
+             ORDER BY open_findings DESC, COALESCE(a.top_cvss, 0) DESC, a.id DESC
+             LIMIT 15'
+        );
+        $top->execute($scopeParams);
+        $out['top_assets'] = array_map(static function (array $row): array {
+            return [
+                'id'               => (int) ($row['id'] ?? 0),
+                'ip'               => (string) ($row['ip'] ?? ''),
+                'hostname'         => (string) ($row['hostname'] ?? ''),
+                'category'         => (string) ($row['category'] ?? ''),
+                'lifecycle_status' => (string) ($row['lifecycle_status'] ?? ''),
+                'top_cvss'         => isset($row['top_cvss']) && $row['top_cvss'] !== '' && $row['top_cvss'] !== null
+                    ? (float) $row['top_cvss'] : null,
+                'open_findings'    => (int) ($row['open_findings'] ?? 0),
+            ];
+        }, $top->fetchAll(PDO::FETCH_ASSOC) ?: []);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace inventory_scope_summary: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+        $out['note'] = 'Could not read inventory scope summary.';
+        $out = array_merge($out, st_reporting_debug_error_kv($e));
+    }
+
+    return $out;
+}
+
 function st_reporting_clear_scope_baselines_for_job(PDO $db, int $jobId): void
 {
     if ($jobId <= 0) {

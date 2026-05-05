@@ -757,7 +757,7 @@ if (!headers_sent()) {
 <div class="tab" id="t-report">
   <div class="sth section-top report-page-title">Reports &amp; Analysis</div>
   <p class="hint-micro report-page-lead mb12" style="max-width:min(100%,52rem);line-height:1.5">
-    <strong>Start here:</strong> choose a <strong>report scope</strong> below (which <em>finished</em> scans are in view), then read summaries, drift, and trends. Numbers are from scan-time snapshots — not the live Dashboard.
+    <strong>Start here:</strong> pick <strong>report mode</strong> (job vs inventory), then the scope bucket. <strong>Job scope</strong> drives drift, trends, and baselines from <em>finished</em> scans. <strong>Inventory scope</strong> summarizes live assets and open findings by inventory tag — not scan history.
   </p>
 
   <section class="report-section" aria-labelledby="report-sec-glance-heading">
@@ -765,12 +765,20 @@ if (!headers_sent()) {
 
     <div class="card mb10" id="report-scope-card">
       <div class="report-card-title">Report scope</div>
-      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
-        <strong>Report scope filters completed scan jobs, not live asset scope.</strong> Each named option shows <strong>assets · done jobs</strong> (live inventory tag vs finished scans whose <code class="code-accent">scan_jobs.scope_id</code> was set when queued).
+      <p class="hint-micro mb8 text-dim" id="report-scope-mode-explainer" style="line-height:1.45">
+        <strong>Job scope</strong> filters completed scan jobs by <code class="code-accent">scan_jobs.scope_id</code>.
+        <strong>Inventory scope</strong> filters current assets by <code class="code-accent">assets.scope_id</code> and summarizes open findings for those assets.
       </p>
       <div class="row-wrap gap10" style="align-items:flex-end">
         <div>
-          <label class="flbl" for="report-scope-select">Which completed scans</label>
+          <label class="flbl" for="report-scope-mode-select">Report mode</label>
+          <select class="finp" id="report-scope-mode-select" style="min-width:220px" onchange="onReportingScopeModeChange()">
+            <option value="job">Job scope reports</option>
+            <option value="inventory">Inventory scope reports</option>
+          </select>
+        </div>
+        <div>
+          <label class="flbl" for="report-scope-select" id="report-scope-bucket-label">Which completed scans</label>
           <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
             <option value="all">All scopes (default)</option>
             <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
@@ -779,9 +787,12 @@ if (!headers_sent()) {
         <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
         <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
       </div>
+      <p class="hint-micro mb8 mt8 text-dim report-job-only" style="line-height:1.45">
+        <strong>Job mode:</strong> each named option shows <strong>assets · done jobs</strong> (live inventory tag vs finished scans whose <code class="code-accent">scan_jobs.scope_id</code> was set when queued).
+      </p>
       <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
       <div id="report-scope-coverage-banner" class="report-scope-coverage-banner" style="display:none" role="status" aria-live="polite"></div>
-      <details class="report-scope-details mt8">
+      <details class="report-scope-details mt8 report-job-only">
         <summary class="report-details-summary">Job scope vs asset tags (technical)</summary>
         <div class="hint-micro mt6 text-dim" style="line-height:1.45">
           <strong>Job list filter:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches the tag stored when the job was queued.<br><br>
@@ -792,11 +803,20 @@ if (!headers_sent()) {
         <summary class="report-details-summary">Scope filter debug (admin)</summary>
         <pre id="report-scope-diag-pre" class="mono-sm hint-micro text-dim" style="white-space:pre-wrap;margin-top:8px;max-height:14rem;overflow:auto"></pre>
       </details>
-      <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
+      <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn report-job-only" style="display:none">
         <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
       </div>
     </div>
 
+    <div class="card mb10" id="report-inventory-summary-card" style="display:none">
+      <div class="report-card-title">Inventory scope — current state</div>
+      <p class="hint-micro mb8 text-dim" style="line-height:1.45">
+        Live <code class="code-accent">assets</code> and <code class="code-accent">findings</code> for the selected inventory bucket. This is <strong>not</strong> historical scan-job scope. Baseline, drift, trends, and compare are hidden on purpose — switch to <strong>Job scope reports</strong> when you have finished scans for that job tag.
+      </p>
+      <div id="report-inventory-body"><span class="text-dim">Open this tab to load inventory summary…</span></div>
+    </div>
+
+    <div class="report-job-only">
     <div class="card mb10" id="report-at-glance-card">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Summary for the <strong>latest completed scan</strong> that matches your report scope, plus a quick compliance readout when available.
@@ -810,9 +830,10 @@ if (!headers_sent()) {
       <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
       <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
     </div>
+    </div>
   </section>
 
-  <section class="report-section" aria-labelledby="report-sec-drift-heading">
+  <section class="report-section report-job-only" aria-labelledby="report-sec-drift-heading">
     <h2 class="report-section-title" id="report-sec-drift-heading">Snapshot drift</h2>
     <div class="card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
@@ -830,7 +851,7 @@ if (!headers_sent()) {
     </div>
   </section>
 
-  <section class="report-section" aria-labelledby="report-sec-trends-heading">
+  <section class="report-section report-job-only" aria-labelledby="report-sec-trends-heading">
     <h2 class="report-section-title" id="report-sec-trends-heading">Trends</h2>
     <div class="card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
@@ -858,7 +879,7 @@ if (!headers_sent()) {
     </div>
   </section>
 
-  <section class="report-section report-manual-tools" aria-labelledby="report-sec-manual-heading">
+  <section class="report-section report-manual-tools report-job-only" aria-labelledby="report-sec-manual-heading">
     <h2 class="report-section-title" id="report-sec-manual-heading">Manual analysis tools</h2>
     <p class="hint-micro report-manual-lead mb10 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
       Actions you choose explicitly. <strong>Compare</strong> and <strong>Load compliance</strong> are available to all roles (read-only). <strong>Set baseline</strong> and saved report <strong>Details</strong> require scan editor or admin.
@@ -932,7 +953,7 @@ if (!headers_sent()) {
     </div>
   </section>
 
-  <section id="report-advanced-region" class="report-section report-advanced-region" style="display:none" aria-labelledby="report-sec-advanced-heading">
+  <section id="report-advanced-region" class="report-section report-advanced-region report-job-only" style="display:none" aria-labelledby="report-sec-advanced-heading">
     <details class="report-advanced-details">
       <summary class="report-advanced-summary" id="report-sec-advanced-heading">Advanced — admin diagnostics</summary>
       <p class="hint-micro text-dim mb10" style="line-height:1.45">Raw JSON and samples for troubleshooting. Does not replace the baseline summary or compare results above.</p>
@@ -12373,8 +12394,11 @@ function reportingTruncateJsonDisplay(obj) {
 }
 
 const REPORTING_SCOPE_LS_KEY = 'st_report_scope_id';
+const REPORTING_SCOPE_MODE_LS_KEY = 'st_report_scope_mode';
 /** null = all scopes (omit API scope_id, legacy universe); 0 = unscoped only; positive int = named scope */
 var reportingScopeApiFilter = null;
+/** @type {'job'|'inventory'} */
+var reportingScopeMode = 'job';
 var reportingScopesList = [];
 var stScopesForFormsCache = null;
 var stScopesMeta = {
@@ -12393,6 +12417,218 @@ function reportingScopeQuery() {
         return '';
     }
     return '&scope_id=' + encodeURIComponent(String(f));
+}
+
+function reportingIsInventoryMode() {
+    return reportingScopeMode === 'inventory';
+}
+
+function reportingScopeModePersistRead() {
+    try {
+        const raw = localStorage.getItem(REPORTING_SCOPE_MODE_LS_KEY);
+        reportingScopeMode = raw === 'inventory' ? 'inventory' : 'job';
+    } catch (_e) {
+        reportingScopeMode = 'job';
+    }
+}
+
+function reportingScopeModePersistWrite() {
+    try {
+        localStorage.setItem(REPORTING_SCOPE_MODE_LS_KEY, reportingScopeMode === 'inventory' ? 'inventory' : 'job');
+    } catch (_e) {}
+}
+
+function applyReportingScopeModeUi() {
+    const inv = reportingIsInventoryMode();
+    document.querySelectorAll('.report-job-only').forEach((el) => {
+        el.style.display = inv ? 'none' : '';
+    });
+    const invCard = document.getElementById('report-inventory-summary-card');
+    if (invCard) {
+        invCard.style.display = inv ? '' : 'none';
+    }
+    const lbl = document.getElementById('report-scope-bucket-label');
+    if (lbl) {
+        lbl.textContent = inv ? 'Inventory bucket' : 'Which completed scans';
+    }
+}
+
+function onReportingScopeModeChange() {
+    const sel = document.getElementById('report-scope-mode-select');
+    reportingScopeMode = sel && String(sel.value) === 'inventory' ? 'inventory' : 'job';
+    reportingScopeModePersistWrite();
+    applyReportingScopeModeUi();
+    updateReportingScopeDetail();
+    updateReportScopeCoverageBanner();
+    void loadReportingTab();
+}
+
+/**
+ * @param {Record<string, unknown>} inv
+ * @returns {string}
+ */
+function reportingRenderInventorySummaryHtml(inv) {
+    if (!inv || typeof inv !== 'object') {
+        return '<div class="hstate-warn">Invalid inventory summary response.</div>';
+    }
+    const note = inv.note != null ? String(inv.note) : '';
+    if (note && !inv.assets_scope_column) {
+        return '<div class="hstate-warn">' + esc(note) + '</div>';
+    }
+    const scopeLabel =
+        inv.scope_name != null && String(inv.scope_name).trim()
+            ? esc(String(inv.scope_name).trim())
+            : reportingScopeApiFilter === null
+              ? 'All scopes'
+              : reportingScopeApiFilter === 0
+                ? 'Unscoped inventory'
+                : 'Scope filter';
+    const parts = [];
+    if (note) {
+        parts.push('<div class="hint-micro mb8 hstate-warn">' + esc(note) + '</div>');
+    }
+    const at = parseInt(String(inv.assets_total ?? 0), 10) || 0;
+    const openTot = parseInt(String(inv.open_findings_total ?? 0), 10) || 0;
+    const oc = parseInt(String(inv.open_critical ?? 0), 10) || 0;
+    const oh = parseInt(String(inv.open_high ?? 0), 10) || 0;
+    parts.push(
+        '<div class="hint-micro mb8 text-dim"><strong>Bucket:</strong> ' +
+            scopeLabel +
+            ' · <strong>Assets:</strong> ' +
+            esc(String(at)) +
+            ' · <strong>Open findings:</strong> ' +
+            esc(String(openTot)) +
+            ' <span class="text-dim">(critical ' +
+            esc(String(oc)) +
+            ', high ' +
+            esc(String(oh)) +
+            ')</span></div>'
+    );
+    parts.push('<div class="report-card-title" style="margin-top:10px;font-size:13px">At a glance</div>');
+    parts.push(
+        '<div class="row-wrap gap8" style="align-items:stretch;margin-top:6px">' +
+            '<div class="card" style="flex:1;min-width:120px;padding:10px 12px"><div class="text-dim" style="font-size:11px">Assets</div><div style="font-size:22px;font-weight:600">' +
+            esc(String(at)) +
+            '</div></div>' +
+            '<div class="card" style="flex:1;min-width:120px;padding:10px 12px"><div class="text-dim" style="font-size:11px">Open findings</div><div style="font-size:22px;font-weight:600">' +
+            esc(String(openTot)) +
+            '</div></div>' +
+            '<div class="card" style="flex:1;min-width:120px;padding:10px 12px"><div class="text-dim" style="font-size:11px">Critical</div><div style="font-size:22px;font-weight:600">' +
+            esc(String(oc)) +
+            '</div></div>' +
+            '<div class="card" style="flex:1;min-width:120px;padding:10px 12px"><div class="text-dim" style="font-size:11px">High</div><div style="font-size:22px;font-weight:600">' +
+            esc(String(oh)) +
+            '</div></div>' +
+            '</div>'
+    );
+    parts.push('<div class="report-card-title" style="margin-top:14px;font-size:13px">Current findings (by severity)</div>');
+    const bySev = inv.open_findings_by_severity && typeof inv.open_findings_by_severity === 'object' ? inv.open_findings_by_severity : {};
+    const order = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
+    const rows = [];
+    order.forEach((k) => {
+        const c = parseInt(String(bySev[k] ?? 0), 10) || 0;
+        if (c > 0) {
+            rows.push('<tr><td class="mono-sm">' + esc(k) + '</td><td>' + esc(String(c)) + '</td></tr>');
+        }
+    });
+    Object.keys(bySev).forEach((k) => {
+        if (order.indexOf(k) >= 0) {
+            return;
+        }
+        const c = parseInt(String(bySev[k] ?? 0), 10) || 0;
+        if (c > 0) {
+            rows.push('<tr><td class="mono-sm">' + esc(String(k)) + '</td><td>' + esc(String(c)) + '</td></tr>');
+        }
+    });
+    if (!rows.length) {
+        parts.push('<div class="hint-micro text-dim mt6">No open findings for assets in this bucket.</div>');
+    } else {
+        parts.push(
+            '<div class="tbl-wrap mt6"><table class="tbl"><thead><tr><th>Severity</th><th>Open</th></tr></thead><tbody>' +
+                rows.join('') +
+                '</tbody></table></div>'
+        );
+    }
+    parts.push('<div class="report-card-title" style="margin-top:14px;font-size:13px">Asset lifecycle (coverage)</div>');
+    const lc = inv.lifecycle_counts && typeof inv.lifecycle_counts === 'object' ? inv.lifecycle_counts : {};
+    const lk = Object.keys(lc);
+    if (!lk.length) {
+        parts.push('<div class="hint-micro text-dim mt6">No assets in this bucket (or lifecycle not recorded).</div>');
+    } else {
+        lk.sort();
+        const lrows = lk.map((k) => {
+            const c = parseInt(String(lc[k] ?? 0), 10) || 0;
+            return '<tr><td>' + esc(String(k)) + '</td><td>' + esc(String(c)) + '</td></tr>';
+        });
+        parts.push(
+            '<div class="tbl-wrap mt6"><table class="tbl"><thead><tr><th>Lifecycle</th><th>Assets</th></tr></thead><tbody>' +
+                lrows.join('') +
+                '</tbody></table></div>'
+        );
+    }
+    const top = Array.isArray(inv.top_assets) ? inv.top_assets : [];
+    parts.push('<div class="report-card-title" style="margin-top:14px;font-size:13px">Top affected assets</div>');
+    if (!top.length) {
+        parts.push('<div class="hint-micro text-dim mt6">No assets in this bucket.</div>');
+    } else {
+        const trows = top.map((a) => {
+            const row = /** @type {Record<string, unknown>} */ (a || {});
+            const id = parseInt(String(row.id ?? 0), 10) || 0;
+            const ip = row.ip != null ? String(row.ip) : '';
+            const hn = row.hostname != null ? String(row.hostname) : '';
+            const cat = row.category != null ? String(row.category) : '';
+            const life = row.lifecycle_status != null ? String(row.lifecycle_status) : '';
+            const nf = parseInt(String(row.open_findings ?? 0), 10) || 0;
+            const cv = row.top_cvss;
+            const cvTxt = cv != null && cv !== '' && Number.isFinite(Number(cv)) ? String(Number(cv).toFixed(1)) : '—';
+            const label = (hn || ip || '—').slice(0, 80);
+            return (
+                '<tr><td class="mono-sm">#' +
+                esc(String(id)) +
+                '</td><td>' +
+                esc(label) +
+                '</td><td class="text-dim">' +
+                esc(cat.slice(0, 24)) +
+                '</td><td class="text-dim">' +
+                esc(life.slice(0, 16)) +
+                '</td><td>' +
+                esc(String(nf)) +
+                '</td><td>' +
+                esc(cvTxt) +
+                '</td></tr>'
+            );
+        });
+        parts.push(
+            '<div class="tbl-wrap mt6"><table class="tbl"><thead><tr><th>ID</th><th>Host / IP</th><th>Cat</th><th>Life</th><th>Open</th><th>Top CVSS</th></tr></thead><tbody>' +
+                trows.join('') +
+                '</tbody></table></div>'
+        );
+    }
+    return parts.join('');
+}
+
+async function loadReportingInventorySummary() {
+    const body = document.getElementById('report-inventory-body');
+    if (!body) {
+        return;
+    }
+    body.innerHTML = '<span class="text-dim">Loading inventory summary…</span>';
+    const url = '/api/reporting.php?action=inventory_scope_summary' + reportingScopeQuery();
+    if (typeof window !== 'undefined' && stRoleIsAdmin()) {
+        window.__stReportingDiag = Object.assign({}, window.__stReportingDiag || {}, {
+            lastInventoryScopeUrl: url,
+            lastInventoryScopeAt: Date.now(),
+        });
+    }
+    const d = await api(url, { quiet: true });
+    if (!d || !d.ok) {
+        const msg = esc(reportingUserErrorMessage(d, 'Could not load inventory summary.'));
+        body.innerHTML = '<div class="hstate-warn">' + msg + '</div>';
+        reportingToastApiError('Inventory summary', d, 'Could not load inventory summary.');
+        return;
+    }
+    const inv = d.inventory_scope_summary;
+    body.innerHTML = reportingRenderInventorySummaryHtml(inv && typeof inv === 'object' ? inv : {});
 }
 
 /** Extra copy when a named report scope has no matching finished jobs (inventory vs job scope). */
@@ -12419,7 +12655,8 @@ function reportingNoJobsForScopeHintHtml() {
             esc(String(ac)) +
             ' asset(s) are tagged with this catalog scope, but there are <strong>no finished scan jobs</strong> with <code class="code-accent">scan_jobs.scope_id</code> = ' +
             esc(String(sid)) +
-            '. Reports use the scope stored when each job was queued (Scan tab / schedule), not live <code class="code-accent">assets.scope_id</code> tags.</div>'
+            '. In <strong>Job scope</strong> mode, charts use the scope stored when each job was queued (Scan tab / schedule), not live <code class="code-accent">assets.scope_id</code> tags.<br><br>' +
+            '<strong>Tip:</strong> switch <strong>Report mode</strong> to <strong>Inventory scope reports</strong> to summarize current assets and open findings for this scope.</div>'
         );
     }
     return '';
@@ -12428,6 +12665,30 @@ function reportingNoJobsForScopeHintHtml() {
 function updateReportScopeCoverageBanner() {
     const el = document.getElementById('report-scope-coverage-banner');
     if (!el) {
+        return;
+    }
+    if (reportingIsInventoryMode()) {
+        el.style.display = '';
+        el.className = 'hint-micro mt8 text-dim report-scope-coverage-banner';
+        const sid = reportingScopeApiFilter;
+        if (sid == null || !Number.isFinite(sid)) {
+            el.innerHTML =
+                '<strong>Inventory mode:</strong> summary includes <strong>all assets</strong> (any <code class="code-accent">assets.scope_id</code>). Open findings are joined to those rows — not filtered by <code class="code-accent">scan_jobs.scope_id</code>.';
+            return;
+        }
+        if (sid === 0) {
+            el.innerHTML =
+                '<strong>Inventory mode:</strong> only assets with <strong>no inventory scope tag</strong> (<code class="code-accent">scope_id</code> null or 0).';
+            return;
+        }
+        const jk = String(sid);
+        const ac = parseInt(String(stScopesMeta.asset_counts[jk] ?? 0), 10) || 0;
+        el.innerHTML =
+            '<strong>Inventory mode:</strong> live assets where <code class="code-accent">assets.scope_id</code> = ' +
+            esc(String(sid)) +
+            '. Catalog count for this tag: <strong>' +
+            esc(String(ac)) +
+            '</strong> asset(s) (same as dropdown).';
         return;
     }
     const sid = reportingScopeApiFilter;
@@ -12460,11 +12721,12 @@ function updateReportScopeCoverageBanner() {
     if (ac > 0) {
         el.className = 'help-box mt8 report-scope-coverage-banner';
         el.innerHTML =
-            '<strong>This scope has inventory assets, but no completed scan jobs.</strong> Reports are based on scan job scope, not asset scope.<br><br>' +
+            '<strong>This scope has inventory assets, but no completed scan jobs.</strong> In <strong>Job scope</strong> mode, drift and trends need finished scans whose job tag matches — asset tags alone do not create job history.<br><br>' +
             'Assets in scope: <strong>' +
             esc(String(ac)) +
             '</strong> · Completed scan jobs in scope: <strong>0</strong><br>' +
-            '<span class="hint-micro">Queue scans with this report scope selected on the <strong>Scan</strong> tab or set scope on a <strong>Schedule</strong> so <code class="code-accent">scan_jobs.scope_id</code> matches.</span>';
+            '<span class="hint-micro">Queue scans with this report scope selected on the <strong>Scan</strong> tab or set scope on a <strong>Schedule</strong> so <code class="code-accent">scan_jobs.scope_id</code> matches.</span>' +
+            '<div class="hint-micro mt8" style="line-height:1.5"><strong>Tip:</strong> switch <strong>Report mode</strong> to <strong>Inventory scope reports</strong> to see current assets and open findings for this scope without completed jobs.</div>';
         return;
     }
     el.className = 'help-box mt8 report-scope-coverage-banner';
@@ -12490,11 +12752,13 @@ function updateReportScopeAdminDiag() {
     const q = reportingScopeQuery();
     const d = window.__stReportingDiag || {};
     pre.textContent = [
+        'reportingScopeMode: ' + String(reportingScopeMode),
         '#report-scope-select value: ' + sv,
         'reportingScopeApiFilter: ' + JSON.stringify(reportingScopeApiFilter),
         'reportingScopeQuery(): ' + (q === '' ? '(empty — all scopes)' : q),
         'lastBaselineUrl: ' + (d.lastBaselineUrl || '—'),
         'lastTrendsUrl: ' + (d.lastTrendsUrl || '—'),
+        'lastInventoryScopeUrl: ' + (d.lastInventoryScopeUrl || '—'),
     ].join('\n');
 }
 
@@ -12660,6 +12924,54 @@ async function ensureStScopeSelects(force) {
 function updateReportingScopeDetail() {
     const detailEl = document.getElementById('report-scope-detail');
     const warnEl = document.getElementById('report-scope-unscoped-warn');
+    if (reportingIsInventoryMode()) {
+        if (warnEl) {
+            warnEl.style.display = 'none';
+        }
+        if (!detailEl) {
+            return;
+        }
+        if (stScopesMeta.scope_catalog_unavailable) {
+            detailEl.innerHTML =
+                '<span class="hstate-warn">Scope support unavailable</span> — the scope list API did not return usable data (missing deploy, HTTP error, or non-JSON). Reporting stays on <strong>All scopes</strong>. Ask your admin to deploy <span class="mono-sm">api/scopes.php</span>, <span class="mono-sm">api/scan_scopes.php</span>, and <span class="mono-sm">api/lib_scan_scopes.php</span>, then run <span class="mono-sm">bash deploy.sh</span> (or open the app once so migrations run).';
+            return;
+        }
+        if (reportingScopeApiFilter === null) {
+            detailEl.innerHTML =
+                '<strong>All scopes (inventory)</strong> — includes every asset row regardless of <code class="code-accent">assets.scope_id</code>. Use a named bucket or <strong>Unscoped only</strong> to narrow to one inventory tag.';
+            return;
+        }
+        if (reportingScopeApiFilter === 0) {
+            detailEl.innerHTML =
+                '<strong>Unscoped inventory</strong> — assets whose inventory tag is missing or zero (<code class="code-accent">scope_id</code> NULL / 0). This is <strong>not</strong> “one network”; it is “no catalog scope assigned”.';
+            return;
+        }
+        const sc = reportingScopesList.find((x) => parseInt(String(x.id), 10) === reportingScopeApiFilter);
+        if (!sc) {
+            detailEl.textContent = 'Scope #' + reportingScopeApiFilter;
+            return;
+        }
+        let cidrTxt = '';
+        try {
+            const arr = JSON.parse(String(sc.cidrs || '[]'));
+            if (Array.isArray(arr) && arr.length) {
+                cidrTxt = arr.slice(0, 8).join(', ') + (arr.length > 8 ? ' …' : '');
+            }
+        } catch (_e) {
+            cidrTxt = '';
+        }
+        const env = sc.environment != null && String(sc.environment).trim() ? esc(String(sc.environment).trim()) : 'unknown';
+        detailEl.innerHTML =
+            '<strong>Inventory — ' +
+            esc(String(sc.name || 'Scope')) +
+            '</strong> — live assets tagged <code class="code-accent">assets.scope_id</code> = ' +
+            esc(String(sc.id)) +
+            (cidrTxt ? ' · CIDRs: <span class="mono-sm">' + esc(cidrTxt) + '</span>' : '') +
+            ' · Environment: <strong>' +
+            env +
+            '</strong>';
+        return;
+    }
     if (warnEl) {
         warnEl.style.display =
             reportingScopeApiFilter === 0 && stScopesMeta.scoping_enabled && !stScopesMeta.scope_catalog_unavailable
@@ -12873,6 +13185,12 @@ async function loadReportingScopeSelector(forceRefresh) {
     }
     syncReportingScopeApiFilterFromSelect(sel);
     reportingScopePersistWrite();
+    reportingScopeModePersistRead();
+    const modeSelNode = document.getElementById('report-scope-mode-select');
+    if (modeSelNode) {
+        modeSelNode.value = reportingScopeMode === 'inventory' ? 'inventory' : 'job';
+    }
+    applyReportingScopeModeUi();
     updateReportingScopeDetail();
     updateReportScopeCoverageBanner();
 }
@@ -14442,6 +14760,13 @@ async function loadReportingTab() {
     try {
         await loadReportingScopeSelector(false);
     } catch (_e) {}
+    if (reportingIsInventoryMode()) {
+        try {
+            await loadReportingInventorySummary();
+        } catch (_e) {}
+        updateReportScopeAdminDiag();
+        return;
+    }
     const baseEl = document.getElementById('report-baseline-status');
     const valEl = document.getElementById('report-baseline-validation');
     const setWrap = document.getElementById('report-baseline-set-wrap');

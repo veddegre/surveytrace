@@ -18,6 +18,8 @@
  * POST reporting.php?action=set_baseline  JSON: {"job_id": 10} or {"job_id": 10, "scope_id": 3} for scoped baseline
  * GET  …&scope_id  — optional on trends_summary, trends, compliance, summary, baseline:
  *      omit param = all completed jobs (legacy); 0 = unscoped only; N = that scope
+ * GET  reporting.php?action=inventory_scope_summary[&scope_id] — live assets + open findings by assets.scope_id
+ *      (omit = all assets; 0 = unscoped inventory; N = named catalog scope)
  *
  * Phase 14 base — external-friendly reporting (bounded JSON, scope-aware):
  *   `trends_summary`, `compare_summary`, and `compliance` include `scope_context` plus per-row or
@@ -403,9 +405,18 @@ switch ($action) {
         unset($row['payload_json']);
         st_json(['ok' => true, 'artifact' => $row]);
 
+    case 'inventory_scope_summary':
+        $scopeF = st_reporting_scope_filter_param();
+        try {
+            $inv = st_reporting_inventory_scope_summary($db, $scopeF);
+        } catch (Throwable $e) {
+            st_json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+        st_json(['ok' => true, 'inventory_scope_summary' => $inv]);
+
     default:
         st_json([
             'ok'    => false,
-            'error' => 'unknown action; GET: compare|compare_summary|summary|trends|trends_summary|compliance|baseline|baseline_debug|compare_debug|artifacts|artifact|artifact_summary|artifact_payload_preview; POST (CSRF): set_baseline',
+            'error' => 'unknown action; GET: compare|compare_summary|summary|trends|trends_summary|compliance|baseline|baseline_debug|compare_debug|artifacts|artifact|artifact_summary|artifact_payload_preview|inventory_scope_summary; POST (CSRF): set_baseline',
         ], 400);
 }
