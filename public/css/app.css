@@ -787,13 +787,24 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .user-row-actions .tbtn{white-space:nowrap}
 #auth-users-table th,#auth-users-table td{padding:8px 8px}
 #auth-users-table .finp{min-width:0;width:100%;padding:6px 8px;font-size:12px}
-/* Match tbl-th-action (right-aligned); allow wrapped button rows without clipping */
-#auth-users-table td.tbl-cell-actions.user-row-actions{
-  white-space:normal;
-  min-width:260px;
+/* Shrink-wrap last column so action buttons sit next to the row (no wide empty cell + flex-end gap) */
+#auth-users-table th:last-child,
+#auth-users-table td:last-child{
+  width:1%;
+  white-space:nowrap;
   vertical-align:middle;
 }
-#auth-users-table .user-row-actions{justify-content:flex-end;flex-wrap:wrap;gap:6px}
+#auth-users-table td.tbl-cell-actions.user-row-actions{
+  text-align:right;
+}
+#auth-users-table .user-row-actions{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:nowrap;
+  gap:6px;
+  vertical-align:middle;
+}
 #auth-users-table .user-row-actions .tbtn{padding:5px 8px}
 .pending{color:var(--tx3)}
 .due-now{color:var(--amber)}

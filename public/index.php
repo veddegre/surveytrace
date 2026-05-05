@@ -1556,7 +1556,7 @@ if (!headers_sent()) {
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
       <div class="tbl-wrap tbl-wrap--data mb8">
         <table class="tbl tbl--data" id="auth-users-table">
-          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort" style="min-width:260px">Edit</th></tr></thead>
+          <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort">Edit</th></tr></thead>
           <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
         </table>
       </div>
