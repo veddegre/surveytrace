@@ -8794,12 +8794,14 @@ async function loadAuthUsers() {
         </td>
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
         <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
-        <td class="tbl-cell-actions user-row-actions">
-          <button type="button" class="tbtn btn-xs" onclick="focusAuthUserRow(${u.id})" title="Focus this row for editing">Edit</button>
-          <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
-          <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
-          ${u.auth_source === 'local' && u.mfa_enabled ? `<button type="button" class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
-          <button type="button" class="tbtn btn-xs" onclick="deleteAuthUser(${u.id})">Delete</button>
+        <td class="tbl-cell-actions">
+          <div class="user-row-actions">
+            <button type="button" class="tbtn btn-xs" onclick="focusAuthUserRow(${u.id})" title="Focus this row for editing">Edit</button>
+            <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
+            <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
+            ${u.auth_source === 'local' && u.mfa_enabled ? `<button type="button" class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
+            <button type="button" class="tbtn btn-xs" onclick="deleteAuthUser(${u.id})">Delete</button>
+          </div>
         </td>
       </tr>`).join('')
       : '<tr><td colspan="7" class="text-dim">No users</td></tr>';
