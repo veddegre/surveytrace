@@ -748,22 +748,28 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .enrich-zbx-card-body{padding:2px 2px 0}
 /* Enrichment tab — overview grid + Zabbix stack (integrated layout) */
 .enrich-intro{max-width:min(100%, 52rem)}
-.enrich-overview-grid{
+/* Enrichment: max two columns (network + Zabbix); never a third “planned” card in this row */
+.enrich-main-panels{
   display:grid;
-  /* auto-fit: 1 col on narrow phones, 2 on typical laptop, 3 only when width allows — avoids cramped cards */
-  grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap:12px;
+  grid-template-columns:minmax(0, 1fr);
   align-items:stretch;
 }
-@media (max-width: 420px){
-  .enrich-overview-grid{grid-template-columns:1fr}
-}
-/* Medium widths: let the Zabbix column use two tracks when the grid is exactly two wide */
-@media (min-width: 720px) and (max-width: 1079px){
-  .enrich-zabbix-stack{grid-column:1 / -1}
+@media (min-width: 900px){
+  .enrich-main-panels{
+    grid-template-columns:minmax(0, 1fr) minmax(min(100%, 340px), 1.35fr);
+  }
 }
 .enrich-overview-card{min-width:0;display:flex;flex-direction:column}
-.enrich-overview-card--muted{opacity:0.96}
+.enrich-planned-details{margin-top:4px}
+.enrich-planned-details > summary{
+  cursor:pointer;
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-muted);
+  list-style-position:outside;
+}
+.enrich-planned-details[open] > summary{color:var(--text)}
 .enrich-zabbix-stack{display:flex;flex-direction:column;gap:10px;min-width:0}
 .enrich-zabbix-overview{flex:1;display:flex;flex-direction:column;min-height:0}
 .enrich-zabbix-overview-body{flex:1;min-height:2.5rem}

@@ -766,7 +766,7 @@ if (!headers_sent()) {
     <div class="card mb10" id="report-scope-card">
       <div class="report-card-title">Report scope</div>
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
-        <strong>Report scope filters completed scan jobs, not live asset scope.</strong> Parentheses on named options show how many assets are <em>currently</em> tagged with that catalog scope (coverage hint only).
+        <strong>Report scope filters completed scan jobs, not live asset scope.</strong> Each named option shows <strong>assets · done jobs</strong> (live inventory tag vs finished scans whose <code class="code-accent">scan_jobs.scope_id</code> was set when queued).
       </p>
       <div class="row-wrap gap10" style="align-items:flex-end">
         <div>
@@ -780,12 +780,17 @@ if (!headers_sent()) {
         <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
       </div>
       <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
+      <div id="report-scope-coverage-banner" class="report-scope-coverage-banner" style="display:none" role="status" aria-live="polite"></div>
       <details class="report-scope-details mt8">
         <summary class="report-details-summary">Job scope vs asset tags (technical)</summary>
         <div class="hint-micro mt6 text-dim" style="line-height:1.45">
           <strong>Job list filter:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches the tag stored when the job was queued.<br><br>
-          <strong>Parentheses on the dropdown:</strong> counts of <strong>live</strong> assets currently tagged with that catalog scope (<code class="code-accent">assets.scope_id</code>) — useful for coverage; they do not change which historical jobs appear in the list.
+          <strong>Dropdown labels:</strong> <strong>assets</strong> = live inventory tag (<code class="code-accent">assets.scope_id</code>); <strong>done</strong> = finished scans with this <code class="code-accent">scan_jobs.scope_id</code>. Charts filter by the job count, not the asset count.
         </div>
+      </details>
+      <details class="report-scope-details mt8" id="report-scope-diag-details" style="display:none">
+        <summary class="report-details-summary">Scope filter debug (admin)</summary>
+        <pre id="report-scope-diag-pre" class="mono-sm hint-micro text-dim" style="white-space:pre-wrap;margin-top:8px;max-height:14rem;overflow:auto"></pre>
       </details>
       <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn" style="display:none">
         <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
@@ -1253,8 +1258,8 @@ if (!headers_sent()) {
     Phase 3b sources and optional vendor connectors add context to assets and scans. Configure network sources below; optional integrations (for example Zabbix) add dashboards you already trust.
   </p>
 
-  <div class="enrich-overview-grid mb12">
-    <div class="card enrich-overview-card">
+  <div class="enrich-main-panels mb12">
+    <div class="card enrich-overview-card enrich-network-card">
       <div class="ct">Network enrichment</div>
       <p class="hint-micro mb6">SNMP, files, APIs, and similar sources run during scans (narrow per job on <strong>Scan</strong> / <strong>Schedules</strong>).</p>
       <p class="hint-micro text-dim mb0">Active sources appear in the grid below.</p>
@@ -1365,11 +1370,6 @@ if (!headers_sent()) {
         </div>
       </div>
     </div>
-    <div class="card enrich-overview-card enrich-overview-card--muted">
-      <div class="ct">More integrations</div>
-      <p class="hint-micro mb4"><strong>TeamDynamix</strong> — planned (future phase).</p>
-      <p class="hint-micro mb0"><strong>Defender</strong> — planned (future phase).</p>
-    </div>
   </div>
 
   <div class="scgrid enrich-sources-grid">
@@ -1399,6 +1399,13 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
+  <details class="enrich-planned-details">
+    <summary>Planned enrichment sources</summary>
+    <div class="hint-micro mt6 text-dim" style="line-height:1.55">
+      <strong>TeamDynamix</strong> — planned (future phase).<br>
+      <strong>Defender</strong> — planned (future phase).
+    </div>
+  </details>
 </div>
 
 <!-- ================================================================ SYSTEM HEALTH -->
@@ -12376,6 +12383,7 @@ var stScopesMeta = {
     scope_catalog_unavailable: false,
     asset_counts: {},
     job_counts: {},
+    job_done_counts: {},
     schedule_counts: {},
 };
 
@@ -12394,17 +12402,17 @@ function reportingNoJobsForScopeHintHtml() {
         return '';
     }
     const jk = String(sid);
-    const jcRaw =
-        stScopesMeta.job_counts && typeof stScopesMeta.job_counts === 'object'
-            ? stScopesMeta.job_counts[jk]
+    const djRaw =
+        stScopesMeta.job_done_counts && typeof stScopesMeta.job_done_counts === 'object'
+            ? stScopesMeta.job_done_counts[jk]
             : null;
-    const jc = jcRaw != null ? parseInt(String(jcRaw), 10) : NaN;
+    const dj = djRaw != null ? parseInt(String(djRaw), 10) : NaN;
     const acRaw =
         stScopesMeta.asset_counts && typeof stScopesMeta.asset_counts === 'object'
             ? stScopesMeta.asset_counts[jk]
             : null;
     const ac = parseInt(String(acRaw ?? 0), 10) || 0;
-    if (ac > 0 && (!Number.isFinite(jc) || jc === 0)) {
+    if (ac > 0 && (!Number.isFinite(dj) || dj === 0)) {
         return (
             '<div class="hint-micro mt6" style="line-height:1.5">' +
             '<strong>Inventory vs report scope:</strong> ' +
@@ -12415,6 +12423,79 @@ function reportingNoJobsForScopeHintHtml() {
         );
     }
     return '';
+}
+
+function updateReportScopeCoverageBanner() {
+    const el = document.getElementById('report-scope-coverage-banner');
+    if (!el) {
+        return;
+    }
+    const sid = reportingScopeApiFilter;
+    if (sid == null || !Number.isFinite(sid) || sid <= 0) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        el.className = 'report-scope-coverage-banner';
+        return;
+    }
+    const jk = String(sid);
+    const ac = parseInt(String(stScopesMeta.asset_counts[jk] ?? 0), 10) || 0;
+    const djRaw =
+        stScopesMeta.job_done_counts && typeof stScopesMeta.job_done_counts === 'object'
+            ? stScopesMeta.job_done_counts[jk]
+            : null;
+    const dj = djRaw != null ? parseInt(String(djRaw), 10) : 0;
+    el.style.display = '';
+    if (dj > 0) {
+        el.className = 'hint-micro mt8 text-dim report-scope-coverage-banner';
+        el.innerHTML =
+            '<strong>Coverage for this report scope:</strong> Assets in scope: <strong>' +
+            esc(String(ac)) +
+            '</strong> · Completed scan jobs in scope: <strong>' +
+            esc(String(dj)) +
+            '</strong> <span class="text-dim">(finished scans with <code class="code-accent">scan_jobs.scope_id</code> = ' +
+            esc(String(sid)) +
+            ')</span>';
+        return;
+    }
+    if (ac > 0) {
+        el.className = 'help-box mt8 report-scope-coverage-banner';
+        el.innerHTML =
+            '<strong>This scope has inventory assets, but no completed scan jobs.</strong> Reports are based on scan job scope, not asset scope.<br><br>' +
+            'Assets in scope: <strong>' +
+            esc(String(ac)) +
+            '</strong> · Completed scan jobs in scope: <strong>0</strong><br>' +
+            '<span class="hint-micro">Queue scans with this report scope selected on the <strong>Scan</strong> tab or set scope on a <strong>Schedule</strong> so <code class="code-accent">scan_jobs.scope_id</code> matches.</span>';
+        return;
+    }
+    el.className = 'help-box mt8 report-scope-coverage-banner';
+    el.innerHTML =
+        '<strong>No inventory assets or completed scan jobs exist for this scope yet.</strong><br>' +
+        '<span class="hint-micro">Assets in scope: <strong>0</strong> · Completed scan jobs in scope: <strong>0</strong></span>';
+}
+
+function updateReportScopeAdminDiag() {
+    const wrap = document.getElementById('report-scope-diag-details');
+    const pre = document.getElementById('report-scope-diag-pre');
+    if (!wrap || !pre) {
+        return;
+    }
+    if (typeof window === 'undefined' || !stRoleIsAdmin()) {
+        wrap.style.display = 'none';
+        pre.textContent = '';
+        return;
+    }
+    wrap.style.display = '';
+    const sel = document.getElementById('report-scope-select');
+    const sv = sel ? String(sel.value) : '—';
+    const q = reportingScopeQuery();
+    const d = window.__stReportingDiag || {};
+    pre.textContent = [
+        '#report-scope-select value: ' + sv,
+        'reportingScopeApiFilter: ' + JSON.stringify(reportingScopeApiFilter),
+        'reportingScopeQuery(): ' + (q === '' ? '(empty — all scopes)' : q),
+        'lastBaselineUrl: ' + (d.lastBaselineUrl || '—'),
+        'lastTrendsUrl: ' + (d.lastTrendsUrl || '—'),
+    ].join('\n');
 }
 
 function reportingScopePersistWrite() {
@@ -12556,6 +12637,8 @@ async function ensureStScopeSelects(force) {
         stScopesForFormsCache = d.scopes;
         stScopesMeta.asset_counts = d.asset_counts && typeof d.asset_counts === 'object' ? d.asset_counts : {};
         stScopesMeta.job_counts = d.job_counts && typeof d.job_counts === 'object' ? d.job_counts : {};
+        stScopesMeta.job_done_counts =
+            d.job_done_counts && typeof d.job_done_counts === 'object' ? d.job_done_counts : {};
         stScopesMeta.schedule_counts = d.schedule_counts && typeof d.schedule_counts === 'object' ? d.schedule_counts : {};
         stScopesMeta.default_scope_id =
             d.default_scope_id != null && parseInt(String(d.default_scope_id), 10) > 0
@@ -12566,6 +12649,7 @@ async function ensureStScopeSelects(force) {
         stScopesForFormsCache = [];
         stScopesMeta.asset_counts = {};
         stScopesMeta.job_counts = {};
+        stScopesMeta.job_done_counts = {};
         stScopesMeta.schedule_counts = {};
         stScopesMeta.default_scope_id = 0;
         stScopesMeta.scoping_enabled = false;
@@ -12705,6 +12789,7 @@ async function submitStCreateScope() {
             syncReportingScopeApiFilterFromSelect(sel);
             reportingScopePersistWrite();
             updateReportingScopeDetail();
+            updateReportScopeCoverageBanner();
         }
     }
     if (currentTab === 'report') {
@@ -12737,12 +12822,14 @@ async function loadReportingScopeSelector(forceRefresh) {
         '<option value="all">All scopes (default)</option>' +
         '<option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>';
     const ac = stScopesMeta.asset_counts || {};
+    const jdc = stScopesMeta.job_done_counts && typeof stScopesMeta.job_done_counts === 'object' ? stScopesMeta.job_done_counts : {};
     scopes.forEach((sc) => {
         const o = document.createElement('option');
         o.value = String(sc.id);
         const nm = (sc.name || 'Scope #' + sc.id).slice(0, 100);
         const cnt = parseInt(String(ac[String(sc.id)] ?? 0), 10) || 0;
-        o.textContent = nm + ' (' + cnt + ' assets)';
+        const dj = parseInt(String(jdc[String(sc.id)] ?? 0), 10) || 0;
+        o.textContent = nm + ' (' + cnt + ' assets · ' + dj + ' done)';
         sel.appendChild(o);
     });
     const optOk = (val) => [...sel.options].some((opt) => opt.value === val);
@@ -12787,11 +12874,12 @@ async function loadReportingScopeSelector(forceRefresh) {
     syncReportingScopeApiFilterFromSelect(sel);
     reportingScopePersistWrite();
     updateReportingScopeDetail();
+    updateReportScopeCoverageBanner();
 }
 
 function syncReportingScopeApiFilterFromSelect(sel) {
-    const v = sel ? String(sel.value) : 'all';
-    if (v === 'all') {
+    const v = sel ? String(sel.value).trim() : 'all';
+    if (v === '' || v === 'all') {
         reportingScopeApiFilter = null;
         return;
     }
@@ -12807,6 +12895,7 @@ function onReportingScopeChange() {
     syncReportingScopeApiFilterFromSelect(sel);
     reportingScopePersistWrite();
     updateReportingScopeDetail();
+    updateReportScopeCoverageBanner();
     void loadReportingTab();
 }
 
@@ -14559,6 +14648,7 @@ async function loadReportingTab() {
     try {
         await loadReportingTrendsSummary(true);
     } catch (_e) {}
+    updateReportScopeAdminDiag();
 }
 
 async function saveReportingBaseline() {

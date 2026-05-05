@@ -439,6 +439,45 @@ function st_scan_scopes_table_scope_id_group_counts(PDO $db, string $table): arr
 }
 
 /**
+ * Finished scan jobs per named catalog scope (matches reporting: status done, not deleted, finished_at set).
+ *
+ * @return array<string, int> scope id as string => count
+ */
+function st_scan_scopes_named_scope_done_job_counts(PDO $db): array
+{
+    if (! st_sqlite_table_exists($db, 'scan_jobs')) {
+        return [];
+    }
+    if (! st_scan_scopes_table_scan_jobs_has_scope_id($db)) {
+        return [];
+    }
+    try {
+        $st = $db->query(
+            "SELECT j.scope_id AS sid, COUNT(*) AS c
+             FROM scan_jobs j
+             WHERE j.status = 'done'
+               AND (j.deleted_at IS NULL OR j.deleted_at = '')
+               AND j.finished_at IS NOT NULL
+               AND j.scope_id IS NOT NULL
+               AND j.scope_id > 0
+             GROUP BY j.scope_id"
+        );
+        $rows = $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (Throwable $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($rows as $r) {
+        $sid = (int) ($r['sid'] ?? 0);
+        if ($sid > 0) {
+            $out[(string) $sid] = (int) ($r['c'] ?? 0);
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Rename a scope (required) and optionally patch description / environment.
  * Rejects duplicate names (case-insensitive). $patch keys: 'description', 'environment' (only present keys are updated).
  *

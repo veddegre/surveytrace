@@ -60,11 +60,16 @@ if ($method === 'GET') {
         foreach (st_scan_scopes_table_scope_id_group_counts($db, 'scan_schedules') as $k => $v) {
             $scheduleCountsStr[$k] = $v;
         }
+        $jobDoneCountsStr = [];
+        foreach (st_scan_scopes_named_scope_done_job_counts($db) as $k => $v) {
+            $jobDoneCountsStr[$k] = $v;
+        }
         st_json([
             'ok'                    => true,
             'scopes'                => $scopes,
             'asset_counts'          => $assetCountsStr,
             'job_counts'            => $jobCountsStr,
+            'job_done_counts'       => $jobDoneCountsStr,
             'schedule_counts'       => $scheduleCountsStr,
             'unscoped_asset_count'  => $unscopedAssets,
             'assets_scope_column'   => $assetsScoped,
@@ -78,6 +83,7 @@ if ($method === 'GET') {
             'scopes'                => [],
             'asset_counts'          => [],
             'job_counts'            => [],
+            'job_done_counts'       => [],
             'schedule_counts'       => [],
             'unscoped_asset_count'  => 0,
             'assets_scope_column'   => false,
