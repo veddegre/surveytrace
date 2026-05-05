@@ -690,14 +690,14 @@ if (!headers_sent()) {
   <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap-scan">
     <div id="job-queue-scan" class="mb8" style="display:none">
-      <div class="tbl-wrap">
+      <div class="tbl-wrap tbl-scan-hist">
         <table class="tbl">
-          <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Profile</th><th>Status / Progress</th><th>Priority</th><th>Queued</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Job / target</th><th>Profile</th><th>Status / progress</th><th>Priority</th><th>Started</th><th></th></tr></thead>
           <tbody id="queue-tbody-scan"></tbody>
         </table>
       </div>
     </div>
-    <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y">No jobs queued or running</div>
+    <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y st-scan-hist-queue-empty">No jobs queued or running right now.</div>
     </div>
   </div>
 
@@ -707,18 +707,26 @@ if (!headers_sent()) {
     <span id="scan-hist-intro-viewer" style="display:none">Job queue and finished scans. Scan creation requires scan editor access.</span>
     <span id="scan-hist-intro-editor">Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.</span>
   </div>
+  <div id="st-shsf-wrap" class="st-shsf-wrap row-wrap gap6 mb10" role="group" aria-label="Filter by job status">
+    <span class="text-micro text-dim st-shsf-label">Status</span>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-on" data-shsf="all" id="st-shsf-all">All</button>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="running" id="st-shsf-running">Running</button>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="queued" id="st-shsf-queued">Queued</button>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="completed" id="st-shsf-completed">Completed</button>
+    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="failed" id="st-shsf-failed">Failed</button>
+  </div>
   <!-- Job queue — primary status view -->
   <div class="sth section-top">Job queue</div>
   <div id="job-queue-wrap">
     <div id="job-queue" class="mb8" style="display:none">
-      <div class="tbl-wrap">
+      <div class="tbl-wrap tbl-scan-hist">
         <table class="tbl">
-          <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Profile</th><th>Status / Progress</th><th>Priority</th><th>Queued</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Job / target</th><th>Profile</th><th>Status / progress</th><th>Priority</th><th>Started</th><th></th></tr></thead>
           <tbody id="queue-tbody"></tbody>
         </table>
       </div>
     </div>
-    <div id="job-queue-empty" class="hint-micro mb8 pad8y">No jobs queued or running</div>
+    <div id="job-queue-empty" class="hint-micro mb8 pad8y st-scan-hist-queue-empty">No jobs queued or running right now.</div>
   </div>
 
   <div class="sth section-top">Scan history</div>
@@ -736,10 +744,10 @@ if (!headers_sent()) {
     <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
     <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
   </div>
-  <div class="tbl-wrap">
+  <div class="tbl-wrap tbl-scan-hist">
     <table class="tbl">
-      <thead><tr><th>#</th><th>Label</th><th>Target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>AI</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
-      <tbody id="scan-hist"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+      <thead><tr><th>#</th><th>Job / target</th><th>Status</th><th>Profile</th><th>Hosts</th><th>AI</th><th>Duration</th><th>Completed</th><th></th></tr></thead>
+      <tbody id="scan-hist"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -2671,6 +2679,12 @@ var mustChangePasswordPending = false;
 var pendingUserSave = null;
 var scanHistoryView = 'active';
 var scanTrashRetentionDays = 30;
+/** Client-side Scan History status filter (no extra API). */
+var stScanHistStatusFilter = 'all';
+/** Last full job list from scan_status (updated by loadScanHistory / poll). */
+var stScanHistLastQueue = [];
+/** Last completed/history rows after view + source + search (loadScanHistory only). */
+var stScanHistLastCompleted = [];
 var collectorsCache = [];
 var collectorSchedulesCache = [];
 /** Mirrors settings GET collector_install_token_configured — drives first-time vs rotate copy in Generate flow */
@@ -6583,84 +6597,67 @@ function stFlushPendingScanHistoryFocus() {
     }
 }
 
-async function loadScanHistory(history) {
-    updateScanHistoryViewButtons();
-    if (!stRoleCanManageScans() && scanHistoryView !== 'active') {
-        scanHistoryView = 'active';
-        updateScanHistoryViewButtons();
-    }
-    let queueHistory = history;
-    if (!queueHistory) {
-        const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});
-        queueHistory = d ? d.history : [];
-    }
-    const statColors = {done:'var(--green)', failed:'var(--red)', aborted:'var(--amber)', running:'var(--acc)', queued:'var(--tx3)'};
-    const statColors2 = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)',running:'var(--acc)',queued:'var(--tx3)',retrying:'var(--amber)'};
-    updateQueuePanel(queueHistory);
-
-    const q = scanHistSearchQ();
-    const view = scanHistoryView;
-    const sourceFilter = scanSourceFilterValue();
-    let completedRows;
-    if (q) {
-        const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view) + '&q=' + encodeURIComponent(q), {quiet:true});
-        completedRows = (hd && hd.history) ? hd.history : [];
-    } else {
-        if (view === 'active') {
-            completedRows = (queueHistory || []).filter(j => !['queued','running','retrying'].includes(j.status));
-        } else {
-            const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view), {quiet:true});
-            completedRows = (hd && hd.history) ? hd.history : [];
-        }
-    }
-    if (sourceFilter === 'master') {
-        completedRows = (completedRows || []).filter(j => Number(j.collector_id || 0) === 0);
-    } else if (sourceFilter === 'collector') {
-        completedRows = (completedRows || []).filter(j => Number(j.collector_id || 0) > 0);
-    }
-
-    const emptyMsg = q ? 'No scans match this search' : 'No previous scans';
-    const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
-    const canManage = stRoleCanManageScans();
-    const canTrash = (j) => canManage && ['done', 'aborted', 'failed'].includes(j.status) && !j.deleted_at;
-    const canRestore = (j) => canManage && !!j.deleted_at;
-    const canPurge = (j) => !!j.deleted_at && stRoleIsAdmin();
-    const aiStat = (j) => {
-        const s = j && j.summary && typeof j.summary === 'object' ? j.summary : null;
-        const a = s ? Number(s.ai_enrichment_attempts || 0) : 0;
-        const p = s ? Number(s.ai_enrichment_applied || 0) : 0;
-        if (!a && !p) return '<span class="text-dim">—</span>';
-        return `<span class="mono">${a}/${p}</span>`;
-    };
-    document.getElementById('scan-hist').innerHTML = (completedRows||[]).filter(j => !['queued','running','retrying'].includes(j.status)).map(j => `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
-      <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
-      <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'\u2014')}</button>${j.retry_count > 0 ? ` <span class="text-micro" style="color:var(--amber)">retry ${j.retry_count}</span>` : ''}<div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div></td>
-      <td class="mono font10">${esc(j.target_cidr)}</td>
-      <td><span class="status-chip" style="color:${statColors2[j.status]||'var(--tx2)'}">${j.status}</span>${j.status==='failed'&&j.error_msg?`<div class="text-micro" style="color:var(--red);margin-top:1px" title="${esc(j.error_msg)}">${esc((j.error_msg||'').slice(0,50))}</div>`:''}</td>
-      <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'\u2014'}</td>
-      <td class="mono">${j.hosts_scanned||0}/${j.hosts_found||0}</td>
-      <td class="mono" title="AI attempted/applied">${aiStat(j)}</td>
-      <td class="mono font10">${fmtDuration(j.duration_secs)}</td>
-      <td class="mono font10">${localDate(j.finished_at)}</td>
-      <td class="nowrap-cell">
-        <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
-        ${canRerun(j.status) && !j.deleted_at && canManage ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
-        ${canTrash(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Move to trash</button>` : ''}
-        ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
-        ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
-      </td>
-    </tr>`).join('') || '<tr><td colspan="10" class="loading">' + emptyMsg + '</td></tr>';
-    bindScanHistoryDelegates();
-    stFlushPendingScanHistoryFocus();
+function stScanHistChipClass(st) {
+    const s = String(st || '');
+    if (s === 'running') return 'scan-hist-chip scan-hist-chip--running';
+    if (s === 'queued') return 'scan-hist-chip scan-hist-chip--queued';
+    if (s === 'retrying') return 'scan-hist-chip scan-hist-chip--retrying';
+    if (s === 'done') return 'scan-hist-chip scan-hist-chip--done';
+    if (s === 'failed') return 'scan-hist-chip scan-hist-chip--failed';
+    if (s === 'aborted') return 'scan-hist-chip scan-hist-chip--aborted';
+    return 'scan-hist-chip scan-hist-chip--default';
 }
 
-// ==========================================================================
-// Job queue panel
-// ==========================================================================
-function updateQueuePanel(history) {
-    const queued = (history||[]).filter(j =>
-        ['queued','running','retrying'].includes(j.status)
-    ).sort((a,b) => (a.priority||10)-(b.priority||10) || a.id-b.id);
+function stScanHistChipLabel(st) {
+    const s = String(st || '');
+    if (s === 'running') return '\u25b6 Running';
+    if (s === 'retrying') return 'Retrying';
+    if (s === 'queued') return 'Queued';
+    if (s === 'done') return 'Completed';
+    if (s === 'failed') return 'Failed';
+    if (s === 'aborted') return 'Aborted';
+    return s || '\u2014';
+}
+
+function stSyncScanHistStatusFilterButtons() {
+    document.querySelectorAll('.st-shsf').forEach((btn) => {
+        const on = btn.getAttribute('data-shsf') === stScanHistStatusFilter;
+        btn.classList.toggle('toggle-on', on);
+        btn.classList.toggle('toggle-off', !on);
+    });
+}
+
+function stSetScanHistStatusFilter(mode) {
+    const ok = { all: 1, running: 1, queued: 1, completed: 1, failed: 1 };
+    if (!ok[mode]) return;
+    stScanHistStatusFilter = mode;
+    stSyncScanHistStatusFilterButtons();
+    stRenderAllScanHistoryUi();
+}
+
+function stRenderAllScanHistoryUi() {
+    stRenderQueuePanelFromCache();
+    stRenderCompletedScanHistFromCache();
+}
+
+function stRenderQueuePanelFromCache() {
+    const raw = Array.isArray(stScanHistLastQueue) ? stScanHistLastQueue : [];
+    const activeJobs = raw.filter((j) => ['queued', 'running', 'retrying'].includes(j.status));
+    const f = stScanHistStatusFilter;
+    let pool = activeJobs;
+    if (f === 'running') {
+        pool = activeJobs.filter((j) => ['running', 'retrying'].includes(j.status));
+    } else if (f === 'queued') {
+        pool = activeJobs.filter((j) => j.status === 'queued');
+    } else if (f === 'completed' || f === 'failed') {
+        pool = [];
+    }
+    pool.sort((a, b) => {
+        const tier = (s) => (s === 'running' ? 0 : s === 'retrying' ? 1 : 2);
+        const d = tier(a.status) - tier(b.status);
+        if (d !== 0) return d;
+        return (b.id || 0) - (a.id || 0);
+    });
 
     const queueBlocks = [
         {
@@ -6673,16 +6670,36 @@ function updateQueuePanel(history) {
             empty: document.getElementById('job-queue-empty-scan'),
             tbody: document.getElementById('queue-tbody-scan'),
         },
-    ].filter(b => b.wrap && b.empty && b.tbody);
+    ].filter((b) => b.wrap && b.empty && b.tbody);
 
-    if (!queued.length) {
+    const setEmptyMsg = (text) => {
+        queueBlocks.forEach((b) => {
+            if (b.empty) b.empty.textContent = text;
+        });
+    };
+
+    if (!activeJobs.length) {
         queueBlocks.forEach((b) => {
             b.wrap.style.display = 'none';
             b.empty.style.display = 'block';
             b.tbody.innerHTML = '';
         });
-        // Hide scan stats if nothing running
-        document.getElementById('scan-stats').style.display = 'none';
+        setEmptyMsg('No jobs queued or running right now.');
+        const ss = document.getElementById('scan-stats');
+        if (ss) ss.style.display = 'none';
+        return;
+    }
+
+    if (!pool.length) {
+        queueBlocks.forEach((b) => {
+            b.wrap.style.display = 'none';
+            b.empty.style.display = 'block';
+            b.tbody.innerHTML = '';
+        });
+        setEmptyMsg('No matching jobs for this filter. Try \u201cAll\u201d or another status.');
+        const hasRun = activeJobs.some((x) => x.status === 'running' || x.status === 'retrying');
+        const ss = document.getElementById('scan-stats');
+        if (ss) ss.style.display = hasRun ? '' : 'none';
         return;
     }
 
@@ -6691,45 +6708,191 @@ function updateQueuePanel(history) {
         b.empty.style.display = 'none';
     });
 
-    const statusColor = {running:'var(--acc)',queued:'var(--tx3)',retrying:'var(--amber)'};
-    const rowsHtml = queued.map(j => {
-        const pct  = j.progress_pct || 0;
+    const rowsHtml = pool.map((j) => {
+        const pct = j.progress_pct || 0;
         const isRun = j.status === 'running';
         const batchMeta = (Number(j.batch_total || 0) > 1 && Number(j.batch_index || 0) > 0)
             ? `<div class="text-micro text-dim">batch ${esc(String(j.batch_index))}/${esc(String(j.batch_total))}</div>`
             : '';
         const msgEl = isRun ? `
-            <div class="text-micro" style="margin-top:3px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="qmsg-${j.id}">
-              ${j.hosts_found > 0 ? j.hosts_scanned+'/'+ j.hosts_found+' hosts &nbsp;·&nbsp; '+pct+'%' : 'Starting…'}
+            <div class="text-micro scan-hist-qmsg" id="qmsg-${j.id}">
+              ${j.hosts_found > 0 ? j.hosts_scanned + '/' + j.hosts_found + ' hosts \u00b7 ' + pct + '%' : 'Starting\u2026'}
             </div>
-            <div class="track">
+            <div class="track scan-hist-track">
               <div class="fill" style="width:${pct}%"></div>
             </div>` : '';
-        return `<tr class="scan-hist-row" data-job-id="${j.id}" title="Open scan details">
-          <td class="mono"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
-          <td class="text-primary font11"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}" style="padding:0;border:none;background:none;color:inherit;font:inherit;text-align:left">${esc(j.label||'—')}</button>${batchMeta}<div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div></td>
-          <td class="mono font10">${esc(j.target_cidr)}</td>
-          <td class="text-micro">${j.profile?esc(j.profile.replace(/_/g,' ')):'—'}</td>
+        const profPlain = j.profile ? j.profile.replace(/_/g, ' ') : '\u2014';
+        const prof = esc(profPlain);
+        const started = localTime(j.created_at, { hour: '2-digit', minute: '2-digit' });
+        const elapsed = isRun && j.elapsed_secs != null ? fmtDuration(j.elapsed_secs) : '';
+        const metaPlain = 'Profile ' + profPlain + ' \u00b7 Started ' + started + (elapsed ? ' \u00b7 Elapsed ' + elapsed : '');
+        const metaLine = `<div class="text-micro scan-hist-inline-meta">${esc(metaPlain)}</div>`;
+        const rowCls = 'scan-hist-row' + (isRun ? ' scan-hist-row--active' : '');
+        return `<tr class="${rowCls}" data-job-id="${j.id}" data-status="${esc(j.status)}" title="Open scan details">
+          <td class="mono scan-hist-cell-id"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
+          <td class="scan-hist-cell-primary">
+            <button type="button" class="tbtn scan-hist-primary-btn" data-scan-action="details" data-job-id="${j.id}">${esc(j.label || '\u2014')}</button>
+            ${batchMeta}
+            <div class="mono-sm scan-hist-target-sub">${esc(j.target_cidr || '')}</div>
+            <div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div>
+            ${metaLine}
+          </td>
+          <td class="text-micro scan-hist-cell-muted">${prof}</td>
           <td>
-            <span class="status-chip" style="color:${statusColor[j.status]||'var(--tx2)'}">
-              ${isRun ? '&#9654; running' : j.status}
-            </span>
+            <span class="${stScanHistChipClass(j.status)}">${stScanHistChipLabel(j.status)}</span>
             ${msgEl}
           </td>
-          <td class="mono font10">${j.priority||10}</td>
-          <td class="mono font10">${localTime(j.created_at,{hour:'2-digit',minute:'2-digit'})}</td>
-          <td>
+          <td class="mono font10 scan-hist-cell-muted">${j.priority || 10}</td>
+          <td class="mono font10 scan-hist-cell-muted">${started}</td>
+          <td class="nowrap-cell">
             ${isRun
-              ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">&#9632; Abort</button>`
-              : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
+                ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">\u25a0 Abort</button>`
+                : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
             ${!isRun
-              ? `<button type="button" class="tbtn btn-xxs" data-scan-action="set-priority" data-job-id="${j.id}" data-current-priority="${j.priority||10}">Set priority</button>`
-              : ''}
+                ? `<button type="button" class="tbtn btn-xxs" data-scan-action="set-priority" data-job-id="${j.id}" data-current-priority="${j.priority || 10}">Set priority</button>`
+                : ''}
           </td>
         </tr>`;
     }).join('');
-    queueBlocks.forEach((b) => { b.tbody.innerHTML = rowsHtml; });
+    queueBlocks.forEach((b) => {
+        b.tbody.innerHTML = rowsHtml;
+    });
+}
+
+function stRenderCompletedScanHistFromCache() {
+    const tbody = document.getElementById('scan-hist');
+    if (!tbody) return;
+    const q = scanHistSearchQ();
+    const f = stScanHistStatusFilter;
+    let rows = (stScanHistLastCompleted || []).slice().filter((j) => !['queued', 'running', 'retrying'].includes(j.status));
+    if (f === 'running' || f === 'queued') {
+        rows = [];
+    } else if (f === 'completed') {
+        rows = rows.filter((j) => ['done', 'aborted'].includes(j.status));
+    } else if (f === 'failed') {
+        rows = rows.filter((j) => j.status === 'failed');
+    }
+    rows.sort((a, b) => {
+        const da = String(a.finished_at || a.created_at || '');
+        const db = String(b.finished_at || b.created_at || '');
+        const c = db.localeCompare(da);
+        if (c !== 0) return c;
+        return (b.id || 0) - (a.id || 0);
+    });
+
+    let emptyMsg;
+    if (q && !rows.length) {
+        emptyMsg = 'No scans match this search.';
+    } else if (!rows.length && (f === 'running' || f === 'queued' || f === 'completed' || f === 'failed')) {
+        emptyMsg = 'No matching jobs for this filter.';
+    } else if (!rows.length) {
+        emptyMsg = 'No finished scans in this list yet. Queued and running jobs appear in the job queue above.';
+    } else {
+        emptyMsg = '';
+    }
+
+    const canRerun = (st) => ['done', 'aborted', 'failed'].includes(st);
+    const canManage = stRoleCanManageScans();
+    const canTrash = (j) => canManage && ['done', 'aborted', 'failed'].includes(j.status) && !j.deleted_at;
+    const canRestore = (j) => canManage && !!j.deleted_at;
+    const canPurge = (j) => !!j.deleted_at && stRoleIsAdmin();
+    const aiStat = (j) => {
+        const s = j && j.summary && typeof j.summary === 'object' ? j.summary : null;
+        const a = s ? Number(s.ai_enrichment_attempts || 0) : 0;
+        const p = s ? Number(s.ai_enrichment_applied || 0) : 0;
+        if (!a && !p) return '<span class="text-dim">\u2014</span>';
+        return `<span class="mono">${a}/${p}</span>`;
+    };
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="loading scan-hist-empty">' + emptyMsg + '</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map((j) => {
+        const rowCls = 'scan-hist-row';
+        const err = j.status === 'failed' && j.error_msg
+            ? `<div class="text-micro scan-hist-err-hint" title="${esc(j.error_msg)}">${esc((j.error_msg || '').slice(0, 52))}</div>`
+            : '';
+        const prof = j.profile ? esc(j.profile.replace(/_/g, ' ')) : '\u2014';
+        const fin = localDate(j.finished_at);
+        const started = j.created_at ? localTime(j.created_at, { hour: '2-digit', minute: '2-digit' }) : '\u2014';
+        const metaLine = `<div class="text-micro scan-hist-inline-meta">Started ${esc(started)} \u00b7 Finished ${esc(fin)} \u00b7 Profile ${prof}</div>`;
+        return `<tr class="${rowCls}" data-job-id="${j.id}" data-status="${esc(j.status)}" title="Open scan details">
+      <td class="mono scan-hist-cell-id"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
+      <td class="scan-hist-cell-primary">
+        <button type="button" class="tbtn scan-hist-primary-btn" data-scan-action="details" data-job-id="${j.id}">${esc(j.label || '\u2014')}</button>
+        ${j.retry_count > 0 ? ` <span class="text-micro scan-hist-retry-hint">retry ${j.retry_count}</span>` : ''}
+        <div class="mono-sm scan-hist-target-sub">${esc(j.target_cidr || '')}</div>
+        <div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div>
+        ${metaLine}
+      </td>
+      <td><span class="${stScanHistChipClass(j.status)}">${stScanHistChipLabel(j.status)}</span>${err}</td>
+      <td class="text-micro scan-hist-cell-muted">${prof}</td>
+      <td class="mono scan-hist-cell-muted">${j.hosts_scanned || 0}/${j.hosts_found || 0}</td>
+      <td class="mono scan-hist-cell-muted" title="AI attempted/applied">${aiStat(j)}</td>
+      <td class="mono font10 scan-hist-cell-muted">${fmtDuration(j.duration_secs)}</td>
+      <td class="mono font10 scan-hist-cell-muted">${fin}</td>
+      <td class="nowrap-cell">
+        <button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">Details</button>
+        ${canRerun(j.status) && !j.deleted_at && canManage ? `<button type="button" class="tbtn text-micro" data-scan-action="rerun" data-job-id="${j.id}">Re-run</button>` : ''}
+        ${canTrash(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="delete" data-job-id="${j.id}" style="color:var(--red)">Move to trash</button>` : ''}
+        ${canRestore(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="restore" data-job-id="${j.id}">Restore</button>` : ''}
+        ${canPurge(j) ? `<button type="button" class="tbtn text-micro" data-scan-action="purge" data-job-id="${j.id}" style="color:var(--red)">Delete permanently</button>` : ''}
+      </td>
+    </tr>`;
+    }).join('');
+}
+
+async function loadScanHistory(history) {
+    updateScanHistoryViewButtons();
+    if (!stRoleCanManageScans() && scanHistoryView !== 'active') {
+        scanHistoryView = 'active';
+        updateScanHistoryViewButtons();
+    }
+    let queueHistory = history;
+    if (!queueHistory) {
+        const d = await api('/api/scan_status.php?log_limit=1', {quiet:true});
+        queueHistory = d ? d.history : [];
+    }
+
+    const q = scanHistSearchQ();
+    const view = scanHistoryView;
+    const sourceFilter = scanSourceFilterValue();
+    let completedRows;
+    if (q) {
+        const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view) + '&q=' + encodeURIComponent(q), {quiet:true});
+        completedRows = (hd && hd.history) ? hd.history : [];
+    } else {
+        if (view === 'active') {
+            completedRows = (queueHistory || []).filter((j) => !['queued', 'running', 'retrying'].includes(j.status));
+        } else {
+            const hd = await api('/api/scan_history.php?limit=200&view=' + encodeURIComponent(view), {quiet:true});
+            completedRows = (hd && hd.history) ? hd.history : [];
+        }
+    }
+    if (sourceFilter === 'master') {
+        completedRows = (completedRows || []).filter((j) => Number(j.collector_id || 0) === 0);
+    } else if (sourceFilter === 'collector') {
+        completedRows = (completedRows || []).filter((j) => Number(j.collector_id || 0) > 0);
+    }
+
+    stScanHistLastQueue = (queueHistory || []).slice();
+    stScanHistLastCompleted = (completedRows || []).slice();
+    stSyncScanHistStatusFilterButtons();
+    stRenderAllScanHistoryUi();
     bindScanHistoryDelegates();
+    stFlushPendingScanHistoryFocus();
+}
+
+// ==========================================================================
+// Job queue panel
+// ==========================================================================
+function updateQueuePanel(history) {
+    if (Array.isArray(history)) {
+        stScanHistLastQueue = history.slice();
+    }
+    stRenderQueuePanelFromCache();
 }
 
 function handleScanHistoryTableClick(ev) {
@@ -6773,6 +6936,17 @@ function bindScanHistoryDelegates() {
     });
 }
 bindScanHistoryDelegates();
+(function wireStScanHistStatusFiltersOnce() {
+    const wrap = document.getElementById('st-shsf-wrap');
+    if (!wrap || wrap.dataset.bound === '1') return;
+    wrap.addEventListener('click', (ev) => {
+        const b = ev.target && ev.target.closest ? ev.target.closest('button[data-shsf]') : null;
+        if (!b || !wrap.contains(b)) return;
+        const m = b.getAttribute('data-shsf');
+        if (m) stSetScanHistStatusFilter(m);
+    });
+    wrap.dataset.bound = '1';
+})();
 wireHostRescanModalOnce();
 
 async function refreshScanHistAiSummary() {
