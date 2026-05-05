@@ -1280,33 +1280,29 @@ if (!headers_sent()) {
   </p>
 
   <div class="enrich-stack enrich-sources-stack mb12">
-    <div>
-      <div class="card">
-        <div class="ct">Active sources</div>
-        <p class="hint-micro text-dim mb8" style="line-height:1.45">
-          SNMP, files, APIs, and similar enrichment sources run during scans or scheduled jobs where configured. Sources listed here are used when enabled.
-        </p>
-        <div id="enrich-list"><div class="loading">Loading…</div></div>
-        <div class="enrich-card-actions mt12">
-          <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
-        </div>
+    <div class="card">
+      <div class="ct">Active sources</div>
+      <p class="hint-micro text-dim mb10" style="line-height:1.45">
+        SNMP, files, APIs, and similar sources run during scans or scheduled jobs when configured.
+      </p>
+      <div class="flbl enrich-sources-subhd enrich-sources-subhd--top">Configured</div>
+      <div id="enrich-list"><div class="loading">Loading…</div></div>
+      <div class="enrich-card-actions mt10">
+        <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
       </div>
-    </div>
-    <div>
-      <div class="card">
-        <div class="ct">Available source types</div>
-        <div id="enrich-types"><div class="loading">Loading…</div></div>
-      </div>
-      <div class="card">
-        <div class="ct">How enrichment works</div>
-        <div class="help-line" style="line-height:1.8">
+      <div class="flbl enrich-sources-subhd enrich-sources-subhd--avail">Available sources</div>
+      <p class="hint-micro text-dim mb6" style="line-height:1.45">Types you can add; status shows readiness on this server.</p>
+      <div id="enrich-types"><div class="loading">Loading…</div></div>
+      <details class="enrich-how-details mt12">
+        <summary class="enrich-how-details-summary">How enrichment works</summary>
+        <div class="help-line mt8" style="line-height:1.8">
           Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
           They add hostnames, MACs, VLANs, and other context the scanner may not see on its own — especially across routers or for hosts that barely respond to probes.<br><br>
           <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
           <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
           <b class="text-strong">Files and logs</b> — DHCP leases, DNS or firewall exports, and similar paths pull names and clients from your own records.
         </div>
-      </div>
+      </details>
     </div>
   </div>
 
@@ -1314,7 +1310,7 @@ if (!headers_sent()) {
       <div class="card enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
         <div class="ct enrich-zabbix-ct">Zabbix monitoring</div>
         <p class="hint-micro text-dim mb6" style="line-height:1.45">
-          Status below reflects whether the connector is configured and enabled, cache freshness, and (for admins) output push status. <strong>Run sync now</strong> refreshes cached hosts. When the workflows card is visible, <strong>Open tools</strong> there opens match review, scope rules, and apply actions.
+          Integration status, cache freshness, and (for admins) output push. <strong>Run sync now</strong> refreshes cached hosts.
         </p>
         <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body enrich-zabbix-overview-body"><p class="hint-micro text-dim mb0">Loading…</p></div>
         <div class="enrich-zbx-overview-actions">
@@ -1322,18 +1318,17 @@ if (!headers_sent()) {
           <button type="button" class="tbtn btn-sm" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel" title="Open or close match review, scope rules, and apply workflows">Open tools</button>
         </div>
       </div>
+      <p id="enrich-zbx-connector" class="enrich-zbx-connector hint-micro text-dim" style="display:none" role="note">Use workflows below to review and apply matches.</p>
       <div class="card enrich-zabbix-tools-card mb0" id="st-zabbix-enrich-tools-wrap" style="display:none">
         <div class="zb-enrich-tools-head">
           <div>
-            <div id="zb-enrich-tools-heading" class="ct mb0">Workflows &amp; match review</div>
-            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>. Advanced diagnostics for scope rules stay in this panel.</p>
+            <div id="zb-enrich-tools-heading" class="ct mb0">Match review &amp; workflows</div>
+            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>. Scope-rule diagnostics live in this panel.</p>
           </div>
           <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open tools</button>
         </div>
         <div id="zb-enrich-freshness-banner" class="mb8" style="display:none" aria-live="polite"></div>
-        <p class="hint-micro mb8" id="zb-enrich-tools-intro">
-          Match review, scope rules, apply plan, and manual link/unlink use the cached Zabbix host data from that integration.
-        </p>
+        <p class="hint-micro mb8 text-dim" id="zb-enrich-tools-preview">Review matches, apply scope rules, and link assets.</p>
         <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
           <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
             <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
@@ -1347,7 +1342,7 @@ if (!headers_sent()) {
             <div class="flbl">Match review</div>
             <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
             <button type="button" class="tbtn btn-sm mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-            <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open the tools panel, then click Refresh.</div>
+            <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open tools above, then click Refresh.</div>
           </div>
 
           <div class="zb-enrich-section">
@@ -2819,8 +2814,7 @@ function applyRoleAwareUi() {
     };
     setHidden('nscan', !canScanManage);
     setHidden('nsched', !canScanManage);
-    /* Scopes catalog: viewers read-only; mutation UI gated elsewhere */
-    setHidden('nscopes', false);
+    setHidden('nscopes', !canScanManage);
     setHidden('ncollectors', !isAdmin);
     setHidden('nenrich', !isAdmin);
     setHidden('nintegrations', !isAdmin);
@@ -2864,10 +2858,6 @@ function applyRoleAwareUi() {
     disableByOnclick('pauseSchedule(', !canScanManage);
     disableByOnclick('resumeSchedule(', !canScanManage);
     disableByOnclick('saveReclassify(', !canScanManage);
-    disableByOnclick('resolveFinding(', !canScanManage);
-    disableByOnclick('acceptFindingRisk(', !canScanManage);
-    disableByOnclick('acceptRiskFromChangeAlert(', !canScanManage);
-    disableByOnclick('unacceptFindingRisk(', !canScanManage);
     disableByOnclick('queueHostRescan(', !canScanManage);
     disableByOnclick('stScopesOpenCreateModal(', !canScanManage);
     disableByOnclick('stScopesOpenEditModal(', !canScanManage);
@@ -3408,6 +3398,10 @@ function goTab(name) {
     }
     if (name === 'scan' && !stRoleCanManageScans()) {
         toast('You do not have permission to access Scan control.', 'err');
+        name = 'dash';
+    }
+    if (name === 'scopes' && !stRoleCanManageScans()) {
+        toast('Scan scopes are available to scan editors and admins.', 'err');
         name = 'dash';
     }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
@@ -4281,6 +4275,7 @@ async function loadChangeAlerts() {
 }
 
 async function acceptRiskFromChangeAlert(findingId, btn) {
+    if (!stRoleCanManageScans()) return;
     if (!findingId) return;
     if (btn) btn.disabled = true;
     const r = await apiPost('/api/findings.php?action=accept_risk', {action: 'accept_risk', finding_id: findingId});
@@ -5239,6 +5234,9 @@ async function submitStAssetScopeModal() {
 }
 
 async function loadScopesTab() {
+    if (!stRoleCanManageScans()) {
+        return;
+    }
     const tb = document.getElementById('st-scopes-tbody');
     const err = document.getElementById('st-scopes-err');
     if (!tb) {
@@ -5939,7 +5937,9 @@ async function loadFindings(page) {
           title="${esc(findingEvidenceTitle(f).replace(/\n/g, ' '))}">${esc(findingTriageMethodLabel(f.detection_method))}</td>
       <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${localDate(f.published)}</td>
       <td class="tbl-cell-actions">${f.resolved ? '<span class="status-text" style="color:var(--green)">resolved</span>'
-          : `<span class="row-wrap" style="gap:4px;justify-content:flex-end"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`}</td>
+          : stRoleCanManageScans()
+              ? `<span class="row-wrap" style="gap:4px;justify-content:flex-end"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`
+              : '<span class="text-dim">—</span>'}</td>
     </tr>`).join('') || '<tr><td colspan="10" class="loading tbl-empty">No findings match the current filters.</td></tr>';
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
@@ -5948,6 +5948,7 @@ async function loadFindings(page) {
 }
 
 async function resolveFinding(id, btn) {
+    if (!stRoleCanManageScans()) return;
     btn.disabled = true;
     const r = await apiPost('/api/findings.php?action=resolve', {action:'resolve', finding_id: id});
     if (r && r.ok) { toast('Finding marked resolved', 'ok'); loadFindings(vulnPage); }
@@ -5955,6 +5956,7 @@ async function resolveFinding(id, btn) {
 }
 
 async function acceptFindingRisk(id, btn) {
+    if (!stRoleCanManageScans()) return;
     if (btn) btn.disabled = true;
     const r = await apiPost('/api/findings.php?action=accept_risk', {action: 'accept_risk', finding_id: id});
     if (r && r.ok) {
@@ -5967,6 +5969,7 @@ async function acceptFindingRisk(id, btn) {
 }
 
 async function unacceptFindingRisk(findingId, assetId, ip) {
+    if (!stRoleCanManageScans()) return;
     if (!(await showConfirmModal(
         'Remove accepted-risk status for this CVE? It returns to the open list and change alerts may recur on future scans if the issue is still present.',
         {title: 'Unaccept risk', okText: 'Unaccept risk'}
@@ -9425,6 +9428,7 @@ function stZabbixEnrichToolsApplyDomOpen(open, opts) {
     const panel = document.getElementById('zb-enrich-tools-panel');
     const innerToggle = document.getElementById('btn-zb-enrich-tools-toggle');
     const cta = document.getElementById('enrich-zbx-tools-cta');
+    const preview = document.getElementById('zb-enrich-tools-preview');
     if (panel) {
         if (open) panel.classList.remove('hide');
         else panel.classList.add('hide');
@@ -9437,6 +9441,9 @@ function stZabbixEnrichToolsApplyDomOpen(open, opts) {
         cta.textContent = open ? 'Close tools' : 'Open tools';
         cta.setAttribute('aria-expanded', open ? 'true' : 'false');
         cta.setAttribute('aria-controls', 'zb-enrich-tools-panel');
+    }
+    if (preview) {
+        preview.style.display = open ? 'none' : '';
     }
     if (!o.skipLs) {
         stZabbixEnrichToolsLsSet(open);
@@ -9460,8 +9467,15 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     const toolsWrap = document.getElementById('st-zabbix-enrich-tools-wrap');
     const cta = document.getElementById('enrich-zbx-tools-cta');
     const syncBtn = document.getElementById('enrich-zbx-sync-btn');
-    const intro = document.getElementById('zb-enrich-tools-intro');
+    const toolsPreview = document.getElementById('zb-enrich-tools-preview');
+    const connectorEl = document.getElementById('enrich-zbx-connector');
     if (!detailsEl || !toolsWrap) return;
+
+    const setZabbixSuiteConnector = (show) => {
+        if (connectorEl) {
+            connectorEl.style.display = show ? '' : 'none';
+        }
+    };
 
     const showCta = (show) => {
         if (cta) {
@@ -9481,7 +9495,8 @@ function stEnrichmentRefreshZabbixOverview(resp) {
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is unavailable.</p>'
             + '<p class="hint-micro text-dim mb0">' + err + '</p>';
         toolsWrap.style.display = 'none';
-        if (intro) intro.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         stZabbixApplyEnrichmentFreshnessBanner(null);
         return;
     }
@@ -9489,16 +9504,18 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     if (!zs.tables_ready) {
         detailsEl.innerHTML = '<p class="hint-micro text-dim mb0">Zabbix tables are not installed. Run database migrations.</p>';
         toolsWrap.style.display = 'none';
-        if (intro) intro.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         stZabbixApplyEnrichmentFreshnessBanner(null);
         return;
     }
 
     if (!zs.configured) {
-        detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is not configured.</p>'
-            + '<p class="hint-micro text-dim mb0">Configure it under <strong>Integrations → Zabbix</strong>.</p>';
+        detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix is not configured.</p>'
+            + '<p class="hint-micro text-dim mb0">Set API URL and token under <strong>Integrations → Zabbix</strong>, then return here.</p>';
         toolsWrap.style.display = 'none';
-        if (intro) intro.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         stZabbixApplyEnrichmentFreshnessBanner(null);
         return;
     }
@@ -9507,12 +9524,13 @@ function stEnrichmentRefreshZabbixOverview(resp) {
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is disabled.</p>'
             + '<p class="hint-micro text-dim mb0">Enable it under <strong>Integrations → Zabbix</strong>.</p>';
         toolsWrap.style.display = 'none';
-        if (intro) intro.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         stZabbixApplyEnrichmentFreshnessBanner(null);
         return;
     }
 
-    if (intro) intro.style.display = '';
+    if (toolsPreview) toolsPreview.style.display = '';
 
     const badge = '<span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
     const line = stZabbixLastSyncLineHtml(zs);
@@ -9565,6 +9583,8 @@ function stEnrichmentRefreshZabbixOverview(resp) {
         html += '<div class="help-box mb6"><strong>No cached hosts yet.</strong> Run a sync (button below or Integrations → Zabbix).</div>';
         detailsEl.innerHTML = html;
         toolsWrap.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         showCta(false);
         if (stRoleIsAdmin() && zs.enabled && zs.configured) showSync(true);
         stZabbixApplyEnrichmentFreshnessBanner(zs);
@@ -9574,12 +9594,15 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     detailsEl.innerHTML = html;
     if (stRoleIsAdmin()) {
         toolsWrap.style.display = '';
+        setZabbixSuiteConnector(true);
         showCta(true);
         showSync(true);
         const wantOpen = stZabbixEnrichToolsLsIsOpen();
         stZabbixEnrichToolsApplyDomOpen(!!wantOpen, { skipLs: true });
     } else {
         toolsWrap.style.display = 'none';
+        setZabbixSuiteConnector(false);
+        if (toolsPreview) toolsPreview.style.display = 'none';
         showCta(false);
         showSync(false);
     }
@@ -11846,14 +11869,16 @@ async function loadEnrichment() {
 
     // Available types
     const types = d.available_types || [];
-    document.getElementById('enrich-types').innerHTML = types.map(t => `
+    document.getElementById('enrich-types').innerHTML = types.length
+        ? types.map(t => `
         <div class="mini-row">
           <div class="grow text-primary font11">${esc(t.label)}</div>
           <div class="badge-mini ${t.status==='ready'?'badge-ready':t.status==='partial'?'badge-partial':'badge-missing'}">
             ${t.status}
           </div>
           ${t.status==='ready'||t.status==='partial' ? `<button class="tbtn btn-xs" onclick="openAddSource('${t.type}')">+ Add</button>` : ''}
-        </div>`).join('');
+        </div>`).join('')
+        : '<div class="hint-micro text-dim">No optional source types listed.</div>';
 }
 
 function updateSourceFields(existingConfig) {
@@ -17028,7 +17053,11 @@ async function openHostPanel(id, ip) {
           </div>
           <div class="hp-desc">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
           ${formatHpFindingTriage(f)}
-          ${!f.resolved ? `<div class="row-wrap mt4" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Accept risk</button></div>` : '<span class="status-text" style="color:var(--green)">resolved</span>'}
+          ${!f.resolved
+              ? (stRoleCanManageScans()
+                  ? `<div class="row-wrap mt4" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Accept risk</button></div>`
+                  : '')
+              : '<span class="status-text" style="color:var(--green)">resolved</span>'}
         </div>`).join('') : '<div class="hp-empty">No open vulnerabilities</div>';
 
     const acceptedFindingRows = acceptedFindings.length ? acceptedFindings.map(f => `

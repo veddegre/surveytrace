@@ -751,21 +751,71 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .enrich-stack{
   display:flex;
   flex-direction:column;
-  gap:12px;
+  gap:14px;
   width:100%;
   min-width:0;
   align-items:stretch;
 }
 .enrich-sources-stack > div{min-width:0}
+.enrich-sources-subhd{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+  margin-top:12px;
+  margin-bottom:4px;
+}
+.enrich-sources-subhd--top{margin-top:0}
+.enrich-how-details{margin:0;border-radius:var(--radius-lg)}
+.enrich-how-details-summary{
+  cursor:pointer;
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-muted);
+  list-style-position:outside;
+}
+.enrich-how-details[open] > .enrich-how-details-summary{color:var(--text)}
 .enrich-overview-card{min-width:0;display:flex;flex-direction:column}
+.enrich-zabbix-suite{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  width:100%;
+  min-width:0;
+}
 .enrich-zabbix-suite .enrich-zabbix-overview,
 .enrich-zabbix-suite .enrich-zabbix-tools-card{width:100%;max-width:100%}
+.enrich-zabbix-suite > .card.enrich-zabbix-overview{
+  border-bottom-left-radius:0;
+  border-bottom-right-radius:0;
+}
+.enrich-zbx-connector{
+  margin:0;
+  padding:5px 12px 6px;
+  text-align:center;
+  border-left:1px solid var(--border);
+  border-right:1px solid var(--border);
+  background:var(--surface-muted);
+  font-size:12px;
+  line-height:1.35;
+}
 .enrich-zabbix-overview{display:flex;flex-direction:column;min-height:0}
-.enrich-zabbix-overview-body{flex:1;min-height:2.5rem}
-.enrich-zbx-overview-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:auto;padding-top:12px}
-.enrich-zabbix-tools-card{
+.enrich-zabbix-overview-body{flex:0 1 auto;min-height:0}
+.enrich-zbx-overview-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+  margin-top:10px;
+  padding-top:0;
+}
+.enrich-zabbix-suite > .enrich-zabbix-tools-card{
   border-top:2px solid color-mix(in srgb, var(--primary) 55%, var(--border));
-  padding-top:14px;
+  border-top-left-radius:0;
+  border-top-right-radius:0;
+  margin-top:0;
+  padding-top:12px;
 }
 body.light-mode .enrich-zabbix-tools-card{
   border-top-color:color-mix(in srgb, var(--primary) 45%, var(--border));
