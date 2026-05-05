@@ -153,6 +153,7 @@ API_FILES=(
   lib_reporting_event_model.php
   lib_integrations_outbound.php
   lib_integrations.php
+  lib_rate_limit.php
   integrations.php
   integrations_metrics.php
   integrations_events.php
@@ -452,6 +453,7 @@ check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
 check_file "$DEST/api/lib_collectors.php" "lib_collectors"
+check_file "$DEST/api/lib_rate_limit.php" "lib_rate_limit"
 check_file "$DEST/api/collector_checkin.php" "collector_checkin API"
 check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
 check_file "$DEST/api/collector_submit.php" "collector_submit API"
