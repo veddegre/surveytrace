@@ -202,7 +202,7 @@ if (!headers_sent()) {
 <div class="tab" id="t-dash">
   <div class="dash-actions">
     <div class="dash-actions-left">
-      <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Executive view: off</button>
+      <button class="tbtn mode-toggle" id="dash-mode-btn" onclick="toggleDashMode()">Dashboard mode: off</button>
     </div>
     <div class="dash-actions-right">
       <label class="mono-sm text-dim" for="exec-trend-range">Trend window</label>
@@ -216,16 +216,20 @@ if (!headers_sent()) {
   <div id="dash-exec">
     <div class="exec-top-grid">
       <div class="card exec-top-card">
-        <div class="ct">Executive highlights</div>
+        <div class="ct">Overview</div>
         <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
         <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
       </div>
       <div class="card exec-top-card">
-        <div class="ct">Recommended actions (next 24h)</div>
+        <div class="ct">Recent changes</div>
         <div id="exec-actions" class="exec-brief-list">Loading…</div>
       </div>
     </div>
-    <div class="sth">Security posture overview</div>
+    <details class="mb10">
+      <summary class="flbl text-secondary">How to read this summary</summary>
+      <div class="hint-micro mt6 text-dim">Read top cards first, then trends and top-risk systems. Use links in tables for host or device detail.</div>
+    </details>
+    <div class="sth">Risk snapshot</div>
     <div class="sgrid" id="exec-kpis">
       <div class="sc g"><div class="sl">Total systems tracked</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
       <div class="sc r"><div class="sl">Open security issues</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
@@ -238,17 +242,17 @@ if (!headers_sent()) {
     </div>
     <div class="sgrid exec-grid-2" style="margin-top:12px">
       <div class="card">
-        <div class="ct">Issues identified (14d)</div>
+        <div class="ct">Recent changes (14d)</div>
         <div id="exec-trend-findings" class="exec-chart"></div>
       </div>
       <div class="card">
-        <div class="ct">New systems discovered (14d)</div>
+        <div class="ct">Asset / coverage snapshot (14d)</div>
         <div id="exec-trend-assets" class="exec-chart"></div>
       </div>
     </div>
     <div class="sgrid exec-grid-2" style="margin-top:12px">
       <div class="card">
-        <div class="ct">Scan reliability + risk trend (14d)</div>
+        <div class="ct">Operational health (14d)</div>
         <div id="exec-trend-scans" class="exec-chart"></div>
       </div>
       <div class="card">
@@ -256,10 +260,10 @@ if (!headers_sent()) {
         <div id="exec-severity" class="help-mono">Loading…</div>
       </div>
     </div>
-    <div class="sth section-top">Highest-priority systems</div>
-    <div class="tbl-wrap mb16">
-      <table class="tbl"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
-      <tbody id="exec-top-risky"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+    <div class="sth section-top">Top risk items</div>
+    <div class="tbl-wrap tbl-wrap--data mb16">
+      <table class="tbl tbl--data"><thead><tr><th class="tbl-th-no-sort">IP</th><th class="mono-sm tbl-th-no-sort">Device</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Top CVE</th><th class="tbl-th-no-sort">CVSS</th><th class="tbl-th-no-sort">Findings</th></tr></thead>
+      <tbody id="exec-top-risky"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody></table>
     </div>
   </div>
   <div id="dash-ops">
@@ -3461,6 +3465,16 @@ function hiNav(id) {
     }
 }
 
+function stApplyNavItemTitles() {
+    document.querySelectorAll('.ni').forEach((el) => {
+        const raw = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+        const cleaned = raw.replace(/\s+\d+\s*$/, '').trim();
+        if (cleaned) {
+            el.setAttribute('title', cleaned);
+        }
+    });
+}
+
 // ==========================================================================
 // Fetch helper
 // ==========================================================================
@@ -3822,7 +3836,7 @@ function renderExecBars(targetId, values, labels, opts = {}) {
     if (!el) return;
     const safeVals = Array.isArray(values) ? values.map(v => Number(v) || 0) : [];
     if (!safeVals.length) {
-        el.innerHTML = '<div class="text-dim">No data yet</div>';
+        el.innerHTML = '<div class="text-dim">No scan data available yet.</div>';
         return;
     }
     const max = Math.max(1, ...safeVals);
@@ -3847,7 +3861,7 @@ function renderExecLineChart(targetId, series, labels) {
     if (!el) return;
     const lines = Array.isArray(series) ? series.filter(s => Array.isArray(s.values) && s.values.length) : [];
     if (!lines.length) {
-        el.innerHTML = '<div class="text-dim">No trend data yet</div>';
+        el.innerHTML = '<div class="text-dim">No scan data available yet.</div>';
         return;
     }
     const count = Math.max(...lines.map(s => s.values.length));
@@ -3860,8 +3874,8 @@ function renderExecLineChart(targetId, series, labels) {
     const latest = lines.map(s => `${s.name}: ${s.values[s.values.length - 1] || 0}`).join(' | ');
 
     el.innerHTML = `
-      <div class="exec-chart-focus" tabindex="0" role="group" aria-label="Executive trend chart. Use left and right arrow keys to inspect daily values.">
-      <svg viewBox="0 0 ${w} ${h}" class="exec-line-svg" role="img" aria-label="Executive trend chart">
+      <div class="exec-chart-focus" tabindex="0" role="group" aria-label="Dashboard trend chart. Use left and right arrow keys to inspect daily values.">
+      <svg viewBox="0 0 ${w} ${h}" class="exec-line-svg" role="img" aria-label="Dashboard trend chart">
         <line x1="${px}" y1="${h-py}" x2="${w-px}" y2="${h-py}" class="exec-grid-line"></line>
         <line x1="${px}" y1="${py}" x2="${px}" y2="${h-py}" class="exec-grid-line"></line>
         ${lines.map(s => `<path d="${mkPath(s.values)}" fill="none" stroke="${esc(s.color)}" stroke-width="2.6"></path>`).join('')}
@@ -3996,7 +4010,7 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     const brief = Array.isArray(exec.brief) ? exec.brief : [];
     document.getElementById('exec-brief-list').innerHTML = brief.length
         ? `<ul class="exec-brief-ul">${brief.map(line => `<li>${esc(line)}</li>`).join('')}</ul>`
-        : '<div class="text-dim">No executive brief available yet.</div>';
+        : '<div class="text-dim">No recent changes.</div>';
 
     const actions = [];
     if ((k.critical_open || 0) > 0) {
@@ -4038,15 +4052,15 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
     const risky = Array.isArray(exec.top_risky) && exec.top_risky.length ? exec.top_risky : (fallbackTopVuln || []);
     document.getElementById('exec-top-risky').innerHTML = risky.length
         ? risky.map(a => `<tr>
-            <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
-            <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
-            <td class="text-primary">${esc(a.hostname||'—')}</td>
+            <td class="mono click-ip tbl-cell-mono tbl-cell-primary" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
+            <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
+            <td class="text-primary tbl-cell-primary">${esc(a.hostname||'—')}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
-            <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
+            <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${esc(a.top_cve||'—')}</td>
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
-            <td class="mono">${a.finding_count}</td>
+            <td class="mono tbl-cell-mono tbl-cell-muted">${a.finding_count}</td>
           </tr>`).join('')
-        : '<tr><td colspan="7" class="loading">No high-risk assets yet</td></tr>';
+        : '<tr><td colspan="7" class="loading tbl-empty">No high-risk assets found.</td></tr>';
 }
 
 function applyExecutiveModeUI(on) {
@@ -17726,7 +17740,7 @@ async function initApp() {
     document.body.classList.toggle('exec-mode', execMode);
     applyExecutiveModeUI(execMode);
     const mb = document.getElementById('dash-mode-btn');
-    if (mb) mb.textContent = 'Executive view: ' + (execMode ? 'on' : 'off');
+    if (mb) mb.textContent = 'Dashboard mode: ' + (execMode ? 'on' : 'off');
     // Always load dashboard data first to populate sidebar badges
     await loadDashboard();
     await hydrateFeedSyncFromServer();
@@ -17739,7 +17753,7 @@ function toggleDashMode() {
     applyExecutiveModeUI(on);
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
-    if (mb) mb.textContent = 'Executive view: ' + (on ? 'on' : 'off');
+    if (mb) mb.textContent = 'Dashboard mode: ' + (on ? 'on' : 'off');
     const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched',scopes:'nscopes',integrations:'nintegrations',alerts:'nalerts',collectors:'ncollectors'};
 
     if (on) {
@@ -17765,6 +17779,7 @@ initApp();
 (function bootAfterAuth() {
     if (loginRequired && (authMode === 'session' || authMode === 'oidc')) return;
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
+stApplyNavItemTitles();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
     const navMap = {

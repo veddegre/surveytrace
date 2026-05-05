@@ -597,6 +597,9 @@ body.exec-mode #dash-top-vuln td{padding-top:12px;padding-bottom:12px}
 body.exec-mode .shell{grid-template-columns:74px 1fr}
 body.exec-mode .side{padding-top:8px}
 body.exec-mode .ns{display:none}
+body.exec-mode .nav-grp-hd{display:none}
+body.exec-mode .nav-grp-body{display:block}
+body.exec-mode .nav-grp--collapsed .nav-grp-body{display:block}
 body.exec-mode .ni{
   justify-content:center;
   padding:11px 8px;
@@ -636,7 +639,7 @@ body:not(.exec-mode) .dash-actions-right{visibility:hidden;pointer-events:none}
 .exec-top-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:12px;margin-bottom:12px}
 .exec-grid-2{grid-template-columns:repeat(2,minmax(320px,1fr))}
 .exec-top-card{padding:14px 16px}
-.exec-top-card .ct{font-size:12px;letter-spacing:.05em;margin-bottom:10px}
+.exec-top-card .ct{font-size:12px;letter-spacing:.05em;margin-bottom:8px}
 .exec-brief-deltas{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:8px;margin-bottom:10px}
 .exec-delta-chip{border:1px solid var(--bd2);border-radius:10px;padding:8px 10px;background:var(--bg3);display:flex;flex-direction:column;gap:2px}
 .exec-delta-label{font-size:11px;color:var(--tx3);font-family:var(--mf)}
