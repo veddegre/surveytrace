@@ -85,6 +85,10 @@ Collectors are remote scan workers with their own validation.
 
 - [Connector development guide](docs/CONNECTOR_DEVELOPMENT_GUIDE.md)
 
+## Wiki
+
+- [Wiki index](docs/wiki/)
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
