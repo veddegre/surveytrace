@@ -360,7 +360,7 @@ if (!headers_sent()) {
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr>
-        <th style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
+        <th id="af-th-select" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
         <th onclick="sortAssets('ip')">IP address</th>
         <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
@@ -397,7 +397,7 @@ if (!headers_sent()) {
       </p>
     </div>
     <div class="row-wrap gap6" style="align-items:center">
-      <button type="button" class="btnp btn-sm" onclick="stScopesOpenCreateModal()">+ New scope</button>
+      <button type="button" class="btnp btn-sm" id="st-scopes-btn-create" onclick="stScopesOpenCreateModal()">+ New scope</button>
       <button type="button" class="tbtn btn-sm" onclick="void loadScopesTab()">&#8635; Refresh</button>
     </div>
   </div>
@@ -2630,9 +2630,11 @@ function applyRoleAwareUi() {
     };
     setHidden('nscan', !canScanManage);
     setHidden('nsched', !canScanManage);
-    setHidden('nscopes', !canScanManage);
+    /* Scopes catalog: viewers read-only; mutation UI gated elsewhere */
+    setHidden('nscopes', false);
     setHidden('ncollectors', !isAdmin);
     setHidden('nenrich', !isAdmin);
+    setHidden('nintegrations', !isAdmin);
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
 
@@ -2697,6 +2699,26 @@ function applyRoleAwareUi() {
     if (retentionSave) retentionSave.style.display = isAdmin ? '' : 'none';
     const scopeCreateBtn = document.getElementById('report-scope-create-btn');
     if (scopeCreateBtn) scopeCreateBtn.style.display = canScanManage ? '' : 'none';
+    const scopesCreateBtn = document.getElementById('st-scopes-btn-create');
+    if (scopesCreateBtn) scopesCreateBtn.style.display = canScanManage ? '' : 'none';
+    stAssetsApplyTableBulkChromeVisibility();
+    if (typeof currentTab === 'string' && currentTab === 'assets' && typeof assetPage === 'number' && typeof loadAssets === 'function') {
+        void loadAssets(assetPage);
+    }
+}
+
+/** Hide bulk-select column + bulk bar when user cannot mutate asset scope (e.g. viewer). */
+function stAssetsApplyTableBulkChromeVisibility() {
+    const show = stRoleCanManageScans();
+    const th = document.getElementById('af-th-select');
+    if (th) th.classList.toggle('hide', !show);
+    const bar = document.getElementById('af-bulk-actions-bar');
+    if (bar && !show) bar.style.display = 'none';
+    const head = document.getElementById('af-select-all');
+    if (head) {
+        head.checked = false;
+        head.indeterminate = false;
+    }
 }
 
 function updateAccessControlModeVisibility() {
@@ -3091,8 +3113,8 @@ function goTab(name) {
         toast('Integrations are available to admin users only.', 'err');
         name = 'dash';
     }
-    if (name === 'scopes' && !stRoleCanManageScans()) {
-        toast('Scan scopes management requires scan editor or admin role.', 'err');
+    if (name === 'scan' && !stRoleCanManageScans()) {
+        toast('You do not have permission to access Scan control.', 'err');
         name = 'dash';
     }
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
@@ -4957,7 +4979,9 @@ async function loadScopesTab() {
     });
     tb.innerHTML = rows.length
         ? rows.join('')
-        : '<tr><td colspan="6" class="loading">No scopes yet — create one from <strong>+ New scope</strong>.</td></tr>';
+        : `<tr><td colspan="6" class="loading">${stRoleCanManageScans()
+            ? 'No scopes yet — create one from <strong>+ New scope</strong>.'
+            : 'No scopes in catalog yet.'}</td></tr>`;
 }
 
 async function stScopesRename(scopeId, currentName) {
@@ -5339,7 +5363,8 @@ async function loadAssets(page) {
     const zbxColBefore = zbxOkForQuery && !!document.getElementById('af-zbx-col')?.checked;
     const thZbx = document.getElementById('af-th-zbx');
     if (thZbx) thZbx.classList.toggle('hide', !zbxColBefore);
-    const listColsLoading = zbxColBefore ? 14 : 13;
+    const showRowChk = stRoleCanManageScans();
+    const listColsLoading = zbxColBefore ? (showRowChk ? 14 : 13) : (showRowChk ? 13 : 12);
     const zMon = zbxOkForQuery ? (document.getElementById('af-zbx-monitored')?.value || '') : '';
     const zUn = zbxOkForQuery && document.getElementById('af-zbx-unavail')?.checked ? '1' : '';
     const zPr = zbxOkForQuery && document.getElementById('af-zbx-problems')?.checked ? '1' : '';
@@ -5397,8 +5422,11 @@ async function loadAssets(page) {
 
     const zbxColRender = !!window.__stAssetsZabbixFiltersAvailable && !!document.getElementById('af-zbx-col')?.checked;
     if (thZbx) thZbx.classList.toggle('hide', !zbxColRender);
-    const listCols = zbxColRender ? 14 : 13;
+    const listCols = zbxColRender ? (showRowChk ? 14 : 13) : (showRowChk ? 13 : 12);
     const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm">${stAssetZabbixCellHtml(a)}</td>` : '');
+    const chkTd = showRowChk
+        ? `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
+        : '';
     const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
         `<td class="mono-sm text-dim" title="${esc(scopeTip)}">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}</td>`;
@@ -5414,8 +5442,11 @@ async function loadAssets(page) {
                 vendorCell += ` <span class="status-text" title="${esc(svcHits.join(', '))}">+${extra.length} services</span>`;
             }
         }
+        const editBtn = stRoleCanManageScans()
+            ? `<button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>`
+            : '';
         return `<tr>
-          <td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>
+          ${chkTd}
           <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
           <td class="text-primary">${esc(a.hostname||'—')}</td>
@@ -5430,7 +5461,7 @@ async function loadAssets(page) {
           <td class="mono mono-sm">${relTime(a.last_seen)}</td>
           <td>
             <button type="button" class="tbtn btn-xs" onclick="openHostPanel(${a.id},'${esc(a.ip)}')">Details</button>
-            <button type="button" class="tbtn btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category)}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998;</button>
+            ${editBtn}
           </td>
         </tr>`;
     }).join('') || `<tr><td colspan="${listCols}" class="loading">No assets found</td></tr>`;
@@ -5576,6 +5607,10 @@ async function unacceptFindingRisk(findingId, assetId, ip) {
 // Scan control
 // ==========================================================================
 async function startScan(urgent = false) {
+    if (!stRoleCanManageScans()) {
+        toast('You do not have permission to queue scans.', 'err');
+        return;
+    }
     const cidr  = document.getElementById('sc-cidr').value.trim();
     if (!cidr) { toast('Enter a CIDR target', 'err'); return; }
 
@@ -14637,6 +14672,10 @@ function closeSchedHistModal() {
 }
 
 function openJobFromHist(jobId) {
+    if (!stRoleCanManageScans()) {
+        toast('You do not have permission to access Scan control.', 'err');
+        return;
+    }
     closeSchedHistModal();
     goTab('scan');
     hiNav('nscan');
@@ -14740,6 +14779,10 @@ function exportFindings(format) {
 // Reclassify modal
 // ==========================================================================
 function openReclassify(id, ip, hostname, category, vendor, notes, owner, businessUnit, criticality, environment, hl, cl, vl) {
+    if (!stRoleCanManageScans()) {
+        toast('Requires scan editor or admin role.', 'err');
+        return;
+    }
     document.getElementById('modal-asset-id').value  = id;
     document.getElementById('modal-ip').textContent  = ip;
     document.getElementById('modal-hostname').value  = hostname;
@@ -15828,13 +15871,13 @@ async function openHostPanel(id, ip) {
 
       <section class="host-section" aria-label="AI summary">${renderHpAiOperatorSection(a, id, a.ip)}</section>
 
-      <section class="host-section" aria-label="Host actions">
+      ${(stRoleCanManageScans() || (openFindings.length || acceptedFindings.length)) ? `<section class="host-section" aria-label="Host actions">
       <div class="hp-actions hp-actions-host-primary mb14">
-        <button type="button" class="btnp btn-xs${stRoleCanManageScans() ? '' : ' is-disabled'}" ${stRoleCanManageScans() ? '' : 'disabled '}onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="${stRoleCanManageScans() ? 'Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue' : 'Requires scan editor or admin role'}">&#8635; Rescan host</button>
-        <button class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>
+        ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
+        <button type="button" class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>` : ''}
         ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>
-      </section>
+      </section>` : ''}
 
       <section class="host-section" aria-label="Open vulnerabilities">
         <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
@@ -16376,8 +16419,17 @@ initApp();
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
-        const navMap = {dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched',scopes:'nscopes'};
-    if (navMap[lastTab]) hiNav(navMap[lastTab]);
+    const navMap = {
+        dash:'ndash',assets:'nassets',devices:'ndevices',vulns:'nvulns',logs:'nlogs',scan:'nscan',scanhist:'nscanhist',
+        report:'nreport',enrich:'nenrich',health:'nhealth',access:'naccess',settings:'nsettings',sched:'nsched',scopes:'nscopes',
+        integrations:'nintegrations',alerts:'nalerts',collectors:'ncollectors',
+    };
+    const navKey = currentTab;
+    const navId = navMap[navKey];
+    if (navId) {
+        const navEl = document.getElementById(navId);
+        if (navEl && navEl.style.display !== 'none') hiNav(navId);
+    }
 } else {
     goTab('dash');
     hiNav('ndash');
