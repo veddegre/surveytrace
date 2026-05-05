@@ -2611,6 +2611,8 @@ var logSinceId   = 0;
 var pollJobInFlight = false;
 /** Suppress duplicate terminal toasts when several polls see the same finished job. */
 var lastScanTerminalToastKey = '';
+/** When >0, the next `loadScanHistory` pass scrolls/highlights this job row (active queue or history table). */
+var stPendingScanHistoryFocusJobId = 0;
 var autoscroll   = true;
 var allLogRows   = [];
 var dashTimer    = null;
@@ -5963,7 +5965,10 @@ async function startScan(urgent = false) {
     document.getElementById('btn-start').disabled = false;
     if (urgentBtn) urgentBtn.disabled = false;
     document.getElementById('btn-start').textContent = '\u25b6 Queue scan';
-    loadScanHistory();   // refresh queue panel immediately
+    stPendingScanHistoryFocusJobId = Number(activeJobId) || 0;
+    goTab('scanhist');
+    hiNav('nscanhist');
+    await loadScanStatus();
     startPoll(activeJobId);
 }
 
@@ -6307,7 +6312,10 @@ async function queueHostRescan(ip, triggerBtn) {
         'Scan #' + r.job_id + ' queued (' + profileVal.replace(/_/g, ' ') + ') for ' + ipTrim + '. Scan tab updated.',
         'ok'
     );
-    loadScanHistory();
+    stPendingScanHistoryFocusJobId = Number(r.job_id) || 0;
+    goTab('scanhist');
+    hiNav('nscanhist');
+    await loadScanStatus();
     startPoll(r.job_id);
 }
 
@@ -6529,6 +6537,51 @@ async function saveScanTrashRetentionDays() {
     }
 }
 
+function stApplyScanHistoryRowHighlight(row) {
+    if (!row || !(row instanceof Element)) return;
+    try {
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (_e) {
+        try {
+            row.scrollIntoView();
+        } catch (_e2) {}
+    }
+    row.classList.add('st-scan-hist-row-flash');
+    const cleanup = () => {
+        try {
+            row.classList.remove('st-scan-hist-row-flash');
+        } catch (_e) {}
+        row.removeEventListener('animationend', cleanup);
+    };
+    row.addEventListener('animationend', cleanup);
+    window.setTimeout(cleanup, 4500);
+    const btn = row.querySelector('button[data-scan-action="details"][data-job-id]');
+    if (btn && typeof btn.focus === 'function') {
+        try {
+            btn.focus({ preventScroll: true });
+        } catch (_e) {}
+    }
+}
+
+/** Scroll/highlight the job row when `stPendingScanHistoryFocusJobId` is set (after queue from Scan or host rescan). */
+function stFlushPendingScanHistoryFocus() {
+    const jid = stPendingScanHistoryFocusJobId;
+    if (!jid || jid <= 0) return;
+    const sel = 'tr.scan-hist-row[data-job-id="' + String(jid) + '"]';
+    const ids = ['queue-tbody', 'queue-tbody-scan', 'scan-hist'];
+    let row = null;
+    for (let i = 0; i < ids.length; i++) {
+        const root = document.getElementById(ids[i]);
+        if (!root) continue;
+        row = root.querySelector(sel);
+        if (row) break;
+    }
+    stPendingScanHistoryFocusJobId = 0;
+    if (row) {
+        stApplyScanHistoryRowHighlight(row);
+    }
+}
+
 async function loadScanHistory(history) {
     updateScanHistoryViewButtons();
     if (!stRoleCanManageScans() && scanHistoryView !== 'active') {
@@ -6597,6 +6650,7 @@ async function loadScanHistory(history) {
       </td>
     </tr>`).join('') || '<tr><td colspan="10" class="loading">' + emptyMsg + '</td></tr>';
     bindScanHistoryDelegates();
+    stFlushPendingScanHistoryFocus();
 }
 
 // ==========================================================================
