@@ -661,6 +661,33 @@ body.light-mode .tth{background:linear-gradient(180deg,#fff 0%,#e8eef6 100%);box
   cursor:pointer;
 }
 .tr2-check .chk-input{margin:0}
+/* Scan steps / rescan / schedule phase rows: denser layout + slimmer switch than standalone .tog--sm */
+.tr2:has(.tog.tr2-check){
+  padding:4px 0;
+}
+.tr2:has(.tog.tr2-check) .tl{
+  font-size:13px;
+  line-height:1.25;
+}
+.tr2:has(.tog.tr2-check) .tsubl{
+  font-size:12px;
+  line-height:1.35;
+  margin-top:1px;
+}
+.tr2-check.tog.tog--sm{
+  min-width:0;
+  min-height:0;
+  width:32px;
+  height:18px;
+}
+.tr2-check.tog.tog--sm .trk{border-radius:9px}
+.tr2-check.tog.tog--sm .tth{
+  top:2px;
+  left:2px;
+  width:14px;
+  height:14px;
+}
+.tr2-check.tog.tog--sm input:checked~.tth{left:16px}
 
 /* Range sliders */
 .rr{margin-bottom:10px}
