@@ -4,122 +4,369 @@
 
 ## Overview
 
-SurveyTrace combines network discovery, enrichment, and reporting into one operational system. Scanning discovers technical facts, enrichment adds external context, and reporting presents both historical and current-state views for decisions.
+SurveyTrace combines network discovery, enrichment, and reporting into one operational system.
+
+- **Scanning** discovers technical facts about systems.
+- **Enrichment** adds external context and trust signals.
+- **Reporting** presents both historical and current-state views.
 
 The name reflects the architecture:
-- **Survey**: map what exists on the network through active/passive collection.
-- **Trace**: keep continuity over time so operators can follow changes and risk.
+
+- **Survey** — systematically discover what exists on the network.
+- **Trace** — maintain continuity over time to understand change and risk.
+
+This separation allows operators to answer both:
+
+- *What is happening right now?*
+- *What changed over time?*
+
+---
 
 ## Data model
 
-SurveyTrace keeps two data perspectives intentionally separate:
-- **Scan jobs** are historical snapshots from completed runs.
-- **Inventory** is the current asset/finding state.
+SurveyTrace intentionally separates two perspectives:
 
-They are separate so historical evidence is not overwritten by current updates.
+- **Scan jobs** → historical snapshots  
+- **Inventory** → current asset and finding state  
 
-High-level flow:
-- Scan execution produces run-scoped results.
-- Results are stored with job history.
-- Asset records are created/updated for current-state inventory.
-- Reporting reads either job history or inventory state, depending on mode.
+This separation ensures:
+
+- historical evidence is preserved
+- current updates do not overwrite past results
+
+---
+
+### Data flow
+
+```text
+scan → job results → processing → asset updates → inventory
+```
+
+- Scan results are written to **job history**
+- Relevant data is propagated to **inventory**
+- Reporting reads from one or the other depending on mode
+
+---
+
+### Why this matters
+
+- You can always trust historical reports
+- Inventory can evolve without corrupting past data
+- Debugging becomes clearer (history vs current state)
+
+---
 
 ## Scanning pipeline
 
-At runtime, the scan path is:
-- A scan is queued from Scan control or scheduler.
-- Worker executes discovery/fingerprint phases.
-- Run results are written to job-scoped history tables.
-- Asset records are updated from processed findings.
-- Completion status is published to Scan history and downstream views.
+### Runtime flow
 
-After completion:
-- Historical analysis uses the finished job snapshot.
-- Current inventory views use updated asset/finding state.
+1. Scan is created (manual or scheduled)
+2. Job enters queue
+3. Scanner executes:
+   - discovery
+   - fingerprinting
+4. Results are written to job history
+5. Asset records are updated
+6. Job status is finalized
+
+---
+
+### After completion
+
+- **Scan history** → immutable snapshot
+- **Inventory** → updated current state
+- **Reporting** → uses selected mode
+
+---
+
+### Key property
+
+- Scan jobs are **immutable**
+- Inventory is **mutable**
+
+---
 
 ## Enrichment pipeline
 
-Enrichment runs as contextual augmentation around scan/inventory data:
-- Internal processing enriches discovered hosts with additional identity context.
-- Zabbix sync pulls external host/monitoring state into local cache tables.
-- Match workflows link external hosts to SurveyTrace assets explicitly.
-- Linked trust signals (monitoring, availability, problem counts) are denormalized to assets for UI/reporting use.
+Enrichment augments scan-derived data with external context.
+
+### Flow
+
+1. External system sync (e.g., Zabbix)
+2. Data stored in local cache tables
+3. Match workflow links:
+   - SurveyTrace asset ↔ external entity
+4. Linked fields are applied to assets
+
+---
+
+### What enrichment adds
+
+- monitoring state
+- availability
+- external identifiers
+- contextual trust signals
+
+---
+
+### Important behavior
+
+- Matching is **explicit**
+  - nothing is auto-linked without review
+- Enrichment updates:
+  - inventory only (not job history)
+
+---
 
 ## Reporting model
 
-Reporting has two modes by design:
-- **Job scope reports**: historical, based on completed scan jobs.
-- **Inventory scope reports**: current state, based on scoped assets/findings.
+SurveyTrace has two distinct reporting modes:
 
-This prevents model confusion:
-- A scope can contain assets now but have no completed scoped jobs.
-- In that case, job-scope views may be sparse while inventory-scope views remain populated.
+---
 
-Drift/comparison concepts:
-- Drift and compare features rely on historical snapshot compatibility.
-- Inventory views describe present posture, not past run deltas.
+### Job scope reports
+
+- Based on **scan_jobs**
+- Used for:
+  - trends
+  - comparisons
+  - drift analysis
+
+Requirements:
+- completed scan jobs for that scope
+
+---
+
+### Inventory scope reports
+
+- Based on **assets**
+- Used for:
+  - current posture
+  - counts and grouping
+  - live risk state
+
+---
+
+### Key distinction
+
+| Mode            | Data source | Purpose              |
+|-----------------|------------|----------------------|
+| Job scope       | scan_jobs  | historical analysis  |
+| Inventory scope | assets     | current state        |
+
+---
+
+### Common behavior
+
+- A scope can:
+  - have assets (inventory)
+  - but no job history
+
+Result:
+- job reports → empty
+- inventory reports → populated
+
+This is expected behavior, not an error.
+
+---
 
 ## Scheduler and workers
 
-The scheduler coordinates recurring background operations:
-- Evaluates scan schedules and queues due runs.
-- Triggers Zabbix sync/output workers when due and configured.
+The scheduler is the coordination engine.
 
-Worker roles:
-- **`zabbix_sync_worker`**: refreshes Zabbix cache data and updates link-derived trust fields.
-- **`zabbix_output_worker`**: pushes SurveyTrace metrics to Zabbix when output is enabled.
+---
 
-Timing behavior:
-- Scheduler uses configured intervals and due timestamps.
-- “Stale” status appears when sync freshness exceeds expected interval windows.
+### Responsibilities
+
+- evaluate schedules
+- queue scan jobs
+- trigger integration workers
+- manage timing and execution windows
+
+---
+
+### Workers
+
+- **zabbix_sync_worker**
+  - pulls Zabbix data into local cache
+  - updates asset-linked fields
+
+- **zabbix_output_worker**
+  - pushes SurveyTrace metrics to Zabbix
+
+---
+
+### Timing model
+
+- based on:
+  - interval configuration
+  - last run timestamps
+- scheduler determines when tasks are “due”
+
+---
+
+### “Stale” meaning
+
+- last successful run exceeded expected interval
+- indicates:
+  - scheduler issue
+  - worker failure
+  - or missed execution
+
+---
 
 ## Integrations
 
 ### Zabbix
 
-Zabbix integration includes:
-- host/monitoring sync into local tables
-- match review to connect external hosts to assets
-- availability/problem trust propagation to linked assets
-- optional output push through `zabbix_sender`
+Zabbix integration provides:
+
+- host sync
+- match linking
+- availability propagation
+- optional output push
+
+---
+
+### Availability model
+
+Availability is derived from:
+
+- host-level fields
+- interface-level fields
+
+Mapped to:
+
+- `available`
+- `unavailable`
+- `unknown`
+
+---
+
+### Why “unknown” happens
+
+- no availability fields returned
+- host not monitored
+- mapping not applied
+- sync not run
+
+---
 
 ### AI enrichment
 
-AI enrichment is optional contextual analysis:
-- used to generate summaries/suggestions
-- intended to assist operator review, not replace validation
+AI is optional and assistive:
+
+- generates summaries
+- suggests classifications
+- does **not replace operator decisions**
+
+---
 
 ## System health
 
-System Health surfaces operational state across:
-- core services/daemons
-- storage/database readiness
-- scheduler/integration status
+System Health aggregates:
 
-Common status semantics:
-- **Connected**: configured and healthy recent state
-- **Degraded**: stale or warning condition
-- **Error**: failed last operation or hard fault
+- service state
+- scheduler status
+- integration status
+- storage readiness
+
+---
+
+### Status meanings
+
+- **Connected**
+  - healthy, recent success
+
+- **Degraded**
+  - stale or partial success
+
+- **Error**
+  - last operation failed
+
+---
+
+### Purpose
+
+- quickly identify system-wide issues
+- reduce need for manual log inspection
+
+---
 
 ## Common misunderstandings
 
-- **“Reports are empty for this scope”**
-  - Often a mode mismatch (job scope selected for inventory-only scope).
-- **“Zabbix availability is unknown for monitored hosts”**
-  - Usually stale sync, incomplete mapping, or missing availability fields from source.
-- **“Assets exist but no scan history”**
-  - Expected when assets are populated via enrichment/mapping rather than scoped scan runs.
+### “Reports are empty”
+
+- usually:
+  - job mode selected
+  - but no scan jobs exist
+
+---
+
+### “Zabbix shows unknown”
+
+- sync not run
+- mapping not applied
+- API not returning fields
+
+---
+
+### “Assets exist but no history”
+
+- assets created via:
+  - enrichment
+  - partial scans
+- no completed jobs for that scope
+
+---
+
+### “Enrichment should affect reports”
+
+- only affects inventory
+- job reports remain historical
+
+---
 
 ## Design philosophy
 
-SurveyTrace prioritizes operator clarity:
-- keep **historical evidence** and **live state** separate
-- require explicit enrichment/match actions for high-impact changes
-- present workflow-oriented UI with clear status and health signals
+SurveyTrace prioritizes:
+
+---
+
+### Separation of concerns
+
+- historical vs current data
+- internal vs external context
+
+---
+
+### Operator control
+
+- explicit actions over automation
+- visible workflows instead of hidden logic
+
+---
+
+### Debuggability
+
+- clear data sources
+- predictable behavior
+- minimal hidden state
+
+---
+
+### Practical outcome
+
+Operators can:
+
+- trust historical reports
+- understand current posture
+- diagnose issues without guessing
 
 ---
 
 See also:
+- [Concepts](concepts.md)
+- [Reporting](reporting.md)
+- [Enrichment](enrichment.md)
 - [Documentation home](README.md)
-
----

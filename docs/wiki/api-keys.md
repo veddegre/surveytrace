@@ -4,73 +4,115 @@
 
 ## When to use this
 
-- Use this page when adding, rotating, or troubleshooting external service credentials.
+- Use this page when:
+  - configuring SurveyTrace integrations for the first time
+  - rotating credentials
+  - troubleshooting failed integrations (NVD, Zabbix, AI)
+
+---
 
 ## How to do it
 
-1. Identify which system needs credentials (NVD, Zabbix API, AI provider).
-2. Enter/update key/token in the relevant Settings/Integrations form.
-3. Save settings.
-4. Run test/sync action for that integration.
-5. Confirm status updates in UI health/integration indicators.
+1. Identify the integration:
+   - NVD (vulnerability data)
+   - Zabbix (enrichment + monitoring)
+   - AI provider (optional summaries)
+
+2. Open **Settings** or **Integrations** in the UI.
+
+3. Enter required credentials:
+   - API key, token, or endpoint URL
+
+4. Save configuration.
+
+5. Run a validation action:
+   - **Test connection**
+   - **Run sync**
+   - **Trigger AI action**
+
+6. Verify results:
+   - UI status indicators (Connected / Degraded / Error)
+   - System Health → Integrations
+   - Logs if needed
+
+---
 
 ## What to expect
 
-- Features depending on the key become active after save/test.
-- Invalid keys usually surface as connection/auth errors in status messages.
-- Rotated keys require updating stored config before old key expiry.
+- Features tied to the integration become active immediately after a successful save/test.
+- Failed credentials will result in:
+  - connection errors
+  - authentication failures
+  - “unknown” or stale data in UI
+- Some integrations (like Zabbix) require an additional sync step before data appears.
+- Rotating a key without updating SurveyTrace will break the integration.
 
-### NVD (critical)
+---
 
-- Why it matters:
-  - NVD provides CVE feed data used for vulnerability correlation.
-- How to get key:
-  - request from NVD API key portal (NIST).
-- Where to configure:
-  - Settings -> NVD/API key section (or supported environment variable path if used operationally).
-- How to verify:
-  1. Trigger sync from UI or run feed worker flow.
-  2. Check sync status/last result in UI.
-  3. Confirm no auth/rate-limit errors in logs.
+## NVD (critical)
 
-### Zabbix API
+### Why it matters
 
-- Required permissions:
-  - read access for host/sync-relevant API methods.
-- URL format:
-  - API endpoint must include correct Zabbix API path (not just base host).
-- Token/user setup:
-  - create API token/user with minimum required read scope.
-- Common mistakes:
-  - wrong URL path
-  - expired/revoked token
-  - insufficient API permissions
+- Provides CVE data used for:
+  - vulnerability correlation
+  - severity scoring (CVSS)
 
-### AI provider (optional)
+---
 
-- Local vs remote:
-  - local runtime (for local model deployment) vs remote hosted provider API.
-- Configuration:
-  - provider selection + key/token/base URL fields in settings.
-- Verification:
-  1. Save provider/key settings.
-  2. Run an AI-backed action (summary/explain path).
-  3. Confirm response and no auth/runtime errors.
+### How to get a key
+
+- Request from NVD (NIST) API portal:
+
+  https://nvd.nist.gov/developers/request-an-api-key
+
+---
+
+### How to verify
+
+1. Trigger sync via UI **or** run manually:
+
+```bash
+sudo -u surveytrace php /opt/surveytrace/api/nvd_sync_worker.php
+```
+
+2. Check logs:
+
+```bash
+journalctl -u surveytrace-scheduler -n 50
+```
+
+---
+
+## Zabbix API
+
+### How to verify
+
+1. Run sync:
+
+```bash
+sudo -u surveytrace php /opt/surveytrace/api/zabbix_sync_worker.php
+```
+
+2. Check UI:
+   - Enrichment tab shows hosts
+   - Status is no longer "unknown"
+
+---
 
 ## Common issues
 
-- **Auth failed after key update**
-  - Key may be malformed, expired, or missing required scope.
-- **Feature still disabled**
-  - Verify key was saved in correct section and service can reach endpoint.
-- **Unexpected key exposure risk**
-  - Remove keys from scripts/repos and rotate immediately.
-- **Rotation caused outage**
-  - Stage new key, validate, then revoke old key.
+### Zabbix shows "unknown"
+
+- Sync not run
+- API not returning availability fields
+
+### NVD has no data
+
+- API key missing or invalid
+- Sync never executed
 
 ---
 
 See also:
+- [Integrations](integrations.md)
 - [Documentation home](README.md)
-
----
