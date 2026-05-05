@@ -356,7 +356,7 @@ if (!headers_sent()) {
   <div id="af-ai-filters-wrap" class="mb8" style="display:none">
     <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
       <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
-        <label id="af-ai-review-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
+        <label id="af-ai-review-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3);flex-wrap:wrap" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
           <input type="checkbox" class="chk-input" id="af-ai-review" onchange="stAssetsOnAiFilterCheckboxChange()"><span class="chk-label">Needs AI review</span>
         </label>
         <label id="af-ai-summary-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
@@ -560,9 +560,8 @@ if (!headers_sent()) {
         <div class="ct">Target &amp; scope</div>
         <label class="flbl">CIDR target(s)</label>
         <input class="finput" id="sc-cidr" type="text" placeholder="192.168.0.0/16, 10.0.0.0/8" value="192.168.0.0/16">
-        <label class="text-micro" style="display:flex;align-items:center;gap:6px;margin:8px 0 2px;color:var(--tx3)">
-          <input type="checkbox" id="sc-auto-split-24" checked>
-          Auto-split targets broader than /24 into /24 batch jobs (safer resume/checkpoint behavior)
+        <label class="text-micro chk" style="display:flex;align-items:center;gap:8px;margin:8px 0 2px;color:var(--tx3)">
+          <input type="checkbox" class="chk-input" id="sc-auto-split-24" checked><span class="chk-label">Auto-split targets broader than /24 into /24 batch jobs (safer resume/checkpoint behavior)</span>
         </label>
         <label class="flbl">Exclusion list (IPs, CIDRs, ranges, # comments)</label>
         <textarea class="finput" id="sc-excl" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
@@ -613,13 +612,13 @@ if (!headers_sent()) {
       </div>
       <div class="card">
         <div class="ct">Scan steps</div>
-        <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog"><input type="checkbox" id="ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog"><input type="checkbox" id="ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog"><input type="checkbox" id="ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog"><input type="checkbox" id="ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog"><input type="checkbox" id="ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+        <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-passive" checked aria-label="Include passive discovery for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-icmp" checked aria-label="Include ICMP sweep for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-banner" checked aria-label="Include port and banner probe for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-fingerprint" checked aria-label="Include service fingerprinting for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-snmp" aria-label="Include SNMP read-only probes for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-ot" aria-label="Include OT protocol probes for this scan"></label></div>
+        <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="ph-cve" checked aria-label="Include CVE correlation for this scan"></label></div>
       </div>
     </div>
     <div>
@@ -933,9 +932,8 @@ if (!headers_sent()) {
         <label class="flbl" for="report-compliance-job">Completed scan job</label>
         <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
       </div>
-        <label class="flbl chk" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
-          <input type="checkbox" class="chk-input" id="report-compliance-vs-baseline" checked>
-          <span class="chk-label">Vs baseline rules</span>
+        <label class="flbl chk" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:2px;align-self:flex-end" title="When off, only always-on rules (e.g. no open critical) are evaluated">
+          <input type="checkbox" class="chk-input" id="report-compliance-vs-baseline" checked><span class="chk-label">Vs baseline rules</span>
       </label>
       <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
     </div>
@@ -1001,9 +999,8 @@ if (!headers_sent()) {
     </div>
     <div id="report-artifact-body" class="help-mono" style="max-height:62vh;overflow:auto;font-size:13px"></div>
     <div id="report-artifact-raw-wrap" class="mt10" style="display:none">
-      <label class="flbl" style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="report-artifact-raw-toggle" onchange="toggleReportArtifactRawJson()">
-        <span>View raw JSON (admin debug — server-truncated)</span>
+      <label class="flbl chk" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" class="chk-input" id="report-artifact-raw-toggle" onchange="toggleReportArtifactRawJson()"><span class="chk-label">View raw JSON (admin debug — server-truncated)</span>
       </label>
       <pre id="report-artifact-raw-pre" class="help-mono mt6" style="display:none;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:11px"></pre>
     </div>
@@ -1080,13 +1077,13 @@ if (!headers_sent()) {
 
       <label class="flbl">Scan steps</label>
       <div class="hint-micro mb6">Same as the Scan tab — pick at least one.</div>
-      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP / mDNS — no active probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP discovery</div></div><label class="tog"><input type="checkbox" id="sched-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">Safe TCP port list</div></div><label class="tog"><input type="checkbox" id="sched-ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banners → CPE</div></div><label class="tog"><input type="checkbox" id="sched-ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="sched-ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only OT probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2 mb10"><div><div class="tl">CVE correlation</div><div class="tsubl">Local NVD match</div></div><label class="tog"><input type="checkbox" id="sched-ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP / mDNS — no active probes</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-passive" checked aria-label="Include passive discovery for scheduled runs"></label></div>
+      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP discovery</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-icmp" checked aria-label="Include ICMP sweep for scheduled runs"></label></div>
+      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">Safe TCP port list</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-banner" checked aria-label="Include port and banner probe for scheduled runs"></label></div>
+      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banners → CPE</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-fingerprint" checked aria-label="Include service fingerprinting for scheduled runs"></label></div>
+      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-snmp" aria-label="Include SNMP read-only probes for scheduled runs"></label></div>
+      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only OT probes</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-ot" aria-label="Include OT protocol probes for scheduled runs"></label></div>
+      <div class="tr2 mb10"><div><div class="tl">CVE correlation</div><div class="tsubl">Local NVD match</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="sched-ph-cve" checked aria-label="Include CVE correlation for scheduled runs"></label></div>
 
       <label class="flbl">Network enrichment</label>
       <div class="hint-micro mb6">Same sources as <strong>Enrichment</strong> — matches the Scan tab; all enabled on = default.</div>
@@ -1144,8 +1141,9 @@ if (!headers_sent()) {
         “Run all” uses this cap so a long outage cannot flood the queue.
       </div>
 
-      <label class="row-wrap mb14 gap8" style="font-family:var(--mf);font-size:13px;color:var(--tx2)">
-        <input type="checkbox" id="sched-en" checked> Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)
+      <label class="switch-field row-wrap mb14 gap8" style="font-family:var(--mf);font-size:13px;color:var(--tx2);align-items:flex-start">
+        <span class="tog" style="margin-top:2px"><input type="checkbox" id="sched-en" checked><div class="trk"></div><div class="tth"></div></span>
+        <span>Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)</span>
       </label>
 
       <div class="stack8">
@@ -1187,8 +1185,8 @@ if (!headers_sent()) {
           <div class="scan-hist-detail-sec-body row-wrap gap6" style="align-items:center">
             <label for="scan-hist-compare-select" class="text-micro text-dim">Against</label>
         <select id="scan-hist-compare-select" class="finp narrow w130"></select>
-            <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-target"> same target</label>
-            <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
+            <label class="text-micro text-dim chk" style="display:flex;align-items:center;gap:6px"><input type="checkbox" class="chk-input" id="scan-hist-compare-same-target"><span class="chk-label">same target</span></label>
+            <label class="text-micro text-dim chk" style="display:flex;align-items:center;gap:6px"><input type="checkbox" class="chk-input" id="scan-hist-compare-same-profile"><span class="chk-label">same profile/mode</span></label>
         <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
       </div>
           <div id="scan-hist-detail-diff-wrap" class="scan-hist-detail-diff-wrap" style="display:none" aria-live="polite">
@@ -1394,9 +1392,9 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
           </div>
           <div id="zb-identity-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk">
-                <input type="checkbox" class="chk-input" id="zb-identity-confirm">
-            I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
+              <label class="text-micro zb-enrich-confirm-row chk" style="display:flex;align-items:flex-start;gap:8px">
+                <input type="checkbox" class="chk-input" id="zb-identity-confirm" style="margin-top:3px;flex-shrink:0">
+            <span class="chk-label">I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.</span>
           </label>
               <button type="button" class="btnp mt10" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
         </div>
@@ -1408,9 +1406,9 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
           </div>
           <div id="zb-apply-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk">
-                <input type="checkbox" class="chk-input" id="zb-apply-confirm">
-            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+              <label class="text-micro zb-enrich-confirm-row chk" style="display:flex;align-items:flex-start;gap:8px">
+                <input type="checkbox" class="chk-input" id="zb-apply-confirm" style="margin-top:3px;flex-shrink:0">
+            <span class="chk-label">I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.</span>
           </label>
               <button type="button" class="btnp mt10" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
         </div>
@@ -1511,8 +1509,11 @@ if (!headers_sent()) {
       <div class="hint-micro mb10 oidc-only">Local accounts remain available for breakglass (if enabled), even when primary authentication uses OIDC.</div>
 
       <div class="flbl oidc-only">Breakglass local access</div>
-      <div class="row-wrap mb12 oidc-only">
-        <label class="stack8" title="Recommended: keep enabled so at least one local emergency account can sign in if your IdP is unavailable."><input type="checkbox" id="breakglass-enabled" class="accent-radio"> <span class="text-secondary">Allow emergency local login during SSO outage</span></label>
+      <div class="row-wrap mb12 oidc-only" style="align-items:center;flex-wrap:wrap;gap:10px">
+        <label class="switch-field" title="Recommended: keep enabled so at least one local emergency account can sign in if your IdP is unavailable.">
+          <span class="tog"><input type="checkbox" id="breakglass-enabled"><div class="trk"></div><div class="tth"></div></span>
+          <span class="text-secondary">Allow emergency local login during SSO outage</span>
+        </label>
         <input class="finp" id="breakglass-username" placeholder="Emergency username (default admin)" style="min-width:220px" title="This local username is allowed to sign in directly while in OIDC mode.">
         <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save breakglass</button>
       </div>
@@ -1523,11 +1524,11 @@ if (!headers_sent()) {
           <label class="flbl">Minimum length</label>
           <input class="finp" type="number" min="8" max="128" step="1" id="pp-min-len" style="width:110px">
         </div>
-        <div class="row-wrap mb10">
-          <label class="stack8"><input type="checkbox" id="pp-upper" class="accent-radio"> <span class="text-secondary">Require uppercase letter</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-lower" class="accent-radio"> <span class="text-secondary">Require lowercase letter</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-number" class="accent-radio"> <span class="text-secondary">Require number</span></label>
-          <label class="stack8"><input type="checkbox" id="pp-symbol" class="accent-radio"> <span class="text-secondary">Require symbol</span></label>
+        <div class="row-wrap mb10" style="flex-wrap:wrap;gap:12px 20px">
+          <label class="switch-field"><span class="tog"><input type="checkbox" id="pp-upper"><div class="trk"></div><div class="tth"></div></span><span class="text-secondary">Require uppercase letter</span></label>
+          <label class="switch-field"><span class="tog"><input type="checkbox" id="pp-lower"><div class="trk"></div><div class="tth"></div></span><span class="text-secondary">Require lowercase letter</span></label>
+          <label class="switch-field"><span class="tog"><input type="checkbox" id="pp-number"><div class="trk"></div><div class="tth"></div></span><span class="text-secondary">Require number</span></label>
+          <label class="switch-field"><span class="tog"><input type="checkbox" id="pp-symbol"><div class="trk"></div><div class="tth"></div></span><span class="text-secondary">Require symbol</span></label>
         </div>
         <div class="row-wrap mb10">
           <label class="flbl">Password hashing</label>
@@ -1553,8 +1554,11 @@ if (!headers_sent()) {
           <input class="finp" id="oidc-role-claim" placeholder="Role claim (e.g. groups)">
           <input class="finp" id="oidc-role-map" placeholder="Role map (e.g. sec-admin:admin,scan-ops:scan_editor,*:viewer)">
         </div>
-        <div class="row-wrap mb12 oidc-only">
-          <label class="stack8"><input type="checkbox" id="oidc-enabled" class="accent-radio"> <span class="text-secondary">Enable OIDC sign-in</span></label>
+        <div class="row-wrap mb12 oidc-only" style="align-items:center;flex-wrap:wrap;gap:10px">
+          <label class="switch-field">
+            <span class="tog"><input type="checkbox" id="oidc-enabled"><div class="trk"></div><div class="tth"></div></span>
+            <span class="text-secondary">Enable OIDC sign-in</span>
+          </label>
           <button class="tbtn" type="button" onclick="saveAccessControlSettings()">Save OIDC</button>
         </div>
       </details>
@@ -1645,7 +1649,7 @@ if (!headers_sent()) {
         <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
         <option value="grafana_infinity_pull">Grafana Infinity dashboard pull</option>
       </select>
-      <label class="text-micro" style="align-self:center"><input type="checkbox" id="st-int-new-enabled" checked> Enabled</label>
+      <label class="switch-field text-micro" style="align-self:center"><span class="tog"><input type="checkbox" id="st-int-new-enabled" checked><div class="trk"></div><div class="tth"></div></span><span>Enabled</span></label>
       <button type="button" class="tbtn btn-xs" onclick="stIntegrationsCreate()">Create</button>
     </div>
     <div class="row-wrap gap6 mb6 flex-wrap" id="st-int-new-row-endpoint">
@@ -1695,10 +1699,10 @@ if (!headers_sent()) {
       <div class="row-wrap gap6 mb8 flex-wrap">
         <label class="flbl" style="min-width:80px">Name</label>
         <input class="finp" id="zb-name" placeholder="Zabbix" style="min-width:160px;flex:1">
-        <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-enabled"> Enabled</label>
+        <label class="switch-field text-micro" style="align-self:center"><span class="tog"><input type="checkbox" id="zb-enabled"><div class="trk"></div><div class="tth"></div></span><span>Enabled</span></label>
       </div>
       <div class="row-wrap gap6 mb8 flex-wrap">
-        <label class="text-micro" style="align-self:center"><input type="checkbox" id="zb-output-enabled"> Enable output (SurveyTrace → Zabbix)</label>
+        <label class="switch-field text-micro" style="align-self:center"><span class="tog"><input type="checkbox" id="zb-output-enabled"><div class="trk"></div><div class="tth"></div></span><span>Enable output (SurveyTrace → Zabbix)</span></label>
       </div>
       <p class="hint-micro text-dim mb8">Sender server is where <code class="code-accent">zabbix_sender</code> connects on TCP (default port 10051). This may differ from the API URL if the API is behind a proxy or tunnel.</p>
       <label class="flbl">Sender server / address</label>
@@ -1723,7 +1727,7 @@ if (!headers_sent()) {
       <p id="zb-schedule-gate" class="hint-micro mb8" style="display:none"></p>
       <div id="zb-schedule-section" class="mb10" style="display:none">
         <div class="hint-micro mb6"><strong>Scheduled Zabbix pull</strong> — refreshes cached Zabbix tables and rematch only. Does not apply scope or identity.</div>
-        <label class="text-micro" style="display:block;margin-bottom:6px"><input type="checkbox" id="zb-sync-sched-enabled"> Enable scheduled Zabbix sync</label>
+        <label class="switch-field text-micro" style="display:block;margin-bottom:6px"><span class="tog"><input type="checkbox" id="zb-sync-sched-enabled"><div class="trk"></div><div class="tth"></div></span><span>Enable scheduled Zabbix sync</span></label>
         <div class="row-wrap gap6 mb6 flex-wrap" style="align-items:flex-end">
           <div style="flex:1;min-width:140px">
             <label class="flbl" for="zb-sync-interval-min">Interval (minutes)</label>
@@ -1766,7 +1770,7 @@ if (!headers_sent()) {
         <option value="report_summary_pull">Grafana Infinity / report summary pull</option>
         <option value="grafana_infinity_pull">Grafana Infinity dashboard pull</option>
       </select>
-      <label class="text-micro mb10" style="display:block"><input type="checkbox" id="st-int-edit-enabled"> Enabled</label>
+      <label class="switch-field text-micro mb10" style="display:block"><span class="tog"><input type="checkbox" id="st-int-edit-enabled"><div class="trk"></div><div class="tth"></div></span><span>Enabled</span></label>
       <div id="st-int-edit-row-endpoint">
         <label class="flbl">Endpoint URL</label>
         <input class="finp w100 mb10" id="st-int-edit-endpoint" placeholder="HTTPS URL">
@@ -1780,7 +1784,7 @@ if (!headers_sent()) {
       <div id="st-int-edit-row-secret">
         <label class="flbl">New secret (optional)</label>
         <input class="finp w100 mb6" id="st-int-edit-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
-        <label class="text-micro"><input type="checkbox" id="st-int-edit-secret-clear"> Clear stored push secret</label>
+        <label class="text-micro chk" style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="chk-input" id="st-int-edit-secret-clear"><span class="chk-label">Clear stored push secret</span></label>
       </div>
       <div class="help-box mb10" id="st-int-edit-pull-help" style="display:none"></div>
       <div class="row-wrap gap6" style="justify-content:flex-end">
@@ -1821,13 +1825,13 @@ if (!headers_sent()) {
         <p class="help-line mb10 text-dim">
           When enabled, <strong>viewer</strong> accounts can no longer call the System Health or inventory export APIs—only <strong>scan editor</strong> and <strong>admin</strong> roles. Default is off (unchanged from prior releases).
         </p>
-        <div class="stack8 mb10">
-          <label class="stack8" title="Restricts GET /api/health.php to scan_editor and admin.">
-            <input type="checkbox" id="st-sec-health-scan-editor" class="accent-radio">
+        <div class="switch-stack mb10">
+          <label class="switch-field" title="Restricts GET /api/health.php to scan_editor and admin.">
+            <span class="tog"><input type="checkbox" id="st-sec-health-scan-editor"><div class="trk"></div><div class="tth"></div></span>
             <span class="text-secondary">Require scan editor/admin for System Health</span>
           </label>
-          <label class="stack8" title="Restricts GET /api/export.php to scan_editor and admin.">
-            <input type="checkbox" id="st-sec-export-scan-editor" class="accent-radio">
+          <label class="switch-field" title="Restricts GET /api/export.php to scan_editor and admin.">
+            <span class="tog"><input type="checkbox" id="st-sec-export-scan-editor"><div class="trk"></div><div class="tth"></div></span>
             <span class="text-secondary">Require scan editor/admin for exports</span>
           </label>
         </div>
@@ -1962,9 +1966,9 @@ if (!headers_sent()) {
         <div class="help-line mb8">
           Scheduler-triggered SQLite backups using <code class="code-accent">daemon/backup_db.sh</code>.
         </div>
-        <div class="row-wrap gap6 mb6">
-          <label class="flbl" style="min-width:130px">Enabled</label>
-          <input class="accent-radio" type="checkbox" id="st-db-backup-enabled">
+        <div class="row-wrap gap6 mb6" style="align-items:center">
+          <span class="flbl" style="min-width:130px;margin-bottom:0">Enabled</span>
+          <label class="tog" aria-label="Enable scheduled database backups"><input type="checkbox" id="st-db-backup-enabled"><div class="trk"></div><div class="tth"></div></label>
         </div>
         <div class="row-wrap gap6 mb6">
           <label class="flbl" style="min-width:130px">Backup cron</label>
@@ -2007,9 +2011,9 @@ if (!headers_sent()) {
           </div>
         </div>
 
-        <div class="row-wrap gap6 mb6">
-          <label class="flbl" style="min-width:130px">Enable AI enrichment</label>
-          <input class="accent-radio" type="checkbox" id="st-ai-enabled">
+        <div class="row-wrap gap6 mb6" style="align-items:center">
+          <span class="flbl" style="min-width:130px;margin-bottom:0">Enable AI enrichment</span>
+          <label class="tog" aria-label="Enable AI enrichment"><input type="checkbox" id="st-ai-enabled"><div class="trk"></div><div class="tth"></div></label>
         </div>
         <div class="row-wrap gap6 mb6">
           <label class="flbl" style="min-width:130px">Provider</label>
@@ -2099,21 +2103,21 @@ if (!headers_sent()) {
           </div>
         </div>
         <div class="row-wrap gap6 mb10">
-          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-            <input type="checkbox" id="st-ai-ambiguous-only" checked>
-            Only run on ambiguous classification cases
+          <label class="switch-field text-micro" style="color:var(--tx3)">
+            <span class="tog"><input type="checkbox" id="st-ai-ambiguous-only" checked><div class="trk"></div><div class="tth"></div></span>
+            <span>Only run on ambiguous classification cases</span>
           </label>
         </div>
         <div class="row-wrap gap6 mb8">
-          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-            <input type="checkbox" id="st-ai-suggest-only">
-            Suggest-only mode (do not auto-apply category changes)
+          <label class="switch-field text-micro" style="color:var(--tx3)">
+            <span class="tog"><input type="checkbox" id="st-ai-suggest-only"><div class="trk"></div><div class="tth"></div></span>
+            <span>Suggest-only mode (do not auto-apply category changes)</span>
           </label>
         </div>
         <div class="row-wrap gap6 mb8">
-          <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-            <input type="checkbox" id="st-ai-conflict-only" checked>
-            Run only when AI disagrees with current category
+          <label class="switch-field text-micro" style="color:var(--tx3)">
+            <span class="tog"><input type="checkbox" id="st-ai-conflict-only" checked><div class="trk"></div><div class="tth"></div></span>
+            <span>Run only when AI disagrees with current category</span>
           </label>
         </div>
         <div class="row-wrap gap8 mb10">
@@ -2219,8 +2223,8 @@ if (!headers_sent()) {
     <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
       <option value="0">— none (clear scope) —</option>
     </select>
-    <label class="text-micro chk" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" class="chk-input" id="st-asset-scope-confirm"><span class="chk-label">I confirm applying this scope change.</span>
+    <label class="text-micro chk" style="display:flex;align-items:flex-start;gap:8px;color:var(--tx3)">
+      <input type="checkbox" class="chk-input" id="st-asset-scope-confirm" style="margin-top:3px;flex-shrink:0"><span class="chk-label">I confirm applying this scope change.</span>
     </label>
     <div id="st-asset-scope-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
@@ -2240,8 +2244,8 @@ if (!headers_sent()) {
     <p class="hint-micro mb8 mono-sm" id="st-bulk-scope-count"></p>
     <label class="flbl" for="st-bulk-scope-sel" title="Inventory tag. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
     <select class="finp w100 mb10" id="st-bulk-scope-sel"></select>
-    <label class="text-micro chk" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" class="chk-input" id="st-bulk-scope-confirm"><span class="chk-label">I confirm applying this scope to the selected assets.</span>
+    <label class="text-micro chk" style="display:flex;align-items:flex-start;gap:8px;color:var(--tx3)">
+      <input type="checkbox" class="chk-input" id="st-bulk-scope-confirm" style="margin-top:3px;flex-shrink:0"><span class="chk-label">I confirm applying this scope to the selected assets.</span>
     </label>
     <div id="st-bulk-scope-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
@@ -2431,13 +2435,13 @@ if (!headers_sent()) {
         <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-force" value="force">
       </div>
       <div class="ct mb4 mt8">Scan steps</div>
-      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS — zero packets sent</div></div><label class="tog"><input type="checkbox" id="hr-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep</div></div><label class="tog"><input type="checkbox" id="hr-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list</div></div><label class="tog"><input type="checkbox" id="hr-ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog"><input type="checkbox" id="hr-ph-fingerprint" checked><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="tog"><input type="checkbox" id="hr-ph-snmp"><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only probes</div></div><label class="tog"><input type="checkbox" id="hr-ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
-      <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE vs local NVD</div></div><label class="tog"><input type="checkbox" id="hr-ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
+      <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS — zero packets sent</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-passive" checked aria-label="Include passive discovery for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-icmp" checked aria-label="Include ICMP sweep for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-banner" checked aria-label="Include port and banner probe for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-fingerprint" checked aria-label="Include service fingerprinting for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-snmp" aria-label="Include SNMP read-only probes for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only probes</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-ot" aria-label="Include OT protocol probes for this rescan"></label></div>
+      <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE vs local NVD</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" id="hr-ph-cve" checked aria-label="Include CVE correlation for this rescan"></label></div>
       <div class="ct mb4 mt8">Exclusion list (optional)</div>
       <label class="flbl">IPs, CIDRs, ranges, # comments</label>
       <textarea class="finput w100 mb6" id="hr-excl" rows="4" style="min-height:76px" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
@@ -2673,7 +2677,7 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
     <div id="esrc-fields"></div>
     <div class="tr2 mb14">
       <div><div class="tl">Enabled</div><div class="tsubl">Run this source during scans</div></div>
-      <label class="tog"><input type="checkbox" id="esrc-enabled" checked><div class="trk"></div><div class="tth"></div></label>
+      <label class="tog tog--sm"><input type="checkbox" id="esrc-enabled" checked><div class="trk"></div><div class="tth"></div></label>
     </div>
     <div id="esrc-test-result" class="help-mono mb10 hide"></div>
     <div class="row-end">
@@ -6963,9 +6967,9 @@ async function refreshScanEnrichmentPicker(wrapId) {
         const label = esc(s.label || s.source_type || '');
         const typ = esc(s.source_type || '');
         if (en) {
-            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="tog"><input type="checkbox" data-enr-id="${id}" checked><div class="trk"></div><div class="tth"></div></label></div>`);
+            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" data-enr-id="${id}" checked aria-label="Include enrichment source for this scan"></label></div>`);
         } else {
-            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="tog"><input type="checkbox" disabled><div class="trk"></div><div class="tth"></div></label></div>`);
+            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" disabled aria-label="Enrichment source disabled in settings"></label></div>`);
         }
     }
     wrap.innerHTML = parts.join('');
@@ -8838,7 +8842,7 @@ async function loadAuthUsers() {
           </select>
         </td>
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
-        <td><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}></td>
+        <td style="text-align:center;vertical-align:middle"><label class="tog tog--sm" title="Disabled"><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}><div class="trk"></div><div class="tth"></div></label></td>
         <td class="tbl-cell-actions">
           <div class="user-row-actions">
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
@@ -10409,7 +10413,7 @@ function stZabbixAddRuleRow(rule, skipRefresh) {
       </select>
       <div class="zb-r-pattern-ui"></div>
       ${zbScopeSelectHtml(sid, r)}
-      <label class="text-micro chk" style="align-self:center"><input type="checkbox" class="zb-r-en chk-input"${en}><span class="chk-label">enabled</span></label>
+      <label class="text-micro chk" style="align-self:center;display:flex;align-items:center;gap:6px"><input type="checkbox" class="zb-r-en chk-input"${en} aria-label="Rule enabled"><span class="chk-label">enabled</span></label>
       <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove();stZabbixRefreshScopeRuleButtons();">Remove</button>`;
     wrap.appendChild(div);
     stZabbixRenderRulePatternUi(div, { rule_type: rt, pattern: String(r.pattern || '') });
@@ -15872,9 +15876,9 @@ async function refreshSchedEnrichmentPicker(selectedIds) {
             if (selectedIds === null) checked = true;
             else if (Array.isArray(selectedIds) && selectedIds.length === 0) checked = false;
             else if (Array.isArray(selectedIds)) checked = selectedIds.includes(id);
-            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="tog"><input type="checkbox" data-enr-id="${id}" ${checked ? 'checked' : ''}><div class="trk"></div><div class="tth"></div></label></div>`);
+            parts.push(`<div class="tr2"><div><div class="tl">${label}</div><div class="tsubl">${typ}</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" data-enr-id="${id}" ${checked ? 'checked' : ''} aria-label="Include enrichment source for scheduled runs"></label></div>`);
         } else {
-            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="tog"><input type="checkbox" disabled><div class="trk"></div><div class="tth"></div></label></div>`);
+            parts.push(`<div class="tr2" style="opacity:0.55"><div><div class="tl">${label}</div><div class="tsubl">${typ} (disabled in Enrichment)</div></div><label class="chk tr2-check"><input type="checkbox" class="chk-input" disabled aria-label="Enrichment source disabled in settings"></label></div>`);
         }
     }
     wrap.innerHTML = parts.join('');
