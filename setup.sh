@@ -15,6 +15,65 @@ ok()    { echo -e "${GRN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YLW}[WARN]${NC}  $*"; }
 die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+CHECK_FAIL=0
+CHECK_WARN=0
+check_ok()   { echo -e "${GRN}[ OK ]${NC}  $*"; }
+check_warn() { echo -e "${YLW}[WARN]${NC}  $*"; CHECK_WARN=$((CHECK_WARN + 1)); }
+check_fail() { echo -e "${RED}[FAIL]${NC}  $*"; CHECK_FAIL=$((CHECK_FAIL + 1)); }
+
+check_file() {
+    local p="$1" label="$2"
+    [[ -f "$p" ]] && check_ok "$label" || check_fail "$label (missing: $p)"
+}
+check_dir() {
+    local p="$1" label="$2"
+    [[ -d "$p" ]] && check_ok "$label" || check_fail "$label (missing: $p)"
+}
+check_owner_group() {
+    local p="$1" want="$2" label="$3"
+    local got
+    got=$(stat -c '%U:%G' "$p" 2>/dev/null || echo "missing")
+    [[ "$got" == "$want" ]] && check_ok "$label" || check_fail "$label (got $got, want $want)"
+}
+check_mode() {
+    local p="$1" want="$2" label="$3"
+    local got
+    got=$(stat -c '%a' "$p" 2>/dev/null || echo "missing")
+    [[ "$got" == "$want" ]] && check_ok "$label" || check_fail "$label (got $got, want $want)"
+}
+check_readable_as_user() {
+    local user="$1" p="$2" label="$3"
+    if runuser -u "$user" -- test -r "$p" >/dev/null 2>&1; then
+        check_ok "$label"
+    else
+        check_fail "$label (not readable by $user: $p)"
+    fi
+}
+check_executable_as_user() {
+    local user="$1" p="$2" label="$3"
+    if runuser -u "$user" -- test -x "$p" >/dev/null 2>&1; then
+        check_ok "$label"
+    else
+        check_fail "$label (not executable by $user: $p)"
+    fi
+}
+check_systemd_unit_present() {
+    local unit="$1"
+    if systemctl cat "$unit" >/dev/null 2>&1; then
+        check_ok "systemd unit present: $unit"
+    else
+        check_fail "systemd unit missing: $unit"
+    fi
+}
+check_systemd_unit_enabled() {
+    local unit="$1"
+    if systemctl is-enabled "$unit" >/dev/null 2>&1; then
+        check_ok "systemd unit enabled: $unit"
+    else
+        check_warn "systemd unit not enabled: $unit"
+    fi
+}
+
 # ---- Must be root -----------------------------------------------------------
 [[ $EUID -eq 0 ]] || die "Run this script as root: sudo bash setup.sh"
 
@@ -693,6 +752,64 @@ ufw status numbered
 # =============================================================================
 # Summary
 # =============================================================================
+echo ""
+info "Running post-install validation…"
+
+check_dir "$INSTALL_DIR" "Install root exists"
+check_dir "$INSTALL_DIR/api" "api/ exists"
+check_dir "$INSTALL_DIR/public" "public/ exists"
+check_dir "$INSTALL_DIR/daemon" "daemon/ exists"
+check_dir "$INSTALL_DIR/data" "data/ exists"
+
+check_owner_group "$INSTALL_DIR/api" "$APP_USER:$WEB_GROUP" "api owner/group"
+check_mode "$INSTALL_DIR/api" "2750" "api directory mode"
+check_owner_group "$INSTALL_DIR/data" "$APP_USER:$WEB_GROUP" "data owner/group"
+check_mode "$INSTALL_DIR/data" "2770" "data directory mode"
+
+check_file "$INSTALL_DIR/public/index.php" "public/index.php exists"
+check_file "$INSTALL_DIR/public/css/app.css" "public/css/app.css exists"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/public/index.php" "www-data readable: public/index.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/health.php" "www-data readable: api/health.php"
+
+check_file "$INSTALL_DIR/api/zabbix_sync_worker.php" "api/zabbix_sync_worker.php exists"
+check_file "$INSTALL_DIR/api/zabbix_output_worker.php" "api/zabbix_output_worker.php exists"
+check_readable_as_user "$APP_USER" "$INSTALL_DIR/api/zabbix_sync_worker.php" "surveytrace readable: zabbix_sync_worker.php"
+check_readable_as_user "$APP_USER" "$INSTALL_DIR/api/zabbix_output_worker.php" "surveytrace readable: zabbix_output_worker.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/zabbix_sync_worker.php" "www-data readable: zabbix_sync_worker.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/zabbix_output_worker.php" "www-data readable: zabbix_output_worker.php"
+
+check_file "$INSTALL_DIR/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+check_file "$INSTALL_DIR/daemon/scheduler_daemon.py" "scheduler_daemon.py exists"
+check_file "$INSTALL_DIR/daemon/collector_ingest_worker.py" "collector_ingest_worker.py exists"
+check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
+
+check_file "$DB_FILE" "surveytrace.db exists"
+check_mode "$DB_FILE" "660" "surveytrace.db mode"
+check_readable_as_user "$APP_USER" "$DB_FILE" "surveytrace readable: surveytrace.db"
+if runuser -u "$APP_USER" -- test -w "$DB_FILE" >/dev/null 2>&1; then
+    check_ok "surveytrace writable: surveytrace.db"
+else
+    check_fail "surveytrace writable: surveytrace.db"
+fi
+
+check_systemd_unit_present "surveytrace-daemon.service"
+check_systemd_unit_present "surveytrace-scheduler.service"
+check_systemd_unit_present "surveytrace-collector-ingest.service"
+check_systemd_unit_enabled "surveytrace-daemon.service"
+check_systemd_unit_enabled "surveytrace-scheduler.service"
+check_systemd_unit_enabled "surveytrace-collector-ingest.service"
+
+if command -v zabbix_sender >/dev/null 2>&1; then
+    check_ok "zabbix_sender available"
+else
+    check_warn "zabbix_sender not found; install zabbix-sender on Debian/Ubuntu to use SurveyTrace -> Zabbix output."
+fi
+
+if [[ "$CHECK_FAIL" -gt 0 ]]; then
+    die "Post-install validation failed with $CHECK_FAIL critical issue(s) and $CHECK_WARN warning(s)."
+fi
+ok "Post-install validation complete ($CHECK_WARN warning(s))"
+
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo -e "${GRN}╔══════════════════════════════════════════════════════╗${NC}"

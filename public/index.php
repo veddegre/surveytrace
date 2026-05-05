@@ -54,7 +54,13 @@ if (!headers_sent()) {
 
 <!-- Top bar -->
 <div class="bar">
-  <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
+  <div class="logo">
+    <span class="logo-mark" aria-hidden="true">
+      <span class="logo-mark-text">ST</span>
+      <span class="logo-mark-dot" id="logodot"></span>
+    </span>
+    <span class="logo-word">SurveyTrace</span>
+  </div>
   <div class="bar-meta" id="bar-meta">v<?= ST_VERSION ?></div>
   <div class="sep"></div>
   <button type="button" class="pill" id="status-pill" disabled aria-disabled="true" onclick="stStatusPillNavToHistory()"><div class="pdot"></div><span id="status-txt">Idle</span></button>
@@ -1957,7 +1963,8 @@ if (!headers_sent()) {
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
       <div class="card">
-        <div class="ct" id="st-ai-section-title">AI enrichment (optional)</div>
+        <div class="ct" id="st-ai-section-title">AI enrichment</div>
+        <div class="hint-micro mb6">Generated summary and suggestions. Verify before acting.</div>
         <div id="st-ai-provider-blurb" class="help-line mb8 text-dim" style="font-size:13px;line-height:1.5"></div>
         <div class="st-ai-ollama-only">
           <div class="help-line mb8 text-dim" style="font-size:12px">
@@ -7402,7 +7409,7 @@ function renderHpAiOperatorSection(a, assetId, ip) {
 
     return `
       <div class="hp-head">AI host summary <span class="text-dim">(suggestions only — verify before acting)</span></div>
-      <p class="hint-micro" style="margin:4px 0 10px">Local model output may be wrong; use open ports, banners, and the findings list above as source of truth.</p>
+      <p class="hint-micro" style="margin:4px 0 10px">AI output may be wrong; use open ports, banners, and the findings list above as source of truth.</p>
       <div class="hp-block hp-ai-col" style="margin-bottom:0">
         <div class="text-micro" style="font-weight:600;margin-bottom:4px">Summary${tsEx}</div>
         ${exInner}
@@ -7454,7 +7461,7 @@ async function runAiHostExplain(assetId, ip, force) {
     stAiHostExplainInflightAssetId = assetId;
     syncHostPanelExplainBusyUi();
     try {
-        toast('Calling local model for host summary (may take up to a few minutes)…', 'ok');
+        toast('Generating AI host summary (may take up to a few minutes)…', 'ok');
         const r = await apiPost('/api/ai_actions.php', {
             action: 'explain_host',
             asset_id: assetId,
@@ -11796,16 +11803,7 @@ function syncAiProviderUi() {
     const blurb = document.getElementById('st-ai-provider-blurb');
     if (blurb) blurb.textContent = blurbs[p] || blurbs.ollama;
     const sec = document.getElementById('st-ai-section-title');
-    if (sec) {
-        const titles = {
-            ollama: 'AI enrichment — Ollama (local)',
-            openai: 'AI enrichment — OpenAI',
-            anthropic: 'AI enrichment — Anthropic Claude',
-            google: 'AI enrichment — Google Gemini',
-            openwebui: 'AI enrichment — Open WebUI',
-        };
-        sec.textContent = titles[p] || titles.ollama;
-    }
+    if (sec) sec.textContent = 'AI enrichment';
     const ml = document.getElementById('st-ai-model-label');
     if (ml) ml.textContent = isOllama ? 'Model tag' : 'Model id';
     const modelDesc = {

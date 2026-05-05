@@ -78,9 +78,19 @@ bash deploy.sh
 - syncs the **full application** (API, UI, daemons, schema reference, systemd hooks) and restarts master services, or
 - delegates to **`collector/deploy.sh`** on collector-only hosts (daemon files + schema reference + `surveytrace-collector` restart).
 
+Both master and collector setup/deploy scripts now run explicit post-run validation with clear **OK/WARN/FAIL** output. Critical failures (missing required files, unreadable required workers/scripts, missing required units) stop the script with a non-zero exit.
+
 `deploy.sh` refuses to run if first-time **setup** does not appear to have completed (missing venv, API/DB paths on master, or collector agent/config on collectors). The error text points back to `setup.sh` / `collector/setup.sh`.
 
 On a **master**, `setup.sh` / `deploy.sh` set **`/opt/surveytrace/api`** to **`surveytrace:www-data`** (directories **`2750`**, files **`640`**) so **`surveytrace-scheduler`** can read PHP workers under **`api/`** (scheduled Zabbix pull/output, **`reporting_cli.php`**, etc.) while **PHP-FPM** (`www-data`) still reads the same tree via the group bit. **`data/`** permissions are unchanged (not world-readable). If the scheduler logs **`Zabbix scheduled sync: worker script missing`** even though **`sudo test -f`** as root succeeds, **`surveytrace`** often cannot traverse or read the file — re-run **`bash deploy.sh`** or repair with the commands in **[Updating / Deploying Changes](#updating--deploying-changes)** (scheduler + API permissions).
+
+Master validation also checks that required Zabbix workers (for scheduler/output paths) are readable by both `surveytrace` and `www-data`.
+
+If `zabbix_sender` is not installed, setup/deploy print a warning (not a hard failure):
+
+`zabbix_sender not found; install zabbix-sender on Debian/Ubuntu to use SurveyTrace -> Zabbix output.`
+
+Collector validation is intentionally different from master validation: it checks collector runtime files, collector config/service permissions, and collector service user access, and does **not** require master-only API worker files.
 
 **Overrides (rare):**
 

@@ -8,6 +8,62 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_ROLE_FILE="$DEST/data/.install_role"
 
 st_sudo() { sudo "$@"; }
+VERIFY_OK=1
+VERIFY_WARN=0
+
+check_file() {
+  local p="$1" label="$2"
+  if st_sudo test -f "$p" >/dev/null 2>&1; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (missing: $p)"
+    VERIFY_OK=0
+  fi
+}
+check_dir() {
+  local p="$1" label="$2"
+  if st_sudo test -d "$p" >/dev/null 2>&1; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (missing: $p)"
+    VERIFY_OK=0
+  fi
+}
+check_owner_group() {
+  local p="$1" want="$2" label="$3"
+  local got
+  got=$(st_sudo stat -c '%U:%G' "$p" 2>/dev/null || echo "missing")
+  if [[ "$got" == "$want" ]]; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (got $got, want $want)"
+    VERIFY_OK=0
+  fi
+}
+check_mode() {
+  local p="$1" want="$2" label="$3"
+  local got
+  got=$(st_sudo stat -c '%a' "$p" 2>/dev/null || echo "missing")
+  if [[ "$got" == "$want" ]]; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (got $got, want $want)"
+    VERIFY_OK=0
+  fi
+}
+check_as_user() {
+  local user="$1" expr="$2" label="$3"
+  if st_sudo -u "$user" sh -lc "$expr" >/dev/null 2>&1; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label"
+    VERIFY_OK=0
+  fi
+}
+warn_check() {
+  echo "  [WARN] $*"
+  VERIFY_WARN=$((VERIFY_WARN + 1))
+}
 
 collector_setup_complete() {
   st_sudo test -d "$DEST/venv" \
@@ -77,3 +133,36 @@ if systemctl is-active --quiet surveytrace-collector 2>/dev/null; then
 fi
 sudo systemctl start surveytrace-collector
 sudo systemctl is-active --quiet surveytrace-collector && echo "collector: running" || echo "collector: FAILED"
+
+echo "Running collector post-deploy checks..."
+check_dir "$DEST" "collector install root exists"
+check_dir "$DEST/daemon" "collector daemon directory exists"
+check_dir "$DEST/sql" "collector sql directory exists"
+check_dir "$DEST/data" "collector data directory exists"
+check_dir "/etc/surveytrace" "collector config directory exists"
+check_file "/etc/surveytrace/collector.json" "collector config file exists"
+check_file "/etc/systemd/system/surveytrace-collector.service" "collector systemd unit exists"
+check_file "$DEST/daemon/collector_agent.py" "collector_agent.py exists"
+check_file "$DEST/daemon/collector_parity_runner.py" "collector_parity_runner.py exists"
+check_file "$DEST/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+check_file "$DEST/sql/schema.sql" "schema.sql exists"
+check_owner_group "$DEST/daemon" "surveytrace:surveytrace" "collector daemon owner/group"
+check_owner_group "/etc/surveytrace/collector.json" "root:surveytrace" "collector config owner/group"
+check_mode "$DEST/daemon" "750" "collector daemon mode"
+check_mode "/etc/surveytrace/collector.json" "660" "collector config mode"
+check_as_user "surveytrace" "test -r \"$DEST/daemon/collector_agent.py\"" "surveytrace readable: collector_agent.py"
+check_as_user "surveytrace" "test -x \"$DEST/venv/bin/python3\"" "surveytrace executable: venv python3"
+check_as_user "surveytrace" "test -r /etc/surveytrace/collector.json" "surveytrace readable: collector.json"
+
+if sudo systemctl is-enabled surveytrace-collector >/dev/null 2>&1; then
+  echo "  [OK] surveytrace-collector enabled"
+else
+  warn_check "surveytrace-collector not enabled"
+fi
+
+if [ "$VERIFY_OK" -eq 1 ]; then
+  echo "Collector post-deploy checks: PASS (${VERIFY_WARN} warning(s))"
+else
+  echo "Collector post-deploy checks: FAIL"
+  exit 1
+fi

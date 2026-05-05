@@ -8,6 +8,48 @@ ok()    { echo -e "${GRN}[ OK ]${NC}  $*"; }
 warn()  { echo -e "${YLW}[WARN]${NC}  $*"; }
 die()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+CHECK_FAIL=0
+CHECK_WARN=0
+check_ok()   { echo -e "${GRN}[ OK ]${NC}  $*"; }
+check_warn() { echo -e "${YLW}[WARN]${NC}  $*"; CHECK_WARN=$((CHECK_WARN + 1)); }
+check_fail() { echo -e "${RED}[FAIL]${NC}  $*"; CHECK_FAIL=$((CHECK_FAIL + 1)); }
+check_file() {
+  local p="$1" label="$2"
+  [[ -f "$p" ]] && check_ok "$label" || check_fail "$label (missing: $p)"
+}
+check_dir() {
+  local p="$1" label="$2"
+  [[ -d "$p" ]] && check_ok "$label" || check_fail "$label (missing: $p)"
+}
+check_owner_group() {
+  local p="$1" want="$2" label="$3"
+  local got
+  got=$(stat -c '%U:%G' "$p" 2>/dev/null || echo "missing")
+  [[ "$got" == "$want" ]] && check_ok "$label" || check_fail "$label (got $got, want $want)"
+}
+check_mode() {
+  local p="$1" want="$2" label="$3"
+  local got
+  got=$(stat -c '%a' "$p" 2>/dev/null || echo "missing")
+  [[ "$got" == "$want" ]] && check_ok "$label" || check_fail "$label (got $got, want $want)"
+}
+check_readable_as_user() {
+  local user="$1" p="$2" label="$3"
+  if runuser -u "$user" -- test -r "$p" >/dev/null 2>&1; then
+    check_ok "$label"
+  else
+    check_fail "$label (not readable by $user: $p)"
+  fi
+}
+check_executable_as_user() {
+  local user="$1" p="$2" label="$3"
+  if runuser -u "$user" -- test -x "$p" >/dev/null 2>&1; then
+    check_ok "$label"
+  else
+    check_fail "$label (not executable by $user: $p)"
+  fi
+}
+
 [[ $EUID -eq 0 ]] || die "Run as root: sudo bash collector/setup.sh"
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -116,4 +158,41 @@ chown root:"$GROUP" "$CFG_FILE"
 systemctl daemon-reload
 systemctl enable --now surveytrace-collector
 ok "Collector service installed and started"
+
+info "Running collector post-install validation…"
+check_dir "$INSTALL_DIR" "collector install root exists"
+check_dir "$INSTALL_DIR/daemon" "collector daemon directory exists"
+check_dir "$INSTALL_DIR/data" "collector data directory exists"
+check_dir "$CFG_DIR" "collector config directory exists"
+check_file "$CFG_FILE" "collector config file exists"
+check_file "/etc/systemd/system/surveytrace-collector.service" "collector systemd unit exists"
+check_file "$INSTALL_DIR/daemon/collector_agent.py" "collector_agent.py exists"
+check_file "$INSTALL_DIR/daemon/collector_parity_runner.py" "collector_parity_runner.py exists"
+check_file "$INSTALL_DIR/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+check_file "$INSTALL_DIR/sql/schema.sql" "schema.sql exists"
+
+check_owner_group "$INSTALL_DIR/daemon" "$APP_USER:$GROUP" "collector daemon owner/group"
+check_mode "$INSTALL_DIR/daemon" "750" "collector daemon mode"
+check_owner_group "$CFG_FILE" "root:$GROUP" "collector config owner/group"
+check_mode "$CFG_FILE" "660" "collector config mode"
+
+check_readable_as_user "$APP_USER" "$INSTALL_DIR/daemon/collector_agent.py" "collector user readable: collector_agent.py"
+check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "collector user executable: venv python3"
+check_readable_as_user "$APP_USER" "$CFG_FILE" "collector user readable: collector.json"
+
+if systemctl cat surveytrace-collector.service >/dev/null 2>&1; then
+  check_ok "systemd unit present: surveytrace-collector.service"
+else
+  check_fail "systemd unit missing: surveytrace-collector.service"
+fi
+if systemctl is-enabled surveytrace-collector >/dev/null 2>&1; then
+  check_ok "systemd unit enabled: surveytrace-collector"
+else
+  check_warn "systemd unit not enabled: surveytrace-collector"
+fi
+
+if [[ "$CHECK_FAIL" -gt 0 ]]; then
+  die "Collector post-install validation failed with $CHECK_FAIL critical issue(s) and $CHECK_WARN warning(s)."
+fi
+ok "Collector post-install validation complete ($CHECK_WARN warning(s))"
 echo "Edit $CFG_FILE and restart: systemctl restart surveytrace-collector"

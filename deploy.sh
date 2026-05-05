@@ -339,6 +339,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "Running post-deploy checks..."
 VERIFY_OK=1
+VERIFY_WARN=0
 
 # Prints [OK]/[FAIL] on first line, path on second (avoids one very long wrapped line).
 check_file() {
@@ -358,6 +359,62 @@ check_file() {
     echo "       $p"
     VERIFY_OK=0
   fi
+}
+
+check_dir() {
+  local p="$1"
+  local label="$2"
+  local ok=1
+  if [ "$(id -u)" -eq 0 ]; then
+    [ -d "$p" ] || ok=0
+  else
+    sudo test -d "$p" >/dev/null 2>&1 || ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    echo "  [OK] $label"
+    echo "       $p"
+  else
+    echo "  [FAIL] $label (missing)"
+    echo "       $p"
+    VERIFY_OK=0
+  fi
+}
+
+check_owner_group() {
+  local p="$1" want="$2" label="$3"
+  local got
+  if [ "$(id -u)" -eq 0 ]; then
+    got=$(stat -c '%U:%G' "$p" 2>/dev/null || echo "missing")
+  else
+    got=$(sudo stat -c '%U:%G' "$p" 2>/dev/null || echo "missing")
+  fi
+  if [[ "$got" == "$want" ]]; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (got $got, want $want)"
+    VERIFY_OK=0
+  fi
+}
+
+check_mode() {
+  local p="$1" want="$2" label="$3"
+  local got
+  if [ "$(id -u)" -eq 0 ]; then
+    got=$(stat -c '%a' "$p" 2>/dev/null || echo "missing")
+  else
+    got=$(sudo stat -c '%a' "$p" 2>/dev/null || echo "missing")
+  fi
+  if [[ "$got" == "$want" ]]; then
+    echo "  [OK] $label"
+  else
+    echo "  [FAIL] $label (got $got, want $want)"
+    VERIFY_OK=0
+  fi
+}
+
+check_warn_msg() {
+  echo "  [WARN] $*"
+  VERIFY_WARN=$((VERIFY_WARN + 1))
 }
 
 check_as_user() {
@@ -382,6 +439,11 @@ check_as_user() {
 }
 
 check_file "$DEST/VERSION" "VERSION (release semver)"
+check_dir "$DEST" "install root exists"
+check_dir "$DEST/api" "api dir exists"
+check_dir "$DEST/public" "public dir exists"
+check_dir "$DEST/daemon" "daemon dir exists"
+check_dir "$DEST/data" "data dir exists"
 check_file "$DEST/api/st_version.php" "st_version.php (ST_VERSION loader)"
 check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
@@ -436,10 +498,43 @@ check_as_user "www-data" "test -w \"$DEST/data\"" \
 check_as_user "surveytrace" "test -w \"$DEST/data\"" \
   "surveytrace write: data/"
 
+check_owner_group "$DEST/api" "surveytrace:www-data" "api owner/group"
+check_mode "$DEST/api" "2750" "api mode"
+check_owner_group "$DEST/data" "surveytrace:www-data" "data owner/group"
+check_mode "$DEST/data" "2770" "data mode"
+check_mode "$DEST/data/surveytrace.db" "660" "surveytrace.db mode"
+check_owner_group "$DEST/daemon" "surveytrace:surveytrace" "daemon owner/group"
+
+if sudo systemctl cat surveytrace-daemon.service >/dev/null 2>&1; then
+  echo "  [OK] unit present: surveytrace-daemon.service"
+else
+  echo "  [FAIL] unit missing: surveytrace-daemon.service"
+  VERIFY_OK=0
+fi
+if sudo systemctl cat surveytrace-scheduler.service >/dev/null 2>&1; then
+  echo "  [OK] unit present: surveytrace-scheduler.service"
+else
+  echo "  [FAIL] unit missing: surveytrace-scheduler.service"
+  VERIFY_OK=0
+fi
+if sudo systemctl cat surveytrace-collector-ingest.service >/dev/null 2>&1; then
+  echo "  [OK] unit present: surveytrace-collector-ingest.service"
+else
+  echo "  [FAIL] unit missing: surveytrace-collector-ingest.service"
+  VERIFY_OK=0
+fi
+
+if command -v zabbix_sender >/dev/null 2>&1; then
+  echo "  [OK] zabbix_sender available"
+else
+  check_warn_msg "zabbix_sender not found; install zabbix-sender on Debian/Ubuntu to use SurveyTrace -> Zabbix output."
+fi
+
 if [ "$VERIFY_OK" -eq 1 ]; then
-  echo "  Post-deploy checks: PASS"
+  echo "  Post-deploy checks: PASS (${VERIFY_WARN} warning(s))"
 else
   echo "  Post-deploy checks: FAIL (see lines above)"
+  exit 1
 fi
 
 echo ""
