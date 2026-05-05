@@ -51,17 +51,14 @@ if ($method === 'GET') {
         foreach ($assetCounts as $sid => $cnt) {
             $assetCountsStr[(string) $sid] = $cnt;
         }
-        $role = st_current_role();
-        $canManage = in_array($role, ['scan_editor', 'admin'], true);
         $jobCountsStr = [];
         $scheduleCountsStr = [];
-        if ($canManage) {
-            foreach (st_scan_scopes_table_scope_id_group_counts($db, 'scan_jobs') as $k => $v) {
-                $jobCountsStr[$k] = $v;
-            }
-            foreach (st_scan_scopes_table_scope_id_group_counts($db, 'scan_schedules') as $k => $v) {
-                $scheduleCountsStr[$k] = $v;
-            }
+        // Job/schedule counts are aggregate metadata (read-only); include for viewers so Reports empty states can explain job vs inventory scope.
+        foreach (st_scan_scopes_table_scope_id_group_counts($db, 'scan_jobs') as $k => $v) {
+            $jobCountsStr[$k] = $v;
+        }
+        foreach (st_scan_scopes_table_scope_id_group_counts($db, 'scan_schedules') as $k => $v) {
+            $scheduleCountsStr[$k] = $v;
         }
         st_json([
             'ok'                    => true,

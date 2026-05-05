@@ -12387,6 +12387,36 @@ function reportingScopeQuery() {
     return '&scope_id=' + encodeURIComponent(String(f));
 }
 
+/** Extra copy when a named report scope has no matching finished jobs (inventory vs job scope). */
+function reportingNoJobsForScopeHintHtml() {
+    const sid = reportingScopeApiFilter;
+    if (sid == null || !Number.isFinite(sid) || sid <= 0) {
+        return '';
+    }
+    const jk = String(sid);
+    const jcRaw =
+        stScopesMeta.job_counts && typeof stScopesMeta.job_counts === 'object'
+            ? stScopesMeta.job_counts[jk]
+            : null;
+    const jc = jcRaw != null ? parseInt(String(jcRaw), 10) : NaN;
+    const acRaw =
+        stScopesMeta.asset_counts && typeof stScopesMeta.asset_counts === 'object'
+            ? stScopesMeta.asset_counts[jk]
+            : null;
+    const ac = parseInt(String(acRaw ?? 0), 10) || 0;
+    if (ac > 0 && (!Number.isFinite(jc) || jc === 0)) {
+        return (
+            '<div class="hint-micro mt6" style="line-height:1.5">' +
+            '<strong>Inventory vs report scope:</strong> ' +
+            esc(String(ac)) +
+            ' asset(s) are tagged with this catalog scope, but there are <strong>no finished scan jobs</strong> with <code class="code-accent">scan_jobs.scope_id</code> = ' +
+            esc(String(sid)) +
+            '. Reports use the scope stored when each job was queued (Scan tab / schedule), not live <code class="code-accent">assets.scope_id</code> tags.</div>'
+        );
+    }
+    return '';
+}
+
 function reportingScopePersistWrite() {
     try {
         if (reportingScopeApiFilter === null) {
@@ -12699,11 +12729,10 @@ async function loadReportingScopeSelector(forceRefresh) {
     }
     const scopes = stScopesForFormsCache || [];
     reportingScopesList = scopes;
-    const keepVal = forceRefresh
-        ? reportingScopeApiFilter === null
-            ? 'all'
-            : String(reportingScopeApiFilter)
-        : null;
+    const apiF = reportingScopeApiFilter;
+    const desiredFromMemory =
+        apiF === null || apiF === undefined ? null : apiF === 0 ? '0' : String(apiF);
+    const keepVal = forceRefresh ? (desiredFromMemory === null ? 'all' : desiredFromMemory) : null;
     sel.innerHTML =
         '<option value="all">All scopes (default)</option>' +
         '<option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>';
@@ -12716,8 +12745,11 @@ async function loadReportingScopeSelector(forceRefresh) {
         o.textContent = nm + ' (' + cnt + ' assets)';
         sel.appendChild(o);
     });
-    if (keepVal !== null && [...sel.options].some((opt) => opt.value === keepVal)) {
+    const optOk = (val) => [...sel.options].some((opt) => opt.value === val);
+    if (keepVal !== null && optOk(keepVal)) {
         sel.value = keepVal;
+    } else if (!forceRefresh && desiredFromMemory !== null && optOk(desiredFromMemory)) {
+        sel.value = desiredFromMemory;
     } else {
         let persist = 'all';
         try {
@@ -12739,7 +12771,7 @@ async function loadReportingScopeSelector(forceRefresh) {
             }
         }
     }
-    if (![...sel.options].some((opt) => opt.value === sel.value)) {
+    if (!optOk(sel.value)) {
         sel.value = 'all';
     }
     if (stScopesMeta.scope_catalog_unavailable) {
@@ -13701,8 +13733,14 @@ async function loadReportingAtGlance() {
             ? parseInt(String(tr.trends_summary[0].job_id), 10)
             : 0;
     if (!jid) {
+        const named = reportingScopeApiFilter != null && reportingScopeApiFilter > 0;
         cmpEl.innerHTML =
-            '<div class="hint-micro text-dim"><strong>Compliance (snapshot)</strong> — unavailable: no completed scan in the recent snapshot list. Run a scan or open <strong>Compliance detail</strong> below.</div>';
+            '<div class="hint-micro text-dim"><strong>Compliance (snapshot)</strong> — unavailable: ' +
+            (named
+                ? 'no completed scan jobs exist for this report scope in the recent snapshot window.'
+                : 'no completed scan in the recent snapshot list. Run a scan or open <strong>Compliance detail</strong> below.') +
+            '</div>' +
+            (named ? reportingNoJobsForScopeHintHtml() : '');
         return;
     }
     const comp = await api(
@@ -13753,14 +13791,15 @@ async function loadReportingChangeSince() {
     if (!Array.isArray(ts) || ts.length < 1) {
         let emptyMsg =
             'No completed scans yet — snapshot drift appears after at least one job finishes.';
-        if (reportingScopeApiFilter > 0) {
+        if (reportingScopeApiFilter != null && reportingScopeApiFilter > 0) {
             emptyMsg =
-                'No completed scans match this named scope in the recent window. Run a finished scan in this scope, switch to All scopes, or use Compare two scans (below).';
+                'No completed scan jobs exist for this report scope in the recent window. Run a finished scan with this scope selected when queuing, switch to All scopes, or use Compare two scans (below).';
         } else if (reportingScopeApiFilter === 0) {
             emptyMsg =
                 'No unscoped completed scans in the recent window (jobs need no scope tag). Try All scopes if you expect legacy data here.';
         }
-        out.innerHTML = '<div class="hint-micro text-dim">' + esc(emptyMsg) + '</div>';
+        out.innerHTML =
+            '<div class="hint-micro text-dim">' + esc(emptyMsg) + '</div>' + reportingNoJobsForScopeHintHtml();
         return;
     }
     if (ts.length === 1 && reportingScopeApiFilter !== null && reportingScopeApiFilter !== undefined) {
@@ -13895,7 +13934,11 @@ async function loadReportingChangeSince() {
         return;
     }
     const d = await api(
-        '/api/reporting.php?action=compare_summary&job_a=' + jobA + '&job_b=' + newest,
+        '/api/reporting.php?action=compare_summary&job_a=' +
+            jobA +
+            '&job_b=' +
+            newest +
+            reportingScopeQuery(),
         {quiet: true}
     );
     if (!d || !d.ok) {
@@ -14281,9 +14324,10 @@ async function loadReportingTrendsSummary(silentFail) {
                     '<div class="hint-micro text-dim"><strong>Unscoped only</strong> — no completed jobs without a scope tag in this list. Legacy scans may still be tagged; try <strong>All scopes</strong> to confirm data exists.</div>';
             } else {
                 why =
-                    '<div class="hint-micro text-dim"><strong>This named scope</strong> has no completed scans in the last ' +
+                    '<div class="hint-micro text-dim"><strong>No completed scan jobs exist for this report scope</strong> in the last ' +
                     esc(String(lim)) +
-                    ' jobs. Pick another scope or run a scan with this scope selected.</div>';
+                    ' finished jobs. Pick another scope, or queue scans with this scope selected on the <strong>Scan</strong> tab (job scope is stored at queue time).</div>' +
+                    reportingNoJobsForScopeHintHtml();
             }
             out.innerHTML = why;
             out.className = 'report-trends-out text-dim';
@@ -14554,7 +14598,10 @@ async function runReportingCompareSummary() {
         return;
     }
     if (out) out.innerHTML = '<span class="text-dim">Loading…</span>';
-    const d = await api('/api/reporting.php?action=compare_summary&job_a=' + a + '&job_b=' + b, {quiet: true});
+    const d = await api(
+        '/api/reporting.php?action=compare_summary&job_a=' + a + '&job_b=' + b + reportingScopeQuery(),
+        {quiet: true}
+    );
     if (!d || !d.ok) {
         const msg = esc(reportingUserErrorMessage(d, 'Could not compare jobs (network or server error).'));
         if (out) out.innerHTML = '<div class="text-dim">' + msg + '</div>';
@@ -14612,7 +14659,12 @@ async function runReportingCompareDebug() {
     pre.style.display = '';
     pre.textContent = 'Loading…';
     const d = await api(
-        '/api/reporting.php?action=compare_debug&job_a=' + a + '&job_b=' + b + '&sample_limit=12',
+        '/api/reporting.php?action=compare_debug&job_a=' +
+            a +
+            '&job_b=' +
+            b +
+            '&sample_limit=12' +
+            reportingScopeQuery(),
         {quiet: true}
     );
     if (!d || !d.ok) {

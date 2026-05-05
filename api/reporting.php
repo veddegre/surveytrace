@@ -36,8 +36,12 @@ function st_reporting_scope_filter_param(): ?int
     if (! array_key_exists('scope_id', $_GET)) {
         return null;
     }
+    $raw = $_GET['scope_id'];
+    if ($raw === null || $raw === '' || is_array($raw)) {
+        return null;
+    }
 
-    return (int) $_GET['scope_id'];
+    return (int) $raw;
 }
 
 st_auth();
