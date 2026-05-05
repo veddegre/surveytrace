@@ -89,20 +89,20 @@ if (!headers_sent()) {
       <span class="nav-grp-hd-chev" aria-hidden="true"></span>
     </button>
     <div class="nav-grp-body" id="nav-grp-body-monitor">
-      <div class="ni" id="ndash" onclick="goTab('dash');hiNav('ndash')">
+      <div class="ni" id="ndash" data-nav-label="Dashboard" onclick="goTab('dash');hiNav('ndash')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="0" y="0" width="6" height="6" rx="1"/><rect x="8" y="0" width="6" height="6" rx="1"/><rect x="0" y="8" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
         Dashboard
       </div>
-      <div class="ni" id="nassets" onclick="goTab('assets');hiNav('nassets')">
+      <div class="ni" id="nassets" data-nav-label="Assets" onclick="goTab('assets');hiNav('nassets')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="10" rx="1.5"/><path d="M1 6h12M4 2V1M10 2V1"/></svg>
         Assets
         <span class="nb warn" id="nb-assets">—</span>
       </div>
-      <div class="ni" id="ndevices" onclick="goTab('devices');hiNav('ndevices')">
+      <div class="ni" id="ndevices" data-nav-label="Devices" onclick="goTab('devices');hiNav('ndevices')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 11v1.5M9 11v1.5M4 6h2M8 6h2"/></svg>
         Devices
       </div>
-      <div class="ni" id="nvulns" onclick="goTab('vulns');hiNav('nvulns')">
+      <div class="ni" id="nvulns" data-nav-label="Vulnerabilities" onclick="goTab('vulns');hiNav('nvulns')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M7 6v3M7 5h.01"/></svg>
         Vulnerabilities
         <span class="nb" id="nb-vulns">—</span>
@@ -115,23 +115,23 @@ if (!headers_sent()) {
       <span class="nav-grp-hd-chev" aria-hidden="true"></span>
     </button>
     <div class="nav-grp-body" id="nav-grp-body-operations">
-      <div class="ni" id="nscan" onclick="goTab('scan');hiNav('nscan')">
+      <div class="ni" id="nscan" data-nav-label="Scan control" onclick="goTab('scan');hiNav('nscan')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3l2 1.2"/></svg>
         Scan control
       </div>
-      <div class="ni" id="nscanhist" onclick="goTab('scanhist');hiNav('nscanhist')">
+      <div class="ni" id="nscanhist" data-nav-label="Scan history" onclick="goTab('scanhist');hiNav('nscanhist')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8v10H3z"/><path d="M5 5h4M5 8h4M5 11h2"/></svg>
         Scan history
       </div>
-      <div class="ni" id="nreport" onclick="goTab('report');hiNav('nreport')">
+      <div class="ni" id="nreport" data-nav-label="Reports & Analysis" onclick="goTab('report');hiNav('nreport')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5l2.5 2.5V12a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z"/><path d="M9 1.5V4H11.5"/></svg>
         Reports &amp; Analysis
       </div>
-      <div class="ni" id="nsched" onclick="goTab('sched');hiNav('nsched')">
+      <div class="ni" id="nsched" data-nav-label="Schedules" onclick="goTab('sched');hiNav('nsched')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
         Schedules
       </div>
-      <div class="ni" id="ncollectors" onclick="goTab('collectors');hiNav('ncollectors')">
+      <div class="ni" id="ncollectors" data-nav-label="Collectors" onclick="goTab('collectors');hiNav('ncollectors')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.2" y="2" width="11.6" height="8.4" rx="1.2"/><path d="M3.2 5h7.6M4.2 8.5h5.6M5.5 12.2h3"/></svg>
         Collectors
       </div>
@@ -143,15 +143,15 @@ if (!headers_sent()) {
       <span class="nav-grp-hd-chev" aria-hidden="true"></span>
     </button>
     <div class="nav-grp-body" id="nav-grp-body-organization">
-      <div class="ni" id="nscopes" onclick="goTab('scopes');hiNav('nscopes')">
+      <div class="ni" id="nscopes" data-nav-label="Scopes" onclick="goTab('scopes');hiNav('nscopes')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h10v7H2z"/><path d="M4.5 6h5M4.5 8.5h3"/></svg>
         Scopes
       </div>
-      <div class="ni" id="nenrich" onclick="goTab('enrich');hiNav('nenrich')">
+      <div class="ni" id="nenrich" data-nav-label="Enrichment" onclick="goTab('enrich');hiNav('nenrich')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M4 7h6M7 4v6"/></svg>
         Enrichment
       </div>
-      <div class="ni" id="nintegrations" onclick="goTab('integrations');hiNav('nintegrations')">
+      <div class="ni" id="nintegrations" data-nav-label="Integrations" onclick="goTab('integrations');hiNav('nintegrations')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h8M3 7h8M3 9.5h5"/><rect x="1.5" y="2" width="11" height="10" rx="1.2"/></svg>
         Integrations
       </div>
@@ -163,19 +163,19 @@ if (!headers_sent()) {
       <span class="nav-grp-hd-chev" aria-hidden="true"></span>
     </button>
     <div class="nav-grp-body" id="nav-grp-body-administration">
-      <div class="ni" id="naccess" onclick="goTab('access');hiNav('naccess')">
+      <div class="ni" id="naccess" data-nav-label="Access control" onclick="goTab('access');hiNav('naccess')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6.5" width="11" height="6" rx="1.2"/><path d="M4.5 6V4.8A2.5 2.5 0 0 1 7 2.3a2.5 2.5 0 0 1 2.5 2.5V6"/><circle cx="7" cy="9.5" r="0.8"/></svg>
         Access control
       </div>
-      <div class="ni" id="nsettings" onclick="goTab('settings');hiNav('nsettings')">
+      <div class="ni" id="nsettings" data-nav-label="Settings" onclick="goTab('settings');hiNav('nsettings')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
         Settings
       </div>
-      <div class="ni" id="nhealth" onclick="goTab('health');hiNav('nhealth')">
+      <div class="ni" id="nhealth" data-nav-label="System health" onclick="goTab('health');hiNav('nhealth')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="3" width="2.5" height="5" rx="0.3"/><rect x="4" y="1" width="2.5" height="7" rx="0.3"/><rect x="7" y="2" width="2.5" height="6" rx="0.3"/><rect x="10" y="4" width="2.5" height="4" rx="0.3"/></svg>
         System health
       </div>
-      <div class="ni" id="nlogs" onclick="goTab('logs');hiNav('nlogs')">
+      <div class="ni" id="nlogs" data-nav-label="Audit log" onclick="goTab('logs');hiNav('nlogs')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h10M2 7h6M2 11h4"/></svg>
         Audit log
       </div>
@@ -187,7 +187,7 @@ if (!headers_sent()) {
       <span class="nav-grp-hd-chev" aria-hidden="true"></span>
     </button>
     <div class="nav-grp-body" id="nav-grp-body-activity">
-      <div class="ni" id="nalerts" onclick="goTab('alerts');hiNav('nalerts')">
+      <div class="ni" id="nalerts" data-nav-label="Change alerts" onclick="goTab('alerts');hiNav('nalerts')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1.5c2.5 0 4.5 2 4.5 4.5v2.5l1 1.5H1.5L2.5 8.5V6C2.5 3.5 4.5 1.5 7 1.5z"/><path d="M5 11a2 2 0 0 0 4 0"/></svg>
         Change alerts <span class="mono-sm text-dim" id="nav-alerts-open" title="Open (undismissed) alerts"></span>
       </div>
@@ -2910,6 +2910,7 @@ function applyRoleAwareUi() {
             if (navEl && navEl.style.display !== 'none') hiNav(navId);
         }
     }
+    stApplyNavItemTitles();
 }
 
 /** Hide bulk-select column + bulk bar when user cannot mutate asset scope (e.g. viewer). */
@@ -3467,10 +3468,17 @@ function hiNav(id) {
 
 function stApplyNavItemTitles() {
     document.querySelectorAll('.ni').forEach((el) => {
+        const direct = String(el.getAttribute('data-nav-label') || '').trim();
+        if (direct) {
+            el.setAttribute('title', direct);
+            return;
+        }
         const raw = String(el.textContent || '').replace(/\s+/g, ' ').trim();
         const cleaned = raw.replace(/\s+\d+\s*$/, '').trim();
         if (cleaned) {
             el.setAttribute('title', cleaned);
+        } else {
+            el.removeAttribute('title');
         }
     });
 }
