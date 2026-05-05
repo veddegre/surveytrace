@@ -2166,7 +2166,7 @@ if (!headers_sent()) {
   </div>
 </div>
 
-<!-- Host detail — centered wide modal (Pass 1; see docs/HOST_DETAILS_REDESIGN.md) -->
+<!-- Host detail — centered wide modal -->
 <div id="host-panel-bg" class="host-panel-backdrop host-modal-backdrop" onclick="closeHostPanel()" aria-hidden="true"></div>
 <div id="host-panel" class="host-modal" style="display:none">
   <div class="host-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="hp-title" onclick="event.stopPropagation()">

@@ -1030,7 +1030,7 @@ body.light-mode .chk-input:focus-visible{
 .modal-feed{padding:16px;width:min(980px,92vw);max-height:86vh;display:flex;flex-direction:column}
 .modal-confirm{padding:16px;width:min(520px,92vw)}
 .code-accent{color:var(--acc)}
-/* Host details — centered wide modal (Pass 1; docs/HOST_DETAILS_REDESIGN.md) */
+/* Host details — centered wide modal */
 /* Z-index: .bar 10; host centered modal 90–91 (below .modal-bg overlays 100+); device rail 201–202; toasts 999 */
 .host-modal-backdrop.host-panel-backdrop{background:var(--modal-backdrop);z-index:89}
 .host-modal{
@@ -1096,7 +1096,7 @@ body.light-mode .host-modal-dialog{box-shadow:0 22px 56px rgba(15,23,42,.2)}
   -webkit-overflow-scrolling:touch;
   background:var(--host-modal-body-bg);
 }
-/* Host modal — Pass 2 in-modal tabs (docs/HOST_DETAILS_REDESIGN.md) */
+/* Host modal — in-modal tabs */
 .host-tab-shell{display:flex;flex-direction:column;gap:0;min-height:0}
 .host-tablist{
   display:flex;flex-wrap:nowrap;align-items:stretch;gap:2px;flex-shrink:0;

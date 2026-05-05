@@ -83,10 +83,6 @@ Collectors are remote scan workers with their own validation.
 
 ## Documentation
 
-- [UI cleanup plan](docs/UI_CLEANUP_PLAN.md)
-- [Navigation redesign](docs/NAV_REDESIGN.md)
-- [Host details redesign](docs/HOST_DETAILS_REDESIGN.md)
-- [Reports and enrichment UI plan](docs/REPORTS_ENRICHMENT_UI_PLAN.md)
 - [Connector development guide](docs/CONNECTOR_DEVELOPMENT_GUIDE.md)
 
 ## Changelog
