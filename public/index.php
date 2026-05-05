@@ -1322,6 +1322,7 @@ if (!headers_sent()) {
   <div class="enrich-stack enrich-zabbix-suite mb12">
       <div class="card enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
         <div class="ct enrich-zabbix-ct">Zabbix monitoring</div>
+        <div id="enrich-zbx-status-line" class="hint-micro mb6 text-dim">Zabbix: Loading status…</div>
         <p class="hint-micro text-dim mb6" style="line-height:1.45">
           Integration status, cache freshness, and (for admins) output push. <strong>Run sync now</strong> refreshes cached hosts.
         </p>
@@ -4210,7 +4211,7 @@ function healthFmtTime(iso) {
 /**
  * @param {object} h — GET /api/health.php (read-only health snapshot for the System health tab)
  */
-function renderHealthHtml(h) {
+function renderHealthHtml(h, zbxResp) {
     const sv = h.services || {};
     const scans = h.scans || {};
     const collectors = h.collectors || {};
@@ -4220,6 +4221,8 @@ function renderHealthHtml(h) {
     const ai = h.ai || {};
     const sched = h.schedules || {};
     const nvd = h.nvd || {};
+    const zbx = zbxResp && zbxResp.ok && zbxResp.zabbix_status ? zbxResp.zabbix_status : null;
+    const zbxOut = zbxResp && zbxResp.ok && zbxResp.zabbix_output_status ? zbxResp.zabbix_output_status : null;
     const daemon = sv.daemon || null;
     const schedulerSvc = sv.scheduler || null;
     const collectorSvc = sv.collector_ingest || null;
@@ -4239,6 +4242,40 @@ function renderHealthHtml(h) {
     const failCount = parseInt(String(collectors.failed_chunks || 0), 10) || 0;
     const collectorStateText = collectorOk ? 'active' : 'inactive';
     const collectorStateClass = collectorOk ? 'hstate-ok' : 'hstate-err';
+    const zbxSyncRaw = zbx && zbx.last_sync_status != null ? String(zbx.last_sync_status).toLowerCase() : '';
+    const zbxOutRaw = zbxOut && zbxOut.last_output_status != null ? String(zbxOut.last_output_status).toLowerCase() : '';
+    const zbxConfigured = !!(zbx && zbx.tables_ready && zbx.configured);
+    const zbxEnabled = !!(zbx && zbx.enabled);
+    const zbxConnected = zbxConfigured && zbxEnabled && zbxSyncRaw !== 'failed' && zbxSyncRaw !== 'error'
+        && String(zbx.freshness_state || '') === 'fresh';
+    const zbxError = zbxConfigured && zbxEnabled && (zbxSyncRaw === 'failed' || zbxSyncRaw === 'error' || !!(zbx.last_error));
+    const zbxDegraded = zbxConfigured && zbxEnabled && !zbxConnected && !zbxError;
+    const zbxStatusLabel = !zbxConfigured || !zbxEnabled
+        ? 'Not configured'
+        : (zbxError ? 'Error' : (zbxDegraded ? 'Degraded' : 'Connected'));
+    const zbxStatusClass = !zbxConfigured || !zbxEnabled
+        ? 'hstate-unk'
+        : (zbxError ? 'hstate-err' : (zbxDegraded ? 'hstate-warn' : 'hstate-ok'));
+    const zbxSyncResultLabel = !zbxConfigured || !zbxEnabled
+        ? 'Not configured'
+        : (!zbxSyncRaw ? 'Warning'
+            : ((zbxSyncRaw === 'ok' || zbxSyncRaw === 'success' || zbxSyncRaw === 'done')
+                ? 'Success'
+                : ((zbxSyncRaw === 'failed' || zbxSyncRaw === 'error') ? 'Failed' : 'Warning')));
+    const zbxSyncResultClass = zbxSyncResultLabel === 'Success'
+        ? 'hstate-ok'
+        : (zbxSyncResultLabel === 'Failed' ? 'hstate-err' : (zbxSyncResultLabel === 'Not configured' ? 'hstate-unk' : 'hstate-warn'));
+    const zbxOutConfigured = !!(zbxOut && zbxOut.configured);
+    const zbxOutResultLabel = !zbxOutConfigured
+        ? 'Not configured'
+        : ((zbxOutRaw === 'ok' || zbxOutRaw === 'success' || zbxOutRaw === 'done') ? 'Success'
+            : ((zbxOutRaw === 'failed' || zbxOutRaw === 'error') ? 'Failed' : 'Failed'));
+    const zbxOutResultClass = zbxOutResultLabel === 'Success'
+        ? 'hstate-ok'
+        : (zbxOutResultLabel === 'Failed' ? 'hstate-err' : 'hstate-unk');
+    const zbxErrorSummary = zbxOut && zbxOut.last_output_error
+        ? String(zbxOut.last_output_error)
+        : (zbx && zbx.last_error ? String(zbx.last_error) : '—');
 
     const overallItems = [
         appOk ? '<span class="hstate-ok">app</span>' : '<span class="hstate-err">app</span>',
@@ -4341,6 +4378,10 @@ function renderHealthHtml(h) {
     const aiConfigured = !!ai.configured;
     const aiRunning = !!ai.running;
     integrationRows.push(`<tr><td class="tbl-cell-primary">AI enrichment</td><td class="tbl-cell-muted">${aiConfigured ? (aiRunning ? '<span class="hstate-ok">ready</span>' : '<span class="hstate-warn">not running</span>') : '<span class="hstate-unk">disabled</span>'}</td><td class="tbl-cell-muted">${esc(String(ai.provider || 'ollama'))} · ${esc(String(ai.model || 'phi3:mini'))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix status</td><td class="tbl-cell-muted"><span class="${zbxStatusClass}">${esc(zbxStatusLabel)}</span></td><td class="tbl-cell-muted">${zbx && zbx.last_sync ? esc(String(zbx.last_sync)) : '—'}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix sync result</td><td class="tbl-cell-muted"><span class="${zbxSyncResultClass}">${esc(zbxSyncResultLabel)}</span></td><td class="tbl-cell-muted">${zbx && zbx.last_sync ? esc(String(zbx.last_sync)) : '—'}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix output result</td><td class="tbl-cell-muted"><span class="${zbxOutResultClass}">${esc(zbxOutResultLabel)}</span></td><td class="tbl-cell-muted">${zbxOut && zbxOut.last_output ? esc(String(zbxOut.last_output)) : '—'}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix error summary</td><td class="tbl-cell-muted">${zbxErrorSummary !== '—' ? '<span class="hstate-err">Error</span>' : '<span class="hstate-unk">—</span>'}</td><td class="tbl-cell-muted">${esc(zbxErrorSummary)}</td></tr>`);
 
     const warnings = [];
     if (!appOk) warnings.push('Application storage/config check needs attention.');
@@ -4351,6 +4392,7 @@ function renderHealthHtml(h) {
     if (disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024) warnings.push('Data directory free space is low.');
     if (feedLast && !feedLastOk && !feedLast.cancelled) warnings.push('Last feed sync failed.');
     if (aiConfigured && !aiRunning) warnings.push('AI is configured but runtime is not reachable.');
+    if (zbxError) warnings.push('Zabbix sync/output reported an error state.');
 
     const advancedRows = [];
     advancedRows.push(`<tr><td class="tbl-cell-primary">Server time</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(h.server_time || '—'))}</td></tr>`);
@@ -4415,12 +4457,16 @@ function renderHealthHtml(h) {
 async function loadHealth() {
     const el = document.getElementById('health-snapshot');
     if (!el) return;
-    const h = await api('/api/health.php?cb=' + Date.now(), { quiet: true });
+    const cb = Date.now();
+    const [h, zbx] = await Promise.all([
+        api('/api/health.php?cb=' + cb, { quiet: true }),
+        api('/api/zabbix.php?status=1&cb=' + cb, { quiet: true }),
+    ]);
     if (!h) {
         el.innerHTML = '<div class="text-dim">Health check failed (not signed in or network error).</div>';
         return;
     }
-    el.innerHTML = renderHealthHtml(h);
+    el.innerHTML = renderHealthHtml(h, zbx);
 }
 
 async function refreshChangeAlertsNavBadge() {
@@ -9731,6 +9777,7 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     const syncBtn = document.getElementById('enrich-zbx-sync-btn');
     const toolsPreview = document.getElementById('zb-enrich-tools-preview');
     const connectorEl = document.getElementById('enrich-zbx-connector');
+    const statusLineEl = document.getElementById('enrich-zbx-status-line');
     if (!detailsEl || !toolsWrap) return;
 
     const setZabbixSuiteConnector = (show) => {
@@ -9753,6 +9800,7 @@ function stEnrichmentRefreshZabbixOverview(resp) {
 
     const zs = resp && resp.zabbix_status ? resp.zabbix_status : null;
     if (!resp || !resp.ok || !zs) {
+        if (statusLineEl) statusLineEl.textContent = 'Zabbix: Error · Last sync failed';
         const err = (resp && resp.error) ? esc(String(resp.error)) : 'Could not load Zabbix status.';
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is unavailable.</p>'
             + '<p class="hint-micro text-dim mb0">' + err + '</p>';
@@ -9764,6 +9812,7 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     }
 
     if (!zs.tables_ready) {
+        if (statusLineEl) statusLineEl.textContent = 'Zabbix integration is not configured.';
         detailsEl.innerHTML = '<p class="hint-micro text-dim mb0">Zabbix tables are not installed. Run database migrations.</p>';
         toolsWrap.style.display = 'none';
         setZabbixSuiteConnector(false);
@@ -9773,6 +9822,7 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     }
 
     if (!zs.configured) {
+        if (statusLineEl) statusLineEl.textContent = 'Zabbix integration is not configured.';
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix is not configured.</p>'
             + '<p class="hint-micro text-dim mb0">Set API URL and token under <strong>Integrations → Zabbix</strong>, then return here.</p>';
         toolsWrap.style.display = 'none';
@@ -9783,6 +9833,7 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     }
 
     if (!zs.enabled) {
+        if (statusLineEl) statusLineEl.textContent = 'Zabbix integration is not configured.';
         detailsEl.innerHTML = '<p class="hint-micro mb6">Zabbix enrichment is disabled.</p>'
             + '<p class="hint-micro text-dim mb0">Enable it under <strong>Integrations → Zabbix</strong>.</p>';
         toolsWrap.style.display = 'none';
@@ -9793,6 +9844,18 @@ function stEnrichmentRefreshZabbixOverview(resp) {
     }
 
     if (toolsPreview) toolsPreview.style.display = '';
+    if (statusLineEl) {
+        const syncRaw = zs.last_sync_status != null ? String(zs.last_sync_status).toLowerCase() : '';
+        const isErr = syncRaw === 'failed' || syncRaw === 'error' || !!zs.last_error;
+        const frState = String(zs.freshness_state || '');
+        if (isErr) {
+            statusLineEl.textContent = 'Zabbix: Error · Last sync failed';
+        } else if (frState === 'stale' || frState === 'outdated') {
+            statusLineEl.textContent = 'Zabbix: Degraded · Last sync ' + stZabbixFormatAgeSeconds(zs.freshness_seconds);
+        } else {
+            statusLineEl.textContent = 'Zabbix: Connected · Last sync ' + stZabbixFormatAgeSeconds(zs.freshness_seconds);
+        }
+    }
 
     const badge = '<span class="' + stZabbixFreshnessBadgeClass(zs) + '">' + esc(stZabbixFreshnessBadgeLabel(zs)) + '</span>';
     const line = stZabbixLastSyncLineHtml(zs);

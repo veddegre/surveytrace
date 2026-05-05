@@ -43,9 +43,30 @@ if ($method === 'GET') {
                     'last_sync_completed_at' => null,
                     'hosts_cached' => 0,
                 ],
+                'zabbix_output_status' => [
+                    'configured' => false,
+                    'enabled' => false,
+                    'last_output' => null,
+                    'last_output_status' => null,
+                    'last_output_error' => null,
+                ],
             ]);
         }
-        st_json(['ok' => true, 'zabbix_status' => st_zabbix_enrichment_status_for_ui($db)]);
+        $pub = st_zabbix_connector_public(st_zabbix_connector_get($db));
+        $outCfg = (bool) ($pub['enabled'] ?? false)
+            && (bool) ($pub['output_enabled'] ?? false)
+            && trim((string) ($pub['output_host'] ?? '')) !== '';
+        st_json([
+            'ok' => true,
+            'zabbix_status' => st_zabbix_enrichment_status_for_ui($db),
+            'zabbix_output_status' => [
+                'configured' => $outCfg,
+                'enabled' => (bool) ($pub['output_enabled'] ?? false),
+                'last_output' => $pub['last_output_push_at'] ?? null,
+                'last_output_status' => $pub['last_output_push_status'] ?? null,
+                'last_output_error' => $pub['last_output_push_error'] ?? null,
+            ],
+        ]);
     }
 
     st_require_role(['admin']);
