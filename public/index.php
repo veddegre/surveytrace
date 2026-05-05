@@ -2911,6 +2911,7 @@ function applyRoleAwareUi() {
         }
     }
     stApplyNavItemTitles();
+    stNavQuickTipBind();
 }
 
 /** Hide bulk-select column + bulk bar when user cannot mutate asset scope (e.g. viewer). */
@@ -3467,19 +3468,123 @@ function hiNav(id) {
 }
 
 function stApplyNavItemTitles() {
+    const collapsed = document.body.classList.contains('exec-mode');
     document.querySelectorAll('.ni').forEach((el) => {
         const direct = String(el.getAttribute('data-nav-label') || '').trim();
         if (direct) {
-            el.setAttribute('title', direct);
+            el.setAttribute('aria-label', direct);
+        }
+        if (direct) {
+            if (collapsed) {
+                el.removeAttribute('title');
+            } else {
+                el.setAttribute('title', direct);
+            }
             return;
         }
         const raw = String(el.textContent || '').replace(/\s+/g, ' ').trim();
         const cleaned = raw.replace(/\s+\d+\s*$/, '').trim();
         if (cleaned) {
-            el.setAttribute('title', cleaned);
+            el.setAttribute('aria-label', cleaned);
+            if (collapsed) {
+                el.removeAttribute('title');
+            } else {
+                el.setAttribute('title', cleaned);
+            }
         } else {
             el.removeAttribute('title');
+            el.removeAttribute('aria-label');
         }
+    });
+}
+
+/** @type {HTMLElement|null} */
+var stNavQuickTipEl = null;
+/** @type {HTMLElement|null} */
+var stNavQuickTipTarget = null;
+/** @type {number|null} */
+var stNavQuickTipTimer = null;
+
+function stNavQuickTipEnsureEl() {
+    if (stNavQuickTipEl) return stNavQuickTipEl;
+    const el = document.createElement('div');
+    el.id = 'st-nav-quick-tip';
+    el.className = 'st-nav-quick-tip';
+    el.setAttribute('role', 'tooltip');
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    stNavQuickTipEl = el;
+    return el;
+}
+
+function stNavQuickTipHide() {
+    if (stNavQuickTipTimer != null) {
+        clearTimeout(stNavQuickTipTimer);
+        stNavQuickTipTimer = null;
+    }
+    const el = stNavQuickTipEl;
+    if (el) {
+        el.classList.remove('on');
+        el.setAttribute('aria-hidden', 'true');
+        el.textContent = '';
+    }
+    if (stNavQuickTipTarget) {
+        stNavQuickTipTarget.removeAttribute('aria-describedby');
+    }
+    stNavQuickTipTarget = null;
+}
+
+function stNavQuickTipPlace(target, txt) {
+    const el = stNavQuickTipEnsureEl();
+    if (!txt) {
+        stNavQuickTipHide();
+        return;
+    }
+    el.textContent = txt;
+    const r = target.getBoundingClientRect();
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const top = scrollY + r.top + (r.height / 2);
+    const left = scrollX + r.right + 10;
+    el.style.top = String(top) + 'px';
+    el.style.left = String(left) + 'px';
+    el.classList.add('on');
+    el.setAttribute('aria-hidden', 'false');
+    stNavQuickTipTarget = target;
+    target.setAttribute('aria-describedby', 'st-nav-quick-tip');
+}
+
+function stNavQuickTipShowSoon(target) {
+    if (!document.body.classList.contains('exec-mode')) {
+        stNavQuickTipHide();
+        return;
+    }
+    if (!target || target.style.display === 'none') {
+        stNavQuickTipHide();
+        return;
+    }
+    const txt = String(target.getAttribute('data-nav-label') || target.getAttribute('aria-label') || '').trim();
+    if (!txt) {
+        stNavQuickTipHide();
+        return;
+    }
+    if (stNavQuickTipTimer != null) {
+        clearTimeout(stNavQuickTipTimer);
+    }
+    stNavQuickTipTimer = window.setTimeout(() => {
+        stNavQuickTipTimer = null;
+        stNavQuickTipPlace(target, txt);
+    }, 100);
+}
+
+function stNavQuickTipBind() {
+    document.querySelectorAll('.ni').forEach((el) => {
+        if (el.dataset.navTipBound === '1') return;
+        el.dataset.navTipBound = '1';
+        el.addEventListener('mouseenter', () => stNavQuickTipShowSoon(el));
+        el.addEventListener('focusin', () => stNavQuickTipShowSoon(el));
+        el.addEventListener('mouseleave', stNavQuickTipHide);
+        el.addEventListener('focusout', stNavQuickTipHide);
     });
 }
 
@@ -17758,6 +17863,10 @@ async function initApp() {
 function toggleDashMode() {
     const on = !document.body.classList.contains('exec-mode');
     document.body.classList.toggle('exec-mode', on);
+    stApplyNavItemTitles();
+    if (!on) {
+        stNavQuickTipHide();
+    }
     applyExecutiveModeUI(on);
     try { localStorage.setItem('st_exec_mode', on ? '1' : '0'); } catch (e) {}
     const mb = document.getElementById('dash-mode-btn');
@@ -17788,6 +17897,12 @@ initApp();
     if (loginRequired && (authMode === 'session' || authMode === 'oidc')) return;
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
 stApplyNavItemTitles();
+stNavQuickTipBind();
+document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+        stNavQuickTipHide();
+    }
+});
 if (lastTab && document.getElementById('t-' + lastTab)) {
     goTab(lastTab);
     const navMap = {

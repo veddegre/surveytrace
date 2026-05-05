@@ -229,6 +229,28 @@ body.light-mode .bar-account-menu{box-shadow:0 10px 28px rgba(15,23,42,.12)}
 .ni:hover{background:var(--bg3);color:var(--tx)}
 .ni.on{background:var(--adim2);color:var(--tx);border-left-color:var(--acc)}
 body.light-mode .ni.on{background:var(--adim2)}
+.st-nav-quick-tip{
+  position:absolute;
+  z-index:130;
+  max-width:220px;
+  padding:6px 9px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--card);
+  color:var(--text);
+  font-size:12px;
+  font-family:var(--sf);
+  line-height:1.25;
+  box-shadow:0 4px 14px rgba(0,0,0,0.25);
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-50%) translateX(4px);
+  transition:opacity .08s ease, transform .08s ease;
+}
+.st-nav-quick-tip.on{
+  opacity:1;
+  transform:translateY(-50%) translateX(0);
+}
 .nb{margin-left:auto;font-family:var(--mf);font-size:11px;font-weight:500;padding:2px 7px;background:var(--rdim);color:var(--red);border-radius:999px;min-width:20px;text-align:center}
 .nb.warn{background:var(--adim);color:var(--amber)}
 .nb.err{background:var(--rdim);color:var(--red)}
