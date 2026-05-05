@@ -340,11 +340,11 @@ if (!headers_sent()) {
   <div id="af-ai-filters-wrap" class="mb8" style="display:none">
     <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
       <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
-        <label id="af-ai-review-wrap" class="text-micro" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
-          <input type="checkbox" id="af-ai-review" onchange="stAssetsOnAiFilterCheckboxChange()"> Needs AI review
+        <label id="af-ai-review-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
+          <input type="checkbox" class="chk-input" id="af-ai-review" onchange="stAssetsOnAiFilterCheckboxChange()"><span class="chk-label">Needs AI review</span>
         </label>
-        <label id="af-ai-summary-wrap" class="text-micro" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
-          <input type="checkbox" id="af-ai-summary" onchange="stAssetsOnAiFilterCheckboxChange()"> Has host summary
+        <label id="af-ai-summary-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3)" title="Assets with a saved operator &quot;Generate host summary&quot; result (informational only; not classification conflicts).">
+          <input type="checkbox" class="chk-input" id="af-ai-summary" onchange="stAssetsOnAiFilterCheckboxChange()"><span class="chk-label">Has host summary</span>
         </label>
       </div>
     </div>
@@ -357,16 +357,16 @@ if (!headers_sent()) {
           <option value="0">Not monitored</option>
           <option value="1">Monitored</option>
         </select>
-        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
-          <input type="checkbox" id="af-zbx-unavail" onchange="stAssetsOnZbxFilterDirty()"> unavailable
+        <label class="text-micro chk" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+          <input type="checkbox" class="chk-input" id="af-zbx-unavail" onchange="stAssetsOnZbxFilterDirty()"><span class="chk-label">unavailable</span>
         </label>
-        <label class="text-micro" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
-          <input type="checkbox" id="af-zbx-problems" onchange="stAssetsOnZbxFilterDirty()"> problems
+        <label class="text-micro chk" style="display:flex;align-items:center;gap:4px;color:var(--tx3)">
+          <input type="checkbox" class="chk-input" id="af-zbx-problems" onchange="stAssetsOnZbxFilterDirty()"><span class="chk-label">problems</span>
         </label>
         <input class="finp narrow" id="af-zbx-group" placeholder="Zbx group" style="min-width:100px;max-width:140px" oninput="debounceAssetsZbxAware()">
         <input class="finp narrow" id="af-zbx-tag" placeholder="Zbx tag or Tag=val" style="min-width:120px;max-width:160px" oninput="debounceAssetsZbxAware()">
-        <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-          <input type="checkbox" id="af-zbx-col" onchange="stToggleAssetZbxColumn()"> Zbx column
+        <label class="text-micro chk" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+          <input type="checkbox" class="chk-input" id="af-zbx-col" onchange="stToggleAssetZbxColumn()"><span class="chk-label">Zbx column</span>
         </label>
       </div>
     </div>
@@ -397,7 +397,7 @@ if (!headers_sent()) {
   <div class="tbl-wrap tbl-wrap--data">
     <table class="tbl tbl--data">
       <thead><tr>
-        <th id="af-th-select" class="tbl-th-no-sort" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
+        <th id="af-th-select" class="tbl-th-no-sort" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" class="chk-input" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
         <th onclick="sortAssets('ip')">IP address</th>
         <th class="mono-sm" onclick="sortAssets('device_id')" title="Logical device (stable across future merges)">Device</th>
         <th onclick="sortAssets('hostname')">Hostname</th>
@@ -917,9 +917,9 @@ if (!headers_sent()) {
           <label class="flbl" for="report-compliance-job">Completed scan job</label>
           <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
         </div>
-        <label class="flbl" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
-          <input type="checkbox" id="report-compliance-vs-baseline" checked>
-          <span>Vs baseline rules</span>
+        <label class="flbl chk" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
+          <input type="checkbox" class="chk-input" id="report-compliance-vs-baseline" checked>
+          <span class="chk-label">Vs baseline rules</span>
         </label>
         <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
       </div>
@@ -1377,8 +1377,8 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
               </div>
               <div id="zb-identity-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row">
-                <input type="checkbox" id="zb-identity-confirm">
+              <label class="text-micro zb-enrich-confirm-row chk">
+                <input type="checkbox" class="chk-input" id="zb-identity-confirm">
                 I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
               </label>
               <button type="button" class="btnp mt10" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
@@ -1391,8 +1391,8 @@ if (!headers_sent()) {
                 <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
               </div>
               <div id="zb-apply-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row">
-                <input type="checkbox" id="zb-apply-confirm">
+              <label class="text-micro zb-enrich-confirm-row chk">
+                <input type="checkbox" class="chk-input" id="zb-apply-confirm">
                 I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
               </label>
               <button type="button" class="btnp mt10" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
@@ -2185,8 +2185,8 @@ if (!headers_sent()) {
     <select class="finp w100 mb10" id="st-asset-scope-sel" onchange="stAssetScopeModalSyncLabels()">
       <option value="0">— none (clear scope) —</option>
     </select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" id="st-asset-scope-confirm"> I confirm applying this scope change.
+    <label class="text-micro chk" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" class="chk-input" id="st-asset-scope-confirm"><span class="chk-label">I confirm applying this scope change.</span>
     </label>
     <div id="st-asset-scope-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
@@ -2206,8 +2206,8 @@ if (!headers_sent()) {
     <p class="hint-micro mb8 mono-sm" id="st-bulk-scope-count"></p>
     <label class="flbl" for="st-bulk-scope-sel" title="Inventory tag. Past reports filter by job scope (scan_jobs), not this field.">Target scope</label>
     <select class="finp w100 mb10" id="st-bulk-scope-sel"></select>
-    <label class="text-micro" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
-      <input type="checkbox" id="st-bulk-scope-confirm"> I confirm applying this scope to the selected assets.
+    <label class="text-micro chk" style="display:flex;align-items:center;gap:6px;color:var(--tx3)">
+      <input type="checkbox" class="chk-input" id="st-bulk-scope-confirm"><span class="chk-label">I confirm applying this scope to the selected assets.</span>
     </label>
     <div id="st-bulk-scope-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
@@ -5830,7 +5830,7 @@ async function loadAssets(page) {
     const zbxTd = (a) => (zbxColRender ? `<td class="mono-sm tbl-cell-mono tbl-cell-muted">${stAssetZabbixCellHtml(a)}</td>` : '');
     const chkTd = showRowChk
         ? (a) =>
-              `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
+              `<td onclick="event.stopPropagation()"><input type="checkbox" class="af-row-chk chk-input" data-aid="${a.id}" onchange="stAssetsSyncSelectAllCheckbox()" aria-label="Select ${esc(a.ip)}"></td>`
         : () => '';
     const scopeTip = 'Inventory scope; reporting uses scan job scope for historical snapshots.';
     const scopeCell = (a) =>
@@ -10045,7 +10045,7 @@ function stZabbixAddRuleRow(rule, skipRefresh) {
       </select>
       <div class="zb-r-pattern-ui"></div>
       ${zbScopeSelectHtml(sid, r)}
-      <label class="text-micro" style="align-self:center"><input type="checkbox" class="zb-r-en"${en}> enabled</label>
+      <label class="text-micro chk" style="align-self:center"><input type="checkbox" class="zb-r-en chk-input"${en}><span class="chk-label">enabled</span></label>
       <button type="button" class="tbtn btn-xs" onclick="this.closest('.zb-rule-row').remove();stZabbixRefreshScopeRuleButtons();">Remove</button>`;
     wrap.appendChild(div);
     stZabbixRenderRulePatternUi(div, { rule_type: rt, pattern: String(r.pattern || '') });
@@ -10670,7 +10670,7 @@ async function stZabbixLoadApplyPlan() {
             : '<span class="text-dim text-micro">No change needed</span>';
         const hid = hide ? ' class="zb-mr-extra zb-mr-extra-plan" style="display:none"' : '';
         return `<tr${hid}>
-          <td><input type="checkbox" class="zb-plan-chk" data-i="${i}" data-eligible="${chg ? '1' : '0'}"${checked}${dis} onchange="stZabbixScopePlanUpdateCount()"></td>
+          <td><input type="checkbox" class="zb-plan-chk chk-input" data-i="${i}" data-eligible="${chg ? '1' : '0'}"${checked}${dis} onchange="stZabbixScopePlanUpdateCount()"></td>
           <td class="mono-sm">${esc(String(p.asset_id))}</td>
           <td class="mono-sm">${esc(p.ip || '')}</td>
           <td>${zbScopeLabel(cur)}</td>
@@ -10709,7 +10709,7 @@ async function stZabbixLoadApplyPlan() {
       <span class="hint-micro" id="zb-plan-select-count">0 of 0 selected</span>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th style="width:36px"><input type="checkbox" id="zb-plan-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixScopePlanHeaderClick(event)"></th>
+      <th style="width:36px"><input type="checkbox" class="chk-input" id="zb-plan-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixScopePlanHeaderClick(event)"></th>
       <th>Asset</th><th>IP</th><th>Current scope</th><th>New scope</th><th>Rule</th><th>Status</th>
     </tr></thead><tbody>${rows}</tbody></table></div>${morePlan}
     <p class="hint-micro mt4">Only checked, eligible rows are sent on apply.</p>`;
@@ -10860,7 +10860,7 @@ async function stZabbixLoadIdentityPlan() {
         const checked = eligible ? ' checked' : '';
         const hid = hide ? ' class="zb-mr-extra zb-mr-extra-idplan" style="display:none"' : '';
         return `<tr${hid}>
-          <td><input type="checkbox" class="zb-id-chk" data-i="${i}" data-eligible="${eligible ? '1' : '0'}"${checked}${dis} onchange="stZabbixIdentityPlanUpdateCount()"></td>
+          <td><input type="checkbox" class="zb-id-chk chk-input" data-i="${i}" data-eligible="${eligible ? '1' : '0'}"${checked}${dis} onchange="stZabbixIdentityPlanUpdateCount()"></td>
           <td class="mono-sm">${esc(String(p.asset_id))}</td>
           <td class="mono-sm">${esc(p.ip || '')}</td>
           <td class="mono-sm">${esc(curH || '—')}</td>
@@ -10880,7 +10880,7 @@ async function stZabbixLoadIdentityPlan() {
       <span class="hint-micro" id="zb-id-select-count">0 of 0 selected</span>
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th style="width:36px"><input type="checkbox" id="zb-id-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixIdentityPlanHeaderClick(event)"></th>
+      <th style="width:36px"><input type="checkbox" class="chk-input" id="zb-id-header-chk" title="Select all eligible rows" aria-label="Select all eligible rows" onclick="stZabbixIdentityPlanHeaderClick(event)"></th>
       <th>Asset</th><th>IP</th><th>Current hostname</th><th>Zabbix host</th><th>Match</th><th>Conf.</th><th>Suggested hostname</th>
     </tr></thead><tbody>${rows}</tbody></table></div>${moreId}
     <p class="hint-micro mt4">Only checked, eligible rows are sent on apply.</p>`;
