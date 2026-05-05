@@ -58,12 +58,27 @@ if (!headers_sent()) {
   <div class="bar-meta" id="bar-meta">v<?= ST_VERSION ?></div>
   <div class="sep"></div>
   <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
-  <button type="button" class="tbtn" id="theme-toggle-btn" onclick="toggleThemeOverride()" title="Switch between light and dark. New visits follow your system until you choose here.">Theme: Dark</button>
-  <button class="tbtn" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
-  <button class="tbtn" onclick="goTab('access');hiNav('naccess')">Access control</button>
-  <button class="tbtn" onclick="goTab('settings');hiNav('nsettings')">Settings</button>
-  <button class="tbtn" id="btn-profile" onclick="openProfileModal()">My profile</button>
-  <button class="tbtn" onclick="logoutSession()">Sign out</button>
+  <div class="bar-actions">
+    <button type="button" class="btnp btn-sm" id="bar-btn-new-scan" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
+    <div class="bar-account-wrap" id="bar-account-wrap">
+      <button type="button" class="tbtn bar-account-btn" id="bar-account-btn" onclick="toggleBarAccountMenu(event)" aria-haspopup="menu" aria-expanded="false" aria-controls="bar-account-menu">Account <span class="bar-account-chevron" aria-hidden="true">▾</span></button>
+      <div id="bar-account-menu" class="bar-account-menu hide" role="menu" aria-hidden="true" aria-labelledby="bar-account-btn">
+        <button type="button" role="menuitem" class="bar-account-item" id="bar-account-profile" onclick="closeBarAccountMenu(false); openProfileModal();">Profile / Account</button>
+        <div class="bar-account-hr" role="separator"></div>
+        <div class="bar-account-group" role="group" aria-label="Theme">
+          <div class="bar-account-group-label">Theme</div>
+          <button type="button" role="menuitemradio" class="bar-account-item bar-account-item--radio" id="bar-theme-light" aria-checked="false" onclick="stSetThemeMode('light')">Light</button>
+          <button type="button" role="menuitemradio" class="bar-account-item bar-account-item--radio" id="bar-theme-dark" aria-checked="false" onclick="stSetThemeMode('dark')">Dark</button>
+          <button type="button" role="menuitemradio" class="bar-account-item bar-account-item--radio" id="bar-theme-auto" aria-checked="false" onclick="stSetThemeMode('auto')">Auto</button>
+        </div>
+        <div class="bar-account-hr" role="separator"></div>
+        <button type="button" role="menuitem" class="bar-account-item" id="bar-account-settings" onclick="closeBarAccountMenu(false); goTab('settings'); hiNav('nsettings');">Settings</button>
+        <button type="button" role="menuitem" class="bar-account-item" id="bar-account-access" onclick="closeBarAccountMenu(false); goTab('access'); hiNav('naccess');">Access control</button>
+        <div class="bar-account-hr" role="separator"></div>
+        <button type="button" role="menuitem" class="bar-account-item bar-account-item--danger" onclick="closeBarAccountMenu(false); logoutSession();">Sign out</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Sidebar -->
@@ -2621,12 +2636,12 @@ function applyRoleAwareUi() {
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
 
-    const topNewScan = document.querySelector('button[onclick*="goTab(\'scan\')"]');
-    if (topNewScan) topNewScan.style.display = canScanManage ? '' : 'none';
-    const topSettings = document.querySelector('button[onclick*="goTab(\'settings\')"]');
-    if (topSettings) topSettings.style.display = isAdmin ? '' : 'none';
-    const topAccess = document.querySelector('button[onclick*="goTab(\'access\')"]');
-    if (topAccess) topAccess.style.display = isAdmin ? '' : 'none';
+    const barNewScan = document.getElementById('bar-btn-new-scan');
+    if (barNewScan) barNewScan.style.display = canScanManage ? '' : 'none';
+    const barSettings = document.getElementById('bar-account-settings');
+    if (barSettings) barSettings.style.display = isAdmin ? '' : 'none';
+    const barAccess = document.getElementById('bar-account-access');
+    if (barAccess) barAccess.style.display = isAdmin ? '' : 'none';
     ['scan-view-trash', 'scan-view-all'].forEach((id) => {
         const b = document.getElementById(id);
         if (b) b.style.display = canScanManage ? '' : 'none';
@@ -16145,10 +16160,10 @@ async function initAuthMode() {
     currentProfileDisplayName = (r.profile && r.profile.display_name) ? r.profile.display_name : '';
     currentProfileEmail = (r.profile && r.profile.email) ? r.profile.email : '';
     updateMfaActionButtons();
-    const profileBtn = document.getElementById('btn-profile');
-    if (profileBtn) {
-        const showProfile = !!(currentUser && currentUser.id > 0);
-        profileBtn.style.display = showProfile ? '' : 'none';
+    const accountWrap = document.getElementById('bar-account-wrap');
+    if (accountWrap) {
+        const showAccount = !!(currentUser && currentUser.id > 0);
+        accountWrap.style.display = showAccount ? '' : 'none';
     }
     applyRoleAwareUi();
     if ((authMode === 'session' || authMode === 'oidc') && r.requires_auth && !r.authed) {
@@ -16191,11 +16206,99 @@ function applyThemeMode(mode) {
     document.body.classList.toggle('light-mode', effective === 'light');
 }
 
+/** Sync Theme menuitemradio aria-checked from localStorage (light / dark / auto). */
+function syncBarAccountThemeRadios() {
+    const pref = readThemeModePref();
+    ['light', 'dark', 'auto'].forEach((m) => {
+        const el = document.getElementById('bar-theme-' + m);
+        if (el) el.setAttribute('aria-checked', pref === m ? 'true' : 'false');
+    });
+}
+
 function updateThemeToggleLabel() {
-    const btn = document.getElementById('theme-toggle-btn');
-    if (!btn) return;
-    const eff = effectiveTheme();
-    btn.textContent = 'Theme: ' + (eff === 'light' ? 'Light' : 'Dark');
+    syncBarAccountThemeRadios();
+}
+
+function stSetThemeMode(mode) {
+    if (mode !== 'light' && mode !== 'dark' && mode !== 'auto') return;
+    try { localStorage.setItem('st_theme_mode', mode); } catch (e) {}
+    applyThemeMode(mode);
+    syncBarAccountThemeRadios();
+    closeBarAccountMenu(false);
+}
+
+var stBarAccountReturnEl = null;
+
+function openBarAccountMenu() {
+    document.removeEventListener('click', onBarAccountOutsideClick, true);
+    document.removeEventListener('keydown', onBarAccountEscape, true);
+    const btn = document.getElementById('bar-account-btn');
+    const menu = document.getElementById('bar-account-menu');
+    if (!btn || !menu) return;
+    stBarAccountReturnEl = btn;
+    menu.classList.remove('hide');
+    btn.setAttribute('aria-expanded', 'true');
+    menu.setAttribute('aria-hidden', 'false');
+    syncBarAccountThemeRadios();
+    queueMicrotask(() => {
+        document.addEventListener('click', onBarAccountOutsideClick, true);
+        document.addEventListener('keydown', onBarAccountEscape, true);
+    });
+}
+
+/** @param {boolean} [restoreFocus=true] Return focus to Account when true (Escape / outside click). */
+function closeBarAccountMenu(restoreFocus) {
+    if (restoreFocus === undefined) restoreFocus = true;
+    const btn = document.getElementById('bar-account-btn');
+    const menu = document.getElementById('bar-account-menu');
+    document.removeEventListener('click', onBarAccountOutsideClick, true);
+    document.removeEventListener('keydown', onBarAccountEscape, true);
+    if (menu) {
+        menu.classList.add('hide');
+        menu.setAttribute('aria-hidden', 'true');
+    }
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    const rf = restoreFocus ? stBarAccountReturnEl : null;
+    stBarAccountReturnEl = null;
+    if (rf && typeof rf.focus === 'function') {
+        try { rf.focus(); } catch (_e) {}
+    }
+}
+
+function onBarAccountOutsideClick(ev) {
+    const w = document.getElementById('bar-account-wrap');
+    if (w && !w.contains(ev.target)) closeBarAccountMenu(true);
+}
+
+function onBarAccountEscape(ev) {
+    if (ev.key !== 'Escape') return;
+    const menu = document.getElementById('bar-account-menu');
+    if (!menu || menu.classList.contains('hide')) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeBarAccountMenu(true);
+}
+
+function toggleBarAccountMenu(ev) {
+    if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+    const menu = document.getElementById('bar-account-menu');
+    const btn = document.getElementById('bar-account-btn');
+    if (!menu || !btn) return;
+    if (menu.classList.contains('hide')) {
+        openBarAccountMenu();
+    } else {
+        stBarAccountReturnEl = btn;
+        closeBarAccountMenu(true);
+    }
+}
+
+/** Legacy name: cycle light/dark (no auto). Prefer Account menu theme choices. */
+function toggleThemeOverride() {
+    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
+    stSetThemeMode(next);
 }
 
 function setupSystemThemeWatcher() {
@@ -16212,13 +16315,6 @@ function setupSystemThemeWatcher() {
     } else if (themeMediaQuery.addListener) {
         themeMediaQuery.addListener(themeMediaListener);
     }
-}
-
-function toggleThemeOverride() {
-    const next = effectiveTheme() === 'light' ? 'dark' : 'light';
-    try { localStorage.setItem('st_theme_mode', next); } catch (e) {}
-    applyThemeMode(next);
-    updateThemeToggleLabel();
 }
 
 async function initApp() {
