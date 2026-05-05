@@ -96,23 +96,23 @@ if (!headers_sent()) {
     </button>
     <div class="nav-grp-body" id="nav-grp-body-monitor">
       <div class="ni" id="ndash" data-nav-label="Dashboard" onclick="goTab('dash');hiNav('ndash')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="0" y="0" width="6" height="6" rx="1"/><rect x="8" y="0" width="6" height="6" rx="1"/><rect x="0" y="8" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
-        Dashboard
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="0" y="0" width="6" height="6" rx="1"/><rect x="8" y="0" width="6" height="6" rx="1"/><rect x="0" y="8" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
+    Dashboard
+  </div>
       <div class="ni" id="nassets" data-nav-label="Assets" onclick="goTab('assets');hiNav('nassets')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="10" rx="1.5"/><path d="M1 6h12M4 2V1M10 2V1"/></svg>
-        Assets
-        <span class="nb warn" id="nb-assets">—</span>
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="10" rx="1.5"/><path d="M1 6h12M4 2V1M10 2V1"/></svg>
+    Assets
+    <span class="nb warn" id="nb-assets">—</span>
+  </div>
       <div class="ni" id="ndevices" data-nav-label="Devices" onclick="goTab('devices');hiNav('ndevices')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 11v1.5M9 11v1.5M4 6h2M8 6h2"/></svg>
-        Devices
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="10" height="8" rx="1"/><path d="M5 11v1.5M9 11v1.5M4 6h2M8 6h2"/></svg>
+    Devices
+  </div>
       <div class="ni" id="nvulns" data-nav-label="Vulnerabilities" onclick="goTab('vulns');hiNav('nvulns')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M7 6v3M7 5h.01"/></svg>
-        Vulnerabilities
-        <span class="nb" id="nb-vulns">—</span>
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M7 6v3M7 5h.01"/></svg>
+    Vulnerabilities
+    <span class="nb" id="nb-vulns">—</span>
+  </div>
     </div>
   </div>
   <div class="nav-grp" id="nav-grp-operations" data-nav-group="operations">
@@ -122,26 +122,26 @@ if (!headers_sent()) {
     </button>
     <div class="nav-grp-body" id="nav-grp-body-operations">
       <div class="ni" id="nscan" data-nav-label="Scan control" onclick="goTab('scan');hiNav('nscan')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3l2 1.2"/></svg>
-        Scan control
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3l2 1.2"/></svg>
+    Scan control
+  </div>
       <div class="ni" id="nscanhist" data-nav-label="Scan history" onclick="goTab('scanhist');hiNav('nscanhist')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8v10H3z"/><path d="M5 5h4M5 8h4M5 11h2"/></svg>
-        Scan history
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h8v10H3z"/><path d="M5 5h4M5 8h4M5 11h2"/></svg>
+    Scan history
+  </div>
       <div class="ni" id="nreport" data-nav-label="Reports & Analysis" onclick="goTab('report');hiNav('nreport')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5l2.5 2.5V12a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z"/><path d="M9 1.5V4H11.5"/></svg>
-        Reports &amp; Analysis
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5l2.5 2.5V12a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z"/><path d="M9 1.5V4H11.5"/></svg>
+    Reports &amp; Analysis
+  </div>
       <div class="ni" id="nsched" data-nav-label="Schedules" onclick="goTab('sched');hiNav('nsched')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
-        Schedules
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M4 1v2M10 1v2M4 9h2M7 9h3"/></svg>
+    Schedules
+  </div>
       <div class="ni" id="ncollectors" data-nav-label="Collectors" onclick="goTab('collectors');hiNav('ncollectors')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.2" y="2" width="11.6" height="8.4" rx="1.2"/><path d="M3.2 5h7.6M4.2 8.5h5.6M5.5 12.2h3"/></svg>
-        Collectors
-      </div>
-    </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.2" y="2" width="11.6" height="8.4" rx="1.2"/><path d="M3.2 5h7.6M4.2 8.5h5.6M5.5 12.2h3"/></svg>
+    Collectors
+  </div>
+  </div>
   </div>
   <div class="nav-grp nav-grp--collapsed" id="nav-grp-organization" data-nav-group="organization">
     <button type="button" class="nav-grp-hd" id="nav-grp-btn-organization" onclick="stToggleNavGroup('organization')" aria-expanded="false" aria-controls="nav-grp-body-organization">
@@ -154,13 +154,13 @@ if (!headers_sent()) {
         Scopes
       </div>
       <div class="ni" id="nenrich" data-nav-label="Enrichment" onclick="goTab('enrich');hiNav('nenrich')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M4 7h6M7 4v6"/></svg>
-        Enrichment
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1L1 4v3.5C1 10.5 3.5 13 7 13s6-2.5 6-5.5V4z"/><path d="M4 7h6M7 4v6"/></svg>
+    Enrichment
+  </div>
       <div class="ni" id="nintegrations" data-nav-label="Integrations" onclick="goTab('integrations');hiNav('nintegrations')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h8M3 7h8M3 9.5h5"/><rect x="1.5" y="2" width="11" height="10" rx="1.2"/></svg>
         Integrations
-      </div>
+  </div>
     </div>
   </div>
   <div class="nav-grp nav-grp--collapsed" id="nav-grp-administration" data-nav-group="administration">
@@ -170,12 +170,12 @@ if (!headers_sent()) {
     </button>
     <div class="nav-grp-body" id="nav-grp-body-administration">
       <div class="ni" id="naccess" data-nav-label="Access control" onclick="goTab('access');hiNav('naccess')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6.5" width="11" height="6" rx="1.2"/><path d="M4.5 6V4.8A2.5 2.5 0 0 1 7 2.3a2.5 2.5 0 0 1 2.5 2.5V6"/><circle cx="7" cy="9.5" r="0.8"/></svg>
-        Access control
-      </div>
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6.5" width="11" height="6" rx="1.2"/><path d="M4.5 6V4.8A2.5 2.5 0 0 1 7 2.3a2.5 2.5 0 0 1 2.5 2.5V6"/><circle cx="7" cy="9.5" r="0.8"/></svg>
+    Access control
+  </div>
       <div class="ni" id="nsettings" data-nav-label="Settings" onclick="goTab('settings');hiNav('nsettings')">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
-        Settings
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.9 2.9l1.4 1.4M9.7 9.7l1.4 1.4M2.9 11.1l1.4-1.4M9.7 4.3l1.4-1.4"/></svg>
+    Settings
       </div>
       <div class="ni" id="nhealth" data-nav-label="System health" onclick="goTab('health');hiNav('nhealth')">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="3" width="2.5" height="5" rx="0.3"/><rect x="4" y="1" width="2.5" height="7" rx="0.3"/><rect x="7" y="2" width="2.5" height="6" rx="0.3"/><rect x="10" y="4" width="2.5" height="4" rx="0.3"/></svg>
@@ -776,14 +776,14 @@ if (!headers_sent()) {
   <section class="report-section" aria-labelledby="report-sec-glance-heading">
     <h2 class="report-section-title" id="report-sec-glance-heading">At a glance</h2>
 
-    <div class="card mb10" id="report-scope-card">
+  <div class="card mb10" id="report-scope-card">
       <div class="report-card-title">Report scope</div>
       <p class="hint-micro mb8 text-dim" id="report-scope-mode-explainer" style="line-height:1.45">
         <strong>Job scope</strong> filters completed scan jobs by <code class="code-accent">scan_jobs.scope_id</code>.
         <strong>Inventory scope</strong> filters current assets by <code class="code-accent">assets.scope_id</code> and summarizes open findings for those assets.
       </p>
-      <div class="row-wrap gap10" style="align-items:flex-end">
-        <div>
+    <div class="row-wrap gap10" style="align-items:flex-end">
+      <div>
           <label class="flbl" for="report-scope-mode-select">Report mode</label>
           <select class="finp" id="report-scope-mode-select" style="min-width:220px" onchange="onReportingScopeModeChange()">
             <option value="job">Job scope reports</option>
@@ -792,34 +792,34 @@ if (!headers_sent()) {
         </div>
         <div>
           <label class="flbl" for="report-scope-select" id="report-scope-bucket-label">Which completed scans</label>
-          <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
-            <option value="all">All scopes (default)</option>
-            <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
-          </select>
-        </div>
-        <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
-        <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
+        <select class="finp" id="report-scope-select" style="min-width:280px" onchange="onReportingScopeChange()">
+          <option value="all">All scopes (default)</option>
+          <option value="0" title="Unscoped means scope unknown, not one shared environment.">Unscoped only</option>
+        </select>
       </div>
+      <button type="button" class="tbtn" id="report-scope-refresh-btn" onclick="void loadReportingScopeSelector(true)">Refresh scopes</button>
+      <button type="button" class="btnp" id="report-scope-create-btn" onclick="openStCreateScopeModal('report')" title="Add a named scope for reporting and Zabbix mapping (does not assign assets)">Create scope</button>
+    </div>
       <p class="hint-micro mb8 mt8 text-dim report-job-only" style="line-height:1.45">
         <strong>Job mode:</strong> each named option shows <strong>assets · done jobs</strong> (live inventory tag vs finished scans whose <code class="code-accent">scan_jobs.scope_id</code> was set when queued).
       </p>
-      <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
+    <div id="report-scope-detail" class="hint-micro mt8 text-dim" style="line-height:1.45"></div>
       <div id="report-scope-coverage-banner" class="report-scope-coverage-banner" style="display:none" role="status" aria-live="polite"></div>
       <details class="report-scope-details mt8 report-job-only">
         <summary class="report-details-summary">Job scope vs asset tags (technical)</summary>
-        <div class="hint-micro mt6 text-dim" style="line-height:1.45">
+    <div class="hint-micro mt6 text-dim" style="line-height:1.45">
           <strong>Job list filter:</strong> named options limit charts and job pickers to <strong>completed scans</strong> whose <code class="code-accent">scan_jobs.scope_id</code> matches the tag stored when the job was queued.<br><br>
           <strong>Dropdown labels:</strong> <strong>assets</strong> = live inventory tag (<code class="code-accent">assets.scope_id</code>); <strong>done</strong> = finished scans with this <code class="code-accent">scan_jobs.scope_id</code>. Charts filter by the job count, not the asset count.
-        </div>
+    </div>
       </details>
       <details class="report-scope-details mt8" id="report-scope-diag-details" style="display:none">
         <summary class="report-details-summary">Scope filter debug (admin)</summary>
         <pre id="report-scope-diag-pre" class="mono-sm hint-micro text-dim" style="white-space:pre-wrap;margin-top:8px;max-height:14rem;overflow:auto"></pre>
       </details>
       <div id="report-scope-unscoped-warn" class="hint-micro mt8 hstate-warn report-job-only" style="display:none">
-        <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
-      </div>
+      <strong>Unscoped only</strong> — jobs have no scope tag, so <strong>scope is unknown</strong> (not one shared environment). History and charts still list them; automatic drift only runs when a compatible prior scan is found. Use a named scope for like-for-like drift.
     </div>
+  </div>
 
     <div class="card mb10" id="report-inventory-summary-card" style="display:none">
       <div class="report-card-title">Inventory scope — current state</div>
@@ -830,7 +830,7 @@ if (!headers_sent()) {
     </div>
 
     <div class="report-job-only">
-    <div class="card mb10" id="report-at-glance-card">
+  <div class="card mb10" id="report-at-glance-card">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Summary for the <strong>latest completed scan</strong> that matches your report scope, plus a quick compliance readout when available.
       </p>
@@ -838,17 +838,17 @@ if (!headers_sent()) {
         <summary class="report-details-summary">What “Live” and the compliance line mean</summary>
         <div class="hint-micro mt6 text-dim" style="line-height:1.45">
           <strong>Live / current</strong> — inventory and open findings as of now (Dashboard API). <strong>Compliance line</strong> — snapshot rules for the <em>latest completed scan</em> matching your scope filter (<strong>All scopes</strong> = globally latest; named scope = latest in that scope); the job number is called out in the sentence.
-        </div>
-      </details>
-      <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
-      <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
     </div>
+      </details>
+    <div id="report-at-glance-kpis" class="row-wrap gap8" style="align-items:stretch"><span class="text-dim">Loading…</span></div>
+    <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
+  </div>
     </div>
   </section>
 
   <section class="report-section report-job-only" aria-labelledby="report-sec-drift-heading">
     <h2 class="report-section-title" id="report-sec-drift-heading">Snapshot drift</h2>
-    <div class="card mb10">
+  <div class="card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         <strong>Automatic drift</strong> compares the latest finished scan in your filter to a <strong>reference</strong> scan (saved baseline, prior job in the same scope, or a compatible prior for unscoped jobs). Read-only.
       </p>
@@ -858,15 +858,15 @@ if (!headers_sent()) {
           <strong>All scopes:</strong> drift uses the latest scan’s <em>named scope</em> baseline when applicable, else an operator-set legacy global baseline for unscoped jobs only, else the prior finished job in the <strong>same named scope</strong>.<br><br>
           <strong>Unscoped latest scans:</strong> the prior reference is chosen only when a compatibility signal matches (same schedule, batch, target CIDR, or label prefix); unrelated legacy scans are not auto-paired.<br><br>
           <strong>Named / Unscoped filter:</strong> baseline rules for that bucket, then a compatible prior when unscoped.
-        </div>
-      </details>
-      <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
     </div>
+      </details>
+    <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
+  </div>
   </section>
 
   <section class="report-section report-job-only" aria-labelledby="report-sec-trends-heading">
     <h2 class="report-section-title" id="report-sec-trends-heading">Trends</h2>
-    <div class="card mb10">
+  <div class="card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Each point is one <strong>finished</strong> job in the current report scope (last <em>N</em> jobs). Not real-time.
       </p>
@@ -874,22 +874,22 @@ if (!headers_sent()) {
         <summary class="report-details-summary">More about snapshot trends</summary>
         <div class="hint-micro mt6 text-dim" style="line-height:1.45">
           Charts use the same bounded history list as the job count above. <strong>All scopes</strong> includes every completed job in the list; a named scope or Unscoped only limits which jobs appear.
-        </div>
-      </details>
-      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-        <div>
-          <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
-          <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="30" selected>30</option>
-            <option value="50">50</option>
-          </select>
-        </div>
-        <button type="button" class="tbtn" onclick="loadReportingTrendsSummary(false)">Reload history</button>
-      </div>
-      <div id="report-trends-out" class="report-trends-out text-dim">History loads when you open this tab.</div>
     </div>
+      </details>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-trends-limit">Last N completed jobs</label>
+        <select class="finp narrow" id="report-trends-limit" aria-label="Number of jobs for trend">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+      <button type="button" class="tbtn" onclick="loadReportingTrendsSummary(false)">Reload history</button>
+    </div>
+    <div id="report-trends-out" class="report-trends-out text-dim">History loads when you open this tab.</div>
+  </div>
   </section>
 
   <section class="report-section report-manual-tools report-job-only" aria-labelledby="report-sec-manual-heading">
@@ -903,38 +903,38 @@ if (!headers_sent()) {
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Pick any two finished jobs for a custom snapshot diff (same style as automatic drift above). Use when you need a specific pair or automatic drift is not available.
       </p>
-      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-        <div>
-          <label class="flbl" for="report-cmp-a">Reference scan</label>
-          <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Reference completed scan"></select>
-        </div>
-        <div>
-          <label class="flbl" for="report-cmp-b">Current scan</label>
-          <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Current completed scan"></select>
-        </div>
-        <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-cmp-a">Reference scan</label>
+        <select class="finp" id="report-cmp-a" style="min-width:260px" aria-label="Reference completed scan"></select>
       </div>
-      <div id="report-cmp-out" class="help-mono text-dim">Pick a reference scan and a current scan, then <strong>Compare</strong>.</div>
+      <div>
+        <label class="flbl" for="report-cmp-b">Current scan</label>
+        <select class="finp" id="report-cmp-b" style="min-width:260px" aria-label="Current completed scan"></select>
+      </div>
+      <button type="button" class="tbtn" onclick="runReportingCompareSummary()">Compare</button>
     </div>
+    <div id="report-cmp-out" class="help-mono text-dim">Pick a reference scan and a current scan, then <strong>Compare</strong>.</div>
+  </div>
 
     <h3 class="report-subheading">Compliance detail</h3>
     <div class="card mb10 report-manual-card">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Full rule text for one completed job. Optional: evaluate extra rules against the saved baseline. The <strong>At a glance</strong> section shows a quick pass/fail for the latest job only.
       </p>
-      <div class="row-wrap gap6 mb8" style="align-items:flex-end">
-        <div>
-          <label class="flbl" for="report-compliance-job">Completed scan job</label>
-          <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
-        </div>
+    <div class="row-wrap gap6 mb8" style="align-items:flex-end">
+      <div>
+        <label class="flbl" for="report-compliance-job">Completed scan job</label>
+        <select class="finp" id="report-compliance-job" style="min-width:260px" aria-label="Job for compliance"></select>
+      </div>
         <label class="flbl chk" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px" title="When off, only always-on rules (e.g. no open critical) are evaluated">
           <input type="checkbox" class="chk-input" id="report-compliance-vs-baseline" checked>
           <span class="chk-label">Vs baseline rules</span>
-        </label>
-        <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
-      </div>
-      <div id="report-compliance-out" class="help-mono text-dim">Select a job and <strong>Load compliance</strong> for rule-by-rule output.</div>
+      </label>
+      <button type="button" class="tbtn" onclick="loadReportingCompliancePanel()">Load compliance</button>
     </div>
+    <div id="report-compliance-out" class="help-mono text-dim">Select a job and <strong>Load compliance</strong> for rule-by-rule output.</div>
+  </div>
 
     <h3 class="report-subheading">Baseline for this report scope</h3>
     <div class="card mb10 report-manual-card">
@@ -957,13 +957,13 @@ if (!headers_sent()) {
 
     <h3 class="report-subheading" id="report-artifacts-heading" style="display:none">Saved report artifacts</h3>
     <div id="report-artifacts-wrap" class="card mb10 report-manual-card" style="display:none">
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
-          <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
-        </table>
-      </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
+        <tbody id="report-artifacts-tbody"><tr><td colspan="7" class="text-dim">Loading…</td></tr></tbody>
+      </table>
     </div>
+  </div>
   </section>
 
   <section id="report-advanced-region" class="report-section report-advanced-region report-job-only" style="display:none" aria-labelledby="report-sec-advanced-heading">
@@ -973,7 +973,7 @@ if (!headers_sent()) {
       <div id="report-baseline-debug-wrap" class="mt10">
         <div class="hint-micro mb6 hstate-warn" style="line-height:1.45">
           <strong>baseline_debug</strong> — raw diagnostic output only; not the operator-facing baseline text.
-        </div>
+  </div>
         <button type="button" class="tbtn btn-xs" onclick="loadReportingBaselineDebug()">Load baseline_debug</button>
         <pre id="report-baseline-debug-out" class="help-mono mt8" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px" title="Raw baseline_debug JSON (admin diagnostic)"></pre>
       </div>
@@ -1180,11 +1180,11 @@ if (!headers_sent()) {
           <h3 id="scan-hist-detail-sec-compare" class="scan-hist-detail-sec-title">Compare</h3>
           <div class="scan-hist-detail-sec-body row-wrap gap6" style="align-items:center">
             <label for="scan-hist-compare-select" class="text-micro text-dim">Against</label>
-            <select id="scan-hist-compare-select" class="finp narrow w130"></select>
+        <select id="scan-hist-compare-select" class="finp narrow w130"></select>
             <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-target"> same target</label>
             <label class="text-micro text-dim" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="scan-hist-compare-same-profile"> same profile/mode</label>
-            <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
-          </div>
+        <button type="button" class="tbtn btn-xs" id="scan-hist-compare-btn">Apply</button>
+      </div>
           <div id="scan-hist-detail-diff-wrap" class="scan-hist-detail-diff-wrap" style="display:none" aria-live="polite">
             <div id="scan-hist-detail-diff" class="scan-hist-detail-panel help-mono mt8"></div>
           </div>
@@ -1209,8 +1209,8 @@ if (!headers_sent()) {
             <table class="tbl tbl--data scan-hist-detail-asset-tbl">
               <thead><tr><th class="tbl-th-no-sort">IP</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Category</th><th class="tbl-th-no-sort">Ports</th></tr></thead>
               <tbody id="scan-hist-detail-assets"><tr><td colspan="4" class="loading tbl-empty">Loading assets…</td></tr></tbody>
-            </table>
-          </div>
+        </table>
+      </div>
           <p id="scan-hist-detail-assets-hint" class="hint-micro mt8 scan-hist-detail-assets-hint" style="display:none">Click a row to open the linked <strong>device</strong> (when assigned) or the <strong>host</strong> (asset) at that IP in Inventory.</p>
         </section>
 
@@ -1293,19 +1293,19 @@ if (!headers_sent()) {
   </p>
 
   <div class="enrich-stack enrich-sources-stack mb12">
-    <div class="card">
-      <div class="ct">Active sources</div>
+      <div class="card">
+        <div class="ct">Active sources</div>
       <p class="hint-micro text-dim mb10" style="line-height:1.45">
         SNMP, files, APIs, and similar sources run during scans or scheduled jobs when configured.
       </p>
       <div class="flbl enrich-sources-subhd enrich-sources-subhd--top">Configured</div>
-      <div id="enrich-list"><div class="loading">Loading…</div></div>
+        <div id="enrich-list"><div class="loading">Loading…</div></div>
       <div class="enrich-card-actions mt10">
         <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
-      </div>
+        </div>
       <div class="flbl enrich-sources-subhd enrich-sources-subhd--avail">Available sources</div>
       <p class="hint-micro text-dim mb6" style="line-height:1.45">Types you can add; status shows readiness on this server.</p>
-      <div id="enrich-types"><div class="loading">Loading…</div></div>
+        <div id="enrich-types"><div class="loading">Loading…</div></div>
       <details class="enrich-how-details mt12">
         <summary class="enrich-how-details-summary">How enrichment works</summary>
         <div class="help-line mt8" style="line-height:1.8">
@@ -1334,99 +1334,99 @@ if (!headers_sent()) {
       </div>
       <p id="enrich-zbx-connector" class="enrich-zbx-connector hint-micro text-dim" style="display:none" role="note">Use workflows below to review and apply matches.</p>
       <div class="card enrich-zabbix-tools-card mb0" id="st-zabbix-enrich-tools-wrap" style="display:none">
-        <div class="zb-enrich-tools-head">
+    <div class="zb-enrich-tools-head">
           <div>
             <div id="zb-enrich-tools-heading" class="ct mb0">Match review &amp; workflows</div>
             <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>. Scope-rule diagnostics live in this panel.</p>
-          </div>
+    </div>
           <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open tools</button>
         </div>
         <div id="zb-enrich-freshness-banner" class="mb8" style="display:none" aria-live="polite"></div>
         <p class="hint-micro mb8 text-dim" id="zb-enrich-tools-preview">Review matches, apply scope rules, and link assets.</p>
-        <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
-          <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
-            <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
-            <div class="row-wrap gap6 mt6">
-              <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
-              <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
-            </div>
-          </div>
-
-          <div class="zb-enrich-section">
-            <div class="flbl">Match review</div>
-            <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
-            <button type="button" class="tbtn btn-sm mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
-            <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open tools above, then click Refresh.</div>
-          </div>
-
-          <div class="zb-enrich-section">
-            <div class="flbl">Scope map rules</div>
-            <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-            <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
-              <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
-              <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
-                <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
-                <div id="zb-diagnostics-detail" class="hint-micro mono-sm text-dim"></div>
-              </div>
-            </div>
-            <div id="zb-rules-wrap" class="mb6"></div>
-            <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
-            <div class="row-wrap gap6 mb8">
-              <button type="button" class="tbtn btn-sm" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
-              <button type="button" class="tbtn btn-sm" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
-            </div>
-            <div id="zb-preview" class="mb0">—</div>
-          </div>
-
-          <div class="zb-enrich-section">
-            <div class="flbl">Apply actions</div>
-            <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
-            <div id="zb-identity-block">
-              <div class="zb-subhead">Identity</div>
-              <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
-              <div class="row-wrap gap6 mb6">
-                <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
-              </div>
-              <div id="zb-identity-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk">
-                <input type="checkbox" class="chk-input" id="zb-identity-confirm">
-                I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
-              </label>
-              <button type="button" class="btnp mt10" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
-            </div>
-
-            <div id="zb-scope-apply-block" class="zb-enrich-scope-apply" style="display:none">
-              <div class="zb-subhead">Scope map apply</div>
-              <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
-              <div class="row-wrap gap6 mb6">
-                <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
-              </div>
-              <div id="zb-apply-plan-body" class="mb6">—</div>
-              <label class="text-micro zb-enrich-confirm-row chk">
-                <input type="checkbox" class="chk-input" id="zb-apply-confirm">
-                I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
-              </label>
-              <button type="button" class="btnp mt10" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
-            </div>
-          </div>
-
-          <div class="zb-enrich-section">
-            <div class="flbl">Manual link / unlink</div>
-            <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
-            <div class="row-wrap gap6 mb6">
-              <input class="finp narrow zb-manual-inp zb-manual-inp--aid" id="zb-link-aid" type="number" min="1" placeholder="Asset id">
-              <input class="finp narrow zb-manual-inp zb-manual-inp--hid" id="zb-link-hid" placeholder="Zabbix hostid">
-              <input class="finp narrow zb-manual-inp zb-manual-inp--meth" id="zb-link-method" placeholder="match_method" value="manual">
-              <input class="finp narrow zb-manual-inp zb-manual-inp--conf" id="zb-link-conf" placeholder="confidence" value="1">
-              <button type="button" class="tbtn btn-sm" onclick="stZabbixManualLink()">Link</button>
-            </div>
-            <div class="row-wrap gap6">
-              <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
-              <button type="button" class="tbtn btn-sm tbtn--danger-quiet" onclick="stZabbixManualUnlink()">Unlink asset</button>
-            </div>
-          </div>
+    <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
+      <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
+        <strong>No scan scopes exist yet.</strong> Create one to enable Zabbix scope mapping (catalog only — no automatic asset assignment).
+        <div class="row-wrap gap6 mt6">
+          <button type="button" class="btnp btn-xs" onclick="openStCreateScopeModal('enrich')">Create scope</button>
+          <button type="button" class="tbtn btn-xs" onclick="goTab('report');hiNav('nreport')">Reports &amp; Analysis</button>
         </div>
       </div>
+
+      <div class="zb-enrich-section">
+        <div class="flbl">Match review</div>
+        <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+            <button type="button" class="tbtn btn-sm mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
+            <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open tools above, then click Refresh.</div>
+      </div>
+
+      <div class="zb-enrich-section">
+        <div class="flbl">Scope map rules</div>
+        <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
+        <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
+          <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
+          <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
+            <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
+            <div id="zb-diagnostics-detail" class="hint-micro mono-sm text-dim"></div>
+          </div>
+        </div>
+        <div id="zb-rules-wrap" class="mb6"></div>
+        <button type="button" class="tbtn btn-xs mb6" id="zb-add-rule-btn" onclick="stZabbixAddRuleRow()">Add rule</button>
+        <div class="row-wrap gap6 mb8">
+              <button type="button" class="tbtn btn-sm" id="zb-preview-rules-btn" onclick="stZabbixPreviewRules()">Preview mapping</button>
+              <button type="button" class="tbtn btn-sm" id="zb-save-rules-btn" onclick="stZabbixSaveRules()">Save rules</button>
+        </div>
+        <div id="zb-preview" class="mb0">—</div>
+      </div>
+
+      <div class="zb-enrich-section">
+        <div class="flbl">Apply actions</div>
+        <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
+        <div id="zb-identity-block">
+          <div class="zb-subhead">Identity</div>
+          <p class="hint-micro mb6">Fill blank SurveyTrace <strong>hostname</strong> from the linked Zabbix name (preview → confirm → apply only). Does not touch locked or non-empty hostnames. Apply also sets <strong>hostname lock</strong> and high identity confidence so later scans do not overwrite the applied name. Separate from scope mapping.</p>
+          <div class="row-wrap gap6 mb6">
+                <button type="button" class="tbtn btn-sm" id="zb-identity-build-btn" onclick="stZabbixLoadIdentityPlan()">Build identity plan</button>
+          </div>
+          <div id="zb-identity-plan-body" class="mb6">—</div>
+              <label class="text-micro zb-enrich-confirm-row chk">
+                <input type="checkbox" class="chk-input" id="zb-identity-confirm">
+            I confirm updating <code class="code-accent">hostname</code> for the selected assets only (blank hostname, not locked), and locking the hostname after apply.
+          </label>
+              <button type="button" class="btnp mt10" id="zb-identity-apply-btn" onclick="stZabbixApplyIdentitySelection()">Apply selected identity updates</button>
+        </div>
+
+        <div id="zb-scope-apply-block" class="zb-enrich-scope-apply" style="display:none">
+          <div class="zb-subhead">Scope map apply</div>
+          <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
+          <div class="row-wrap gap6 mb6">
+                <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
+          </div>
+          <div id="zb-apply-plan-body" class="mb6">—</div>
+              <label class="text-micro zb-enrich-confirm-row chk">
+                <input type="checkbox" class="chk-input" id="zb-apply-confirm">
+            I confirm updating <code class="code-accent">scan_scopes</code> for the selected assets only.
+          </label>
+              <button type="button" class="btnp mt10" id="zb-apply-exec-btn" onclick="stZabbixApplyPlanSelection()">Apply selected rows</button>
+        </div>
+      </div>
+
+      <div class="zb-enrich-section">
+        <div class="flbl">Manual link / unlink</div>
+        <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
+        <div class="row-wrap gap6 mb6">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--aid" id="zb-link-aid" type="number" min="1" placeholder="Asset id">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--hid" id="zb-link-hid" placeholder="Zabbix hostid">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--meth" id="zb-link-method" placeholder="match_method" value="manual">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--conf" id="zb-link-conf" placeholder="confidence" value="1">
+              <button type="button" class="tbtn btn-sm" onclick="stZabbixManualLink()">Link</button>
+        </div>
+        <div class="row-wrap gap6">
+          <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
+              <button type="button" class="tbtn btn-sm tbtn--danger-quiet" onclick="stZabbixManualUnlink()">Unlink asset</button>
+            </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -5684,12 +5684,12 @@ async function submitStEditScope() {
     }
     toast('Scope updated', 'ok');
     closeStEditScopeModal();
-    stScopesForFormsCache = null;
-    await ensureStScopeSelects(true);
-    void loadScopesTab();
-    void loadReportingScopeSelector(true);
-    if (stRoleIsAdmin()) {
-        void loadZabbixEnrichmentPanel();
+        stScopesForFormsCache = null;
+        await ensureStScopeSelects(true);
+        void loadScopesTab();
+        void loadReportingScopeSelector(true);
+        if (stRoleIsAdmin()) {
+            void loadZabbixEnrichmentPanel();
     }
 }
 
@@ -6144,9 +6144,9 @@ async function loadAssets(page) {
     const apgn = document.getElementById('apgn-info');
     if (apgn) {
         apgn.textContent =
-            assetDeviceFilter > 0
-                ? `Page ${d.page} of ${d.pages} (${d.total} assets for device ${assetDeviceFilter})`
-                : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
+        assetDeviceFilter > 0
+            ? `Page ${d.page} of ${d.pages} (${d.total} assets for device ${assetDeviceFilter})`
+            : `Page ${d.page} of ${d.pages} (${d.total} assets)`;
     }
     const aprev = document.getElementById('aprev');
     const anext = document.getElementById('anext');
@@ -6154,7 +6154,7 @@ async function loadAssets(page) {
     if (anext) anext.disabled = page >= d.pages;
     stAssetsUpdateBulkBarVisibility();
     try {
-        stAssetsRenderFilterSummary();
+    stAssetsRenderFilterSummary();
     } catch (e) {
         console.error('stAssetsRenderFilterSummary', e);
     }
@@ -7172,10 +7172,10 @@ function stRenderQueuePanelFromCache() {
           <td class="nowrap-cell tbl-cell-actions">
             ${isRun
                 ? `<button type="button" class="btnd btn-xxs" data-scan-action="abort" data-job-id="${j.id}">\u25a0 Abort</button>`
-                : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
+              : `<button type="button" class="tbtn btn-xxs danger" data-scan-action="cancel" data-job-id="${j.id}">Cancel</button>`}
             ${!isRun
                 ? `<button type="button" class="tbtn btn-xxs" data-scan-action="set-priority" data-job-id="${j.id}" data-current-priority="${j.priority || 10}">Set priority</button>`
-                : ''}
+              : ''}
           </td>
         </tr>`;
     }).join('');
@@ -17490,7 +17490,7 @@ async function openHostPanel(id, ip) {
         <h3 class="host-section-heading">Open ports (${ports.length})</h3>
       <div class="mb0 host-inner-surface">${portRows}</div>
       </section>
-          </div>
+      </div>
           <div class="host-tab-panel" data-tab="vulns" role="tabpanel" id="hp-panel-vulns" aria-labelledby="hp-tab-vulns" hidden>
       <section class="host-section" aria-label="Open vulnerabilities">
         <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
