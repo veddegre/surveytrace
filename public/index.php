@@ -520,7 +520,7 @@ if (!headers_sent()) {
       <option value="2018">2018+</option>
       <option value="2015">2015+</option>
     </select>
-    <select class="finp narrow" id="vf-confidence" onchange="loadFindings(1)" title="Detection confidence (Phase 10)">
+    <select class="finp narrow" id="vf-confidence" onchange="loadFindings(1)" title="Detection confidence (CVE triage)">
       <option value="">All confidence</option>
       <option value="high">High</option>
       <option value="medium">Medium</option>
@@ -606,7 +606,7 @@ if (!headers_sent()) {
         </div>
       </div>
       <div class="card">
-        <div class="ct">Scan phases</div>
+        <div class="ct">Scan steps</div>
         <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog"><input type="checkbox" id="ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog"><input type="checkbox" id="ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
         <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog"><input type="checkbox" id="ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
@@ -673,7 +673,7 @@ if (!headers_sent()) {
       </div>
       <div class="card" id="scan-enrich-card">
         <div class="ct">Network enrichment (this scan)</div>
-        <div class="tsubl" style="margin-bottom:8px">Phase 3b runs the sources you configure under <strong>Enrichment</strong> (controllers, SNMP, logs, and other integrations). All enabled sources are used by default; uncheck any you want to skip for this job only, or turn all off to skip the phase.</div>
+        <div class="tsubl" style="margin-bottom:8px">Network enrichment runs the sources you configure under <strong>Enrichment</strong> (controllers, SNMP, logs, and other integrations). All enabled sources are used by default; uncheck any you want to skip for this job only, or turn all off to skip enrichment for this run.</div>
         <div id="scan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
       </div>
       <div class="card">
@@ -766,7 +766,7 @@ if (!headers_sent()) {
   </div>
 </div>
 
-<!-- ================================================================ REPORTS & ANALYSIS (Phase 13) -->
+<!-- ================================================================ REPORTS & ANALYSIS -->
 <div class="tab" id="t-report">
   <div class="sth section-top report-page-title">Reports &amp; Analysis</div>
   <p class="hint-micro report-page-lead mb12" style="max-width:min(100%,52rem);line-height:1.5">
@@ -1072,7 +1072,7 @@ if (!headers_sent()) {
       <div class="hint-micro mb4">1 = highest, 100 = lowest. Default 20 for scheduled runs.</div>
       <input class="finp w100 mb10" type="number" id="sched-priority" min="1" max="100" value="20">
 
-      <label class="flbl">Scan phases</label>
+      <label class="flbl">Scan steps</label>
       <div class="hint-micro mb6">Same as the Scan tab — pick at least one.</div>
       <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP / mDNS — no active probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP discovery</div></div><label class="tog"><input type="checkbox" id="sched-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
@@ -1082,7 +1082,7 @@ if (!headers_sent()) {
       <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only OT probes</div></div><label class="tog"><input type="checkbox" id="sched-ph-ot"><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2 mb10"><div><div class="tl">CVE correlation</div><div class="tsubl">Local NVD match</div></div><label class="tog"><input type="checkbox" id="sched-ph-cve" checked><div class="trk"></div><div class="tth"></div></label></div>
 
-      <label class="flbl">Network enrichment (Phase 3b)</label>
+      <label class="flbl">Network enrichment</label>
       <div class="hint-micro mb6">Same sources as <strong>Enrichment</strong> — matches the Scan tab; all enabled on = default.</div>
       <div id="sched-enrichment-wrap" data-ready="0" class="mb10"><div class="hint-micro">Sources load when you open this form.</div></div>
 
@@ -1289,7 +1289,7 @@ if (!headers_sent()) {
 <div class="tab" id="t-enrich">
   <div class="sth section-top">Enrichment</div>
   <p class="hint-micro enrich-intro mb12">
-    Phase 3b sources and optional vendor connectors add context to assets and scans. Configure <strong>active sources</strong> first; optional <strong>Zabbix</strong> adds monitoring you already trust (sync, match review, and scope workflows below).
+    Network enrichment sources and optional vendor connectors add context to assets and scans. Configure <strong>active sources</strong> first; optional <strong>Zabbix</strong> adds monitoring you already trust (sync, match review, and scope workflows below).
   </p>
 
   <div class="enrich-stack enrich-sources-stack mb12">
@@ -1309,7 +1309,7 @@ if (!headers_sent()) {
       <details class="enrich-how-details mt12">
         <summary class="enrich-how-details-summary">How enrichment works</summary>
         <div class="help-line mt8" style="line-height:1.8">
-          Enrichment sources run as <b class="text-strong">Phase 3b</b> during each scan (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
+          Enrichment sources run during each scan as <b class="text-strong">network enrichment</b> (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
           They add hostnames, MACs, VLANs, and other context the scanner may not see on its own — especially across routers or for hosts that barely respond to probes.<br><br>
           <b class="text-strong">Integrations</b> — vendor APIs and dashboards you already use can return many clients in one call when that system already knows them.<br><br>
           <b class="text-strong">SNMP</b> — read-only walks on routers or switches (ARP tables, bridge data) as a vendor-neutral option.<br><br>
@@ -1447,7 +1447,7 @@ if (!headers_sent()) {
   </div>
 </div>
 
-<!-- ================================================================ CHANGE ALERTS (Phase 9) -->
+<!-- ================================================================ CHANGE ALERTS -->
 <div class="tab" id="t-alerts">
   <div class="row-between mb12">
     <div class="sth section-title-reset">Change alerts</div>
@@ -2367,7 +2367,7 @@ if (!headers_sent()) {
   </div>
 </div>
 
-<!-- Rescan single host — profile + scan options (matches Scan tab: rates, discovery, phases, exclusions, enrichment) -->
+<!-- Rescan single host — profile + scan options (matches Scan tab: rates, discovery, scan steps, exclusions, enrichment) -->
 <div id="host-rescan-bg" class="modal-bg z220" style="display:none" role="dialog" aria-labelledby="host-rescan-title">
   <div class="modal-card modal-w600" onclick="event.stopPropagation()">
     <div id="host-rescan-title" class="modal-title mb6">Rescan host</div>
@@ -2408,7 +2408,7 @@ if (!headers_sent()) {
         <div><div class="tl">Force (-Pn)</div><div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping</div></div>
         <input class="accent-radio" type="radio" name="hr_scan_mode" id="hr-sm-force" value="force">
       </div>
-      <div class="ct mb4 mt8">Scan phases</div>
+      <div class="ct mb4 mt8">Scan steps</div>
       <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS — zero packets sent</div></div><label class="tog"><input type="checkbox" id="hr-ph-passive" checked><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep</div></div><label class="tog"><input type="checkbox" id="hr-ph-icmp" checked><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list</div></div><label class="tog"><input type="checkbox" id="hr-ph-banner" checked><div class="trk"></div><div class="tth"></div></label></div>
@@ -2425,7 +2425,7 @@ if (!headers_sent()) {
       </select>
       <div class="hint-micro mb8">Route this rescan to a remote collector for local-site ARP/mDNS when the host is on that network (same as the Scan tab).</div>
       <div class="ct mb4 mt8">Network enrichment (this scan)</div>
-      <div class="tsubl mb6">Phase 3b uses sources from <strong>Enrichment</strong>. Uncheck to skip a source for this job only; all checked matches the Scan tab default (omit subset in API).</div>
+      <div class="tsubl mb6">Network enrichment uses sources from <strong>Enrichment</strong>. Uncheck to skip a source for this job only; all checked matches the Scan tab default (omit subset in API).</div>
       <div id="host-rescan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
     </div>
     <div class="row-end">
@@ -2589,7 +2589,7 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
     </div>
     <p class="hint-micro mb10">Adds a row to the <strong>scan_scopes</strong> catalog only. Scans or Zabbix rules can reference it later — <strong>no assets are assigned</strong> and <strong>Zabbix rules are not applied</strong> automatically.</p>
     <label class="flbl">Name <span class="text-dim">(required)</span></label>
-    <input class="finp w100 mb8" id="st-scope-create-name" maxlength="200" placeholder="e.g. Vedorama datacenter">
+    <input class="finp w100 mb8" id="st-scope-create-name" maxlength="200" placeholder="e.g. Datacenter — site A">
     <label class="flbl">Description <span class="text-dim">(optional)</span></label>
     <textarea class="finp w100 mb8" id="st-scope-create-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
     <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
@@ -2614,7 +2614,7 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
     <p class="hint-micro mb10">Updates the catalog row only. Historical scan jobs keep their stored <code class="code-accent">scope_id</code>; labels in dropdowns and Zabbix mapping pick up the new name after save.</p>
     <input type="hidden" id="st-scope-edit-id" value="0">
     <label class="flbl">Name <span class="text-dim">(required)</span></label>
-    <input class="finp w100 mb8" id="st-scope-edit-name" maxlength="200" placeholder="e.g. Vedorama datacenter">
+    <input class="finp w100 mb8" id="st-scope-edit-name" maxlength="200" placeholder="e.g. Datacenter — site A">
     <label class="flbl">Description <span class="text-dim">(optional)</span></label>
     <textarea class="finp w100 mb8" id="st-scope-edit-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
     <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
@@ -6161,7 +6161,7 @@ async function loadAssets(page) {
 }
 
 // --------------------------------------------------------------------------
-// CVE triage display (Phase 10 — used by Vulnerabilities tab + host panel)
+// CVE triage display (used by Vulnerabilities tab + host panel)
 // --------------------------------------------------------------------------
 function findingTriageMethodLabel(m) {
     const k = String(m || '');
@@ -6410,7 +6410,7 @@ async function startScan(urgent = false) {
 }
 
 // ---------------------------------------------------------------------------
-// Host rescan — modal: profile + phases/rates/discovery (Scan tab syncs after queue)
+// Host rescan — modal: profile + scan steps/rates/discovery (Scan tab syncs after queue)
 // ---------------------------------------------------------------------------
 var hostRescanModalResolve = null;
 
@@ -6446,7 +6446,7 @@ function applyHostRescanModalRateSlidersForProfile(profile) {
     if (delVal) delVal.textContent = del + ' ms';
 }
 
-function syncHostRescanModalPhaseBannerOpacity() {
+function syncHostRescanModalScanStepBannerOpacity() {
     ['hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-cve'].forEach(id => {
         const el = document.getElementById(id);
         const tr = el && el.closest('.tr2');
@@ -6575,7 +6575,7 @@ function openHostRescanModal(ipTrim) {
                 const cur = document.querySelector('input[name="scan_profile"]:checked');
                 sel.value = cur && HOST_RESCAN_PROFILE_IDS.has(cur.value) ? cur.value : 'standard_inventory';
                 readScanTabIntoHostRescanModal();
-                syncHostRescanModalPhaseBannerOpacity();
+                syncHostRescanModalScanStepBannerOpacity();
                 await refreshScanEnrichmentPicker('host-rescan-enrichment-wrap');
                 syncHostRescanEnrichmentFromScanTab();
                 updateHostRescanHint();
@@ -6609,7 +6609,7 @@ function wireHostRescanModalOnce() {
     });
     document.getElementById('host-rescan-cancel-btn')?.addEventListener('click', () => closeHostRescanModal(null));
     ['hr-ph-passive', 'hr-ph-icmp', 'hr-ph-banner', 'hr-ph-fingerprint', 'hr-ph-snmp', 'hr-ph-ot', 'hr-ph-cve'].forEach(id => {
-        document.getElementById(id)?.addEventListener('change', syncHostRescanModalPhaseBannerOpacity);
+        document.getElementById(id)?.addEventListener('change', syncHostRescanModalScanStepBannerOpacity);
     });
     document.getElementById('host-rescan-queue-btn')?.addEventListener('click', () => {
         const s = document.getElementById('host-rescan-profile');
@@ -6640,7 +6640,7 @@ function wireHostRescanModalOnce() {
 }
 
 /**
- * Queue a single-host scan (/32). Host modal sets profile, phases, rates, discovery, exclusions, enrichment; then POSTs.
+ * Queue a single-host scan (/32). Host modal sets profile, scan steps, rates, discovery, exclusions, enrichment; then POSTs.
  * On success, the Scan tab is updated to match. Requires scan_editor or admin (API enforced).
  */
 async function queueHostRescan(ip, triggerBtn) {
@@ -7918,7 +7918,7 @@ function stScanHistDetailProgressHtml(j) {
       <div><span class="text-dim">Profile</span> <span class="text-primary">${esc(String((j.profile || '').replace(/_/g, ' ') || '\u2014'))}</span></div>
       <div><span class="text-dim">Mode</span> <span class="text-primary">${esc(String(j.scan_mode || '\u2014'))}</span></div>
       <div><span class="text-dim">Hosts scanned</span> <b>${esc(String(scanned))}</b> <span class="text-dim">/</span> <span class="text-dim">found</span> <b>${esc(String(found))}</b></div>
-      <div><span class="text-dim">Phases run</span> <span class="mono-sm">${phases}</span></div>
+      <div><span class="text-dim">Steps run</span> <span class="mono-sm">${phases}</span></div>
     </div>${batch}${trashed}${err}`;
 }
 
@@ -8806,7 +8806,7 @@ function formatAuditTarget(ev) {
         if (d.label) parts.push(String(d.label));
         if (d.target_cidr) parts.push(String(d.target_cidr));
         if (prof) parts.push(prof);
-        if (Array.isArray(d.phases) && d.phases.length) parts.push('phases: ' + d.phases.join(', '));
+        if (Array.isArray(d.phases) && d.phases.length) parts.push('steps: ' + d.phases.join(', '));
         if (d.job_id != null && d.job_id !== '') parts.push('job #' + d.job_id);
         if (parts.length) return parts.join(' · ').slice(0, 220);
     }
@@ -15887,7 +15887,7 @@ async function openSchedModal(s) {
         const prof = document.getElementById('sched-profile').value;
         updateSchedProfileHelp(prof);
         updateSchedProfileWarn(prof);
-        syncSchedPhaseRowOpacityFromProfile();
+        syncSchedScanStepRowOpacityFromProfile();
     }
 
     await refreshSchedEnrichmentPicker(parseSchedEnrichmentIds(s));
@@ -16088,7 +16088,7 @@ async function saveSchedule() {
     schedPhKeys.forEach(p => {
         if (document.getElementById('sched-ph-' + p)?.checked) phases.push(p);
     });
-    if (!phases.length) { toast('Select at least one scan phase', 'err'); return; }
+    if (!phases.length) { toast('Select at least one scan step', 'err'); return; }
 
     let pr = parseInt(document.getElementById('sched-priority')?.value || '20', 10);
     if (pr < 1) pr = 1;
@@ -16587,7 +16587,7 @@ function applyScanTabRateSlidersForProfile(profile) {
     if (delVal) delVal.textContent = del + ' ms';
 }
 
-/** Mirror applySchedProfileDefaults for the manual Scan tab (phases, rates, mode, profile UI). */
+/** Mirror applySchedProfileDefaults for the manual Scan tab (scan steps, rates, mode, profile UI). */
 function applyScanTabProfileDefaults(profile) {
     const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
     ['ph-banner', 'ph-fingerprint', 'ph-cve'].forEach(id => {
@@ -16841,7 +16841,7 @@ function updateHostRescanProfileWarn(profile) {
     }
 }
 
-function syncSchedPhaseRowOpacityFromProfile() {
+function syncSchedScanStepRowOpacityFromProfile() {
     const profile = document.getElementById('sched-profile')?.value || 'standard_inventory';
     const allowBanner = !['iot_safe', 'ot_careful'].includes(profile);
     ['sched-ph-banner', 'sched-ph-fingerprint', 'sched-ph-cve'].forEach(id => {
@@ -17411,7 +17411,7 @@ async function openHostPanel(id, ip) {
 
     const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
         ? `<div class="hp-actions hp-actions-host-primary mt14">
-        ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, phases, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
+        ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, scan steps, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
         <button type="button" class="btnp btn-xs" onclick="openReclassify(${a.id},'${esc(a.ip)}','${esc(a.hostname||'')}','${esc(a.category||'unk')}','${esc(a.vendor||'')}','${esc(a.notes||'')}','${esc(a.owner||'')}','${esc(a.business_unit||'')}','${esc(a.criticality||'medium')}','${esc(a.environment||'unknown')}',${Number(a.hostname_locked||0)},${Number(a.category_locked||0)},${Number(a.vendor_locked||0)})">&#9998; Edit</button>` : ''}
         ${(openFindings.length || acceptedFindings.length) ? `<button type="button" class="tbtn btn-xs" onclick="filterVulnsByIP('${esc(a.ip)}');closeHostPanel()">See all CVEs</button>` : ''}
       </div>`

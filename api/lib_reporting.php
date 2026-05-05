@@ -1,6 +1,6 @@
 <?php
 /**
- * Phase 13 — baselines, snapshot diffs, summaries, trends, compliance (library; no auth).
+ * Reporting — baselines, snapshot diffs, summaries, trends, compliance (library; no auth).
  * Uses scan_asset_snapshots / scan_finding_snapshots only (no duplicate snapshot storage).
  *
  * Concurrency: callers use short autocommit reads/writes (no long transactions). Baseline updates
@@ -151,7 +151,7 @@ function st_reporting_baseline_explain(PDO $db): array
         'baseline_job_id'        => null,
         'validation_ok'          => false,
         'reason_code'            => 'not_configured',
-        'reason_detail'          => 'config key phase13_baseline_job_id is empty or invalid',
+        'reason_detail'          => 'legacy global baseline job id in config is empty or invalid',
     ];
     if ($cfg === null || $cfg <= 0) {
         $base['validation_ok'] = true;
@@ -1092,7 +1092,7 @@ function st_reporting_trends_summary(PDO $db, int $limit = 30, ?int $scopeFilter
 }
 
 /**
- * Rule-based compliance (Phase 13 initial).
+ * Rule-based compliance (initial ruleset).
  *
  * @return array<string,mixed>
  */

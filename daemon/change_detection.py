@@ -1,14 +1,14 @@
 """
-Phase 9 — change detection: in-app alerts and CVE finding lifecycle.
+Change detection: in-app alerts and CVE finding lifecycle.
 
 Alert types: new_asset, port_change, new_cve, finding_reopened, finding_mitigated,
-asset_stale, asset_retired, asset_reactivated (Phase 12 lifecycle).
+asset_stale, asset_retired, asset_reactivated (asset lifecycle).
 
 Finding lifecycle: new → active (still present on a later scan); mitigated when absent
 from correlated results; accepted (manual risk acceptance); reopened when a mitigated
 finding matches again. Accepted findings are not auto-mitigated when absent.
 
-Phase 10: optional triage keys on each finding dict (provenance_source, detection_method,
+Optional triage keys on each finding dict (provenance_source, detection_method,
 confidence, risk_score, evidence_json) are persisted on INSERT/UPDATE when present.
 """
 
@@ -35,7 +35,7 @@ ALERT_TYPES = frozenset(
         "new_cve",
         "finding_reopened",
         "finding_mitigated",
-        # Phase 12 — asset lifecycle vs scan coverage
+        # Asset lifecycle vs scan coverage
         "asset_stale",
         "asset_retired",
         "asset_reactivated",
@@ -142,7 +142,7 @@ def _triage_vals(f: dict[str, Any]) -> tuple[str, str, str, Any, str]:
 
 
 def _triage_update_fragment(f: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
-    """Extra SET clause + trailing bind values when Phase-10 triage is supplied on the finding dict."""
+    """Extra SET clause + trailing bind values when triage fields are supplied on the finding dict."""
     if "provenance_source" not in f:
         return "", ()
     ps, dm, cf, rs, ej = _triage_vals(f)

@@ -471,7 +471,7 @@ body.light-mode .cat.prn{background:#e8f4f4;color:#2c7272}
 body.light-mode .cat.hv{background:#eaf0fa;color:#3e669a}
 body.light-mode .cat.unk{background:#edf1f6;color:#607286}
 
-/* Asset lifecycle (Phase 12) */
+/* Asset lifecycle */
 .life-badge{font-family:var(--mf);font-size:10px;font-weight:600;text-transform:uppercase;padding:2px 6px;border-radius:3px;letter-spacing:.04em;white-space:nowrap}
 .life-active{background:#0d2818;color:#86efac}
 .life-stale{background:#3a2f0a;color:#fde047}
@@ -804,7 +804,7 @@ body.light-mode .modal-close-x:hover{background:var(--bg4)}
 .badge-ready{background:var(--gdim);color:var(--green)}
 .badge-partial{background:var(--adim);color:var(--amber)}
 .badge-missing{background:var(--bg4);color:var(--tx3)}
-/* Zabbix cache freshness (Phase 16.3) */
+/* Zabbix cache freshness */
 .badge-zbx-fresh{background:var(--gdim);color:var(--green)}
 .badge-zbx-stale{background:var(--adim);color:var(--amber)}
 .badge-zbx-outdated{background:var(--rdim);color:var(--red)}
@@ -912,7 +912,7 @@ body.light-mode .enrich-zabbix-tools-card{
 .hp-cve{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .hp-date{font-size:11px;color:var(--tx3);margin-left:auto}
 .hp-desc{font-size:12px;color:var(--tx2);line-height:1.5}
-/* Phase 10 CVE triage — vulnerabilities table + host panel */
+/* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
 .conf-med{border-color:rgba(200,170,100,.4);color:var(--amber)}

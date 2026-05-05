@@ -1,6 +1,6 @@
 <?php
 /**
- * Phase 14.1 — single JSON bundle for Grafana Infinity / scripted dashboards (integration pull token).
+ * Single JSON bundle for Grafana Infinity / scripted dashboards (integration pull token).
  */
 
 declare(strict_types=1);

@@ -1,6 +1,6 @@
 <?php
 /**
- * Phase 14.1 — integrations foundation (admin CRUD, per-integration pull auth, metrics/events/summary helpers).
+ * Integrations foundation (admin CRUD, per-integration pull auth, metrics/events/summary helpers).
  *
  * Canonical payloads use **`api/lib_reporting_event_model.php`** (`surveytrace.reporting.event.v1`).
  * Do not rename that contract here.

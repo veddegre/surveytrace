@@ -1,5 +1,5 @@
 """
-Phase 12 — asset lifecycle vs expected scan coverage (CIDR + per-job snapshots).
+Asset lifecycle vs expected scan coverage (CIDR + per-job snapshots).
 
 Expected set: assets whose IPv4/IPv6 address falls inside the job's target_cidr (comma-separated).
 Observed set: asset_id values present in scan_asset_snapshots for that job after the run completes.

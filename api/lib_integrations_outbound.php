@@ -1,9 +1,9 @@
 <?php
 /**
- * Phase 14.1 — outbound HTTPS transport helpers + legacy config-key webhook (`st_integrations_outbound_emit`).
+ * Outbound HTTPS transport helpers + legacy config-key webhook (`st_integrations_outbound_emit`).
  *
  * Payloads must match **`api/lib_reporting_event_model.php`** (`schema_version` **`surveytrace.reporting.event.v1`**).
- * As of Phase 14.1 **no scheduled or scan path invokes** `st_integrations_outbound_emit()` (materialize hook removed);
+ * **No scheduled or scan path invokes** `st_integrations_outbound_emit()` (materialize hook removed);
  * outbound validation uses **`api/integrations.php`** test/sample on **`integrations`** rows. `st_integrations_outbound_emit()`
  * remains for optional future wiring to **`integration_webhook_*`** settings.
  */

@@ -1,6 +1,6 @@
 """
 SurveyTrace — scanner daemon
-Polls scan_jobs for queued work, runs the configured phases,
+Polls scan_jobs for queued work, runs the configured scan steps,
 writes results back to SQLite.
 
 Run via systemd or supervisor:
@@ -348,7 +348,7 @@ WEBFP_RULES_PATH = DATA_DIR / "webfp_rules.json"
 POLL_SECS = 5          # how often to check for new jobs
 LOG_LEVEL = logging.INFO
 
-# Safe port list — only these ports are touched in banner phase
+# Safe port list — only these ports are touched during banner/service probing
 SAFE_PORTS = sorted(set([
     # Standard
     21, 22, 23, 25, 53, 80, 81, 110, 143, 161, 443, 445, 465, 587, 631,
@@ -995,12 +995,12 @@ def _run_ai_scan_summary_ollama(ai_cfg: dict[str, object], summary: dict) -> tup
         'Example: {"overview":"...","concerns":["..."],"next_steps":["..."]}\n'
         "Tone: practical and neutral; only use urgent language if severity_breakdown shows critical/high issues.\n\n"
         "Content rules:\n"
-        "- Ground every point in the scan JSON (hosts_found vs assets_catalogued, categories, top_ports, open_findings, phases, "
+        "- Ground every point in the scan JSON (hosts_found vs assets_catalogued, categories, top_ports, open_findings, scan steps, "
         "routed_net_overrides, ai_reason_counts).\n"
         "- concerns: skip vague filler. If open_findings is 0, you may still flag exposure from top_ports, host/catalogue gaps, "
         "or category skew (e.g. many srv/unk).\n"
         "- next_steps: each string must be a concrete operational follow-up for THIS network (verify a segment, rescan with a "
-        "specific phase, reconcile host count, validate a port/service class, document an exception). "
+        "specific scan step, reconcile host count, validate a port/service class, document an exception). "
         "Do NOT tell the operator to review or tune AI features, models, or SurveyTrace AI settings.\n"
         "- If ai_enrichment_attempts is 0 and ai_reason_counts is non-empty, briefly acknowledge why per-host relabel was skipped "
         "(e.g. not_ambiguous) and name one inventory action that still adds value.\n"
@@ -1121,7 +1121,7 @@ def is_aborted(job_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 — Passive discovery
+# Passive discovery
 # ---------------------------------------------------------------------------
 def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
     """
@@ -1346,7 +1346,7 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> tupl
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Passive phase: {len(discovered)} IPv4 hosts observed "
+                  f"Passive discovery: {len(discovered)} IPv4 hosts observed "
                   f"(mDNS={len([1 for v in passive_signals.values() if 'mdns' in v])}, "
                   f"LLMNR={len([1 for v in passive_signals.values() if 'llmnr' in v])}, "
                   f"NBNS={len([1 for v in passive_signals.values() if 'nbns' in v])}, "
@@ -1357,7 +1357,7 @@ def phase_passive(job_id: int, target_cidr: str, timeout_secs: int = 30) -> tupl
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 - Host discovery (ARP / ping scan / force mode)
+# Host discovery (ARP / ping scan / force mode)
 # ---------------------------------------------------------------------------
 # scan_mode values:
 #   auto   - same-subnet uses ARP, routed subnets use ICMP/TCP ping scan
@@ -1481,7 +1481,7 @@ def phase_icmp(job_id: int, cidrs: list[str], excludes: set[str],
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — Port + banner probe
+# Port + banner probe
 # ---------------------------------------------------------------------------
 def phase_banner(
     job_id: int,
@@ -1655,7 +1655,7 @@ def phase_banner(
                 # Routed/VPN paths: fail filtered hosts faster to avoid 3+ minute
                 # stalls per host when nothing is reachable from this vantage point.
                 if len(hosts) <= 8:
-                    # For small confirmed-alive sets (phase 3 pass 1), keep a
+                    # For small confirmed-alive sets (banner pass 1), keep a
                     # fuller envelope so known responders can still yield ports.
                     timeout_secs = 180
                 elif len(hosts) <= 64:
@@ -1707,7 +1707,7 @@ def phase_banner(
             f"--open"
         )
         # python-nmap subprocess timeout: must exceed nmap --host-timeout. For -p- sweeps,
-        # cap total wait (~21m max) so one batch cannot monopolize Phase 3 for hours.
+        # cap total wait (~21m max) so one batch cannot monopolize banner work for hours.
         if scan_all_tcp:
             scan_timeout = min(
                 1260,
@@ -1726,7 +1726,7 @@ def phase_banner(
                 conn,
                 job_id,
                 "INFO",
-                f"Phase 3 batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts"
+                f"Banner batch {batch_no}/{total_batches}: scanning {len(chunk)} hosts"
                 + (f" — {hang_note}" if hang_note else ""),
             )
         try:
@@ -1740,7 +1740,7 @@ def phase_banner(
         except Exception as e:
             with db_conn() as conn:
                 log_event(conn, job_id, "WARN",
-                          f"Phase 3 batch timeout/error on {len(chunk)} hosts: {str(e)[:180]}")
+                          f"Banner batch timeout/error on {len(chunk)} hosts: {str(e)[:180]}")
             # Fallback: scan each host in this batch individually so one bad target
             # does not stall the entire job. Each nm.scan replaces internal state — merge
             # after every successful host or only the last host would be recorded.
@@ -1759,7 +1759,7 @@ def phase_banner(
                 except Exception as e2:
                     with db_conn() as conn:
                         log_event(conn, job_id, "WARN",
-                                  f"Phase 3 host scan failed for {one_host}: {str(e2)[:140]}")
+                                  f"Banner host scan failed for {one_host}: {str(e2)[:140]}")
                     continue
 
         # Progress heartbeat for long scans — keeps iteration visible in logs.
@@ -1768,7 +1768,7 @@ def phase_banner(
             processed = min(batch_no * chunk_size, len(hosts))
             with db_conn() as conn:
                 log_event(conn, job_id, "INFO",
-                          f"Phase 3 progress: {processed}/{len(hosts)} hosts processed")
+                          f"Banner progress: {processed}/{len(hosts)} hosts processed")
 
         time.sleep(delay_s)
 
@@ -1791,7 +1791,7 @@ def phase_banner(
 
 
 # ---------------------------------------------------------------------------
-# Phase 3b — Network enrichment (external sources)
+# Network enrichment (external sources)
 # ---------------------------------------------------------------------------
 def _parse_job_enrichment_ids(job: dict) -> list[int] | None:
     """
@@ -1866,7 +1866,7 @@ def phase_enrich(
                 with db_conn() as conn:
                     log_event(
                         conn, job_id, "INFO",
-                        "Phase 3b: selected enrichment source id(s) are disabled or unknown; skipping",
+                        "Enrichment: selected source id(s) are disabled or unknown; skipping",
                     )
             return {}
 
@@ -1919,7 +1919,7 @@ def phase_enrich(
 
 
 # ---------------------------------------------------------------------------
-# Phase 3c — HTTP title grabbing
+# HTTP title grabbing
 # ---------------------------------------------------------------------------
 HTTP_TITLE_PORTS = [80, 443, 8080, 8081, 8082, 8083, 8086, 8088, 8089,
                     8006, 8007, 5480, 8096, 8123, 8181, 8384, 8443, 8888, 3000, 3001, 3030,
@@ -2226,7 +2226,7 @@ def phase_http_titles(
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Phase 3c: HTTP probe — {len(tasks)} endpoints across {len(hosts)} hosts")
+                  f"HTTP probe — {len(tasks)} endpoints across {len(hosts)} hosts")
 
     def fetch(ip: str, port: int, tls: bool) -> tuple[str, int, dict[str, str | None]]:
         snap = _fetch_http_snapshot(ip, port, tls)
@@ -2259,13 +2259,13 @@ def phase_http_titles(
     found_t = sum(len(v) for v in titles_out.values())
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Phase 3c: HTTP titles {found_t} / probe hosts {len(probes)} across {len(hosts)} scanned")
+                  f"HTTP titles {found_t} / probe hosts {len(probes)} across {len(hosts)} scanned")
 
     return titles_out, probes
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — CVE correlation (SQLite NVD database)
+# CVE correlation (SQLite NVD database)
 # ---------------------------------------------------------------------------
 # NVD_DB_PATH set at module top with DB_PATH / DATA_DIR
 
@@ -3381,7 +3381,7 @@ def run_scan(job: dict) -> None:
 
     with db_conn() as conn:
         log_event(conn, job_id, "INFO",
-                  f"Profile: {profile_name} — allowed phases: {phases} "
+                  f"Profile: {profile_name} — allowed steps: {phases} "
                   f"rate_cap={profile_obj.max_rate_pps_cap}pps "
                   f"min_delay={profile_obj.min_delay_ms}ms")
         if bool(ai_cfg.get("available")):
@@ -3436,30 +3436,30 @@ def run_scan(job: dict) -> None:
 
     with db_conn() as conn:
         conn.execute("UPDATE scan_jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id=?", (job_id,))
-        log_event(conn, job_id, "INFO", f"Scan started — target: {job['target_cidr']} phases: {phases}")
+        log_event(conn, job_id, "INFO", f"Scan started — target: {job['target_cidr']} steps: {phases}")
         log_event(conn, job_id, "INFO", f"Exclusion list loaded: {len(excludes)} entries")
 
-    # ---- Phase 1: Passive ------------------------------------------------
+    # ---- Passive discovery ------------------------------------------------
     passive_hosts: set[str] = set()
     passive_signal_map: dict[str, set[str]] = {}
     passive_ndp_ipv6_by_mac: dict[str, set[str]] = {}
     if "passive" in phases:
         with db_conn() as conn:
-            log_event(conn, job_id, "INFO", "Phase 1: passive ARP/mDNS sniff starting")
+            log_event(conn, job_id, "INFO", "Passive ARP/mDNS sniff starting")
         try:
             passive_hosts, passive_signal_map, passive_ndp_ipv6_by_mac = phase_passive(job_id, cidrs[0], timeout_secs=20)
         except PermissionError as e:
-            log.warning("[job %d] Passive phase skipped (no raw socket permission): %s", job_id, e)
+            log.warning("[job %d] Passive discovery skipped (no raw socket permission): %s", job_id, e)
             passive_hosts = set()
             passive_signal_map = {}
             passive_ndp_ipv6_by_mac = {}
 
-    # ---- Phase 2: Host discovery -----------------------------------------
+    # ---- Host discovery -----------------------------------------
     alive_hosts: dict[str, str] = {}  # ip -> mac
     if "icmp" in phases:
         with db_conn() as conn:
             log_event(conn, job_id, "INFO",
-                      f"Phase 2: host discovery (mode={scan_mode})")
+                      f"Host discovery (mode={scan_mode})")
         alive_hosts = phase_discovery(job_id, cidrs, excludes, rate_pps,
                                       scan_mode=scan_mode)
 
@@ -3469,7 +3469,7 @@ def run_scan(job: dict) -> None:
     # Routed full-TCP scans can miss hosts at discovery time (-sn ping scan),
     # especially over VPN/tunnel paths where ICMP/TCP ping probes are filtered.
     # For explicit full_tcp/fast_full_tcp in routed mode, seed candidates from
-    # the target CIDR so phase 3 can still attempt real port probing.
+    # the target CIDR so banner work can still attempt real port probing.
     if profile_obj.name in ("full_tcp", "fast_full_tcp") and scan_mode == "routed":
         max_seed_hosts = 1024
         seeded: set[str] = set()
@@ -3503,14 +3503,14 @@ def run_scan(job: dict) -> None:
 
     # Abort check after discovery
     if is_aborted(job_id):
-        log.info("[job %d] Aborted by user after discovery phase", job_id)
+        log.info("[job %d] Aborted by user after host discovery", job_id)
         return
 
-    # ---- Phase 3: Banner / fingerprint -----------------------------------
+    # ---- Banner / fingerprint -----------------------------------
     banner_results: dict[str, dict] = {}
     if "banner" in phases or "fingerprint" in phases:
         with db_conn() as conn:
-            log_event(conn, job_id, "INFO", "Phase 3: banner grab / fingerprinting")
+            log_event(conn, job_id, "INFO", "Banner grab / fingerprinting")
         # Scan ordering matters for operator feedback on larger/routed ranges:
         # prioritize discovery-confirmed alive hosts first, then the rest.
         alive_first = [ip for ip in alive_hosts.keys() if ip in all_ips]
@@ -3526,7 +3526,7 @@ def run_scan(job: dict) -> None:
             with db_conn() as conn:
                 log_event(
                     conn, job_id, "INFO",
-                    f"Phase 3 ordering: {len(alive_first)} discovery-confirmed hosts first, {len(rest)} fallback hosts"
+                    f"Banner ordering: {len(alive_first)} discovery-confirmed hosts first, {len(rest)} fallback hosts"
                 )
         # Two-pass strategy:
         # 1) Scan discovery-confirmed hosts first (small set => richer timeout tier).
@@ -3535,19 +3535,19 @@ def run_scan(job: dict) -> None:
         if alive_first:
             with db_conn() as conn:
                 log_event(conn, job_id, "INFO",
-                          f"Phase 3 pass 1: scanning {len(alive_first)} confirmed-alive hosts")
+                          f"Banner pass 1: scanning {len(alive_first)} confirmed-alive hosts")
             banner_results.update(
                 phase_banner(job_id, alive_first, rate_pps, inter_ms, job=job)
             )
         if rest:
             with db_conn() as conn:
                 log_event(conn, job_id, "INFO",
-                          f"Phase 3 pass 2: scanning {len(rest)} fallback hosts")
+                          f"Banner pass 2: scanning {len(rest)} fallback hosts")
             banner_results.update(
                 phase_banner(job_id, rest, rate_pps, inter_ms, job=job)
             )
 
-    # ---- Phase 3b: Enrichment -------------------------------------------
+    # ---- Network enrichment -------------------------------------------
     # Must run BEFORE the upsert loop so enrichment data is available per-host
     enrichment_map: dict[str, dict] = {}
     if HAS_ENRICHMENT:
@@ -3557,21 +3557,21 @@ def run_scan(job: dict) -> None:
                 with db_conn() as conn:
                     log_event(
                         conn, job_id, "INFO",
-                        "Phase 3b skipped: no enrichment sources selected for this scan",
+                        "Enrichment skipped: no enrichment sources selected for this scan",
                     )
                 enrichment_map = {}
             else:
                 with db_conn() as conn:
-                    log_event(conn, job_id, "INFO", "Phase 3b: network enrichment (configured sources)")
+                    log_event(conn, job_id, "INFO", "Network enrichment (configured sources)")
                 # phase_enrich does external I/O — must not share db_conn with log_event above
                 enrichment_map = phase_enrich(job_id, enrich_ids) or {}
             if enrichment_map:
                 log.info("[job %d] Applying enrichment to %d assets", job_id, len(enrichment_map))
         except Exception as e:
-            log.warning("[job %d] Enrichment phase error (non-fatal): %s", job_id, e)
+            log.warning("[job %d] Enrichment error (non-fatal): %s", job_id, e)
             enrichment_map = {}
 
-    # Enrichment can discover routed hosts that phase_discovery misses.
+    # Enrichment can discover routed hosts that host discovery misses.
     # Include in-scope enrichment IP keys in the host set before upsert.
     if enrichment_map:
         enrich_ips: set[str] = set()
@@ -3619,7 +3619,7 @@ def run_scan(job: dict) -> None:
                 hostname_cache[row["ip"]] = row["hostname"]
             zabbix_hints_by_ip = _zabbix_names_by_ips(conn, sorted(all_ips))
 
-    # ---- Phase 3c: HTTP title grabbing -----------------------------------
+    # ---- HTTP title grabbing -----------------------------------
     http_titles: dict[str, dict[int, str]] = {}
     http_probes: dict[str, str] = {}
     if "banner" in phases and profile_obj.allow_banner:
@@ -3840,10 +3840,10 @@ def run_scan(job: dict) -> None:
                 if (_i + 1) % _BULK_WRITE_COMMIT_INTERVAL == 0:
                     _aconn.commit()
 
-    # ---- Phase 4: CVE correlation ----------------------------------------
+    # ---- CVE correlation ----------------------------------------
     if "cve" in phases:
         with db_conn() as conn:
-            log_event(conn, job_id, "INFO", "Phase 4: CVE correlation (SQLite indexed lookup)")
+            log_event(conn, job_id, "INFO", "CVE correlation (SQLite indexed lookup)")
 
         findings = phase_cve(job_id, upserted_assets)
 

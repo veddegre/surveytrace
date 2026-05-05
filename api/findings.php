@@ -13,7 +13,7 @@
  *   cve_id    — search by CVE ID substring
  *   resolved  — 0 (default) or 1
  *   lifecycle — optional lifecycle_state filter
- *   confidence — high|medium|low (Phase 10 triage)
+ *   confidence — high|medium|low (CVE triage)
  *   sort      — cvss|severity|published|confirmed_at|ip|cve_id|risk_score (default: cvss)
  *   order     — asc|desc (default: desc)
  *   page, per_page
@@ -42,7 +42,7 @@ st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
 /**
- * Dismiss open Phase-9 change alerts tied to specific findings (UI noise vs. risk acceptance).
+ * Dismiss open change alerts tied to specific findings (UI noise vs. risk acceptance).
  */
 function st_dismiss_open_change_alerts_for_finding_ids(PDO $db, array $findingIds, ?int $actorUserId): void {
     $findingIds = array_values(array_unique(array_filter(array_map('intval', $findingIds), static function ($x) {
@@ -320,7 +320,7 @@ $stmt->bindValue(':off', $offset,   PDO::PARAM_INT);
 $stmt->execute();
 $rows = $stmt->fetchAll();
 
-// Ensure numeric types + Phase 10 evidence object
+// Ensure numeric types + triage evidence object
 foreach ($rows as &$r) {
     $r['cvss']     = $r['cvss'] ? (float)$r['cvss'] : null;
     $r['resolved'] = (bool)$r['resolved'];

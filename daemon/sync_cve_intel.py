@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SurveyTrace — CVE intelligence feeds (Phase 11)
+SurveyTrace — CVE intelligence feeds
 
 Ingests complementary *Internet* sources into surveytrace.db (table cve_intel) for
 joining with findings at query time:

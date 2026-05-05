@@ -99,7 +99,7 @@ This is the most common issue.
 
 ### Scenario
 
-- Scope selected (e.g., "Vedorama")
+- Scope selected (e.g., "Building A — production")
 - Assets exist in **Assets view**
 - Reports appear empty
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * SurveyTrace — Phase 13 reporting & baselines (JSON API; no HTML UI).
+ * SurveyTrace — reporting & baselines (JSON API; no HTML UI).
  *
  * GET  reporting.php?action=compare&job_a=1&job_b=2
  * GET  reporting.php?action=compare_summary&job_a=1&job_b=2  (counts/events only; UI-safe)
@@ -21,7 +21,7 @@
  * GET  reporting.php?action=inventory_scope_summary[&scope_id] — live assets + open findings by assets.scope_id
  *      (omit = all assets; 0 = unscoped inventory; N = named catalog scope)
  *
- * Phase 14 base — external-friendly reporting (bounded JSON, scope-aware):
+ * External-friendly reporting (bounded JSON, scope-aware):
  *   `trends_summary`, `compare_summary`, and `compliance` include `scope_context` plus per-row or
  *   per-job `scope_id` / `scope_name` where applicable (see `api/lib_reporting_event_model.php`).
  */

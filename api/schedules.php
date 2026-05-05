@@ -398,7 +398,7 @@ if (!is_array($requested_phases)) {
 }
 $phases_arr = array_values(array_intersect($requested_phases, $allowed_phases));
 if (empty($phases_arr)) {
-    st_json(['error' => 'No valid scan phases specified', 'field' => 'phases'], 400);
+    st_json(['error' => 'No valid scan steps specified', 'field' => 'phases'], 400);
 }
 $phases = json_encode($phases_arr);
 

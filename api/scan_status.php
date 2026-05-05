@@ -104,9 +104,9 @@ $job['profile'] = st_normalize_scan_profile((string)($job['profile'] ?? 'standar
 $found   = max(1, (int)$job['hosts_found']);
 $scanned = (int)$job['hosts_scanned'];
 
-// Progress: phases contribute different weights
+// Progress: scan steps contribute different weights in the UI bar
 // passive(5) + icmp(10) + banner(60) + cve(25) = 100
-// During banner phase hosts_scanned reflects batch progress
+// During banner work hosts_scanned reflects batch progress
 $phase_progress = 0;
 if ($job['status'] === 'running') {
     $phases = $job['phases'];
@@ -114,7 +114,7 @@ if ($job['status'] === 'running') {
         // We have scanned hosts — use ratio
         $phase_progress = (int)min(99, ($scanned / $found) * 100);
     } elseif ($found > 0) {
-        // Found hosts but scanned=0 means we're in passive/icmp/banner phases
+        // Found hosts but scanned=0 means we're still in early discovery or banner work
         // Show at least 10% so the bar moves
         $phase_progress = 10;
     } else {
@@ -171,15 +171,15 @@ $openFindingsStmt = $db->prepare("
 $openFindingsStmt->execute([(int)$job['id']]);
 $job['open_findings'] = (int)$openFindingsStmt->fetchColumn();
 
-// Phase display label for UI progress message
+// Human-readable labels for scan pipeline steps (API field name unchanged for compatibility)
 $phase_labels = [
-    'passive'     => 'Phase 1: passive ARP/mDNS discovery…',
-    'icmp'        => 'Phase 2: ICMP/ARP sweep…',
-    'banner'      => 'Phase 3: port & banner grab…',
-    'fingerprint' => 'Phase 3: service fingerprinting…',
-    'snmp'        => 'Phase 3: SNMP enumeration…',
-    'ot'          => 'Phase 3: OT protocol probes…',
-    'cve'         => 'Phase 4: CVE correlation…',
+    'passive'     => 'Passive ARP/mDNS discovery…',
+    'icmp'        => 'ICMP/ARP host discovery…',
+    'banner'      => 'Port and banner grab…',
+    'fingerprint' => 'Service fingerprinting…',
+    'snmp'        => 'SNMP enumeration…',
+    'ot'          => 'OT protocol probes…',
+    'cve'         => 'CVE correlation…',
 ];
 $job['phase_labels'] = $phase_labels;
 

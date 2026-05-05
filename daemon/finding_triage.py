@@ -1,5 +1,5 @@
 """
-Phase 10 — finding triage: provenance, detection method, confidence, risk score, evidence JSON.
+Finding triage: provenance, detection method, confidence, risk score, evidence JSON.
 
 Used by scanner_daemon.phase_cve and collector_ingest_worker so change_detection can persist
 explainable metadata alongside NVD-derived CVE rows.

@@ -278,7 +278,7 @@ if id surveytrace >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# SQLite migrations (PHP) — idempotent ALTERs in api/db.php (Phase 9–12, …)
+# SQLite migrations (PHP) — idempotent ALTERs in api/db.php
 # Run once as www-data so schema matches before daemons restart (avoids rare races
 # on first writer after deploy). If this fails, migrations still apply on first web hit.
 # ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
 check_file "$DEST/api/collector_submit.php" "collector_submit API"
 check_file "$DEST/api/collectors.php" "collectors API"
 check_file "$DEST/api/scan_history.php" "scan history API"
-check_file "$DEST/api/lib_scan_scopes.php" "lib_scan_scopes (Phase 14 reporting)"
+check_file "$DEST/api/lib_scan_scopes.php" "lib_scan_scopes (scoped reporting)"
 check_file "$DEST/api/scan_scopes.php" "scan_scopes API"
 check_file "$DEST/api/scopes.php" "scopes API (catalog + CRUD + asset counts)"
 check_file "$DEST/api/change_alerts.php" "change_alerts API"
@@ -473,7 +473,7 @@ check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
-check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py (Phase 12)"
+check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"

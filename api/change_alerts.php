@@ -2,7 +2,7 @@
 /**
  * SurveyTrace — GET/POST /api/change_alerts.php
  *
- * Phase 9 change-detection feed (new assets, port changes, CVE lifecycle).
+ * Change-detection feed (new assets, port changes, CVE lifecycle).
  *
  * GET: ?dismissed=0|1|all&limit=100&offset=0
  * POST: {"action":"dismiss","alert_id":N} | {"action":"dismiss_all"}

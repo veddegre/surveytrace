@@ -2,7 +2,7 @@
 /**
  * Reporting external contract — canonical event shape and scope context.
  *
- * Outbound delivery (Phase 14.1+): push targets configured in **`integrations`** (admin UI / API) send
+ * Outbound delivery: push targets configured in **`integrations`** (admin UI / API) send
  * this contract manually (test/sample) or via future automation; **`api/lib_integrations_outbound.php`**
  * remains for optional legacy Settings webhook. Integrations must not alter **`schema_version`** or
  * the field layout defined here.

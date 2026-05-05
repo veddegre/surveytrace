@@ -1,6 +1,6 @@
 <?php
 /**
- * Scan scopes — multi-network reporting boundaries (Phase 14).
+ * Scan scopes — multi-network reporting boundaries.
  * No auth; callers enforce RBAC.
  */
 
@@ -24,7 +24,7 @@ function st_sqlite_table_exists(PDO $db, string $tableName): bool
     }
 }
 
-/** Scoped baseline rows (Phase 14); optional on partially migrated DBs. */
+/** Scoped baseline rows; optional on partially migrated DBs. */
 function st_scan_scopes_table_scan_scope_baselines_exists(PDO $db): bool
 {
     return st_sqlite_table_exists($db, 'scan_scope_baselines');
@@ -138,7 +138,7 @@ function st_scan_scopes_json_list_normalize(mixed $raw, string $fallbackJson): s
 }
 
 /**
- * Cached id → display name map for Phase 14 payloads (reporting scope labels).
+ * Cached id → display name map for reporting scope labels.
  *
  * @return array<int, string>
  */
@@ -171,7 +171,7 @@ function st_scan_scopes_resolve_name(PDO $db, int $scopeId): ?string
     return $n !== '' ? $n : null;
 }
 
-/** True when assets has optional Phase-16 scope_id (inventory / reporting tag). */
+/** True when assets has optional scope_id (inventory / reporting tag). */
 function st_assets_has_scope_id(PDO $db): bool
 {
     static $cache = null;
@@ -209,7 +209,7 @@ function st_assets_has_ai_needs_review_columns(PDO $db): bool
     return $cache;
 }
 
-/** True when assets has operator AI host-summary cache column (Phase 16+ migrations). */
+/** True when assets has operator AI host-summary cache column (when migrated). */
 function st_assets_has_ai_host_explain_cache(PDO $db): bool
 {
     static $cache = null;

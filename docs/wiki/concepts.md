@@ -120,7 +120,7 @@ This is the most common confusion.
 
 ### Scenario
 
-- You select a scope (e.g., "Vedorama")
+- You select a scope (e.g., "Building A — production")
 - You see assets in **Assets**
 - But reports show nothing
 

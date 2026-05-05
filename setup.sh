@@ -339,8 +339,8 @@ ok "Python packages installed"
 # =============================================================================
 # STEP 5 — SQLite database bootstrap
 # =============================================================================
-# Fresh installs: sql/schema.sql includes Phase 12 asset lifecycle columns on assets.
-# Existing installs: api/db.php migrations (st_migrate_phase12_asset_lifecycle_v1, …) apply on first PHP connection.
+# Fresh installs: sql/schema.sql includes asset lifecycle columns on assets.
+# Existing installs: api/db.php migrations apply on first PHP connection.
 DB_FILE="$DATA_DIR/surveytrace.db"
 info "Bootstrapping SQLite database at $DB_FILE…"
 

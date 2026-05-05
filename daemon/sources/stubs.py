@@ -134,9 +134,9 @@ class MicrosoftDNSSource(EnrichmentSource):
             raise NotImplementedError(f"MS DNS method '{method}' not yet implemented — use 'ptr'")
 
         # PTR mode — caller passes IPs to resolve, we return hostname enrichment
-        # In practice this is called from the enrichment phase with discovered IPs
+        # In practice this is called during network enrichment with discovered IPs
         # Since we don't know IPs at fetch_all time, return empty and let
-        # the enrichment phase call fetch_by_ip() per host
+        # the enrichment step calls fetch_by_ip() per host
         return []
 
     def fetch_by_ip(self, ip: str) -> dict | None:

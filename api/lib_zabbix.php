@@ -1,6 +1,6 @@
 <?php
 /**
- * SurveyTrace — Zabbix source connector (Phase 16.1).
+ * SurveyTrace — Zabbix source connector.
  *
  * JSON-RPC client, local cache tables, asset matching, read-only enrichment.
  * Does not modify SurveyTrace asset fields (owner/hostname/etc.); scope rules are preview/save only.
@@ -402,7 +402,7 @@ function st_zabbix_ensure_schema(PDO $pdo): void
     );
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_zabbix_scope_rules ON zabbix_scope_map_rules(scope_id, enabled)');
 
-    // Phase 16.3 — scheduler lock (Python scheduler + zabbix_sync_worker.php clear in finally).
+    // Scheduled sync lock (Python scheduler + zabbix_sync_worker.php clear in finally).
     try {
         $zcCols = $pdo->query("PRAGMA table_info(zabbix_connector)")->fetchAll(PDO::FETCH_COLUMN, 1);
         if (is_array($zcCols)) {

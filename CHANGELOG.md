@@ -46,9 +46,9 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 - **Splunk starter** — `integrations/starter/splunk_surveytrace/`: `bin/surveytrace_events.py`, `default/inputs.conf`, `default/surveytrace_pull.ini.example`, nav + overview dashboard XML; README for `local/surveytrace_pull.ini` and checkpointing.
 
 ### Changed
-- **Roadmap note** — `VERSION` 0.16.0 is a Phase 15 (Integrations) follow-up (UI + legacy config cleanup), not the same as shipped Zabbix monitoring enrichment work summarized under Completed (Phase 16.x). `migration_phase16_remove_legacy_integrations_pull_token_v1` is a SQLite migration name for ordering after the Phase 14.1 integration migrations; it does not mean all Zabbix roadmap items are delivered.
+- **Integrations vs Zabbix scope** — `VERSION` 0.16.0 is primarily an integrations follow-up (UI + legacy config cleanup), distinct from the separately shipped Zabbix monitoring connector work. A SQLite migration in `api/db.php` removes the legacy global pull-token config key when present; it does not by itself imply every future monitoring feature is complete.
 - **Integrations UX** — Admin Integrations tab: Push vs Pull / API sections, friendly type labels, type-aware add/edit (modal), quick-start guidance (Grafana Infinity, Prometheus/Alloy, Splunk HEC, Splunk scripted input), per-row token reveal messaging.
-- **Pull auth** — Removed unused legacy global pull token (`config.integrations_pull_token_bcrypt`); pull endpoints accept only per-integration bearer tokens of the correct enabled type (`401` / `503` semantics unchanged intent). Migration `migration_phase16_remove_legacy_integrations_pull_token_v1` deletes the old config key if present.
+- **Pull auth** — Removed unused legacy global pull token (`config.integrations_pull_token_bcrypt`); pull endpoints accept only per-integration bearer tokens of the correct enabled type (`401` / `503` semantics unchanged intent). `api/db.php` applies a migration that deletes the old config key if present.
 - **API** — `GET /api/integrations.php` drops legacy global status fields; list rows add `type_label`, `mode`, `destination_summary`. `POST rotate_pull_token` removed.
 
 ### Fixed
@@ -60,12 +60,12 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.15.0]
 
 ### Added
-- **Scan scopes & reporting filters (Phase 14)** — `scan_scopes`, `scan_jobs.scope_id`, `scan_scope_baselines`; `api/scan_scopes.php`; `lib_scan_scopes.php`; reporting and Reports & Analysis support named / unscoped / all filters, `scope_context`, cross-scope compare cautions (`st_reporting_unscoped_jobs_compatible`). Migration `migration_phase14_scan_scopes_v1`.
-- **Integrations push + pull (Phase 15)** — `integrations` table; `api/integrations.php`, `lib_integrations.php`, `lib_integrations_dashboard.php`, `lib_integrations_outbound.php`; manual push test/sample; read-only pull APIs (`integrations_metrics.php`, `integrations_events.php`, `integrations_report_summary.php`, `integrations_dashboard.php`); per-integration pull tokens (`migration_phase14_1_integrations_v1`, `migration_phase14_1_integrations_per_pull_token_v1`); starter `integrations/starter/` (Splunk + Grafana); admin Integrations UI; `deploy.sh` ships integration PHP and copies starters to `/opt/surveytrace/integrations-starter/`.
+- **Scan scopes & reporting filters** — `scan_scopes`, `scan_jobs.scope_id`, `scan_scope_baselines`; `api/scan_scopes.php`; `lib_scan_scopes.php`; reporting and Reports & Analysis support named / unscoped / all filters, `scope_context`, cross-scope compare cautions (`st_reporting_unscoped_jobs_compatible`). Schema/migrations in `api/db.php`.
+- **Integrations push + pull** — `integrations` table; `api/integrations.php`, `lib_integrations.php`, `lib_integrations_dashboard.php`, `lib_integrations_outbound.php`; manual push test/sample; read-only pull APIs (`integrations_metrics.php`, `integrations_events.php`, `integrations_report_summary.php`, `integrations_dashboard.php`); per-integration pull tokens (migrations in `api/db.php`); starter `integrations/starter/` (Splunk + Grafana); admin Integrations UI; `deploy.sh` ships integration PHP and copies starters to `/opt/surveytrace/integrations-starter/`.
 
 ### Changed
-- **Version alignment** — `VERSION` 0.15.0 was the SemVer line where Phase 14 (scan scopes) and first Phase 15 (integrations) ship landed together. README changelog and `RELEASE_NOTES.md` stay aligned per release; 0.16.0 above is the next Integrations-focused patch (still Phase 15 roadmap scope).
-- **Documentation** — README roadmap (completed 14–15 plus 16.x Zabbix); upcoming work described as named tracks; starter readmes cross-linked to Integrations (push and pull).
+- **Version alignment** — `VERSION` 0.15.0 was the SemVer line where scan scopes and the integrations surface landed together. README changelog and `RELEASE_NOTES.md` stay aligned per release; 0.16.0 above is the next integrations-focused patch.
+- **Documentation** — README describes completed capabilities (scan scopes, integrations, Zabbix connector); upcoming work described as named tracks; starter readmes cross-linked to Integrations (push and pull).
 
 ### Fixed
 - **Fallbacks** — `api/st_version.php` and `daemon/surveytrace_version.py` use `0.15.0` when `VERSION` is missing or unreadable.
@@ -118,7 +118,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.13.0]
 
 ### Added
-- **Reporting foundation** — `api/lib_reporting.php`, `api/reporting.php`, `api/reporting_cli.php`; migration `migration_phase13_reporting_v1`; `report_artifacts`; schedule action `report`; baseline config `phase13_baseline_job_id`.
+- **Reporting foundation** — `api/lib_reporting.php`, `api/reporting.php`, `api/reporting_cli.php`; reporting schema/migrations in `api/db.php`; `report_artifacts`; schedule action `report`; legacy global baseline job id stored in `config` (historical key name in code).
 - **API surfaces** — `compare_summary`, `artifact_summary`, admin `artifact_payload_preview`; existing `compare`, `summary`, `trends`, `compliance`, `artifacts`, `set_baseline`.
 - **Reports & Analysis UI** — Sidebar tab: baseline status, snapshot drift narrative, bounded compare summary, lightweight `trends_summary` charts, artifact list, artifact detail (slim summary), compliance panel (bounded rule output).
 
@@ -134,7 +134,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.12.0]
 
 ### Added
-- **Asset lifecycle** — Coverage-based `active` / `stale` / `retired` on `assets` (migration `migration_phase12_asset_lifecycle_v1`); `daemon/asset_lifecycle.py` + scanner/collector evaluation; `change_alerts` types `asset_stale`, `asset_retired`, `asset_reactivated`.
+- **Asset lifecycle** — Coverage-based `active` / `stale` / `retired` on `assets` (SQLite migration in `api/db.php`); `daemon/asset_lifecycle.py` + scanner/collector evaluation; `change_alerts` types `asset_stale`, `asset_retired`, `asset_reactivated`.
 - **Operator fields** — `owner`, `business_unit`, `criticality`, `environment` on `assets` (API + UI); `identity_confidence`, `identity_confidence_reason` on schema.
 - **Export + API** — `export.php` extended CSV/JSON columns; `assets.php` `lifecycle_status` filter.
 
@@ -150,8 +150,8 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.11.0]
 
 ### Added
-- **Explainable CVE triage** — SQLite migration `migration_phase10_finding_triage_v1`: `findings` columns for lifecycle-adjacent triage (`confidence`, `risk_score`, `detection_method`, `provenance_source`, `evidence_json`); `daemon/finding_triage.py` + scanner/collector wiring; `GET /api/findings.php` sort/filter on triage fields; Vulnerabilities + host panel + CSV/JSON export.
-- **CVE intelligence** — migration `migration_phase11_cve_intel_v1`: `cve_intel` (KEV metadata, EPSS, OSV ecosystems JSON); `daemon/sync_cve_intel.py` (CISA KEV JSON, EPSS file/API, OSV per-CVE); `api/feed_sync_lib.php` / `feeds.php` target `cve_intel`; dashboard + Settings status; `findings` / export expose `intel`.
+- **Explainable CVE triage** — SQLite migration in `api/db.php`: `findings` columns for lifecycle-adjacent triage (`confidence`, `risk_score`, `detection_method`, `provenance_source`, `evidence_json`); `daemon/finding_triage.py` + scanner/collector wiring; `GET /api/findings.php` sort/filter on triage fields; Vulnerabilities + host panel + CSV/JSON export.
+- **CVE intelligence** — SQLite migration in `api/db.php`: `cve_intel` (KEV metadata, EPSS, OSV ecosystems JSON); `daemon/sync_cve_intel.py` (CISA KEV JSON, EPSS file/API, OSV per-CVE); `api/feed_sync_lib.php` / `feeds.php` target `cve_intel`; dashboard + Settings status; `findings` / export expose `intel`.
 
 ### Changed
 - **Fingerprint / WebFP** — stronger VMware and Proxmox classification (titles, banners, vCenter VAMI `5480`, Wappalyzer-derived rules mapped to `hv` where the tech name implies a hypervisor); see `daemon/fingerprint.py`, `daemon/scanner_daemon.py`, `daemon/sync_webfp.py`.
@@ -167,7 +167,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.9.0]
 
 ### Added
-- **Change detection** — SQLite `change_alerts` table and `findings` lifecycle fields (migration `migration_phase9_change_detection_v1`); `daemon/change_detection.py` drives alerts and CVE state transitions from `scanner_daemon.py` and `collector_ingest_worker.py`; `GET/POST /api/change_alerts.php`; findings API adds `accept_risk` and lifecycle-aware resolve / unresolve / `GET ?lifecycle=`; Change alerts sidebar tab with dismiss controls (scan editors+).
+- **Change detection** — SQLite `change_alerts` table and `findings` lifecycle fields (migration in `api/db.php`); `daemon/change_detection.py` drives alerts and CVE state transitions from `scanner_daemon.py` and `collector_ingest_worker.py`; `GET/POST /api/change_alerts.php`; findings API adds `accept_risk` and lifecycle-aware resolve / unresolve / `GET ?lifecycle=`; Change alerts sidebar tab with dismiss controls (scan editors+).
 
 ### Changed
 - **Deploy note** — copy `change_detection.py` and `change_alerts.php`; restart Apache/php-fpm once so migrations run.
@@ -181,7 +181,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 ## [0.8.2]
 
 ### Added
-- **Scan profiles** — phase validation allows Full TCP to run banner/fingerprint phases despite an empty fixed `port_list` (all-TCP `-p-` mode on LAN in the scanner). (`fast_full_tcp` was previously shipped and later normalized to `full_tcp`.)
+- **Scan profiles** — pipeline validation allows Full TCP to run banner/fingerprint work despite an empty fixed `port_list` (all-TCP `-p-` mode on LAN in the scanner). (`fast_full_tcp` was previously shipped and later normalized to `full_tcp`.)
 
 ### Changed
 - **Scanner** — continues to union prior open ports (and related banner/CPE hints) on upsert for full-port profiles so inventory does not regress on a thin result pass.
@@ -248,7 +248,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 - **Scheduled + on-demand DB backups** — scheduler-managed DB backups with Settings controls (enable, cron, retention days, keep-count), backup status telemetry, plus an admin **Run backup now** action and restore helper script.
 
 ### Changed
-- **Host rescan modal parity** — Assets host rescan now exposes the same scan controls as manual/scheduled workflows: profile defaults, phases, rates, discovery mode, exclusions, and per-run enrichment selection.
+- **Host rescan modal parity** — Assets host rescan now exposes the same scan controls as manual/scheduled workflows: profile defaults, scan step selection, rates, discovery mode, exclusions, and per-run enrichment selection.
 - **Deep Scan vs Full TCP clarity + behavior** — UI/help text and profile descriptions now explicitly distinguish Deep Scan (fixed expanded list) from Full TCP (`-p-` all ports on LAN). `full_tcp` now uses longer host-timeout tiers on small scopes to reduce empty-result runs.
 - **Full TCP overwrite guard** — daemon upsert path now preserves prior inventory signal by unioning `open_ports` (and merging banners / fallback CPE data) when a weak `-p-` pass returns fewer results.
 
@@ -313,7 +313,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 - **Per-scan enrichment** — `POST /api/scan_start.php` accepts optional `enrichment_source_ids` (omit = all enabled, `[]` = skip external enrichment for that run, `[id,…]` = subset). Stored on `scan_jobs` and honored by `scanner_daemon.py`.
 
 ### Changed
-- **Schedules** — `scan_schedules` gains `enrichment_source_ids`; schedule UI and `POST /api/schedules.php` align with manual scan options (phases, `rate_pps` / `inter_delay`, priority, enrichment subset, profile confirmation for high-impact profiles). Scheduler enqueues jobs with the same fields.
+- **Schedules** — `scan_schedules` gains `enrichment_source_ids`; schedule UI and `POST /api/schedules.php` align with manual scan options (scan step list, `rate_pps` / `inter_delay`, priority, enrichment subset, profile confirmation for high-impact profiles). Scheduler enqueues jobs with the same fields.
 - **Schema** — `sql/schema.sql` `scan_jobs` expanded to match migrated production columns; `dashboard.php` / `schedules.php` migrations cover any straggler columns on first request.
 
 ### Fixed
@@ -341,7 +341,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Added
 - **Safer defaults and scan profiles** — profile-driven scanning introduced with guarded defaults for different environments.
-- **Profile-aware scanning pipeline** — per-profile phase/rate/delay/port behavior enforced by daemon and stored on scan jobs.
+- **Profile-aware scanning pipeline** — per-profile step selection, rates, delays, and port behavior enforced by daemon and stored on scan jobs.
 - **High-impact confirmation gates** — confirmation prompts added for higher-risk scan behaviors before execution.
 
 ### Changed

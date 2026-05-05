@@ -1,4 +1,4 @@
-# Device identity (Phase 5)
+# Device identity
 
 SurveyTrace stores **addresses** and **devices** separately:
 

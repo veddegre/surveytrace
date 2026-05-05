@@ -1,5 +1,5 @@
 """
-Run full scanner phase parity for a collector job in an isolated local SQLite DB.
+Run full local scanner parity for a collector job in an isolated local SQLite DB.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _insert_job(db_path: Path, job: dict[str, Any]) -> int:
     phases = job.get("phases", [])
     if not isinstance(phases, list):
         phases = []
-    # Collector runs local discovery/fingerprint phases only.
+    # Collector runs local discovery/fingerprint steps only.
     # CVE/AI enrichment is intentionally deferred to master ingest.
     phases = [p for p in phases if str(p).strip().lower() != "cve"]
     if "banner" not in phases:
@@ -168,7 +168,7 @@ def run_collector_parity(job: dict[str, Any]) -> dict[str, Any]:
         scanner_daemon.run_scan(dict(row))
         payload = _extract_payload(db_path, job_id)
         payload["scan_log"].append(
-            {"level": "INFO", "ip": "", "message": "collector parity runner completed full local phase execution"}
+            {"level": "INFO", "ip": "", "message": "collector parity runner completed full local scan execution"}
         )
         return payload
     except Exception as exc:

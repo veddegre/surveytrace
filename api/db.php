@@ -490,7 +490,7 @@ function st_migrate_device_identity_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 9 — finding lifecycle columns + change_alerts table + backfill mitigated from legacy resolved=1.
+ * Change detection — finding lifecycle columns + change_alerts table + backfill mitigated from legacy resolved=1.
  */
 function st_migrate_phase9_change_detection_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase9_change_detection_v1'")->fetchColumn();
@@ -546,7 +546,7 @@ function st_migrate_phase9_change_detection_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 10 — per-finding provenance, detection method, confidence, risk score, evidence JSON.
+ * Finding triage — per-finding provenance, detection method, confidence, risk score, evidence JSON.
  */
 function st_migrate_phase10_finding_triage_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase10_finding_triage_v1'")->fetchColumn();
@@ -577,7 +577,7 @@ function st_migrate_phase10_finding_triage_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 11 — CVE intelligence joins (CISA KEV, FIRST EPSS, OSV ecosystems); populated by sync_cve_intel.py.
+ * CVE intelligence — KEV/EPSS/OSV joins (CISA KEV, FIRST EPSS, OSV ecosystems); populated by sync_cve_intel.py.
  */
 function st_migrate_phase11_cve_intel_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase11_cve_intel_v1'")->fetchColumn();
@@ -609,7 +609,7 @@ function st_migrate_phase11_cve_intel_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 12 — asset lifecycle (coverage-based stale/retire) + operator metadata columns.
+ * Asset lifecycle — coverage-based stale/retire + operator metadata columns.
  */
 function st_migrate_phase12_asset_lifecycle_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase12_asset_lifecycle_v1'")->fetchColumn();
@@ -677,7 +677,7 @@ function st_migrate_asset_metadata_locks_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 13 — baselines, report artifacts, schedule_action for report-only schedules.
+ * Reporting — baselines, report artifacts, schedule_action for report-only schedules.
  */
 function st_migrate_phase13_reporting_v1(PDO $pdo): void {
     $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_phase13_reporting_v1'")->fetchColumn();
@@ -723,7 +723,7 @@ function st_migrate_phase13_reporting_v1(PDO $pdo): void {
 }
 
 /**
- * Phase 14 — scan scopes: multi-network reporting boundaries + scoped baselines.
+ * Scan scopes — multi-network reporting boundaries + scoped baselines.
  */
 function st_migrate_phase14_scan_scopes_v1(PDO $pdo): void
 {
@@ -779,7 +779,7 @@ function st_migrate_phase14_scan_scopes_v1(PDO $pdo): void
 }
 
 /**
- * Phase 14.1 — integrations foundation (config rows + pull token storage in config).
+ * Integrations foundation — integration rows (initial schema; pull token storage evolved in follow-on migration).
  */
 function st_migrate_phase14_1_integrations_v1(PDO $pdo): void
 {
@@ -858,7 +858,7 @@ function st_integrations_pull_token_schema_ready(PDO $pdo): bool
 }
 
 /**
- * Phase 14.1 — per-integration pull token hashes (Prometheus / events / report summary consumers).
+ * Per-integration pull token hashes (Prometheus / events / report summary consumers).
  * Idempotent column adds on `integrations`.
  */
 function st_migrate_phase14_1_integrations_per_pull_token_v1(PDO $pdo): void
@@ -899,7 +899,7 @@ function st_migrate_phase16_remove_legacy_integrations_pull_token_v1(PDO $pdo): 
 }
 
 /**
- * Phase 16.1 — Zabbix source connector tables (hosts, interfaces, tags, problems summary, asset links, scope rules).
+ * Zabbix source connector — hosts, interfaces, tags, problems summary, asset links, scope rules.
  */
 function st_migrate_phase16_zabbix_source_v1(PDO $pdo): void
 {
@@ -915,7 +915,7 @@ function st_migrate_phase16_zabbix_source_v1(PDO $pdo): void
 }
 
 /**
- * Phase 16.2 — Zabbix workflow: asset scope_id + denormalized Zabbix trust fields; manual link flag on zabbix_asset_links.
+ * Zabbix workflow — asset scope_id + denormalized Zabbix trust fields; manual link flag on zabbix_asset_links.
  */
 function st_migrate_phase16_2_zabbix_workflow_v1(PDO $pdo): void
 {

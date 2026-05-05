@@ -12,7 +12,7 @@
  *   category  — srv | ws | net | iot | ot | voi | prn | hv
  *   resolved  — 0 (open) | 1 (resolved) | '' (all)
  *   min_year  — minimum CVE publication year (e.g. 2015)
- *   confidence — high|medium|low (Phase 10)
+ *   confidence — high|medium|low (CVE triage)
  */
 
 require_once __DIR__ . '/db.php';

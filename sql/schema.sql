@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS assets (
     last_scan_id INTEGER,
     notes        TEXT,
     device_id     INTEGER REFERENCES devices(id),
-    -- Phase 12 — lifecycle vs expected scan coverage + operator metadata
+    -- Lifecycle vs expected scan coverage + operator metadata
     lifecycle_status              TEXT DEFAULT 'active',
     lifecycle_reason              TEXT,
     last_expected_scan_id         INTEGER,
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS findings (
     accepted_by_user_id  INTEGER,
     first_seen_job_id    INTEGER,
     last_seen_job_id     INTEGER,
-    -- Phase 10 — explainable triage (scanner / collector)
+    -- Explainable CVE triage (scanner / collector)
     provenance_source    TEXT DEFAULT 'unknown',
         -- scanner | collector | unknown
     detection_method     TEXT,
@@ -146,7 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_cve_intel_kev ON cve_intel(kev);
 CREATE INDEX IF NOT EXISTS idx_cve_intel_epss ON cve_intel(epss DESC);
 
 -- -------------------------------------------------------
--- Scan scopes — reporting / multi-network boundaries (Phase 14)
+-- Scan scopes — reporting / multi-network boundaries
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS scan_scopes (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,11 +204,11 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     batch_index  INTEGER DEFAULT 0,
     batch_total  INTEGER DEFAULT 0,
     created_by   TEXT DEFAULT 'web',
-    -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip phase 3b
+    -- JSON array of enrichment_sources.id; NULL = all enabled; [] = skip network enrichment
     enrichment_source_ids TEXT,
-    -- Phase 13: operator-selected baseline for reporting (at most one job should have 1)
+    -- Operator-selected baseline for reporting (at most one job should have 1)
     is_baseline INTEGER DEFAULT 0,
-    -- Phase 14: optional link to scan_scopes for scoped reporting
+    -- Optional link to scan_scopes for scoped reporting
     scope_id INTEGER REFERENCES scan_scopes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_deleted_at ON scan_jobs(deleted_at, id DESC);
@@ -292,7 +292,7 @@ CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset ON scan_finding_snap
 CREATE INDEX IF NOT EXISTS idx_scan_finding_snapshots_asset_cve ON scan_finding_snapshots(asset_id, cve_id, job_id DESC);
 
 -- -------------------------------------------------------
--- Phase 13 — scheduled report outputs (JSON payloads)
+-- Scheduled report outputs (JSON payloads)
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS report_artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -308,7 +308,7 @@ CREATE INDEX IF NOT EXISTS idx_report_artifacts_created ON report_artifacts(crea
 CREATE INDEX IF NOT EXISTS idx_report_artifacts_schedule ON report_artifacts(schedule_id, id DESC);
 
 -- -------------------------------------------------------
--- Phase 14.1 — integrations configuration (push + pull metadata rows)
+-- Integrations configuration (push + pull metadata rows)
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS integrations (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -412,7 +412,7 @@ CREATE INDEX IF NOT EXISTS idx_user_audit_log_target ON user_audit_log(target_us
 CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC);
 
 -- -------------------------------------------------------
--- Change alerts (Phase 9 — new assets, port deltas, CVE lifecycle)
+-- Change alerts (new assets, port deltas, CVE lifecycle)
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS change_alerts (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,

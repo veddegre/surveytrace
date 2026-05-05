@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * CLI worker: push SurveyTrace summary metrics to Zabbix (Phase 16.4).
+ * CLI worker: push SurveyTrace summary metrics to Zabbix.
  */
 
 declare(strict_types=1);

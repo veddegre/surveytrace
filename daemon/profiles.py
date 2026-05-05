@@ -387,8 +387,8 @@ def list_profiles() -> list[dict]:
 
 def validate_phases(profile: ScanProfile, requested_phases: list[str]) -> list[str]:
     """
-    Filter requested phases against what the profile allows.
-    Returns the safe subset of phases.
+    Filter requested scan steps against what the profile allows.
+    Returns the safe subset (stored on jobs as `phases` JSON).
     """
     allowed = ["passive"]   # passive (ARP/mDNS) always allowed if profile permits
 

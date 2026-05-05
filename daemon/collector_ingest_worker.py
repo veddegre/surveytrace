@@ -715,7 +715,7 @@ def process_one(qrow: dict) -> None:
     if job_status not in {"done", "failed", "aborted"}:
         job_status = "done"
 
-    # Phase A: apply collector artifact — periodic commits so SQLite does not hold one
+    # Stage A: apply collector artifact — periodic commits so SQLite does not hold one
     # writer transaction across very large payloads (same spirit as scanner bulk commits).
     asset_map: dict[str, int] = {}
     with db_conn() as conn:
@@ -860,7 +860,7 @@ def process_one(qrow: dict) -> None:
             ),
         )
 
-    # Phase B: mark chunk ingested. When all chunks are present, set job done BEFORE master CVE/AI work
+    # Stage B: mark chunk ingested. When all chunks are present, set job done BEFORE master CVE/AI work
     # so the UI does not stay "running" for hours while Ollama/NVD run (ingest worker is often the bottleneck).
     with db_conn() as conn:
         conn.execute(

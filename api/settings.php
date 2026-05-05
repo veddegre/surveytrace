@@ -17,7 +17,7 @@
  *   - ai_openwebui_base_url — http(s) origin of Open WebUI (no trailing slash required); env OPENWEBUI_BASE_URL overrides DB
  *   - ai_openwebui_api_key — Bearer token for Open WebUI API; env OPENWEBUI_API_KEY overrides DB
  *   - security_allow_private_outbound_targets: bool (default false; allow private/loopback OIDC/OpenWebUI endpoints)
- *   - integration_webhook_enabled: bool — reserved legacy flag (Phase 14.1: no server path calls `st_integrations_outbound_emit()`; use **Integrations** push rows + test/sample instead)
+ *   - integration_webhook_enabled: bool — reserved legacy flag (no server path calls `st_integrations_outbound_emit()`; use **Integrations** push rows + test/sample instead)
  *   - integration_webhook_url: string — HTTPS URL (http allowed only when security_allow_private_outbound_targets is on)
  *   - integration_webhook_secret: optional HMAC secret (X-SurveyTrace-Signature: sha256=…); never returned on GET
  *   - integration_webhook_secret_remove: truthy — clear stored secret

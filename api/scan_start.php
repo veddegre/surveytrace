@@ -231,7 +231,7 @@ if (empty($scan_targets)) {
     st_json(['error' => 'No scan targets generated', 'field' => 'cidr'], 400);
 }
 // ---------------------------------------------------------------------------
-// 2. Phases whitelist
+// 2. Scan step whitelist (stored JSON key remains `phases`)
 // ---------------------------------------------------------------------------
 $allowed_phases = ['passive', 'icmp', 'banner', 'fingerprint', 'snmp', 'ot', 'cve'];
 $default_phases = ['passive', 'icmp', 'banner', 'fingerprint', 'cve'];
@@ -243,7 +243,7 @@ if (!is_array($requested_phases)) {
 
 $phases = array_values(array_intersect($requested_phases, $allowed_phases));
 if (empty($phases)) {
-    st_json(['error' => 'No valid scan phases specified', 'field' => 'phases'], 400);
+    st_json(['error' => 'No valid scan steps specified', 'field' => 'phases'], 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ if ($collector_id > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 3b. Optional scan scope (Phase 14 — reporting / multi-network)
+// 3b. Optional scan scope (reporting / multi-network)
 // ---------------------------------------------------------------------------
 $scopeIdBody = isset($body['scope_id']) ? (int) ($body['scope_id'] ?? 0) : 0;
 if ($scopeIdBody < 0) {
@@ -375,7 +375,7 @@ $exclusions = implode("\n", array_values($exclusion_lines));
 $label = substr(trim((string)($body['label'] ?? '')), 0, 120);
 
 // ---------------------------------------------------------------------------
-// 4b. Optional per-scan enrichment allowlist (Phase 3b)
+// 4b. Optional per-scan enrichment allowlist
 // ---------------------------------------------------------------------------
 // null / key omitted = use all globally enabled sources (default)
 // []          = skip enrichment for this scan
@@ -538,7 +538,7 @@ if ($job_id > 0) {
     ")->execute([
         $job_id,
         sprintf(
-            'Job #%d queued by web — targets: %s | phases: %s | pps: %d | delay: %dms | exclusions: %d lines%s%s%s',
+            'Job #%d queued by web — targets: %s | steps: %s | pps: %d | delay: %dms | exclusions: %d lines%s%s%s',
             $job_id,
             implode(', ', $scan_targets),
             implode(', ', $phases),

@@ -999,7 +999,7 @@ def _missed_fire_times(
 
 
 def _materialize_scheduled_report(conn: sqlite3.Connection, schedule_id: int) -> None:
-    """Run api/reporting_cli.php materialize <schedule_id> (Phase 13)."""
+    """Run api/reporting_cli.php materialize <schedule_id>."""
     root = Path(__file__).resolve().parent.parent
     php_bin = os.environ.get("SURVEYTRACE_PHP_BIN", "php")
     script = root / "api" / "reporting_cli.php"

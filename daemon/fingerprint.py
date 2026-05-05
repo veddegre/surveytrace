@@ -898,7 +898,7 @@ BANNER_PATTERNS: list[tuple[str, str, str]] = [
     # Pi-hole often banners as dnsmasq … pi-hole (no literal "Pi-hole" substring).
     (r"Pi[-\s]?hole|\bpihole\b|\bdnsmasq\b.{0,200}pi[-\s]?hole", "srv", "pi-hole:pi-hole"),
     (r"Nginx[-\s]?Proxy[-\s]?Manager|nginxproxymanager|NPM\s+reverse\s+proxy", "srv", "nginx_proxy_manager:nginx_proxy_manager"),
-    (r"Portainer|\bportainer\b|\[?Vedorama\]?", "srv", "portainer:portainer"),
+    (r"Portainer|\bportainer\b", "srv", "portainer:portainer"),
     (r"Uptime[\s_-]?Kuma",           "srv",  "uptime_kuma:uptime_kuma"),
     (r"Karakeep",                    "srv",  "karakeep:karakeep"),
     (r"Open\s*WebUI|OpenWebUI",      "srv",  "open_webui:open_webui"),

@@ -10,13 +10,13 @@
  *   severity — filter by severity (optional)
  *   findings  — 1 = include findings rows in CSV (default: 0)
  *   device_id — if > 0, only assets for this logical device
- *   lifecycle_status — active|stale|retired (optional; Phase 12)
- *   zabbix_monitored — ''|0|1, zabbix_unavailable=1, zabbix_has_problems=1, zabbix_group, zabbix_tag (Phase 16.2; when migrations applied)
+ *   lifecycle_status — active|stale|retired (optional; when migrated)
+ *   zabbix_monitored — ''|0|1, zabbix_unavailable=1, zabbix_has_problems=1, zabbix_group, zabbix_tag (when Zabbix workflow columns exist)
  *   scope_id — optional: same semantics as GET /api/assets.php (inventory scope on assets)
  *   ai_review — "1" — same semantics as GET /api/assets.php (actionable scan-AI / identity only)
  *   ai_summary — "1" — same semantics as GET /api/assets.php (OK cached operator host summary)
  *
- * CSV/JSON include Phase 12 lifecycle and business-context columns on asset rows.
+ * CSV/JSON include lifecycle and business-context columns on asset rows when present.
  */
 
 require_once __DIR__ . '/db.php';
@@ -262,7 +262,7 @@ $out = fopen('php://output', 'w');
 // BOM for Excel UTF-8 compatibility
 fwrite($out, "\xEF\xBB\xBF");
 
-// Asset header row (Phase 12 fields follow Last Seen, before Notes — same order as SELECT)
+// Asset header row (lifecycle fields follow Last Seen, before Notes — same order as SELECT)
 fputcsv($out, [
     'IP Address', 'Device ID', 'Hostname', 'MAC', 'MAC Vendor', 'Category',
     'Vendor', 'Model', 'OS Guess', 'CPE',
