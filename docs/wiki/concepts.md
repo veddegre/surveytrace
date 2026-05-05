@@ -1,5 +1,7 @@
 # Concepts
 
+[← Back to Documentation](README.md)
+
 ## Scan jobs (historical snapshots)
 
 - A scan job is a single run with its own point-in-time results.
@@ -28,3 +30,10 @@
   - **Job scope reports** may show little or no data.
   - **Inventory scope reports** can still show current asset/finding state.
 - If scope results look empty, confirm you selected the correct reporting mode.
+
+---
+
+See also:
+- [Documentation home](README.md)
+
+---

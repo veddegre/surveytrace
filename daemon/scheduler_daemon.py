@@ -53,6 +53,26 @@ ZABBIX_CONNECTOR_TABLE = "zabbix_connector"
 
 # Log connector "not ready" (disabled / missing creds / schedule off) at INFO only when this changes.
 _zabbix_sync_cfg_snap: tuple[bool, bool, bool, bool] | None = None
+_zabbix_txn_warned_labels: set[str] = set()
+
+
+def _clear_stale_scheduler_txn(conn: sqlite3.Connection, label: str) -> None:
+    """
+    Defensive cleanup before Zabbix lock writes.
+    If a transaction is unexpectedly open here, roll it back to avoid nested BEGIN/lock errors.
+    """
+    if not conn.in_transaction:
+        return
+    if label not in _zabbix_txn_warned_labels:
+        _zabbix_txn_warned_labels.add(label)
+        log.warning(
+            "rolled back stale scheduler transaction before %s lock",
+            label,
+        )
+    try:
+        conn.rollback()
+    except Exception as e:
+        log.warning("failed rollback before %s lock: %s", label, e)
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +348,7 @@ def maybe_run_zabbix_scheduled_sync(conn: sqlite3.Connection, now: datetime) -> 
     )
 
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        _clear_stale_scheduler_txn(conn, "Zabbix scheduled sync")
         cur = conn.execute(
             f"""UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_sync_lock=1, scheduled_sync_lock_at=datetime('now')
                 WHERE id=1 AND enabled=1
@@ -428,8 +448,50 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
     push_age_mod = f"-{interval} seconds"
     lock_stale_mod = "-1800 seconds"
     php_bin = (os.environ.get("SURVEYTRACE_PHP_BIN") or os.environ.get("SURVEYTRACE_PHP_CLI") or "php").strip() or "php"
+    row = None
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            f"""
+            SELECT enabled, output_enabled, api_url, api_token, output_host,
+                   COALESCE(scheduled_output_lock, 0) AS scheduled_output_lock,
+                   scheduled_output_lock_at,
+                   last_output_push_at,
+                   (last_output_push_at IS NULL OR TRIM(COALESCE(last_output_push_at,''))=''
+                    OR datetime(last_output_push_at) <= datetime('now', ?)) AS output_due,
+                   (COALESCE(scheduled_output_lock,0)=0 OR scheduled_output_lock_at IS NULL
+                    OR datetime(scheduled_output_lock_at) < datetime('now', ?)) AS lock_ok
+            FROM {ZABBIX_CONNECTOR_TABLE}
+            WHERE id = 1
+            """,
+            (push_age_mod, lock_stale_mod),
+        ).fetchone()
+    except Exception as e:
+        log.warning("Zabbix output push: could not read connector row: %s", e)
+        return
+    if row is None:
+        log.debug("Zabbix output push: no connector row id=1, skip")
+        return
+    output_due = int(row["output_due"] or 0)
+    lock_ok = int(row["lock_ok"] or 0)
+    if not output_due:
+        log.debug(
+            "Zabbix output push: not due (last_output_push_at=%r), skip",
+            row["last_output_push_at"],
+        )
+        return
+    if not lock_ok:
+        log.debug(
+            "Zabbix output push: lock already active (scheduled_output_lock=%s scheduled_output_lock_at=%r), skip",
+            int(row["scheduled_output_lock"] or 0),
+            row["scheduled_output_lock_at"],
+        )
+        return
+    log.info(
+        "Zabbix output push: due (last_output_push_at=%r), acquiring lock",
+        row["last_output_push_at"],
+    )
+    try:
+        _clear_stale_scheduler_txn(conn, "Zabbix output push")
         cur = conn.execute(
             f"""UPDATE {ZABBIX_CONNECTOR_TABLE} SET scheduled_output_lock=1, scheduled_output_lock_at=datetime('now')
                 WHERE id=1
@@ -456,6 +518,7 @@ def maybe_run_zabbix_output_push(conn: sqlite3.Connection, now: datetime) -> Non
             pass
         log.warning("Zabbix output push: lock/update failed: %s", e)
         return
+    log.info("Zabbix output push: lock acquired (id=1)")
     try:
         proc = subprocess.Popen(
             [php_bin, str(worker)],
@@ -1164,8 +1227,14 @@ def main() -> None:
             with db_conn() as conn:
                 purge_expired_trashed_scans(conn)
                 maybe_run_db_backup(conn, now)
+                if conn.in_transaction:
+                    conn.commit()
                 maybe_run_zabbix_scheduled_sync(conn, now)
+                if conn.in_transaction:
+                    conn.commit()
                 maybe_run_zabbix_output_push(conn, now)
+                if conn.in_transaction:
+                    conn.commit()
                 seed_missing_next_runs(conn, now)
                 # Find all enabled schedules due to run
                 due = conn.execute("""

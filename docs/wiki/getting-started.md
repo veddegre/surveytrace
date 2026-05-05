@@ -1,5 +1,7 @@
 # Getting Started
 
+[← Back to Documentation](README.md)
+
 ## What SurveyTrace is
 
 - SurveyTrace is a security and asset visibility platform for running scans, enriching asset context, and reviewing risk in one interface.
@@ -29,3 +31,10 @@
 - Start a scan from **Scan control**.
 - Watch progress and completion state in **Scan history**.
 - Open **Assets** to review discovered hosts and findings.
+
+---
+
+See also:
+- [Documentation home](README.md)
+
+---

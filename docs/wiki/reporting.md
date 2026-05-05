@@ -1,5 +1,21 @@
 # Reporting
 
+[← Back to Documentation](README.md)
+
+## How to run a report
+
+- Open **Reports & Analysis**.
+- Choose the reporting mode based on your question:
+  - historical scan evidence
+  - current inventory state
+- Select scope/filter inputs and review generated sections.
+
+## How to choose job vs inventory scope
+
+- Choose **Job scope** for scan-history-based analysis.
+- Choose **Inventory scope** for current asset/finding state.
+- If one mode is empty, switch modes before assuming data is missing.
+
 ## Job scope reports (historical)
 
 - Built from completed scan jobs and their snapshot history.
@@ -29,3 +45,10 @@
 - A historical job exists for a scope, but asset assignment later changed:
   - Job scope reflects historical run context.
   - Inventory scope reflects present assignment context.
+
+---
+
+See also:
+- [Documentation home](README.md)
+
+---
