@@ -63,59 +63,79 @@
   --radius:6px;--radius-lg:8px;
 }
 body.light-mode{
-  /* Muted canvas: page < card < surface (no #fff on large surfaces) */
+  /* Muted canvas: ceiling #f2f5f9 — no #fff on large/elevated UI */
   --text:#1f2937;
-  --text-muted:#5f6b7a;
-  --text-faint:#5f6d7e;
-  --bg:#e9eef5;
-  --card:#f4f7fb;
-  --surface:#f8fafc;
-  --surface-muted:#eef1f7;
-  --border:#d2dae6;
-  --border-strong:#c0cad9;
-  --section-bg:#eef3f9;
+  --text-muted:#4f5f70;
+  --text-faint:#586a7d;
+  --bg:#e7edf5;
+  --card:#eef3f8;
+  --surface:#f2f5f9;
+  --surface-muted:#e8eef6;
+  --border:#cbd5e1;
+  --border-strong:#b8c4d3;
+  --section-bg:#e9eff7;
   --section-border:var(--border);
   --host-modal-body-bg:var(--bg);
-  --host-ai-section-bg:#e8edf5;
+  --host-ai-section-bg:#e6edf6;
   --primary:#2563eb;
   --primary-hover:#1d4ed8;
-  /* On-primary: off-white chip, not pure white */
-  --primary-fg:#f4f7fb;
+  --primary-fg:#eef3f8;
   --success:#059669;
   --warning:#d97706;
   --danger:#dc2626;
-  --tbl-row-hover:rgba(0,0,0,0.035);
+  --tbl-row-hover:rgba(0,0,0,0.032);
   --tbl-wrap-bg:var(--surface);
   --tbl-header-bg:var(--card);
   --modal-backdrop:rgba(0,0,0,0.45);
-  --card-shadow-light:0 1px 2px rgba(15,23,42,0.055);
+  --card-shadow-light:0 1px 2px rgba(15,23,42,0.05);
+  --panel2:#edf2f8;
 
   --tx:var(--text);
   --tx2:var(--text-muted);
   --tx3:var(--text-faint);
   --bg2:var(--card);
-  --bg3:#dfe6f0;
-  --bg4:#d0d9e6;
+  --bg3:#e2e9f3;
+  --bg4:#d8e0ec;
   --bd:var(--border);
   --bd2:var(--border-strong);
   --acc:var(--primary);
   --acc2:var(--primary-hover);
   --adim2:rgba(37,99,235,0.1);
   --green:var(--success);
-  --gdim:#ecfdf5;
+  --gdim:#daf0e6;
   --gbrd:#a7f3d0;
   --amber:var(--warning);
-  --adim:#faf3df;
+  --adim:#f5edd8;
   --abrd:#fde68a;
   --red:var(--danger);
-  --rdim:#faeaea;
+  --rdim:#f3e4e4;
   --rbrd:#fecaca;
   --blue:#1d4ed8;
-  --bdim2:#e8eef8;
+  --bdim2:#e2eaf6;
   --bbrd:#bfdbfe;
   --orange:#c2410c;
-  --odim:#faf0e6;
+  --odim:#f3ebe0;
 }
+/* Light: form controls, chips, pagination — stay ≤ surface, never #fff */
+body.light-mode .finp,
+body.light-mode .finput,
+body.light-mode textarea.finput{background:var(--surface-muted);border-color:var(--bd)}
+body.light-mode .tbtn{background:var(--surface-muted);border-color:var(--border);color:var(--text)}
+body.light-mode .tbtn:hover{background:var(--bg3);border-color:var(--primary);color:var(--text)}
+body.light-mode .tbtn:disabled,
+body.light-mode .tbtn:disabled:hover{background:var(--surface-muted);border-color:var(--border);color:var(--text-muted)}
+body.light-mode .pgn button{background:var(--surface-muted);border-color:var(--border);color:var(--text-muted)}
+body.light-mode .pgn button:hover:not(:disabled){background:var(--bg3);border-color:var(--primary);color:var(--primary)}
+body.light-mode .profile-card{background:var(--surface-muted)}
+body.light-mode .help-box{background:var(--surface-muted)}
+body.light-mode .status-chip{background:var(--surface-muted)}
+body.light-mode .hp-chip{background:var(--surface-muted)}
+body.light-mode .pt{background:var(--surface-muted)}
+body.light-mode .zb-enrich-match-box{background:var(--surface-muted)}
+body.light-mode .exec-selected-chip,
+body.light-mode .exec-fixed-tip,
+body.light-mode .exec-delta-chip{background:var(--surface-muted)}
+body.light-mode .conf-chip{background:var(--surface-muted)}
 body{
   background:var(--bg);
   color:var(--tx);
