@@ -15594,7 +15594,7 @@ function renderHostPanelZabbixBlock(a) {
         <span class="text-dim mono-sm" style="font-weight:normal;margin-left:6px">enrichment (read-only)</span>
         <div class="hp-head-line"></div>
       </div>
-      <div class="hp-block mb14" style="padding-bottom:4px">
+      <div class="mb14 host-inner-surface">
         <table class="hp-meta-table">
           ${zbxFreshRow}
           <tr><td class="hp-meta-key">Zabbix host</td><td class="hp-meta-val-dim">${zbxHostLabel}</td></tr>
@@ -15759,8 +15759,8 @@ async function openHostPanel(id, ip) {
     document.getElementById('hp-body').innerHTML = `
       <section class="host-section" aria-label="Overview">
         <h3 class="host-section-heading">Overview</h3>
-        <div class="hp-meta">
         <div class="host-overview-identity-line">${esc(a.hostname || '—')}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
+        <div class="hp-meta host-meta-well">
         <table class="hp-meta-table">
           <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
           <tr><td class="hp-meta-key">Lifecycle</td><td class="hp-meta-val">${lifecycleBadgeHtml(a)} <span class="text-dim mono-sm">${esc(a.lifecycle_reason || '—')}</span></td></tr>
@@ -15803,12 +15803,12 @@ async function openHostPanel(id, ip) {
 
       <section class="host-section" aria-label="Detected services">
         <h3 class="host-section-heading">Detected services</h3>
-      ${serviceRows}
+      <div class="host-inner-surface">${serviceRows}</div>
       </section>
 
       <section class="host-section" aria-label="Open ports">
         <h3 class="host-section-heading">Open ports (${ports.length})</h3>
-      <div class="mb14">${portRows}</div>
+      <div class="mb14 host-inner-surface">${portRows}</div>
       </section>
 
       <section class="host-section" aria-label="AI summary">${renderHpAiOperatorSection(a, id, a.ip)}</section>
@@ -15823,7 +15823,7 @@ async function openHostPanel(id, ip) {
 
       <section class="host-section" aria-label="Open vulnerabilities">
         <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
-      <div class="mb14">${findingRows}</div>
+      <div class="mb14 host-inner-surface">${findingRows}</div>
       </section>
 
       <section class="host-section" aria-label="Accepted risk">
@@ -15833,13 +15833,13 @@ async function openHostPanel(id, ip) {
           <span class="text-dim mono-sm" style="font-weight:normal;margin-left:6px">acknowledged CVEs</span>
           <div class="hp-head-line"></div>
         </summary>
-        <div class="mt8">${acceptedFindingRows}</div>
+        <div class="mt8 host-inner-surface">${acceptedFindingRows}</div>
       </details>
       </section>
 
       <section class="host-section" aria-label="Port history">
         <h3 class="host-section-heading">Port history</h3>
-      <div class="mb8">${
+      <div class="mb8 host-inner-surface">${
         (assetData.asset.port_history||[]).slice(0,5).map(h => `
           <div class="hp-history-row">
             <span class="hp-history-ts">${esc((h.seen_at||'').slice(0,16))}</span>
@@ -15850,7 +15850,7 @@ async function openHostPanel(id, ip) {
 
       <section class="host-section" aria-label="Scan change history">
         <h3 class="host-section-heading">Scan change history</h3>
-      <div class="mb10">${scanHistoryRows}</div>
+      <div class="mb10 host-inner-surface">${scanHistoryRows}</div>
       </section>`;
     syncHostPanelExplainBusyUi();
 }
