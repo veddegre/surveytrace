@@ -439,9 +439,12 @@ function st_scan_scopes_table_scope_id_group_counts(PDO $db, string $table): arr
 }
 
 /**
- * Rename a scope; rejects duplicate names (case-insensitive).
+ * Rename a scope (required) and optionally patch description / environment.
+ * Rejects duplicate names (case-insensitive). $patch keys: 'description', 'environment' (only present keys are updated).
+ *
+ * @param array<string, mixed>|null $patch
  */
-function st_scan_scopes_rename_row(PDO $db, int $scopeId, string $newName): void
+function st_scan_scopes_rename_row(PDO $db, int $scopeId, string $newName, ?array $patch = null): void
 {
     if ($scopeId <= 0) {
         throw new InvalidArgumentException('scope_id is required');
@@ -465,10 +468,24 @@ function st_scan_scopes_rename_row(PDO $db, int $scopeId, string $newName): void
     if ((int) $dup->fetchColumn() === 1) {
         throw new InvalidArgumentException('A scope with this name already exists');
     }
-    $db->prepare('UPDATE scan_scopes SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([
-        substr($nameTrim, 0, 200),
-        $scopeId,
-    ]);
+    $sets = ['name = ?'];
+    $params = [substr($nameTrim, 0, 200)];
+    if (is_array($patch)) {
+        if (array_key_exists('description', $patch)) {
+            $sets[] = 'description = ?';
+            $dv = trim((string) $patch['description']);
+            $params[] = $dv === '' ? null : substr($dv, 0, 2000);
+        }
+        if (array_key_exists('environment', $patch)) {
+            $sets[] = 'environment = ?';
+            $ev = trim((string) $patch['environment']);
+            $params[] = substr($ev === '' ? 'unknown' : $ev, 0, 120);
+        }
+    }
+    $sets[] = 'updated_at = CURRENT_TIMESTAMP';
+    $params[] = $scopeId;
+    $sql = 'UPDATE scan_scopes SET ' . implode(', ', $sets) . ' WHERE id = ?';
+    $db->prepare($sql)->execute($params);
 }
 
 /**

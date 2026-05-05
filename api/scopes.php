@@ -161,8 +161,19 @@ if ($action === 'rename') {
         st_json(['ok' => false, 'error' => 'name is required'], 400);
     }
     $oldName = st_scan_scopes_resolve_name($db, $scopeId) ?? '';
+    /** @var array<string, mixed>|null */
+    $patch = null;
+    if (array_key_exists('description', $body) || array_key_exists('environment', $body)) {
+        $patch = [];
+        if (array_key_exists('description', $body)) {
+            $patch['description'] = (string) ($body['description'] ?? '');
+        }
+        if (array_key_exists('environment', $body)) {
+            $patch['environment'] = (string) ($body['environment'] ?? '');
+        }
+    }
     try {
-        st_scan_scopes_rename_row($db, $scopeId, $name);
+        st_scan_scopes_rename_row($db, $scopeId, $name, $patch);
     } catch (InvalidArgumentException $e) {
         st_json(['ok' => false, 'error' => $e->getMessage()], 400);
     } catch (Throwable $e) {

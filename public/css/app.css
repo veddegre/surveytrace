@@ -167,6 +167,12 @@ body{
 .pill.err{border-color:var(--rbrd);background:var(--rdim);color:var(--red)}
 .pdot{width:5px;height:5px;border-radius:50%;background:currentColor}
 .pill.run .pdot{animation:blink .9s ease-in-out infinite}
+button.pill{margin:0;font:inherit;color:inherit;text-align:left;cursor:default;-webkit-appearance:none;appearance:none}
+button.pill:disabled{opacity:1;cursor:default}
+button.pill.pill--to-scan-hist:not(:disabled){cursor:pointer}
+button.pill.pill--to-scan-hist:not(:disabled):hover{background:rgba(0,0,0,.06)}
+body.light-mode button.pill.pill--to-scan-hist:not(:disabled):hover{background:rgba(15,23,42,.05)}
+button.pill.pill--to-scan-hist:not(:disabled):focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .bar-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .bar-account-wrap{position:relative}
 .bar-account-btn{white-space:nowrap}
@@ -276,6 +282,9 @@ body.light-mode .tbl-wrap{box-shadow:var(--card-shadow-light)}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--tbl-row-hover)}
 .tbl tr.selected td{background:var(--bg4)}
+/* Scopes tab — description readable but capped width; full text via native tooltip */
+.st-scope-desc-cell{max-width:16rem;min-width:7rem;vertical-align:middle}
+.st-scope-desc-truncate{display:block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text);line-height:1.4}
 .mono{font-family:var(--mf);color:var(--tx)}
 
 /* CVSS / severity chips — UI sans + tabular nums (light & dark) for clear digits; mode-specific colors below. */

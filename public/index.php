@@ -57,7 +57,7 @@ if (!headers_sent()) {
   <div class="logo"><div class="logo-dot" id="logodot"></div>SurveyTrace</div>
   <div class="bar-meta" id="bar-meta">v<?= ST_VERSION ?></div>
   <div class="sep"></div>
-  <div class="pill" id="status-pill"><div class="pdot"></div><span id="status-txt">Idle</span></div>
+  <button type="button" class="pill" id="status-pill" disabled aria-disabled="true" onclick="stStatusPillNavToHistory()"><div class="pdot"></div><span id="status-txt">Idle</span></button>
   <div class="bar-actions">
     <button type="button" class="btnp btn-sm" id="bar-btn-new-scan" onclick="goTab('scan');hiNav('nscan')">+ New scan</button>
     <div class="bar-account-wrap" id="bar-account-wrap">
@@ -441,8 +441,8 @@ if (!headers_sent()) {
   <div id="st-scopes-err" class="help-mono mb8" style="display:none"></div>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Name</th><th>Environment</th><th>Assets</th><th title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th title="Schedules defaulting to this scope">Schedules</th><th style="min-width:200px"></th></tr></thead>
-      <tbody id="st-scopes-tbody"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+      <thead><tr><th>Name</th><th>Description</th><th>Environment</th><th>Assets</th><th title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th title="Schedules defaulting to this scope">Schedules</th><th style="min-width:200px"></th></tr></thead>
+      <tbody id="st-scopes-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -2474,6 +2474,29 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
   </div>
 </div>
 
+<!-- Edit scan scope (Scopes tab) -->
+<div id="st-edit-scope-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-edit-scope-title" onclick="if(event.target===this)closeStEditScopeModal()">
+  <div class="modal-card modal-w520" onclick="event.stopPropagation()">
+    <div class="row-between mb14" style="gap:12px;align-items:center">
+      <div class="modal-title" style="margin-bottom:0" id="st-edit-scope-title">Edit scope</div>
+      <button type="button" class="modal-close-x" onclick="closeStEditScopeModal()" title="Close" aria-label="Close">×</button>
+    </div>
+    <p class="hint-micro mb10">Updates the catalog row only. Historical scan jobs keep their stored <code class="code-accent">scope_id</code>; labels in dropdowns and Zabbix mapping pick up the new name after save.</p>
+    <input type="hidden" id="st-scope-edit-id" value="0">
+    <label class="flbl">Name <span class="text-dim">(required)</span></label>
+    <input class="finp w100 mb8" id="st-scope-edit-name" maxlength="200" placeholder="e.g. Vedorama datacenter">
+    <label class="flbl">Description <span class="text-dim">(optional)</span></label>
+    <textarea class="finp w100 mb8" id="st-scope-edit-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
+    <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
+    <input class="finp w100 mb8" id="st-scope-edit-env" maxlength="120" placeholder="e.g. production, staging">
+    <div id="st-scope-edit-err" class="help-mono mb8" style="display:none"></div>
+    <div class="row-end">
+      <button type="button" class="tbtn" onclick="closeStEditScopeModal()">Cancel</button>
+      <button type="button" class="btnp" id="st-scope-edit-submit" onclick="submitStEditScope()">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <!-- Enrichment source modal -->
 <div id="esrc-bg" class="modal-bg z100">
   <div class="modal-card modal-w440">
@@ -2719,7 +2742,7 @@ function applyRoleAwareUi() {
     disableByOnclick('unacceptFindingRisk(', !canScanManage);
     disableByOnclick('queueHostRescan(', !canScanManage);
     disableByOnclick('stScopesOpenCreateModal(', !canScanManage);
-    disableByOnclick('stScopesRename(', !canScanManage);
+    disableByOnclick('stScopesOpenEditModal(', !canScanManage);
     disableByOnclick('stScopesDelete(', !canScanManage);
     disableByOnclick('stAssetsOpenBulkSetScopeModal(', !canScanManage);
     disableByOnclick('stAssetsBulkClearScopeFromBar(', !canScanManage);
@@ -5097,10 +5120,10 @@ async function loadScopesTab() {
         err.style.display = 'none';
         err.textContent = '';
     }
-    tb.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="loading">Loading…</td></tr>';
     const d = await api('/api/scopes.php', { quiet: true });
     if (!d || !d.ok || !Array.isArray(d.scopes)) {
-        tb.innerHTML = '<tr><td colspan="6" class="loading">Could not load scopes</td></tr>';
+        tb.innerHTML = '<tr><td colspan="7" class="loading">Could not load scopes</td></tr>';
         if (err) {
             err.textContent = (d && d.error) ? d.error : 'API error';
             err.style.display = '';
@@ -5120,50 +5143,113 @@ async function loadScopesTab() {
         const jn = parseInt(String(jc[String(id)] ?? 0), 10) || 0;
         const sn = parseInt(String(scd[String(id)] ?? 0), 10) || 0;
         const nm = esc(String(sc.name || '—'));
+        const descRaw = sc.description != null && String(sc.description).trim() ? String(sc.description).trim() : '';
+        const descTitle = descRaw ? esc(descRaw) : '';
+        const descCell = descRaw
+            ? `<span class="st-scope-desc-truncate" title="${descTitle}">${esc(descRaw)}</span>`
+            : '<span class="text-dim">—</span>';
         const env = esc(String(sc.environment != null && String(sc.environment).trim() ? sc.environment : 'unknown'));
         const act = stRoleCanManageScans()
-            ? `<button type="button" class="tbtn btn-xs" onclick="void stScopesRename(${id},${JSON.stringify(String(sc.name || ''))})">Rename</button> `
+            ? `<button type="button" class="tbtn btn-xs" onclick="void stScopesOpenEditModal(${id})">Edit</button> `
                 + `<button type="button" class="tbtn btn-xs" style="color:var(--red)" onclick="void stScopesDelete(${id},${JSON.stringify(String(sc.name || ''))})">Delete</button>`
             : '—';
-        return `<tr><td><strong>${nm}</strong> <span class="text-dim mono-sm">#${id}</span></td><td>${env}</td><td class="mono">${cnt}</td><td class="mono">${jn}</td><td class="mono">${sn}</td><td>${act}</td></tr>`;
+        return `<tr><td><strong>${nm}</strong> <span class="text-dim mono-sm">#${id}</span></td><td class="st-scope-desc-cell">${descCell}</td><td>${env}</td><td class="mono">${cnt}</td><td class="mono">${jn}</td><td class="mono">${sn}</td><td>${act}</td></tr>`;
     });
     tb.innerHTML = rows.length
         ? rows.join('')
-        : `<tr><td colspan="6" class="loading">${stRoleCanManageScans()
+        : `<tr><td colspan="7" class="loading">${stRoleCanManageScans()
             ? 'No scopes yet — create one from <strong>+ New scope</strong>.'
             : 'No scopes in catalog yet.'}</td></tr>`;
 }
 
-async function stScopesRename(scopeId, currentName) {
+function stScopesOpenEditModal(scopeId) {
     if (!stRoleCanManageScans()) {
         return;
     }
-    const nv = await showPromptModal('Enter a new name for this scope.', {
-        title: 'Rename scope',
-        label: 'Name',
-        defaultValue: currentName || '',
-        okText: 'Save',
-    });
-    if (nv == null) {
+    const sid = parseInt(String(scopeId), 10) || 0;
+    if (sid <= 0) {
         return;
     }
-    const name = String(nv).trim();
-    if (!name) {
-        toast('Name is required', 'err');
-        return;
-    }
-    const r = await apiPost('/api/scopes.php?action=rename', { scope_id: scopeId, name });
-    if (r && r.ok) {
-        toast('Scope renamed', 'ok');
-        stScopesForFormsCache = null;
-        await ensureStScopeSelects(true);
+    const list = stScopesForFormsCache || [];
+    const sc = list.find((x) => (parseInt(String(x.id), 10) || 0) === sid);
+    if (!sc) {
+        toast('Scope not loaded — try Refresh.', 'err');
         void loadScopesTab();
-        void loadReportingScopeSelector(true);
-        if (stRoleIsAdmin()) {
-            void loadZabbixEnrichmentPanel();
+        return;
+    }
+    const hid = document.getElementById('st-scope-edit-id');
+    const nm = document.getElementById('st-scope-edit-name');
+    const ds = document.getElementById('st-scope-edit-desc');
+    const en = document.getElementById('st-scope-edit-env');
+    const er = document.getElementById('st-scope-edit-err');
+    if (hid) hid.value = String(sid);
+    if (nm) nm.value = String(sc.name || '');
+    if (ds) ds.value = sc.description != null ? String(sc.description) : '';
+    if (en) {
+        const ev = sc.environment != null && String(sc.environment).trim() ? String(sc.environment).trim() : '';
+        en.value = ev === 'unknown' ? '' : ev;
+    }
+    if (er) {
+        er.textContent = '';
+        er.style.display = 'none';
+    }
+    const bg = document.getElementById('st-edit-scope-bg');
+    if (bg) bg.style.display = 'flex';
+    if (nm) nm.focus();
+}
+
+function closeStEditScopeModal() {
+    const bg = document.getElementById('st-edit-scope-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+async function submitStEditScope() {
+    if (!stRoleCanManageScans()) {
+        return;
+    }
+    const errEl = document.getElementById('st-scope-edit-err');
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+    }
+    const scopeId = parseInt(String((document.getElementById('st-scope-edit-id') || {}).value || '0'), 10) || 0;
+    if (scopeId <= 0) {
+        return;
+    }
+    const name = String((document.getElementById('st-scope-edit-name') || {}).value || '').trim();
+    if (!name) {
+        if (errEl) {
+            errEl.textContent = 'Name is required';
+            errEl.style.display = '';
         }
-    } else {
-        toast((r && r.error) || 'Rename failed', 'err');
+        return;
+    }
+    const desc = String((document.getElementById('st-scope-edit-desc') || {}).value || '').trim();
+    const envRaw = String((document.getElementById('st-scope-edit-env') || {}).value || '').trim();
+    const btn = document.getElementById('st-scope-edit-submit');
+    if (btn) btn.disabled = true;
+    const r = await apiPost('/api/scopes.php?action=rename', {
+        scope_id: scopeId,
+        name,
+        description: desc,
+        environment: envRaw || 'unknown',
+    });
+    if (btn) btn.disabled = false;
+    if (!r || !r.ok) {
+        if (errEl) {
+            errEl.textContent = (r && r.error) ? r.error : 'Save failed';
+            errEl.style.display = '';
+        }
+        return;
+    }
+    toast('Scope updated', 'ok');
+    closeStEditScopeModal();
+    stScopesForFormsCache = null;
+    await ensureStScopeSelects(true);
+    void loadScopesTab();
+    void loadReportingScopeSelector(true);
+    if (stRoleIsAdmin()) {
+        void loadZabbixEnrichmentPanel();
     }
 }
 
@@ -7267,9 +7353,23 @@ function toggleAutoscroll() {
 // ==========================================================================
 function setStatusPill(state, text) {
     const pill = document.getElementById('status-pill');
-    pill.className = 'pill' + (state === 'run' ? ' run' : state === 'err' ? ' err' : '');
+    if (!pill) return;
+    const scanning = state === 'run';
+    pill.className = 'pill' + (scanning ? ' run' : state === 'err' ? ' err' : '') + (scanning ? ' pill--to-scan-hist' : '');
     document.getElementById('status-txt').textContent = text;
-    document.getElementById('logodot').classList.toggle('active', state === 'run');
+    document.getElementById('logodot').classList.toggle('active', scanning);
+    pill.disabled = !scanning;
+    pill.setAttribute('aria-disabled', scanning ? 'false' : 'true');
+    if (scanning) pill.setAttribute('aria-label', 'View scan history');
+    else pill.removeAttribute('aria-label');
+}
+
+/** When the header pill shows an active scan, navigate to Scan history (all roles that can open the tab). */
+function stStatusPillNavToHistory() {
+    const pill = document.getElementById('status-pill');
+    if (!pill || pill.disabled) return;
+    goTab('scanhist');
+    hiNav('nscanhist');
 }
 
 function updateStatusPill(lastScan) {
