@@ -72,67 +72,67 @@
   --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,#fff 3%) 0%,var(--section-bg) 45%,color-mix(in srgb,var(--section-bg) 90%,var(--bg)) 100%);
 }
 body.light-mode{
-  /* Second pass: lower-luminance operational light — deeper stepping, less glare, still cool/crisp */
+  /* Balance pass: between first-pass glare and second-pass gray — cleaner lift, grounded shell/tables */
   --text:#1e293b;
-  --text-muted:#3f4d60;
-  --text-faint:#546374;
-  --bg:#c2ccda;
-  --card:#cad4e2;
-  --surface:#d2dbe8;
-  --surface-muted:#b4c0d3;
-  --border:#909daf;
-  --border-strong:#7d8b9b;
-  --section-bg:#c5d0df;
-  --section-border:color-mix(in srgb,var(--border) 86%,var(--bg));
-  --host-modal-body-bg:color-mix(in srgb,var(--bg) 54%,var(--card));
-  --host-ai-section-bg:color-mix(in srgb,var(--section-bg) 72%,var(--card));
+  --text-muted:#465a6e;
+  --text-faint:#56687a;
+  --bg:#cdd6e3;
+  --card:#d6dfe9;
+  --surface:#dee6f0;
+  --surface-muted:#c8d2e2;
+  --border:#98a5b5;
+  --border-strong:#8593a5;
+  --section-bg:#ced8e6;
+  --section-border:color-mix(in srgb,var(--border) 87%,var(--bg));
+  --host-modal-body-bg:color-mix(in srgb,var(--bg) 48%,var(--card));
+  --host-ai-section-bg:color-mix(in srgb,var(--section-bg) 76%,var(--card));
   --primary:#2563eb;
   --primary-hover:#1d4ed8;
   --primary-fg:#f8fafc;
   --success:#059669;
   --warning:#d97706;
   --danger:#dc2626;
-  --tbl-row-hover:rgba(15,23,42,0.058);
-  --tbl-wrap-bg:color-mix(in srgb,var(--card) 52%,var(--bg));
-  --tbl-header-bg:color-mix(in srgb,var(--bg3) 82%,var(--border));
-  --modal-backdrop:rgba(15,23,42,0.46);
-  --card-shadow-light:0 1px 2px rgba(15,23,42,.075),0 2px 9px rgba(15,23,42,.042);
-  --panel2:#aeb8c9;
+  --tbl-row-hover:rgba(15,23,42,0.05);
+  --tbl-wrap-bg:color-mix(in srgb,var(--card) 58%,var(--bg));
+  --tbl-header-bg:color-mix(in srgb,var(--bg3) 84%,var(--border));
+  --modal-backdrop:rgba(15,23,42,0.44);
+  --card-shadow-light:0 1px 2px rgba(15,23,42,.068),0 2px 10px rgba(15,23,42,.04);
+  --panel2:#b8c4d4;
 
   --tx:var(--text);
   --tx2:var(--text-muted);
   --tx3:var(--text-faint);
   --bg2:var(--card);
-  --bg3:#aab6c8;
-  --bg4:#9eaab9;
+  --bg3:#b4c0d1;
+  --bg4:#a8b4c6;
   --bd:var(--border);
   --bd2:var(--border-strong);
   --acc:var(--primary);
   --acc2:var(--primary-hover);
-  --adim2:rgba(37,99,235,0.12);
+  --adim2:rgba(37,99,235,0.11);
   --green:var(--success);
-  --gdim:#c5e0d4;
-  --gbrd:#8bc9a8;
+  --gdim:#cee8d8;
+  --gbrd:#92cfb0;
   --amber:var(--warning);
-  --adim:#e0d8c5;
-  --abrd:#dcc87a;
+  --adim:#e8e2d2;
+  --abrd:#e0cf7e;
   --red:var(--danger);
-  --rdim:#e5cfcf;
-  --rbrd:#deb4b4;
+  --rdim:#edd8d8;
+  --rbrd:#e2bcbc;
   --blue:#1d4ed8;
-  --bdim2:#c8d4e4;
-  --bbrd:#96b8e8;
+  --bdim2:#d2deee;
+  --bbrd:#9ebeea;
   --orange:#c2410c;
-  --odim:#dfd6c9;
-  /* Shell reads clearly against page; interior stays darker than first pass */
-  --app-shell-bg:color-mix(in srgb,var(--card) 26%,var(--bg));
-  --app-shell-border:color-mix(in srgb,var(--border-strong) 54%,var(--bg));
-  --app-shell-shadow:0 12px 38px rgba(15,23,42,.12);
-  /* Veils: pull highlights toward card/bg, minimal surface “lift” */
-  --app-surface-veil:linear-gradient(165deg,color-mix(in srgb,var(--card) 100%,var(--surface) 5%) 0%,color-mix(in srgb,var(--card) 84%,var(--bg)) 100%);
-  --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,var(--card) 7%) 0%,color-mix(in srgb,var(--section-bg) 82%,var(--bg)) 100%);
+  --odim:#e8e2d8;
+  /* Shell stays the darker frame; main surfaces read a touch cleaner than second pass */
+  --app-shell-bg:color-mix(in srgb,var(--card) 30%,var(--bg));
+  --app-shell-border:color-mix(in srgb,var(--border-strong) 56%,var(--bg));
+  --app-shell-shadow:0 13px 40px rgba(15,23,42,.11);
+  /* Veils: modest lift toward surface, still anchored to bg at bottom */
+  --app-surface-veil:linear-gradient(165deg,color-mix(in srgb,var(--card) 100%,var(--surface) 8%) 0%,color-mix(in srgb,var(--card) 87%,var(--bg)) 100%);
+  --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,var(--card) 11%) 0%,color-mix(in srgb,var(--section-bg) 85%,var(--bg)) 100%);
   background:
-    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 5%,transparent),transparent 48%),
+    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 5.5%,transparent),transparent 48%),
     var(--bg);
 }
 /* Light: dense tables — softer row dividers, grounded header band */
@@ -144,7 +144,7 @@ body.light-mode .tbl th{
   box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--text) 5.5%,transparent);
 }
 body.light-mode .tbl tbody td{
-  background-color:color-mix(in srgb,var(--tbl-wrap-bg) 96%,var(--bg));
+  background-color:color-mix(in srgb,var(--tbl-wrap-bg) 97.5%,var(--bg));
 }
 /* Light: device rail — match modal grounding (host centered modal: co-located rules below) */
 body.light-mode .host-panel{
@@ -2917,9 +2917,9 @@ body.light-mode .host-modal-header{
   box-shadow:0 10px 22px -16px rgba(0,0,0,.55);
 }
 body.light-mode .host-tablist{
-  background:color-mix(in srgb,var(--host-modal-body-bg) 92%,var(--bg));
-  border-bottom-color:color-mix(in srgb,var(--border) 78%,transparent);
-  box-shadow:0 10px 18px -15px rgba(15,23,42,.095);
+  background:color-mix(in srgb,var(--host-modal-body-bg) 94%,var(--bg));
+  border-bottom-color:color-mix(in srgb,var(--border) 76%,transparent);
+  box-shadow:0 10px 20px -15px rgba(15,23,42,.088);
 }
 .host-tab-btn{
   flex:0 0 auto;margin:0;padding:8px 12px 10px;border:none;border-radius:var(--radius) var(--radius) 0 0;
