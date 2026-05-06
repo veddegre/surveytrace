@@ -72,72 +72,112 @@
   --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,#fff 3%) 0%,var(--section-bg) 45%,color-mix(in srgb,var(--section-bg) 90%,var(--bg)) 100%);
 }
 body.light-mode{
-  /* Muted canvas: ceiling #f2f5f9 — no #fff on large/elevated UI */
-  --text:#1f2937;
-  --text-muted:#4f5f70;
-  --text-faint:#586a7d;
-  --bg:#e7edf5;
-  --card:#eef3f8;
-  --surface:#f2f5f9;
-  --surface-muted:#e8eef6;
-  --border:#cbd5e1;
-  --border-strong:#b8c4d3;
-  --section-bg:#e9eff7;
-  --section-border:var(--border);
-  --host-modal-body-bg:var(--bg);
-  --host-ai-section-bg:#e6edf6;
+  /* Calm operational light: layered cool neutrals — avoid #fff washes, keep crisp contrast */
+  --text:#1e293b;
+  --text-muted:#475569;
+  --text-faint:#5c6b7d;
+  --bg:#d4dde8;
+  --card:#dfe8f3;
+  --surface:#e8eef6;
+  --surface-muted:#d2dbe8;
+  --border:#aab6c5;
+  --border-strong:#949fb0;
+  --section-bg:#d9e3ef;
+  --section-border:color-mix(in srgb,var(--border) 88%,var(--bg));
+  --host-modal-body-bg:color-mix(in srgb,var(--bg) 40%,var(--card));
+  --host-ai-section-bg:color-mix(in srgb,var(--section-bg) 78%,var(--card));
   --primary:#2563eb;
   --primary-hover:#1d4ed8;
-  --primary-fg:#eef3f8;
+  --primary-fg:#f8fafc;
   --success:#059669;
   --warning:#d97706;
   --danger:#dc2626;
-  --tbl-row-hover:rgba(0,0,0,0.032);
-  --tbl-wrap-bg:var(--surface);
-  --tbl-header-bg:var(--card);
-  --modal-backdrop:rgba(0,0,0,0.45);
-  --card-shadow-light:0 1px 2px rgba(15,23,42,0.05);
-  --panel2:#edf2f8;
+  --tbl-row-hover:rgba(15,23,42,0.045);
+  --tbl-wrap-bg:color-mix(in srgb,var(--card) 72%,var(--surface));
+  --tbl-header-bg:color-mix(in srgb,var(--bg3) 88%,var(--border));
+  --modal-backdrop:rgba(15,23,42,0.42);
+  --card-shadow-light:0 1px 2px rgba(15,23,42,.07),0 3px 10px rgba(15,23,42,.05);
+  --panel2:#c8d4e2;
 
   --tx:var(--text);
   --tx2:var(--text-muted);
   --tx3:var(--text-faint);
   --bg2:var(--card);
-  --bg3:#e2e9f3;
-  --bg4:#d8e0ec;
+  --bg3:#c8d4e2;
+  --bg4:#bac7d8;
   --bd:var(--border);
   --bd2:var(--border-strong);
   --acc:var(--primary);
   --acc2:var(--primary-hover);
-  --adim2:rgba(37,99,235,0.1);
+  --adim2:rgba(37,99,235,0.11);
   --green:var(--success);
-  --gdim:#daf0e6;
-  --gbrd:#a7f3d0;
+  --gdim:#d1ebe0;
+  --gbrd:#9fd9b8;
   --amber:var(--warning);
-  --adim:#f5edd8;
-  --abrd:#fde68a;
+  --adim:#ebe2cd;
+  --abrd:#e8d48a;
   --red:var(--danger);
-  --rdim:#f3e4e4;
-  --rbrd:#fecaca;
+  --rdim:#edd5d5;
+  --rbrd:#e8b4b4;
   --blue:#1d4ed8;
-  --bdim2:#e2eaf6;
-  --bbrd:#bfdbfe;
+  --bdim2:#d5e0ef;
+  --bbrd:#a8c6f0;
   --orange:#c2410c;
-  --odim:#f3ebe0;
-  --app-shell-bg:color-mix(in srgb,var(--surface) 97%,var(--bg));
-  --app-shell-border:var(--border);
-  --app-shell-shadow:0 16px 44px rgba(15,23,42,.1);
-  --app-surface-veil:linear-gradient(180deg,color-mix(in srgb,var(--card) 100%,#fff 24%) 0%,var(--card) 100%);
-  --app-band-veil:linear-gradient(180deg,color-mix(in srgb,var(--section-bg) 100%,#fff 18%) 0%,var(--section-bg) 100%);
+  --odim:#e8dfd2;
+  /* Darker shell rim so workspace reads as a framed instrument panel */
+  --app-shell-bg:color-mix(in srgb,var(--card) 32%,var(--bg));
+  --app-shell-border:color-mix(in srgb,var(--border-strong) 58%,var(--bg));
+  --app-shell-shadow:0 14px 42px rgba(15,23,42,.11);
+  /* Veils: tonal steps only — no white blowout */
+  --app-surface-veil:linear-gradient(165deg,color-mix(in srgb,var(--card) 100%,var(--surface) 11%) 0%,color-mix(in srgb,var(--card) 91%,var(--bg)) 100%);
+  --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,var(--card) 14%) 0%,color-mix(in srgb,var(--section-bg) 88%,var(--bg)) 100%);
   background:
-    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 7%,transparent),transparent 48%),
+    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 6.5%,transparent),transparent 48%),
     var(--bg);
+}
+/* Light: dense tables — softer row dividers, grounded header band */
+body.light-mode .tbl td{
+  border-bottom-color:color-mix(in srgb,var(--border) 68%,transparent);
+}
+body.light-mode .tbl th{
+  border-bottom-color:color-mix(in srgb,var(--border) 80%,transparent);
+  box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--text) 5%,transparent);
+}
+/* Light: device rail — match modal grounding (host centered modal: co-located rules below) */
+body.light-mode .host-panel{
+  background:var(--card);
+  border-left-color:color-mix(in srgb,var(--border-strong) 50%,var(--border));
+  box-shadow:-12px 0 40px rgba(15,23,42,.12);
+}
+body.light-mode .host-panel-head{
+  background:color-mix(in srgb,var(--card) 90%,var(--surface-muted));
+  border-bottom-color:color-mix(in srgb,var(--border) 78%,transparent);
+  box-shadow:0 1px 0 color-mix(in srgb,var(--text) 4%,transparent);
+}
+/* Light: toggles — remove pure-white thumb highlight */
+body.light-mode .tth{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 100%,var(--border) 8%) 0%,color-mix(in srgb,var(--surface-muted) 100%,var(--border) 12%) 100%);
+  box-shadow:0 1px 2px rgba(15,23,42,.14),0 0 0 1px color-mix(in srgb,var(--border) 55%,transparent);
+}
+body.light-mode .trk{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--bg4) 100%,var(--border) 6%) 0%,color-mix(in srgb,var(--surface-muted) 100%,var(--card) 4%) 100%);
+  border-color:color-mix(in srgb,var(--border-strong) 35%,var(--border));
+  box-shadow:inset 0 1px 2px rgba(15,23,42,.06);
 }
 /* Light: form controls, chips, pagination — stay ≤ surface, never #fff */
 body.light-mode .finp,
 body.light-mode .finput,
-body.light-mode textarea.finput{background:var(--surface-muted);border-color:var(--bd)}
-body.light-mode .tbtn{background:var(--surface-muted);border-color:var(--border);color:var(--text)}
+body.light-mode textarea.finput{
+  background:var(--surface-muted);
+  border-color:color-mix(in srgb,var(--border-strong) 28%,var(--border));
+  box-shadow:inset 0 1px 2px rgba(15,23,42,.05);
+}
+body.light-mode .tbtn{
+  background:var(--surface-muted);
+  border-color:color-mix(in srgb,var(--border-strong) 22%,var(--border));
+  color:var(--text);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 55%,transparent);
+}
 body.light-mode .tbtn:hover{background:var(--bg3);border-color:var(--primary);color:var(--text)}
 body.light-mode .tbtn:disabled,
 body.light-mode .tbtn:disabled:hover{background:var(--surface-muted);border-color:var(--border);color:var(--text-muted)}
@@ -934,7 +974,6 @@ textarea#sc-excl{min-height:132px}
   transition:background .18s,border-color .18s,box-shadow .18s;
   box-shadow:inset 0 1px 2px rgba(0,0,0,.12);
 }
-body.light-mode .trk{box-shadow:inset 0 1px 2px rgba(15,23,42,.06)}
 .tog input:checked+.trk{
   background:linear-gradient(180deg,var(--primary) 0%,var(--primary-hover) 100%);
   border-color:var(--primary);
@@ -963,7 +1002,6 @@ body.light-mode .tog input:focus-visible+.trk{
   pointer-events:none;
   box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 1px rgba(0,0,0,.06);
 }
-body.light-mode .tth{background:linear-gradient(180deg,#fff 0%,#e8eef6 100%);box-shadow:0 1px 2px rgba(15,23,42,.12),0 0 0 1px rgba(15,23,42,.06)}
 .tog input:checked~.tth{
   left:23px;
   background:var(--primary-fg);
@@ -1440,8 +1478,9 @@ button.is-disabled{opacity:.55;cursor:not-allowed}
   box-shadow:0 24px 64px rgba(0,0,0,.55);
 }
 body.light-mode .modal-card{
-  box-shadow:0 20px 50px rgba(15,23,42,.18);
-  border-color:var(--border);
+  background:var(--app-surface-veil);
+  border-color:color-mix(in srgb,var(--border-strong) 55%,var(--border));
+  box-shadow:0 18px 48px rgba(15,23,42,.14),0 0 0 1px color-mix(in srgb,var(--text) 4%,transparent);
 }
 .modal-title{
   font-family:var(--sf);font-size:15px;font-weight:700;color:var(--tx);letter-spacing:.02em;margin-bottom:14px
@@ -2799,13 +2838,20 @@ body.light-mode .chk-confirm-block{
   min-height:0;
   overflow:hidden;
 }
-body.light-mode .host-modal-dialog{box-shadow:0 22px 56px rgba(15,23,42,.2)}
+body.light-mode .host-modal-dialog{
+  border-color:color-mix(in srgb,var(--border-strong) 45%,var(--border));
+  box-shadow:0 22px 56px rgba(15,23,42,.16),0 0 0 1px color-mix(in srgb,var(--text) 3.5%,transparent);
+}
 .host-modal-header{
   flex-shrink:0;
   padding:18px 22px;
   border-bottom:1px solid var(--border);
   background:var(--card);
   border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+}
+body.light-mode .host-modal-header{
+  background:color-mix(in srgb,var(--card) 94%,var(--surface-muted));
+  border-bottom-color:color-mix(in srgb,var(--border) 78%,transparent);
 }
 .host-modal-header-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .host-modal-header-titles{min-width:0;flex:1}
@@ -2867,7 +2913,9 @@ body.light-mode .host-modal-dialog{box-shadow:0 22px 56px rgba(15,23,42,.2)}
   box-shadow:0 10px 22px -16px rgba(0,0,0,.55);
 }
 body.light-mode .host-tablist{
-  box-shadow:0 10px 22px -16px rgba(15,23,42,.14);
+  background:var(--host-modal-body-bg);
+  border-bottom-color:color-mix(in srgb,var(--border) 75%,transparent);
+  box-shadow:0 12px 20px -14px rgba(15,23,42,.12);
 }
 .host-tab-btn{
   flex:0 0 auto;margin:0;padding:8px 12px 10px;border:none;border-radius:var(--radius) var(--radius) 0 0;
