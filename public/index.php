@@ -4531,7 +4531,7 @@ async function loadDashboard() {
         ? tv.map(a => `<tr>
             <td class="mono click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
             <td class="mono mono-sm">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
-            <td class="text-primary">${esc(a.hostname||'—')}</td>
+            <td class="text-primary">${esc(stAssetDisplayHostnameFromRow(a))}${stAssetTrustedHostnameChipHtml(a)}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
             <td class="text-primary" style="font-size:12px">${esc(a.vendor||'—')}</td>
             <td class="mono mono-sm">${esc(a.top_cve||'—')}</td>
@@ -4787,7 +4787,7 @@ function renderExecutiveDashboard(exec, fallbackTopVuln) {
         ? risky.map(a => `<tr>
             <td class="mono click-ip tbl-cell-mono tbl-cell-primary" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
             <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
-            <td class="text-primary tbl-cell-primary">${esc(a.hostname||'—')}</td>
+            <td class="text-primary tbl-cell-primary">${esc(stAssetDisplayHostnameFromRow(a))}${stAssetTrustedHostnameChipHtml(a)}</td>
             <td><span class="cat ${esc(a.category)}">${esc(a.category)}</span></td>
             <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${esc(a.top_cve||'—')}</td>
             <td><span class="sev ${sevClass(a.top_cvss)}">${a.top_cvss||'—'}</span></td>
@@ -5013,6 +5013,44 @@ function renderHealthHtml(h, zbxResp) {
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix output result</td><td class="tbl-cell-muted"><span class="${zbxOutResultClass}">${esc(zbxOutResultLabel)}</span></td><td class="tbl-cell-muted">${zbxOut && zbxOut.last_output ? esc(String(zbxOut.last_output)) : '—'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix error summary</td><td class="tbl-cell-muted">${zbxErrorSummary !== '—' ? '<span class="hstate-err">Error</span>' : '<span class="hstate-unk">—</span>'}</td><td class="tbl-cell-muted">${esc(zbxErrorSummary)}</td></tr>`);
 
+    const td = h.trusted_data && typeof h.trusted_data === 'object' ? h.trusted_data : null;
+    const tdHints = td && Array.isArray(td.warning_hints) ? td.warning_hints : [];
+    const tdReady = !!(td && td.tables_ready);
+    const tdFails = td ? (parseInt(String(td.failed_runs_24h || 0), 10) || 0) : 0;
+    const tdStale = td ? (parseInt(String(td.stale_os_assertions_30d || 0), 10) || 0) : 0;
+    const tdObs = td ? (parseInt(String(td.observation_count || 0), 10) || 0) : 0;
+    const tdAst = td ? (parseInt(String(td.assertion_count || 0), 10) || 0) : 0;
+    const tdRuns = td ? (parseInt(String(td.reconciliation_runs_total || 0), 10) || 0) : 0;
+    const tdIdObs = td ? (parseInt(String(td.identity_observation_count || 0), 10) || 0) : 0;
+    const tdIdAst = td ? (parseInt(String(td.identity_assertion_count || 0), 10) || 0) : 0;
+    let tdStateLabel = 'Not reported';
+    let tdStateClass = 'hstate-unk';
+    let tdDetail = 'Trusted data snapshot was not included in this health response.';
+    if (td) {
+        if (!tdReady) {
+            tdStateLabel = 'Tables missing';
+            tdStateClass = 'hstate-err';
+            tdDetail = tdHints[0] ? esc(String(tdHints[0])) : 'Run database migrations so reconciliation tables exist.';
+        } else if (tdFails > 0) {
+            tdStateLabel = `${tdFails} reconciliation failure(s) / 24h`;
+            tdStateClass = 'hstate-warn';
+            const lf = td.last_failure_message ? esc(String(td.last_failure_message)) : '';
+            tdDetail = `${lf ? lf + ' · ' : ''}observations ${esc(String(tdObs))} · OS assertions ${esc(String(tdAst))} · run rows ${esc(String(tdRuns))}`;
+        } else if (tdStale > 200) {
+            tdStateLabel = 'Stale OS beliefs';
+            tdStateClass = 'hstate-warn';
+            tdDetail = `${esc(String(tdStale))} OS/platform assertions older than 30 days · observations ${esc(String(tdObs))}`;
+        } else {
+            tdStateLabel = 'Healthy';
+            tdStateClass = 'hstate-ok';
+            tdDetail = `observations ${esc(String(tdObs))} · OS assertions ${esc(String(tdAst))} · reconciliation run rows ${esc(String(tdRuns))}`;
+        }
+    }
+    if (td && tdReady) {
+        tdDetail += ` · identity obs ${esc(String(tdIdObs))} · hostname beliefs ${esc(String(tdIdAst))}`;
+    }
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
+
     const warnings = [];
     if (!appOk) warnings.push('Application storage/config check needs attention.');
     if (!scannerOk) warnings.push('Scanner daemon is not active.');
@@ -5025,6 +5063,12 @@ function renderHealthHtml(h, zbxResp) {
     if (feedLast && !feedLastOk && !feedLast.cancelled) warnings.push('Last feed sync failed.');
     if (aiConfigured && !aiRunning) warnings.push('AI is configured but runtime is not reachable.');
     if (zbxError) warnings.push('Zabbix sync/output reported an error state.');
+    tdHints.forEach((hint) => {
+        const s = String(hint || '').trim();
+        if (s && warnings.indexOf(s) === -1) {
+            warnings.push(s);
+        }
+    });
 
     const advancedRows = [];
     advancedRows.push(`<tr><td class="tbl-cell-primary">Server time</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(h.server_time || '—'))}</td></tr>`);
@@ -6714,6 +6758,31 @@ function stAssetsFillScopeFilter(d) {
     stAssetsUpdateScopeDisclosureButtonLabel();
 }
 
+/** Trusted assertion display threshold (medium+); matches api/lib_reconciliation.php slice 5. */
+function stTrustedMeetsOperationalUiPref(conf) {
+    const c = String(conf || '').toLowerCase();
+    return c === 'medium' || c === 'high' || c === 'authoritative';
+}
+/** Prefer reconciled hostname in tables when API exposes trusted_hostname + confidence. */
+function stAssetDisplayHostnameFromRow(a) {
+    if (!a) return '—';
+    const t = a.trusted_hostname != null && String(a.trusted_hostname).trim()
+        && stTrustedMeetsOperationalUiPref(a.trusted_hostname_confidence)
+        ? String(a.trusted_hostname).trim() : '';
+    if (t) return t;
+    const h = a.hostname != null ? String(a.hostname).trim() : '';
+    return h || '—';
+}
+function stAssetTrustedHostnameChipHtml(a, tip) {
+    if (!a || !a.trusted_hostname || !String(a.trusted_hostname).trim()) return '';
+    if (!stTrustedMeetsOperationalUiPref(a.trusted_hostname_confidence)) return '';
+    const tv = String(a.trusted_hostname).trim();
+    const hv = a.hostname != null ? String(a.hostname).trim() : '';
+    if (hv && hv.toLowerCase() === tv.toLowerCase()) return '';
+    const t = tip || 'Reconciled canonical hostname (medium+ confidence). Stored hostname may differ.';
+    return ` <span class="hp-chip st-trusted-pref-chip" title="${esc(t)}">Trusted</span>`;
+}
+
 async function loadAssets(page) {
     const tbody = document.getElementById('asset-tbody');
     if (!tbody) {
@@ -6812,7 +6881,7 @@ async function loadAssets(page) {
           ${chkTd(a)}
           <td class="mono mono-sm tbl-cell-mono tbl-cell-primary click-ip" onclick="openHostPanel(${a.id},'${esc(a.ip)}')" title="View host detail">${esc(a.ip)}</td>
           <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${a.device_id != null && a.device_id !== '' ? `<span class="click-ip" onclick="event.stopPropagation();openDevicePanel(${a.device_id})" title="Device overview">${esc(String(a.device_id))}</span>` : '—'}</td>
-          <td class="tbl-cell-primary">${esc(a.hostname||'—')}</td>
+          <td class="tbl-cell-primary">${esc(stAssetDisplayHostnameFromRow(a))}${stAssetTrustedHostnameChipHtml(a)}</td>
           <td><span class="cat ${esc(a.category||'unk')}">${esc(a.category||'unk')}</span></td>
           <td style="white-space:nowrap">${lifecycleBadgeHtml(a)}</td>
           <td class="tbl-cell-primary" style="font-size:12px">${vendorCell}</td>
@@ -6876,30 +6945,202 @@ function findingConfidenceChipClass(conf) {
     if (c === 'authoritative') return 'conf-chip conf-high';
     if (c === 'high') return 'conf-chip conf-high';
     if (c === 'medium') return 'conf-chip conf-med';
+    if (c === 'unknown') return 'conf-chip conf-low';
     return 'conf-chip conf-low';
 }
 
+function stHostReconciliationEvidenceDetailHtml(rd) {
+    if (!rd || rd.tables_ready !== true) return '';
+    const obs = Array.isArray(rd.observations) ? rd.observations : [];
+    const runs = Array.isArray(rd.recent_runs) ? rd.recent_runs : [];
+    const asrc = Array.isArray(rd.assertion_sources) ? rd.assertion_sources : [];
+    const ast = rd.assertion && typeof rd.assertion === 'object' ? rd.assertion : null;
+    if (!obs.length && !runs.length && !asrc.length && !ast) return '';
+    const astHead = ast
+        ? `<div class="text-micro text-dim mb6 st-host-evidence-astmeta">Stored assertion <span class="mono-sm">${esc(String(ast.value_label || ast.value_slug || ''))}</span>${ast.reconciled_at ? ` · reconciled ${esc(localTime(ast.reconciled_at))}` : ''}${ast.version != null ? ` · v${esc(String(ast.version))}` : ''}</div>`
+        : '';
+    const asrcRows = asrc.map((a) => {
+        const nm = a.normalized_value != null && String(a.normalized_value).trim() ? esc(String(a.normalized_value)) : '\u2014';
+        const dn = esc(String(a.display_name || '\u2014'));
+        const ot = esc(String(a.observation_type || ''));
+        const c = esc(String(a.contribution || ''));
+        const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
+        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+    }).join('');
+    const asrcBlock = asrc.length
+        ? `<div class="text-micro text-dim mt8 mb4">How the belief was built (assertion sources)</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Observation type</th><th>Normalized</th><th>Contribution</th><th>Weight note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
+        : '';
+    const obsRows = obs.map((o) => {
+        const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
+        const norm = o.normalized_value != null && String(o.normalized_value).trim() ? esc(String(o.normalized_value)) : '\u2014';
+        const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
+        const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
+        const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
+        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+    }).join('');
+    const runRows = runs.map((r) => {
+        const rawErr = r.error && String(r.error).trim() ? String(r.error) : '';
+        const rawSum = r.result_summary && String(r.result_summary).trim() ? String(r.result_summary) : '';
+        const err = rawErr ? esc(rawErr) : (rawSum ? esc(rawSum) : '\u2014');
+        const fin = r.finished_at ? esc(localTime(r.finished_at)) : '\u2014';
+        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${err}</td></tr>`;
+    }).join('');
+    const obsBlock = obs.length
+        ? `<div class="text-micro text-dim mt8 mb4">Observations (what sources recorded)</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
+        : '';
+    const runBlock = runs.length
+        ? `<div class="text-micro text-dim mt10 mb4">Recent reconciliation attempts (this host)</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Slice</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
+        : '';
+    return `${astHead}${asrcBlock}${obsBlock}${runBlock}`;
+}
+
 function stHostReconciliationEvidenceHtml(assetData) {
-    if (!assetData || assetData.os_platform_assertion == null) return '';
-    const asserted = String(assetData.os_platform_assertion).trim();
-    if (!asserted) return '';
-    const conf = String(assetData.os_platform_confidence || 'medium').toLowerCase();
+    if (!assetData) return '';
+    const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
+    const obsCount = rd && Array.isArray(rd.observations) ? rd.observations.length : 0;
+    const asserted = assetData.os_platform_assertion != null ? String(assetData.os_platform_assertion).trim() : '';
+    const hasAsserted = asserted.length > 0;
+    if (!hasAsserted && (!rd || rd.tables_ready !== true || obsCount === 0)) return '';
+    const confRaw = assetData.os_platform_confidence;
+    const conf = (confRaw != null && String(confRaw).trim() !== '')
+        ? String(confRaw).toLowerCase()
+        : (hasAsserted ? 'unknown' : 'low');
     const chipClass = findingConfidenceChipClass(conf);
+    const confLabel = conf === 'unknown' ? '\u2014' : conf.toUpperCase();
     const sources = Array.isArray(assetData.os_platform_sources) ? assetData.os_platform_sources : [];
     const srcLine = sources.length ? sources.map((s) => esc(String(s))).join(', ') : '\u2014';
     const expl = assetData.os_platform_explanation != null && String(assetData.os_platform_explanation).trim()
         ? `<p class="text-micro mt6 st-host-evidence-expl">${esc(String(assetData.os_platform_explanation))}</p>`
         : '';
+    const rdAst = rd && rd.assertion && typeof rd.assertion === 'object' ? rd.assertion : null;
+    const reconAtLine = hasAsserted && rdAst && rdAst.reconciled_at
+        ? `<div class="text-micro text-dim mt2">Belief last reconciled \u00b7 ${esc(localTime(rdAst.reconciled_at))}</div>`
+        : '';
+    const detailInner = stHostReconciliationEvidenceDetailHtml(rd);
+    const detailBlock = detailInner
+        ? `<details class="st-host-evidence-details mt8"><summary class="text-micro st-host-evidence-sum">View evidence</summary>${detailInner}</details>`
+        : '';
+    const assertRow = hasAsserted
+        ? `<div class="st-host-evidence-row">
+          <span class="text-dim text-micro">Asserted</span>
+          <strong class="mono-sm">${esc(asserted)}</strong>
+          <span class="${chipClass}" title="Reconciliation confidence">${esc(confLabel)}</span>
+        </div>
+        <div class="text-micro text-dim mt4">Contributing sources \u00b7 ${srcLine}</div>
+        ${reconAtLine}`
+        : `<div class="text-micro text-dim st-host-evidence-pending">No reconciled OS/platform assertion yet. Observations below explain what SurveyTrace has seen; open this host again after scans or Zabbix sync to refresh the belief.</div>`;
     return `<section class="host-section st-host-subsection st-host-evidence" aria-label="Reconciled evidence">
       <h3 class="host-section-heading">Evidence \u2014 OS / platform</h3>
       <div class="host-inner-surface st-host-evidence-inner">
-        <div class="st-host-evidence-row">
-          <span class="text-dim text-micro">Asserted</span>
-          <strong class="mono-sm">${esc(asserted)}</strong>
-          <span class="${chipClass}" title="Reconciliation confidence">${esc(conf.toUpperCase())}</span>
-        </div>
-        <div class="text-micro text-dim mt4">Sources \u00b7 ${srcLine}</div>
+        ${assertRow}
         ${expl}
+        ${detailBlock}
+      </div>
+    </section>`;
+}
+
+function stHostIdentityEvidenceDetailHtml(ird) {
+    if (!ird || ird.tables_ready !== true) return '';
+    const obs = Array.isArray(ird.observations) ? ird.observations : [];
+    const runs = Array.isArray(ird.recent_runs) ? ird.recent_runs : [];
+    const sup = new Set(Array.isArray(ird.supporting_observation_ids) ? ird.supporting_observation_ids.map((x) => parseInt(String(x), 10) || 0) : []);
+    const con = new Set(Array.isArray(ird.conflicting_observation_ids) ? ird.conflicting_observation_ids.map((x) => parseInt(String(x), 10) || 0) : []);
+    const asrc = Array.isArray(ird.assertion_sources) ? ird.assertion_sources : [];
+    const ast = ird.assertion && typeof ird.assertion === 'object' ? ird.assertion : null;
+    if (!obs.length && !runs.length && !asrc.length && !ast) return '';
+    const astHead = ast
+        ? `<div class="text-micro text-dim mb6 st-host-evidence-astmeta">Stored belief <span class="mono-sm">${esc(String(ast.value_label || ast.value_slug || ''))}</span>${ast.reconciled_at ? ` · reconciled ${esc(localTime(ast.reconciled_at))}` : ''}${ast.version != null ? ` · v${esc(String(ast.version))}` : ''}</div>`
+        : '';
+    const asrcRows = asrc.map((a) => {
+        const nm = a.normalized_value != null && String(a.normalized_value).trim() ? esc(String(a.normalized_value)) : '\u2014';
+        const dn = esc(String(a.display_name || '\u2014'));
+        const ot = esc(String(a.observation_type || ''));
+        const c = esc(String(a.contribution || ''));
+        const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
+        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+    }).join('');
+    const asrcBlock = asrc.length
+        ? `<div class="text-micro text-dim mt8 mb4">Assertion sources</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Type</th><th>Normalized</th><th>Role</th><th>Note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
+        : '';
+    const obsRowHtml = (o, rowCls) => {
+        const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
+        const norm = o.normalized_value != null && String(o.normalized_value).trim() ? esc(String(o.normalized_value)) : '\u2014';
+        const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
+        const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
+        const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
+        const cls = rowCls ? ` class="${rowCls}"` : '';
+        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+    };
+    const supRows = obs.filter((o) => sup.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
+    const neuRows = obs.filter((o) => !sup.has(parseInt(String(o.id), 10) || 0) && !con.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
+    const conRows = obs.filter((o) => con.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, 'st-host-id-evidence-row--conflict')).join('');
+    const hasConflictRows = obs.some((o) => con.has(parseInt(String(o.id), 10) || 0));
+    const obsBody = [supRows, neuRows, conRows].filter(Boolean).join('');
+    const obsBlock = obsBody
+        ? `<div class="text-micro text-dim mt8 mb4">Identity observations</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>Conf.</th></tr></thead><tbody>${obsBody}</tbody></table></div>
+          ${hasConflictRows ? '<p class="text-micro text-dim mt4 mb0">Rows highlighted for hostname/FQDN disagree with the reconciled short name; they are kept as evidence.</p>' : ''}`
+        : '';
+    const runRows = runs.map((r) => {
+        const rawErr = r.error && String(r.error).trim() ? String(r.error) : '';
+        const rawSum = r.result_summary && String(r.result_summary).trim() ? String(r.result_summary) : '';
+        const err = rawErr ? esc(rawErr) : (rawSum ? esc(rawSum) : '\u2014');
+        const fin = r.finished_at ? esc(localTime(r.finished_at)) : '\u2014';
+        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${err}</td></tr>`;
+    }).join('');
+    const runBlock = runs.length
+        ? `<div class="text-micro text-dim mt10 mb4">Reconciliation attempts (identity)</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Slice</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
+        : '';
+    return `${astHead}${asrcBlock}${obsBlock}${runBlock}`;
+}
+
+function stHostIdentityEvidenceHtml(assetData) {
+    if (!assetData) return '';
+    const ird = assetData.identity_recon_detail && typeof assetData.identity_recon_detail === 'object' ? assetData.identity_recon_detail : null;
+    const obsCount = ird && Array.isArray(ird.observations) ? ird.observations.length : 0;
+    const asserted = assetData.canonical_hostname_assertion != null ? String(assetData.canonical_hostname_assertion).trim() : '';
+    const hasAsserted = asserted.length > 0;
+    if (!hasAsserted && (!ird || ird.tables_ready !== true || obsCount === 0)) return '';
+    const confRawId = assetData.canonical_hostname_confidence;
+    const conf = (confRawId != null && String(confRawId).trim() !== '')
+        ? String(confRawId).toLowerCase()
+        : (hasAsserted ? 'unknown' : 'low');
+    const chipClass = findingConfidenceChipClass(conf);
+    const confLabel = conf === 'unknown' ? '\u2014' : conf.toUpperCase();
+    const sources = Array.isArray(assetData.canonical_hostname_sources) ? assetData.canonical_hostname_sources : [];
+    const srcLine = sources.length ? sources.map((s) => esc(String(s))).join(', ') : '\u2014';
+    const expl = assetData.canonical_hostname_explanation != null && String(assetData.canonical_hostname_explanation).trim()
+        ? `<p class="text-micro mt6 st-host-evidence-expl">${esc(String(assetData.canonical_hostname_explanation))}</p>`
+        : '';
+    const rdAst = ird && ird.assertion && typeof ird.assertion === 'object' ? ird.assertion : null;
+    const reconAtLine = hasAsserted && rdAst && rdAst.reconciled_at
+        ? `<div class="text-micro text-dim mt2">Belief last reconciled \u00b7 ${esc(localTime(rdAst.reconciled_at))}</div>`
+        : '';
+    const detailInner = stHostIdentityEvidenceDetailHtml(ird);
+    const detailBlock = detailInner
+        ? `<details class="st-host-evidence-details mt8"><summary class="text-micro st-host-evidence-sum">View identity evidence</summary>${detailInner}</details>`
+        : '';
+    const assertRow = hasAsserted
+        ? `<div class="st-host-evidence-row">
+          <span class="text-dim text-micro">Canonical hostname</span>
+          <strong class="mono-sm">${esc(asserted)}</strong>
+          <span class="${chipClass}" title="Identity confidence">${esc(confLabel)}</span>
+        </div>
+        <div class="text-micro text-dim mt4">Contributing sources \u00b7 ${srcLine}</div>
+        ${reconAtLine}`
+        : `<div class="text-micro text-dim st-host-evidence-pending">No reconciled canonical hostname yet. Observations (scan, Zabbix, operator edits) appear below when present.</div>`;
+    return `<section class="host-section st-host-subsection st-host-evidence st-host-identity-evidence" aria-label="Identity evidence">
+      <h3 class="host-section-heading">Evidence \u2014 identity</h3>
+      <p class="hint-micro text-dim mb6 mt0">Hostname belief only in this release (no automatic asset/device merges).</p>
+      <div class="host-inner-surface st-host-evidence-inner">
+        ${assertRow}
+        ${expl}
+        ${detailBlock}
       </div>
     </section>`;
 }
@@ -13829,12 +14070,15 @@ function reportingRenderInventorySummaryHtml(inv) {
             const id = parseInt(String(row.id ?? 0), 10) || 0;
             const ip = row.ip != null ? String(row.ip) : '';
             const hn = row.hostname != null ? String(row.hostname) : '';
+            const th = row.trusted_hostname != null && String(row.trusted_hostname).trim()
+                && stTrustedMeetsOperationalUiPref(row.trusted_hostname_confidence)
+                ? String(row.trusted_hostname).trim() : '';
             const cat = row.category != null ? String(row.category) : '';
             const life = row.lifecycle_status != null ? String(row.lifecycle_status) : '';
             const nf = parseInt(String(row.open_findings ?? 0), 10) || 0;
             const cv = row.top_cvss;
             const cvTxt = cv != null && cv !== '' && Number.isFinite(Number(cv)) ? String(Number(cv).toFixed(1)) : '—';
-            const label = (hn || ip || '—').slice(0, 80);
+            const label = (th || hn || ip || '—').slice(0, 80);
             return (
                 '<tr><td class="mono-sm">#' +
                 esc(String(id)) +
@@ -18239,17 +18483,38 @@ async function openHostPanel(id, ip) {
     const aiInfluenced = discoverySources.includes('ai_local_inference');
 
     const hn = String(a.hostname || '').trim();
+    const trustedHn = assetData.trusted_hostname != null && String(assetData.trusted_hostname).trim()
+        && stTrustedMeetsOperationalUiPref(assetData.trusted_hostname_confidence)
+        ? String(assetData.trusted_hostname).trim() : '';
+    const titleHostname = trustedHn || hn || '—';
     const hnTrustChip = (() => {
+        const bits = [];
+        if (trustedHn && (!hn || hn.toLowerCase() !== trustedHn.toLowerCase())) {
+            bits.push('<span class="hp-chip st-trusted-pref-chip" title="Reconciled canonical hostname (trusted data, medium+ confidence). Stored hostname remains in Identity &amp; inventory.">Trusted</span>');
+        }
         if (Number(a.hostname_locked || 0)) {
-            return '<span class="hp-chip" title="Hostname is locked — scans will not overwrite it">Locked</span>';
+            bits.push('<span class="hp-chip" title="Hostname is locked — scans will not overwrite it">Locked</span>');
         }
         const ic = a.identity_confidence != null ? Number(a.identity_confidence) : null;
         if (ic != null && ic >= 0.75) {
-            return '<span class="hp-chip" title="High identity confidence (manual edit or enrichment)">Operator-approved</span>';
+            bits.push('<span class="hp-chip" title="High identity confidence (manual edit or enrichment)">Operator-approved</span>');
         }
-        return '';
+        return bits.join(' ');
     })();
-    if (hpTitle) hpTitle.textContent = hn ? `${hn} · ${a.ip}` : String(a.ip);
+    if (hpTitle) hpTitle.textContent = (hn || trustedHn) ? `${titleHostname} · ${a.ip}` : String(a.ip);
+    const trustedOs = assetData.trusted_os_platform != null && String(assetData.trusted_os_platform).trim()
+        && stTrustedMeetsOperationalUiPref(assetData.trusted_os_confidence)
+        ? String(assetData.trusted_os_platform).trim() : '';
+    const osGuessRaw = String(a.os_guess || '').trim();
+    const osPrimaryHtml = trustedOs
+        ? `${esc(trustedOs)} <span class="text-dim mono-sm" title="Reconciled OS/platform (${esc(String(assetData.trusted_os_confidence || ''))})">· trusted</span>`
+        : esc(a.os_guess || '—');
+    const osStoredRow = trustedOs && osGuessRaw && osGuessRaw !== trustedOs
+        ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">OS (scan)</td><td class="hp-meta-val-dim">${esc(osGuessRaw)}</td></tr>`
+        : '';
+    const hnStoredRow = trustedHn && hn && hn.toLowerCase() !== trustedHn.toLowerCase()
+        ? `<tr><td class="hp-meta-key">Hostname (stored)</td><td class="hp-meta-val">${esc(hn)}</td></tr>`
+        : '';
     if (hpBadges) {
         let badgeHtml = `<span class="cat ${esc(a.category || 'unk')}">${esc(a.category || 'unk')}</span>${lifecycleBadgeHtml(a)}`;
         if (aiInfluenced) {
@@ -18340,6 +18605,7 @@ async function openHostPanel(id, ip) {
         : '<div class="hp-empty st-host-empty">No scan-to-scan deltas yet. Repeat scans build this timeline.</div>';
 
     const reconEvidenceHtml = stHostReconciliationEvidenceHtml(assetData);
+    const identityEvidenceHtml = stHostIdentityEvidenceHtml(assetData);
 
     const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
         ? `<div class="hp-actions hp-actions-host-primary mt14 st-host-actionbar">
@@ -18387,7 +18653,7 @@ async function openHostPanel(id, ip) {
         <div class="st-host-identity-band">
           <div class="st-host-identity-main">
             <div class="st-host-identity-kicker">Investigation target</div>
-            <div class="st-host-identity-title">${esc(a.hostname || '—')}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
+            <div class="st-host-identity-title">${esc(titleHostname)}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
             <div class="st-host-identity-sub mono-sm"><span class="st-host-identity-ip">${esc(a.ip)}</span><span class="text-dim"> · ${esc(String(a.category || 'unk'))} · ${esc(String(a.environment || 'unknown'))}</span></div>
           </div>
         </div>
@@ -18404,12 +18670,14 @@ async function openHostPanel(id, ip) {
           <div class="st-host-summary-item"><span class="st-host-summary-k">Last scan</span><span class="st-host-summary-v">${esc(latestScanLabel)}</span></div>
         </div>
         ${reconEvidenceHtml}
+        ${identityEvidenceHtml}
         ${hpActionsHtml}
         <section class="host-section st-host-subsection" aria-label="Identity and inventory">
           <h3 class="host-section-heading">Identity &amp; inventory</h3>
           <div class="hp-meta host-meta-well st-host-meta-rail">
           <table class="hp-meta-table">
             <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
+            ${hnStoredRow}
             <tr><td class="hp-meta-key">Lifecycle</td><td class="hp-meta-val">${lifecycleBadgeHtml(a)} <span class="text-dim mono-sm">${esc(a.lifecycle_reason || '—')}</span></td></tr>
             <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${deviceLinkHtml}</td></tr>
             ${scopeAssignable ? `<tr><td class="hp-meta-key">Scope</td><td class="hp-meta-val-dim">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}${
@@ -18424,7 +18692,8 @@ async function openHostPanel(id, ip) {
                 : ''}
             </td></tr>
             <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val"><span title="${esc(hostVendorSummary.title)}">${esc(hostVendorSummary.label)}</span></td></tr>
-            <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${esc(a.os_guess||'—')}</td></tr>
+            <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${osPrimaryHtml}</td></tr>
+            ${osStoredRow}
             <tr class="st-host-meta-secondary"><td class="hp-meta-key">Missed scans</td><td class="hp-meta-val-dim">${esc(String(a.missed_scan_count ?? 0))}</td></tr>
             <tr class="st-host-meta-secondary"><td class="hp-meta-key">Owner / BU</td><td class="hp-meta-val-dim">${esc([a.owner, a.business_unit].filter(Boolean).join(' · ') || '—')}</td></tr>
             <tr class="st-host-meta-secondary"><td class="hp-meta-key">Criticality / env</td><td class="hp-meta-val-dim">${esc(String(a.criticality || 'medium'))} · ${esc(String(a.environment || 'unknown'))}</td></tr>

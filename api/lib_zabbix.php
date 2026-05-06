@@ -2714,6 +2714,16 @@ function st_zabbix_refresh_asset_zabbix_denorm_all(PDO $pdo): void
             (int) ($row['asset_id'] ?? 0),
         ]);
     }
+    $reconLib = __DIR__ . '/lib_reconciliation.php';
+    if (is_file($reconLib)) {
+        require_once $reconLib;
+        if (function_exists('st_recon_sync_zabbix_inventory_observations_globally')) {
+            st_recon_sync_zabbix_inventory_observations_globally($pdo);
+        }
+        if (function_exists('st_recon_sync_zabbix_identity_observations_globally')) {
+            st_recon_sync_zabbix_identity_observations_globally($pdo);
+        }
+    }
 }
 
 /**

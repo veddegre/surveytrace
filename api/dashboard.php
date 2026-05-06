@@ -12,6 +12,7 @@
  */
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/lib_reconciliation.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 st_method('GET');
@@ -273,9 +274,12 @@ $scan_history = $db->query("
 // ---------------------------------------------------------------------------
 // Top 5 most vulnerable assets
 // ---------------------------------------------------------------------------
+$reconSelTv = (function_exists('st_recon_tables_ready') && st_recon_tables_ready($db))
+    ? st_recon_list_query_assertion_select_sql_scalar() : '';
 $top_vulnerable = $db->query("
     SELECT a.id, a.ip, a.device_id, a.hostname, a.category, a.vendor, a.top_cve, a.top_cvss,
            COUNT(f.id) AS finding_count
+           $reconSelTv
     FROM assets a
     JOIN findings f ON f.asset_id = a.id AND f.resolved = 0
     WHERE a.top_cvss IS NOT NULL
@@ -285,6 +289,7 @@ $top_vulnerable = $db->query("
 ")->fetchAll();
 
 foreach ($top_vulnerable as &$tv) {
+    $tv = st_recon_augment_asset_row_with_trusted_operational_fields($tv);
     $tv['severity']      = st_severity((float)($tv['top_cvss'] ?? 0));
     $tv['top_cvss']      = (float)($tv['top_cvss'] ?? 0);
     $tv['finding_count'] = (int)$tv['finding_count'];

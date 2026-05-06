@@ -402,6 +402,7 @@ function st_db(): PDO {
     st_migrate_phase16_zabbix_source_v1($pdo);
     st_migrate_phase16_2_zabbix_workflow_v1($pdo);
     st_migrate_reconciliation_trusted_data_v1($pdo);
+    st_migrate_reconciliation_identity_m1_slice4_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -1055,6 +1056,20 @@ function st_migrate_reconciliation_trusted_data_v1(PDO $pdo): void
 
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_reconciliation_trusted_data_v1', '1')"
+    );
+}
+
+/**
+ * Milestone 1 slice 4 — identity observations + canonical_hostname assertion (no DDL; marker only).
+ */
+function st_migrate_reconciliation_identity_m1_slice4_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_reconciliation_identity_m1_slice4_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_reconciliation_identity_m1_slice4_v1', '1')"
     );
 }
 

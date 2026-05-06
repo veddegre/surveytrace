@@ -3094,6 +3094,20 @@ body.light-mode .host-inner-surface{box-shadow:0 1px 2px rgba(15,23,42,0.04)}
   gap:8px 12px;
 }
 .st-host-evidence-expl{color:var(--tx2);line-height:1.45;margin-bottom:0}
+.st-host-evidence-details{margin-top:6px}
+.st-host-evidence-details > summary.st-host-evidence-sum{
+  cursor:pointer;
+  color:var(--tx2);
+  list-style-position:outside;
+}
+.st-host-evidence-details[open] > summary.st-host-evidence-sum{color:var(--tx)}
+.st-host-evidence-tbl{font-size:11px}
+.st-host-evidence-cell-raw{max-width:14rem;word-break:break-word;vertical-align:top}
+.st-host-evidence-pending{line-height:1.45}
+.st-host-evidence-astmeta{line-height:1.45}
+.st-host-identity-evidence .hint-micro{max-width:42rem}
+.st-trusted-pref-chip{font-weight:600;opacity:0.95}
+.st-host-id-evidence-row--conflict td{background:color-mix(in srgb,var(--amber) 12%,transparent)}
 .host-modal-body .st-host-empty{
   padding:12px 14px;
   border:1px dashed var(--border);

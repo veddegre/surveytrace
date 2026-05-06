@@ -1836,20 +1836,36 @@ function st_reporting_inventory_scope_summary(PDO $db, ?int $scopeFilter): array
         $out['open_critical'] = (int) ($bySev['critical'] ?? 0);
         $out['open_high'] = (int) ($bySev['high'] ?? 0);
 
+        $reconJoin = '';
+        $reconSel = '';
+        if (is_file(__DIR__ . '/lib_reconciliation.php')) {
+            require_once __DIR__ . '/lib_reconciliation.php';
+            if (function_exists('st_recon_tables_ready') && st_recon_tables_ready($db)) {
+                $reconJoin = st_recon_list_query_assertion_join_sql();
+                $reconSel = st_recon_list_query_assertion_select_sql();
+            }
+        }
+
         $top = $db->prepare(
             'SELECT a.id, a.ip, a.hostname, a.category, COALESCE(a.lifecycle_status, \'\') AS lifecycle_status, a.top_cvss,
                 (SELECT COUNT(*) FROM findings f2 WHERE f2.asset_id = a.id AND COALESCE(f2.resolved, 0) = 0) AS open_findings
+                ' . $reconSel . '
              FROM assets a
+             ' . $reconJoin . '
              WHERE 1 = 1 ' . $scopeWhere . '
              ORDER BY open_findings DESC, COALESCE(a.top_cvss, 0) DESC, a.id DESC
              LIMIT 15'
         );
         $top->execute($scopeParams);
-        $out['top_assets'] = array_map(static function (array $row): array {
+        $out['top_assets'] = array_map(function (array $row): array {
+            $row = st_recon_augment_asset_row_with_trusted_operational_fields($row);
+
             return [
                 'id'               => (int) ($row['id'] ?? 0),
                 'ip'               => (string) ($row['ip'] ?? ''),
                 'hostname'         => (string) ($row['hostname'] ?? ''),
+                'trusted_hostname' => $row['trusted_hostname'] ?? null,
+                'trusted_hostname_confidence' => $row['trusted_hostname_confidence'] ?? null,
                 'category'         => (string) ($row['category'] ?? ''),
                 'lifecycle_status' => (string) ($row['lifecycle_status'] ?? ''),
                 'top_cvss'         => isset($row['top_cvss']) && $row['top_cvss'] !== '' && $row['top_cvss'] !== null

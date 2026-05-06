@@ -287,10 +287,13 @@ if [[ "$SRC_DIR" != "$INSTALL_DIR" ]]; then
     # rsync preserves subdirectories reliably; fall back to explicit cp
     mkdir -p "$INSTALL_DIR"
     if command -v rsync &>/dev/null; then
+        # Whole-tree sync (respect .rsyncignore if you add one later). Includes api/, daemon/,
+        # public/, sql/, docs/, and root files — same content as the explicit cp fallback below.
         rsync -a --delete "$SRC_DIR/" "$INSTALL_DIR/"
     else
         # Explicit subdirectory copy — avoids scp/cp flattening issues.
         # Keep in sync with repo layout (api/ holds every PHP endpoint, including devices.php).
+        # docs/ includes operator reference (e.g. TRUSTED_DATA_MODEL.md, CREDENTIALED_CHECKS_*.md).
         for subdir in api daemon public sql docs; do
             if [[ -d "$SRC_DIR/$subdir" ]]; then
                 mkdir -p "$INSTALL_DIR/$subdir"
@@ -766,10 +769,19 @@ check_mode "$INSTALL_DIR/api" "2750" "api directory mode"
 check_owner_group "$INSTALL_DIR/data" "$APP_USER:$WEB_GROUP" "data owner/group"
 check_mode "$INSTALL_DIR/data" "2770" "data directory mode"
 
+check_file "$INSTALL_DIR/docs/TRUSTED_DATA_MODEL.md" "docs/TRUSTED_DATA_MODEL.md exists"
+check_file "$INSTALL_DIR/docs/CREDENTIALED_CHECKS_ENGINE.md" "docs/CREDENTIALED_CHECKS_ENGINE.md exists"
+check_file "$INSTALL_DIR/docs/CREDENTIALED_CHECKS_MVP_PLAN.md" "docs/CREDENTIALED_CHECKS_MVP_PLAN.md exists"
+
 check_file "$INSTALL_DIR/public/index.php" "public/index.php exists"
 check_file "$INSTALL_DIR/public/css/app.css" "public/css/app.css exists"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/public/index.php" "www-data readable: public/index.php"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/health.php" "www-data readable: api/health.php"
+
+check_file "$INSTALL_DIR/api/lib_reconciliation.php" "api/lib_reconciliation.php exists"
+check_file "$INSTALL_DIR/api/recon_diagnostics.php" "api/recon_diagnostics.php exists"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_reconciliation.php" "www-data readable: lib_reconciliation.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/recon_diagnostics.php" "www-data readable: recon_diagnostics.php"
 
 check_file "$INSTALL_DIR/api/zabbix_sync_worker.php" "api/zabbix_sync_worker.php exists"
 check_file "$INSTALL_DIR/api/zabbix_output_worker.php" "api/zabbix_output_worker.php exists"
@@ -779,6 +791,7 @@ check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/zabbix_sync_worker.php" "w
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/zabbix_output_worker.php" "www-data readable: zabbix_output_worker.php"
 
 check_file "$INSTALL_DIR/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+check_file "$INSTALL_DIR/daemon/recon_observations.py" "recon_observations.py exists"
 check_file "$INSTALL_DIR/daemon/scheduler_daemon.py" "scheduler_daemon.py exists"
 check_file "$INSTALL_DIR/daemon/collector_ingest_worker.py" "collector_ingest_worker.py exists"
 check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
@@ -803,6 +816,21 @@ if command -v zabbix_sender >/dev/null 2>&1; then
     check_ok "zabbix_sender available"
 else
     check_warn "zabbix_sender not found; install zabbix-sender on Debian/Ubuntu to use SurveyTrace -> Zabbix output."
+fi
+
+if command -v php >/dev/null 2>&1; then
+    for _st_php in lib_reconciliation.php recon_diagnostics.php; do
+        php -l "$INSTALL_DIR/api/$_st_php" >/dev/null 2>&1 && check_ok "php -l api/$_st_php" || check_fail "php -l api/$_st_php"
+    done
+else
+    check_warn "php not in PATH — skipped php -l (reconciliation API)"
+fi
+if command -v python3 >/dev/null 2>&1; then
+    python3 -m py_compile "$INSTALL_DIR/daemon/recon_observations.py" >/dev/null 2>&1 && \
+        check_ok "python3 -m py_compile daemon/recon_observations.py" || \
+        check_fail "python3 -m py_compile daemon/recon_observations.py"
+else
+    check_warn "python3 not in PATH — skipped py_compile recon_observations.py"
 fi
 
 if [[ "$CHECK_FAIL" -gt 0 ]]; then

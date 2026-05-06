@@ -603,4 +603,19 @@ if ($aiProvHealth === 'ollama') {
 
 $health['ok'] = $health['data_dir']['writable'] && $health['database']['reachable'];
 
+require_once __DIR__ . '/lib_reconciliation.php';
+try {
+    $health['trusted_data'] = st_recon_health_snapshot($db);
+} catch (Throwable $e) {
+    $health['trusted_data'] = [
+        'tables_ready'                      => false,
+        'observation_count'                 => 0,
+        'identity_observation_count'        => 0,
+        'identity_assertion_count'          => 0,
+        'identity_hostname_conflict_assets' => 0,
+        'warning_hints'                     => ['Trusted data health snapshot unavailable.'],
+    ];
+    @error_log('SurveyTrace health trusted_data: ' . $e->getMessage());
+}
+
 st_json($health);

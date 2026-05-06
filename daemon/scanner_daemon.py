@@ -61,6 +61,8 @@ from fingerprint import (
 from profiles import get_profile, validate_phases, PROFILES, DEFAULT_PROFILE, PORTS_STANDARD
 import asset_lifecycle
 import change_detection
+from recon_observations import write_scan_identity_observations_best_effort
+from recon_observations import write_scan_os_observations_best_effort
 from sqlite_pragmas import apply_surveytrace_pragmas
 from surveytrace_paths import data_dir, main_db_path
 from surveytrace_version import surveytrace_version
@@ -3323,7 +3325,28 @@ def upsert_asset(job_id: int, ip: str, mac: str,
             )
 
         row = wconn.execute("SELECT * FROM assets WHERE ip=?", (ip,)).fetchone()
-        return dict(row)
+        out = dict(row)
+        try:
+            _aid = int(out.get("id") or 0)
+            if _aid:
+                write_scan_os_observations_best_effort(
+                    wconn,
+                    _aid,
+                    str(fp.get("os_guess") or ""),
+                    str(fp.get("cpe") or ""),
+                    out.get("discovery_sources"),
+                )
+                write_scan_identity_observations_best_effort(
+                    wconn,
+                    _aid,
+                    str(ip or ""),
+                    str(mac or ""),
+                    str(out.get("hostname") or scan_hostname_in or ""),
+                    int(out.get("device_id") or 0),
+                )
+        except Exception:
+            log.debug("scan recon observation best-effort skipped", exc_info=False)
+        return out
 
     if reuse_conn is not None:
         result = _write_asset_row(reuse_conn)

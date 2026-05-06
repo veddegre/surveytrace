@@ -38,6 +38,12 @@ Integration workflow references:
 
 These documents describe how SurveyTrace works internally or how to extend it.
 
+### Trusted data (reconciliation)
+
+- [Trusted data model](TRUSTED_DATA_MODEL.md)
+
+Covers observations, assertions, assertion sources, and reconciliation runs (OS/platform scope in Milestone 1).
+
 ### Device identity
 
 - [Device identity](DEVICE_IDENTITY.md)

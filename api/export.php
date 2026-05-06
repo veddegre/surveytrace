@@ -17,11 +17,14 @@
  *   ai_summary — "1" — same semantics as GET /api/assets.php (OK cached operator host summary)
  *
  * CSV/JSON include lifecycle and business-context columns on asset rows when present.
+ * When reconciliation tables exist, exports append trusted_hostname / trusted_os_* columns
+ * (medium+ confidence operational summaries; raw hostname and os_guess remain unchanged).
  */
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
+require_once __DIR__ . '/lib_reconciliation.php';
 st_auth();
 if (st_config('security_export_requires_scan_editor', '0') === '1') {
     st_require_role(['scan_editor', 'admin']);
@@ -178,6 +181,13 @@ if ($zbxFilters) {
 
 $where_sql = implode(' AND ', $where);
 
+$stReconJoinSql = '';
+$stReconSelectSql = '';
+if (function_exists('st_recon_tables_ready') && st_recon_tables_ready($db)) {
+    $stReconJoinSql = st_recon_list_query_assertion_join_sql();
+    $stReconSelectSql = st_recon_list_query_assertion_select_sql();
+}
+
 $stmt = $db->prepare("
     SELECT
         a.ip, a.device_id, a.hostname, a.mac, a.mac_vendor, a.category,
@@ -196,7 +206,9 @@ $stmt = $db->prepare("
         COALESCE(a.environment, 'unknown') AS environment,
         a.identity_confidence, a.identity_confidence_reason,
         a.notes
+        $stReconSelectSql
     FROM assets a
+    $stReconJoinSql
     WHERE $where_sql
     ORDER BY a.ip
 ");
@@ -211,6 +223,7 @@ $timestamp = date('Y-m-d_H-i-s');
 if ($format === 'json') {
     $export = [];
     foreach ($assets as $a) {
+        $a = st_recon_augment_asset_row_with_trusted_operational_fields($a);
         $row = $a;
         $row['open_ports'] = json_decode($a['open_ports'] ?? '[]', true) ?: [];
         $row['top_cvss']   = $a['top_cvss'] ? (float)$a['top_cvss'] : null;
@@ -230,6 +243,10 @@ if ($format === 'json') {
         }
         $row['criticality'] = (string)($a['criticality'] ?? 'medium');
         $row['environment'] = (string)($a['environment'] ?? 'unknown');
+        $row['trusted_hostname'] = $a['trusted_hostname'] ?? null;
+        $row['trusted_hostname_confidence'] = $a['trusted_hostname_confidence'] ?? null;
+        $row['trusted_os_platform'] = $a['trusted_os_platform'] ?? null;
+        $row['trusted_os_confidence'] = $a['trusted_os_confidence'] ?? null;
 
         if ($inc_find) {
             $fstmt = $db->prepare("
@@ -277,9 +294,11 @@ fputcsv($out, [
     'Owner', 'Business Unit', 'Criticality', 'Environment',
     'Identity Confidence', 'Identity Confidence Reason',
     'Notes',
+    'Trusted Hostname', 'Trusted Hostname Confidence', 'Trusted OS Platform', 'Trusted OS Confidence',
 ]);
 
 foreach ($assets as $a) {
+    $a = st_recon_augment_asset_row_with_trusted_operational_fields($a);
     $ports    = json_decode($a['open_ports'] ?? '[]', true) ?: [];
     $cvss     = $a['top_cvss'] ? (float)$a['top_cvss'] : null;
     $severity = $cvss ? st_severity($cvss) : 'none';
@@ -318,6 +337,10 @@ foreach ($assets as $a) {
         st_export_csv_cell($a['identity_confidence'] ?? ''),
         st_export_csv_cell($a['identity_confidence_reason'] ?? ''),
         st_export_csv_cell($a['notes'] ?? ''),
+        st_export_csv_cell($a['trusted_hostname'] ?? ''),
+        st_export_csv_cell($a['trusted_hostname_confidence'] ?? ''),
+        st_export_csv_cell($a['trusted_os_platform'] ?? ''),
+        st_export_csv_cell($a['trusted_os_confidence'] ?? ''),
     ]);
 
     // Optionally append finding rows beneath each asset

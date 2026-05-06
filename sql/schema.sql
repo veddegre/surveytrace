@@ -456,7 +456,8 @@ CREATE TABLE IF NOT EXISTS asset_observations (
     created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
     asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     observation_type     TEXT NOT NULL,
-        -- os_fingerprint_scan | os_fingerprint_cpe | os_inventory_zabbix | os_hint_enrichment | ...
+        -- os_fingerprint_scan | os_fingerprint_cpe | os_inventory_zabbix | os_hint_enrichment
+        -- | hostname_observed | fqdn_observed | ipv4_observed | mac_observed | monitoring_hostid | device_link | ...
     raw_value            TEXT,
     normalized_value     TEXT,
     source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
@@ -477,7 +478,7 @@ CREATE TABLE IF NOT EXISTS asset_assertions (
     updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
     asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     assertion_type       TEXT NOT NULL,
-        -- os_platform | ...
+        -- os_platform | canonical_hostname | ...
     asserted_value       TEXT NOT NULL,
         -- normalized bucket key (machine-readable)
     confidence_level     TEXT NOT NULL DEFAULT 'medium',

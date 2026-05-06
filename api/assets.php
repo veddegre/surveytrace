@@ -4,6 +4,7 @@
  *
  * Returns the full asset inventory with filtering, sorting, and pagination.
  * Also supports PUT to update asset metadata (category override, notes, scan locks).
+ * Optional PUT body key `os_guess` (additive): operator OS label; persists reconciliation observation best-effort.
  * PUT may include `unlock`: ["hostname","category","vendor"] to allow scans to refresh
  * those fields again, or per-field `hostname_locked` / `category_locked` / `vendor_locked` as booleans.
  * Hostname/category/vendor locks are set to 1 only when that field's value changes in the same request;
@@ -24,6 +25,8 @@
  *
  * List JSON also includes ai_needs_review_filter_available and ai_host_summary_filter_available for UI (hide AI filters toolbar when both false).
  *   sort       — ip|device_id|hostname|category|top_cvss|last_seen|first_seen|vendor|open_findings|zabbix_problem_count|scope_name (default: ip)
+ *                When reconciliation is enabled, hostname sort prefers canonical_hostname assertion (medium+ confidence) then stored hostname.
+ * List rows include additive trusted_hostname, trusted_hostname_confidence, trusted_os_platform, trusted_os_confidence when assertions exist (medium+ confidence only for trusted_* values).
  *   order      — asc|desc (default: asc)
  *   page       — 1-based (default: 1)
  *   per_page   — 1–200 (default: 50)
@@ -101,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
 
     $db = st_db();
     $curStmt = $db->prepare(
-        'SELECT id, ip, hostname, category, vendor, notes, hostname_locked, category_locked, vendor_locked FROM assets WHERE id = ? LIMIT 1'
+        'SELECT id, ip, hostname, category, vendor, notes, os_guess, hostname_locked, category_locked, vendor_locked FROM assets WHERE id = ? LIMIT 1'
     );
     $curStmt->execute([$asset_id]);
     $before = $curStmt->fetch(PDO::FETCH_ASSOC);
@@ -161,6 +164,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
             $updates[]         = 'vendor = :vendor';
             $params[':vendor'] = $vtrim;
             $lockV             = $vtrim !== '' ? 1 : 0;
+        }
+    }
+    if (array_key_exists('os_guess', $body)) {
+        $osTrim = substr(trim((string) $body['os_guess']), 0, 400);
+        if ($osTrim !== trim((string) ($before['os_guess'] ?? ''))) {
+            $updates[] = 'os_guess = :os_guess';
+            $params[':os_guess'] = $osTrim;
         }
     }
 
@@ -228,6 +238,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
 
     $params[':id'] = $asset_id;
     $db->prepare('UPDATE assets SET ' . implode(', ', $updates) . ' WHERE id = :id')->execute($params);
+
+    if (array_key_exists('hostname', $body) && isset($params[':host'])) {
+        try {
+            st_recon_record_operator_hostname_put($db, $asset_id, (string) $params[':host']);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets PUT identity observation: ' . $e->getMessage());
+        }
+    }
+
+    if (array_key_exists('os_guess', $body) && isset($params[':os_guess'])) {
+        try {
+            st_recon_record_operator_os_guess_put($db, $asset_id, (string) $params[':os_guess']);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets PUT recon observation: ' . $e->getMessage());
+        }
+    }
 
     $stmt = $db->prepare('SELECT * FROM assets WHERE id = ?');
     $stmt->execute([$asset_id]);
@@ -634,16 +660,65 @@ if ($single_id > 0) {
         @error_log('SurveyTrace assets.php reconciliation: ' . $e->getMessage());
     }
 
-    st_json([
-        'asset'                  => $asset,
-        'asset_scope_assignable' => st_assets_has_scope_id($db),
-        'assertions'             => $reconBundle['assertions'],
-        'evidence_summary'       => $reconBundle['evidence_summary'],
-        'os_platform_assertion'  => $reconBundle['os_platform_assertion'],
-        'os_platform_confidence' => $reconBundle['os_platform_confidence'],
-        'os_platform_sources'    => $reconBundle['os_platform_sources'],
+    $identityBundle = st_recon_empty_identity_bundle();
+    try {
+        $identityBundle = st_recon_lazy_reconcile_canonical_hostname($db, $single_id, $asset);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php identity reconciliation: ' . $e->getMessage());
+    }
+
+    $mergedAssertions = array_merge(
+        $reconBundle['assertions'] ?? [],
+        $identityBundle['identity_assertions'] ?? []
+    );
+
+    $identityReconDetail = [
+        'tables_ready' => false,
+        'assertion'    => null,
+        'observations' => [],
+        'recent_runs'  => [],
+    ];
+    try {
+        $identityReconDetail = st_recon_build_identity_recon_detail_for_asset($db, $single_id, 32, 8, true);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php identity_recon_detail: ' . $e->getMessage());
+    }
+
+    $reconDetail = [
+        'tables_ready' => false,
+        'assertion'    => null,
+        'observations' => [],
+        'recent_runs'  => [],
+    ];
+    try {
+        $reconDetail = st_recon_build_evidence_detail_for_asset($db, $single_id, 24, 8, true);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php recon_detail: ' . $e->getMessage());
+    }
+
+    $trustedApi = st_recon_trusted_operational_api_fields(
+        $identityBundle['canonical_hostname_assertion'] ?? null,
+        $identityBundle['canonical_hostname_confidence'] ?? null,
+        $reconBundle['os_platform_assertion'] ?? null,
+        $reconBundle['os_platform_confidence'] ?? null
+    );
+
+    st_json(array_merge([
+        'asset'                   => $asset,
+        'asset_scope_assignable'  => st_assets_has_scope_id($db),
+        'assertions'              => $mergedAssertions,
+        'evidence_summary'        => $reconBundle['evidence_summary'],
+        'os_platform_assertion'   => $reconBundle['os_platform_assertion'],
+        'os_platform_confidence'  => $reconBundle['os_platform_confidence'],
+        'os_platform_sources'     => $reconBundle['os_platform_sources'],
         'os_platform_explanation' => $reconBundle['os_platform_explanation'],
-    ]);
+        'canonical_hostname_assertion'   => $identityBundle['canonical_hostname_assertion'],
+        'canonical_hostname_confidence'  => $identityBundle['canonical_hostname_confidence'],
+        'canonical_hostname_sources'     => $identityBundle['canonical_hostname_sources'],
+        'canonical_hostname_explanation' => $identityBundle['canonical_hostname_explanation'],
+        'recon_detail'            => $reconDetail,
+        'identity_recon_detail'   => $identityReconDetail,
+    ], $trustedApi));
 }
 
 // ---------------------------------------------------------------------------
@@ -674,9 +749,21 @@ $sev_ranges = [
 $where  = ['1=1'];
 $params = [];
 
+$stReconJoinSql = '';
+$stReconSelectSql = '';
+if (function_exists('st_recon_tables_ready') && st_recon_tables_ready($db)) {
+    $stReconJoinSql = st_recon_list_query_assertion_join_sql();
+    $stReconSelectSql = st_recon_list_query_assertion_select_sql();
+}
+
 if ($q !== '') {
-    $where[]      = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q)";
     $params[':q'] = '%' . $q . '%';
+    if ($stReconJoinSql !== '') {
+        $where[] = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q
+            OR ah.asserted_value LIKE :q OR ao.asserted_value LIKE :q)";
+    } else {
+        $where[] = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q)";
+    }
 }
 
 if ($category !== '') {
@@ -844,6 +931,13 @@ $order_expr = match ($sort_col) {
     'scope_name'    => "LOWER(COALESCE(sc.name, '')) $sort_order, a.id ASC",
     default         => "a.$sort_col $sort_order",
 };
+if ($sort_col === 'hostname' && $stReconJoinSql !== '') {
+    // Threshold must match st_recon_confidence_meets_trusted_operational_threshold() (medium+ only).
+    $order_expr = "LOWER(TRIM(COALESCE(
+        CASE WHEN LOWER(TRIM(COALESCE(ah.confidence_level,''))) IN ('medium','high','authoritative')
+          AND TRIM(COALESCE(ah.asserted_value,'')) != '' THEN ah.asserted_value ELSE NULL END,
+        NULLIF(TRIM(a.hostname),''), ''))) $sort_order, a.id ASC";
+}
 
 // ---------------------------------------------------------------------------
 // Count
@@ -860,7 +954,9 @@ $sql = "
         a.*,
         $findings_subq AS open_findings
         $scopeSelectSql
+        $stReconSelectSql
     FROM assets a
+    $stReconJoinSql
     $scopeJoinSql
     WHERE $where_sql
     ORDER BY $order_expr
@@ -872,7 +968,10 @@ foreach ($params as $k => $v) $stmt->bindValue($k, $v);
 $stmt->bindValue(':lim', $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':off', $offset,   PDO::PARAM_INT);
 $stmt->execute();
-$rows = array_map('decode_asset', $stmt->fetchAll());
+$rows = [];
+foreach ($stmt->fetchAll() as $raw) {
+    $rows[] = st_recon_augment_asset_row_with_trusted_operational_fields(decode_asset($raw));
+}
 
 $asset_scope_filter_options = [];
 $unscoped_asset_count = null;

@@ -116,6 +116,8 @@ echo "Deploying SurveyTrace (master) from $SRC to $DEST..."
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
+# When adding api/*.php endpoints or libraries, append here (deploy does not
+# mirror the whole api/ tree — explicit list avoids shipping dev-only files).
 API_FILES=(
   st_version.php
   db.php
@@ -154,6 +156,7 @@ API_FILES=(
   lib_integrations_outbound.php
   lib_integrations.php
   lib_rate_limit.php
+  lib_reconciliation.php
   integrations.php
   integrations_metrics.php
   integrations_events.php
@@ -170,6 +173,7 @@ API_FILES=(
   scopes.php
   reporting.php
   reporting_cli.php
+  recon_diagnostics.php
 )
 for f in "${API_FILES[@]}"; do
   sudo cp "$SRC/api/$f" "$DEST/api/"
@@ -191,6 +195,15 @@ if [[ -d "$SRC/integrations/starter" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Docs (operator reference; same tree as setup.sh api/daemon/public/sql/docs)
+# ---------------------------------------------------------------------------
+if [[ -d "$SRC/docs" ]]; then
+  sudo mkdir -p "$DEST/docs"
+  sudo cp -a "$SRC/docs/." "$DEST/docs/"
+  echo "  docs deployed"
+fi
+
+# ---------------------------------------------------------------------------
 # Public (web UI)
 # ---------------------------------------------------------------------------
 sudo mkdir -p "$DEST/public/css"
@@ -206,6 +219,7 @@ DAEMON_CORE=(
   surveytrace_paths.py
   surveytrace_version.py
   scanner_daemon.py
+  recon_observations.py
   change_detection.py
   asset_lifecycle.py
   finding_triage.py
@@ -243,6 +257,31 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/collector_ingest_worker.py" ] && sudo cp "$SRC/daemon/collector_ingest_worker.py" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
+
+# ---------------------------------------------------------------------------
+# Syntax validation (trusted-data / scan observation helpers)
+# ---------------------------------------------------------------------------
+if command -v php >/dev/null 2>&1; then
+  if st_sudo php -l "$DEST/api/lib_reconciliation.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/recon_diagnostics.php" >/dev/null 2>&1; then
+    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php)"
+  else
+    echo "  [FAIL] php -l reconciliation API — fix syntax before relying on deploy"
+    exit 1
+  fi
+else
+  echo "  [WARN] php not in PATH — skipped php -l for reconciliation API files"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  if st_sudo python3 -m py_compile "$DEST/daemon/recon_observations.py" >/dev/null 2>&1; then
+    echo "  Python syntax OK (recon_observations.py)"
+  else
+    echo "  [FAIL] python3 -m py_compile recon_observations.py"
+    exit 1
+  fi
+else
+  echo "  [WARN] python3 not in PATH — skipped py_compile recon_observations.py"
+fi
 
 # ---------------------------------------------------------------------------
 # Permission sanity for UI-triggered feed sync + daemon runtime
@@ -449,6 +488,8 @@ check_dir "$DEST/public" "public dir exists"
 check_dir "$DEST/daemon" "daemon dir exists"
 check_dir "$DEST/data" "data dir exists"
 check_file "$DEST/api/st_version.php" "st_version.php (ST_VERSION loader)"
+check_file "$DEST/api/lib_reconciliation.php" "lib_reconciliation.php (trusted data)"
+check_file "$DEST/api/recon_diagnostics.php" "recon_diagnostics.php"
 check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
@@ -476,7 +517,11 @@ check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
 check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py"
+check_file "$DEST/daemon/recon_observations.py" "recon_observations.py (scan → observations)"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
+check_file "$DEST/docs/TRUSTED_DATA_MODEL.md" "docs/TRUSTED_DATA_MODEL.md"
+check_file "$DEST/docs/CREDENTIALED_CHECKS_ENGINE.md" "docs/CREDENTIALED_CHECKS_ENGINE.md"
+check_file "$DEST/docs/CREDENTIALED_CHECKS_MVP_PLAN.md" "docs/CREDENTIALED_CHECKS_MVP_PLAN.md"
 check_file "/etc/cron.d/surveytrace-nvd" "NVD cron"
 check_file "/etc/cron.d/surveytrace-fp" "fingerprint cron"
 
