@@ -72,67 +72,67 @@
   --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,#fff 3%) 0%,var(--section-bg) 45%,color-mix(in srgb,var(--section-bg) 90%,var(--bg)) 100%);
 }
 body.light-mode{
-  /* Calm operational light: layered cool neutrals — avoid #fff washes, keep crisp contrast */
+  /* Second pass: lower-luminance operational light — deeper stepping, less glare, still cool/crisp */
   --text:#1e293b;
-  --text-muted:#475569;
-  --text-faint:#5c6b7d;
-  --bg:#d4dde8;
-  --card:#dfe8f3;
-  --surface:#e8eef6;
-  --surface-muted:#d2dbe8;
-  --border:#aab6c5;
-  --border-strong:#949fb0;
-  --section-bg:#d9e3ef;
-  --section-border:color-mix(in srgb,var(--border) 88%,var(--bg));
-  --host-modal-body-bg:color-mix(in srgb,var(--bg) 40%,var(--card));
-  --host-ai-section-bg:color-mix(in srgb,var(--section-bg) 78%,var(--card));
+  --text-muted:#3f4d60;
+  --text-faint:#546374;
+  --bg:#c2ccda;
+  --card:#cad4e2;
+  --surface:#d2dbe8;
+  --surface-muted:#b4c0d3;
+  --border:#909daf;
+  --border-strong:#7d8b9b;
+  --section-bg:#c5d0df;
+  --section-border:color-mix(in srgb,var(--border) 86%,var(--bg));
+  --host-modal-body-bg:color-mix(in srgb,var(--bg) 54%,var(--card));
+  --host-ai-section-bg:color-mix(in srgb,var(--section-bg) 72%,var(--card));
   --primary:#2563eb;
   --primary-hover:#1d4ed8;
   --primary-fg:#f8fafc;
   --success:#059669;
   --warning:#d97706;
   --danger:#dc2626;
-  --tbl-row-hover:rgba(15,23,42,0.045);
-  --tbl-wrap-bg:color-mix(in srgb,var(--card) 72%,var(--surface));
-  --tbl-header-bg:color-mix(in srgb,var(--bg3) 88%,var(--border));
-  --modal-backdrop:rgba(15,23,42,0.42);
-  --card-shadow-light:0 1px 2px rgba(15,23,42,.07),0 3px 10px rgba(15,23,42,.05);
-  --panel2:#c8d4e2;
+  --tbl-row-hover:rgba(15,23,42,0.058);
+  --tbl-wrap-bg:color-mix(in srgb,var(--card) 52%,var(--bg));
+  --tbl-header-bg:color-mix(in srgb,var(--bg3) 82%,var(--border));
+  --modal-backdrop:rgba(15,23,42,0.46);
+  --card-shadow-light:0 1px 2px rgba(15,23,42,.075),0 2px 9px rgba(15,23,42,.042);
+  --panel2:#aeb8c9;
 
   --tx:var(--text);
   --tx2:var(--text-muted);
   --tx3:var(--text-faint);
   --bg2:var(--card);
-  --bg3:#c8d4e2;
-  --bg4:#bac7d8;
+  --bg3:#aab6c8;
+  --bg4:#9eaab9;
   --bd:var(--border);
   --bd2:var(--border-strong);
   --acc:var(--primary);
   --acc2:var(--primary-hover);
-  --adim2:rgba(37,99,235,0.11);
+  --adim2:rgba(37,99,235,0.12);
   --green:var(--success);
-  --gdim:#d1ebe0;
-  --gbrd:#9fd9b8;
+  --gdim:#c5e0d4;
+  --gbrd:#8bc9a8;
   --amber:var(--warning);
-  --adim:#ebe2cd;
-  --abrd:#e8d48a;
+  --adim:#e0d8c5;
+  --abrd:#dcc87a;
   --red:var(--danger);
-  --rdim:#edd5d5;
-  --rbrd:#e8b4b4;
+  --rdim:#e5cfcf;
+  --rbrd:#deb4b4;
   --blue:#1d4ed8;
-  --bdim2:#d5e0ef;
-  --bbrd:#a8c6f0;
+  --bdim2:#c8d4e4;
+  --bbrd:#96b8e8;
   --orange:#c2410c;
-  --odim:#e8dfd2;
-  /* Darker shell rim so workspace reads as a framed instrument panel */
-  --app-shell-bg:color-mix(in srgb,var(--card) 32%,var(--bg));
-  --app-shell-border:color-mix(in srgb,var(--border-strong) 58%,var(--bg));
-  --app-shell-shadow:0 14px 42px rgba(15,23,42,.11);
-  /* Veils: tonal steps only — no white blowout */
-  --app-surface-veil:linear-gradient(165deg,color-mix(in srgb,var(--card) 100%,var(--surface) 11%) 0%,color-mix(in srgb,var(--card) 91%,var(--bg)) 100%);
-  --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,var(--card) 14%) 0%,color-mix(in srgb,var(--section-bg) 88%,var(--bg)) 100%);
+  --odim:#dfd6c9;
+  /* Shell reads clearly against page; interior stays darker than first pass */
+  --app-shell-bg:color-mix(in srgb,var(--card) 26%,var(--bg));
+  --app-shell-border:color-mix(in srgb,var(--border-strong) 54%,var(--bg));
+  --app-shell-shadow:0 12px 38px rgba(15,23,42,.12);
+  /* Veils: pull highlights toward card/bg, minimal surface “lift” */
+  --app-surface-veil:linear-gradient(165deg,color-mix(in srgb,var(--card) 100%,var(--surface) 5%) 0%,color-mix(in srgb,var(--card) 84%,var(--bg)) 100%);
+  --app-band-veil:linear-gradient(165deg,color-mix(in srgb,var(--section-bg) 100%,var(--card) 7%) 0%,color-mix(in srgb,var(--section-bg) 82%,var(--bg)) 100%);
   background:
-    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 6.5%,transparent),transparent 48%),
+    radial-gradient(ellipse 100% 55% at 50% -30%,color-mix(in srgb,var(--primary) 5%,transparent),transparent 48%),
     var(--bg);
 }
 /* Light: dense tables — softer row dividers, grounded header band */
@@ -140,8 +140,11 @@ body.light-mode .tbl td{
   border-bottom-color:color-mix(in srgb,var(--border) 68%,transparent);
 }
 body.light-mode .tbl th{
-  border-bottom-color:color-mix(in srgb,var(--border) 80%,transparent);
-  box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--text) 5%,transparent);
+  border-bottom-color:color-mix(in srgb,var(--border) 84%,transparent);
+  box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--text) 5.5%,transparent);
+}
+body.light-mode .tbl tbody td{
+  background-color:color-mix(in srgb,var(--tbl-wrap-bg) 96%,var(--bg));
 }
 /* Light: device rail — match modal grounding (host centered modal: co-located rules below) */
 body.light-mode .host-panel{
@@ -169,14 +172,14 @@ body.light-mode .finp,
 body.light-mode .finput,
 body.light-mode textarea.finput{
   background:var(--surface-muted);
-  border-color:color-mix(in srgb,var(--border-strong) 28%,var(--border));
-  box-shadow:inset 0 1px 2px rgba(15,23,42,.05);
+  border-color:color-mix(in srgb,var(--border-strong) 32%,var(--border));
+  box-shadow:inset 0 1px 3px rgba(15,23,42,.072);
 }
 body.light-mode .tbtn{
   background:var(--surface-muted);
-  border-color:color-mix(in srgb,var(--border-strong) 22%,var(--border));
+  border-color:color-mix(in srgb,var(--border-strong) 26%,var(--border));
   color:var(--text);
-  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 55%,transparent);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 42%,var(--bg4) 22%),inset 0 -1px 0 color-mix(in srgb,var(--bg) 55%,transparent);
 }
 body.light-mode .tbtn:hover{background:var(--bg3);border-color:var(--primary);color:var(--text)}
 body.light-mode .tbtn:disabled,
@@ -239,7 +242,8 @@ body:not(.light-mode){
   backdrop-filter:saturate(1.1);
 }
 body.light-mode .bar{
-  background:color-mix(in srgb,var(--card) 88%,var(--surface-muted));
+  background:color-mix(in srgb,var(--card) 78%,var(--surface-muted));
+  border-bottom-color:color-mix(in srgb,var(--bd) 82%,transparent);
 }
 .logo{font-family:var(--sf);font-size:16px;font-weight:600;color:var(--tx);letter-spacing:.02em;display:flex;align-items:center;gap:10px}
 .logo-mark{
@@ -318,7 +322,7 @@ body.light-mode .bar-account-menu{box-shadow:0 10px 28px rgba(15,23,42,.12)}
   min-height:0;
 }
 body.light-mode .side{
-  background:color-mix(in srgb,var(--surface-muted) 98%,var(--bg));
+  background:color-mix(in srgb,var(--surface-muted) 94%,var(--bg));
 }
 .ns{font-family:var(--sf);font-size:11px;font-weight:600;color:var(--tx3);padding:10px 18px 5px;letter-spacing:.1em;text-transform:uppercase}
 .nav-grp{margin-bottom:2px}
@@ -2913,9 +2917,9 @@ body.light-mode .host-modal-header{
   box-shadow:0 10px 22px -16px rgba(0,0,0,.55);
 }
 body.light-mode .host-tablist{
-  background:var(--host-modal-body-bg);
-  border-bottom-color:color-mix(in srgb,var(--border) 75%,transparent);
-  box-shadow:0 12px 20px -14px rgba(15,23,42,.12);
+  background:color-mix(in srgb,var(--host-modal-body-bg) 92%,var(--bg));
+  border-bottom-color:color-mix(in srgb,var(--border) 78%,transparent);
+  box-shadow:0 10px 18px -15px rgba(15,23,42,.095);
 }
 .host-tab-btn{
   flex:0 0 auto;margin:0;padding:8px 12px 10px;border:none;border-radius:var(--radius) var(--radius) 0 0;
@@ -2924,7 +2928,7 @@ body.light-mode .host-tablist{
   transition:color .12s,border-color .12s,background .12s;
 }
 .host-tab-btn:hover{color:var(--text);background:rgba(0,0,0,.04)}
-body.light-mode .host-tab-btn:hover{background:rgba(15,23,42,.04)}
+body.light-mode .host-tab-btn:hover{background:color-mix(in srgb,var(--host-modal-body-bg) 82%,var(--text) 6%)}
 .host-tab-btn.active{color:var(--text);border-bottom-color:var(--primary)}
 .host-tab-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .host-tab-panels{
