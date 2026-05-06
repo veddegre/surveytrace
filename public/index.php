@@ -834,15 +834,34 @@ if (!headers_sent()) {
 
 <!-- ================================================================ REPORTS & ANALYSIS -->
 <div class="tab" id="t-report">
-  <div class="sth section-top report-page-title">Reports &amp; Analysis</div>
-  <p class="hint-micro report-page-lead mb12" style="max-width:min(100%,52rem);line-height:1.5">
-    <strong>Start here:</strong> pick <strong>report mode</strong> (job vs inventory), then the scope bucket. <strong>Job scope</strong> drives drift, trends, and baselines from <em>finished</em> scans. <strong>Inventory scope</strong> summarizes live assets and open findings by inventory tag — not scan history.
-  </p>
+  <section class="st-band st-report-band st-report-band--overview" aria-labelledby="st-report-overview-title">
+    <header class="st-report-band-head">
+      <div class="st-report-kicker">Reports</div>
+      <div class="st-report-band-main">
+        <h2 class="report-page-title st-report-page-title" id="st-report-overview-title">Reports &amp; Analysis</h2>
+        <p class="hint-micro report-page-lead st-report-lead mb0" style="max-width:min(100%,52rem);line-height:1.5">
+          <strong>Evidence workspace:</strong> pick <strong>report mode</strong> first — <strong>job scope</strong> is historical scan evidence (finished runs, snapshots, drift, trends, baselines). <strong>Inventory scope</strong> is current operational posture (live assets and open findings by tag) — not scan history. Same scope names; different lineage.
+        </p>
+        <ul class="st-report-legend" aria-label="Job scope versus inventory scope">
+          <li><span class="st-report-legend-k">Job scope</span> <span class="st-report-legend-v">completed scans → drift, trends, baseline, exports</span></li>
+          <li><span class="st-report-legend-k">Inventory scope</span> <span class="st-report-legend-v">live posture → summary only; switch to job mode for history</span></li>
+        </ul>
+      </div>
+    </header>
+  </section>
 
-  <section class="report-section" aria-labelledby="report-sec-glance-heading">
-    <h2 class="report-section-title" id="report-sec-glance-heading">At a glance</h2>
-
-  <div class="card mb10" id="report-scope-card">
+  <section class="st-band st-report-band st-report-band--controls" aria-labelledby="st-report-controls-title">
+    <header class="st-report-region-head">
+      <div class="st-report-region-row">
+        <span class="st-report-step-mark st-report-step-mark--mode" aria-hidden="true"></span>
+        <div class="st-report-region-text">
+          <h2 class="st-report-region-title" id="st-report-controls-title">Scope &amp; mode</h2>
+          <p class="hint-micro text-dim st-report-region-lede mb0">Controls below set whether outputs reflect <strong>which finished jobs</strong> or <strong>which live inventory bucket</strong>. Generate analysis after the scope matches your question.</p>
+        </div>
+      </div>
+    </header>
+    <div class="st-report-controls-stack">
+  <div class="st-report-panel st-report-panel--scope" id="report-scope-card">
       <div class="report-card-title">Report scope</div>
       <p class="hint-micro mb8 text-dim" id="report-scope-mode-explainer" style="line-height:1.45">
         <strong>Job scope</strong> filters completed scan jobs by <code class="code-accent">scan_jobs.scope_id</code>.
@@ -887,16 +906,34 @@ if (!headers_sent()) {
     </div>
   </div>
 
-    <div class="card mb10" id="report-inventory-summary-card" style="display:none">
+    <div class="st-report-inset-divider" role="presentation"></div>
+
+    <div class="st-report-panel st-report-panel--inventory" id="report-inventory-summary-card" style="display:none">
       <div class="report-card-title">Inventory scope — current state</div>
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Live <code class="code-accent">assets</code> and <code class="code-accent">findings</code> for the selected inventory bucket. This is <strong>not</strong> historical scan-job scope. Baseline, drift, trends, and compare are hidden on purpose — switch to <strong>Job scope reports</strong> when you have finished scans for that job tag.
       </p>
       <div id="report-inventory-body"><span class="text-dim">Open this tab to load inventory summary…</span></div>
     </div>
+    </div>
+  </section>
 
-    <div class="report-job-only">
-  <div class="card mb10" id="report-at-glance-card">
+  <section class="st-band st-report-band st-report-band--analysis report-job-only" aria-labelledby="st-report-evidence-title">
+    <header class="st-report-region-head">
+      <div class="st-report-region-row">
+        <span class="st-report-step-mark st-report-step-mark--evidence" aria-hidden="true"></span>
+        <div class="st-report-region-text">
+          <h2 class="st-report-region-title" id="st-report-evidence-title">Historical scan evidence</h2>
+          <p class="hint-micro text-dim st-report-region-lede mb0">Latest job snapshot, drift vs a reference, and bounded job history for the selected <strong>job</strong> scope. If sections stay empty, the filter may have no <strong>completed</strong> jobs yet — or you are in the wrong mode.</p>
+        </div>
+      </div>
+    </header>
+    <p class="hint-micro st-report-empty-guide text-dim" id="st-report-empty-guide">No data? Confirm <strong>Job scope reports</strong> and a bucket with finished scans. For live posture only, use <strong>Inventory scope reports</strong> above — drift and trends stay job-only.</p>
+
+    <div class="st-report-analysis-stack">
+    <div class="st-report-output-block">
+    <h3 class="report-section-title st-report-subsection-title" id="report-sec-glance-heading">At a glance</h3>
+  <div class="st-report-output-surface" id="report-at-glance-card">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Summary for the <strong>latest completed scan</strong> that matches your report scope, plus a quick compliance readout when available.
       </p>
@@ -910,11 +947,12 @@ if (!headers_sent()) {
     <div id="report-at-glance-compliance" class="mt10 hint-micro"></div>
   </div>
     </div>
-  </section>
 
-  <section class="report-section report-job-only" aria-labelledby="report-sec-drift-heading">
-    <h2 class="report-section-title" id="report-sec-drift-heading">Snapshot drift</h2>
-  <div class="card mb10">
+    <div class="st-report-inset-divider" role="presentation"></div>
+
+    <div class="st-report-output-block">
+    <h3 class="report-section-title st-report-subsection-title" id="report-sec-drift-heading">Snapshot drift</h3>
+  <div class="st-report-output-surface">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         <strong>Automatic drift</strong> compares the latest finished scan in your filter to a <strong>reference</strong> scan (saved baseline, prior job in the same scope, or a compatible prior for unscoped jobs). Read-only.
       </p>
@@ -928,11 +966,13 @@ if (!headers_sent()) {
       </details>
     <div id="report-change-since" class="report-snapshot-drift-out"><span class="text-dim">Loading…</span></div>
   </div>
-  </section>
+    </div>
 
-  <section class="report-section report-job-only" aria-labelledby="report-sec-trends-heading">
-    <h2 class="report-section-title" id="report-sec-trends-heading">Trends</h2>
-  <div class="card mb10">
+    <div class="st-report-inset-divider" role="presentation"></div>
+
+    <div class="st-report-output-block">
+    <h3 class="report-section-title st-report-subsection-title" id="report-sec-trends-heading">Trends</h3>
+  <div class="st-report-output-surface">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Each point is one <strong>finished</strong> job in the current report scope (last <em>N</em> jobs). Not real-time.
       </p>
@@ -956,16 +996,21 @@ if (!headers_sent()) {
     </div>
     <div id="report-trends-out" class="report-trends-out text-dim">History loads when you open this tab.</div>
   </div>
+    </div>
+    </div>
   </section>
 
-  <section class="report-section report-manual-tools report-job-only" aria-labelledby="report-sec-manual-heading">
-    <h2 class="report-section-title" id="report-sec-manual-heading">Manual analysis tools</h2>
-    <p class="hint-micro report-manual-lead mb10 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
-      Actions you choose explicitly. <strong>Compare</strong> and <strong>Load compliance</strong> are available to all roles (read-only). <strong>Set baseline</strong> and saved report <strong>Details</strong> require scan editor or admin.
-    </p>
+  <section class="st-band st-report-band st-report-band--manual report-section report-manual-tools report-job-only" aria-labelledby="report-sec-manual-heading">
+    <header class="st-report-region-head st-report-region-head--secondary">
+      <p class="st-report-manual-eyebrow">Advanced operator tools</p>
+      <h2 class="report-section-title st-report-manual-band-title" id="report-sec-manual-heading">Manual analysis tools</h2>
+      <p class="hint-micro report-manual-lead mb0 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
+        Explicit compares, compliance detail, baseline management, and saved artifacts. <strong>Compare</strong> and <strong>Load compliance</strong> are read-only for all roles. <strong>Set baseline</strong> and artifact <strong>Details</strong> need scan editor or admin.
+      </p>
+    </header>
 
     <h3 class="report-subheading">Compare any two completed scans</h3>
-    <div class="card mb10 report-manual-card">
+    <div class="st-report-manual-surface report-manual-card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Pick any two finished jobs for a custom snapshot diff (same style as automatic drift above). Use when you need a specific pair or automatic drift is not available.
       </p>
@@ -984,7 +1029,7 @@ if (!headers_sent()) {
   </div>
 
     <h3 class="report-subheading">Compliance detail</h3>
-    <div class="card mb10 report-manual-card">
+    <div class="st-report-manual-surface report-manual-card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Full rule text for one completed job. Optional: evaluate extra rules against the saved baseline. The <strong>At a glance</strong> section shows a quick pass/fail for the latest job only.
       </p>
@@ -1002,7 +1047,7 @@ if (!headers_sent()) {
   </div>
 
     <h3 class="report-subheading">Baseline for this report scope</h3>
-    <div class="card mb10 report-manual-card">
+    <div class="st-report-manual-surface report-manual-card mb10">
       <p class="hint-micro mb8 text-dim" style="line-height:1.45">
         Which scan is used as the <strong>reference</strong> for automatic drift and optional compliance-vs-baseline checks. Status is read-only; scan editors can set a baseline when a named scope or Unscoped only is selected (not <strong>All scopes</strong>).
       </p>
@@ -1021,7 +1066,7 @@ if (!headers_sent()) {
     </div>
 
     <h3 class="report-subheading" id="report-artifacts-heading" style="display:none">Saved report artifacts</h3>
-    <div id="report-artifacts-wrap" class="card mb10 report-manual-card" style="display:none">
+    <div id="report-artifacts-wrap" class="st-report-manual-surface report-manual-card mb10" style="display:none">
     <div class="tbl-wrap">
       <table class="tbl">
         <thead><tr><th>ID</th><th>Created</th><th>Schedule</th><th>Compare job</th><th>Baseline</th><th>Title</th><th></th></tr></thead>
@@ -1031,7 +1076,8 @@ if (!headers_sent()) {
   </div>
   </section>
 
-  <section id="report-advanced-region" class="report-section report-advanced-region report-job-only" style="display:none" aria-labelledby="report-sec-advanced-heading">
+  <section id="report-advanced-region" class="st-band st-report-band st-report-band--advanced report-section report-advanced-region report-job-only" style="display:none" aria-labelledby="report-sec-advanced-heading">
+    <p class="st-report-advanced-kicker text-micro text-dim mb8">Raw / debug — secondary to operator outputs above</p>
     <details class="report-advanced-details">
       <summary class="report-advanced-summary" id="report-sec-advanced-heading">Advanced — admin diagnostics</summary>
       <p class="hint-micro text-dim mb10" style="line-height:1.45">Raw JSON and samples for troubleshooting. Does not replace the baseline summary or compare results above.</p>
