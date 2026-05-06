@@ -3637,6 +3637,14 @@ function stToggleNavGroup(key) {
     stNavGroupsApplyCollapseDom();
 }
 
+/** Scroll the main app content pane to top (immediate). Call after switching tabs. */
+function stScrollMainToTop() {
+    const main = document.querySelector('.main');
+    if (main) {
+        main.scrollTo({ top: 0, behavior: 'auto' });
+    }
+}
+
 function goTab(name) {
     if (name === 'access' && !stRoleIsAdmin()) {
         toast('Access control is available to admin users only.', 'err');
@@ -3666,6 +3674,7 @@ function goTab(name) {
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
     try { sessionStorage.setItem('st_tab', name); } catch(e) {}
+    stScrollMainToTop();
     if (name === 'dash')     loadDashboard();
     if (name === 'assets')   loadAssets(1);
     if (name === 'devices')  loadDevices(1);
