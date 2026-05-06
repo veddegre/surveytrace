@@ -8131,16 +8131,16 @@ async function refreshScanHistAiSummary() {
 }
 
 function hpAiEnvelopeBody(env) {
-    if (!env || typeof env !== 'object') return '<div class="hp-empty">Not generated yet.</div>';
+    if (!env || typeof env !== 'object') return '<div class="hp-empty st-host-empty">No AI summary yet. Generate one when you want a quick narrative (verify against findings and ports).</div>';
     const st = String(env.status || '');
     const det = env.detail != null ? String(env.detail) : '';
     if (st === 'failed' || st === 'skipped') {
-        return `<div class="hp-empty">${
+        return `<div class="hp-empty st-host-empty">${
             st === 'failed' ? 'Generation failed' : 'Skipped'
         }${det ? ` — ${esc(det)}` : ''}</div>`;
     }
     const doc = env.doc && typeof env.doc === 'object' ? env.doc : null;
-    if (!doc) return '<div class="hp-empty">No content.</div>';
+    if (!doc) return '<div class="hp-empty st-host-empty">Summary payload empty — try regenerating.</div>';
     return '';
 }
 
@@ -8155,7 +8155,7 @@ function hpAiExplainDocHtml(doc) {
     const qs = Array.isArray(doc.owner_questions) && doc.owner_questions.length
         ? `<div class="summary-line mt6"><b>Ask the owner</b><ul class="hp-ai-ul">${doc.owner_questions.map(x => `<li>${esc(String(x))}</li>`).join('')}</ul></div>`
         : '';
-    if (!ov && !roles && !tips && !qs) return '<div class="hp-empty">Model returned an empty structure.</div>';
+    if (!ov && !roles && !tips && !qs) return '<div class="hp-empty st-host-empty">Model returned an empty structure — regenerate or rely on raw inventory above.</div>';
     return ov + roles + tips + qs;
 }
 
@@ -17974,6 +17974,10 @@ function stHostSetTab(tab) {
                 panel.setAttribute('hidden', '');
             }
         });
+        const panelsRoot = body.querySelector('.host-tab-panels');
+        if (panelsRoot) {
+            panelsRoot.scrollTop = 0;
+        }
     } catch (e) {
         console.error('stHostSetTab', e);
     }
@@ -18120,7 +18124,7 @@ async function openHostPanel(id, ip) {
             </details>` : ''}
           </div>
         </div>`;
-    }).join('') : '<div class="hp-empty">No open ports detected</div>';
+    }).join('') : '<div class="hp-empty st-host-empty">No open ports on record. Run a scan to discover listening services.</div>';
 
     const serviceRows = serviceChips.length
         ? `<div class="hp-chips">${
@@ -18128,7 +18132,7 @@ async function openHostPanel(id, ip) {
                 `<span class="hp-chip">${esc(s)}</span>`
             ).join('')
           }</div>`
-        : `<div class="hp-empty" style="padding:4px 0 12px">No specific app fingerprints detected yet</div>`;
+        : `<div class="hp-empty st-host-empty">No service fingerprints yet. Banners and probes populate after discovery runs.</div>`;
 
     const findingRows = openFindings.length ? openFindings.map(f => `
         <div class="hp-block">
@@ -18144,7 +18148,7 @@ async function openHostPanel(id, ip) {
                   ? `<div class="row-wrap mt4" style="gap:4px"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Resolve</button><button type="button" class="tbtn btn-xs" onclick="acceptFindingRisk(${f.id},this);openHostPanel(${id},'${esc(ip)}')">Accept risk</button></div>`
                   : '')
               : '<span class="status-text" style="color:var(--green)">resolved</span>'}
-        </div>`).join('') : '<div class="hp-empty">No open vulnerabilities</div>';
+        </div>`).join('') : '<div class="hp-empty st-host-empty">No open CVEs matched for this host. Rescan to refresh NVD correlation.</div>';
 
     const acceptedFindingRows = acceptedFindings.length ? acceptedFindings.map(f => `
         <div class="hp-block" style="border-left:3px solid var(--border);padding-left:10px;opacity:0.95">
@@ -18157,7 +18161,7 @@ async function openHostPanel(id, ip) {
           <div class="hp-desc text-dim">${esc(f.description||'').slice(0,180)}${(f.description||'').length>180?'…':''}</div>
           ${formatHpFindingTriage(f)}
           ${stRoleCanManageScans() ? `<div class="mt4"><button type="button" class="tbtn btn-xs" onclick="unacceptFindingRisk(${f.id}, ${id}, '${esc(ip)}')" title="Return this CVE to the open vulnerabilities list">Unaccept risk</button></div>` : ''}
-        </div>`).join('') : '<div class="hp-empty text-dim">No accepted-risk CVEs on this host</div>';
+        </div>`).join('') : '<div class="hp-empty st-host-empty">No accepted-risk CVEs on this host.</div>';
 
     const scanHistoryRows = (assetData.asset.scan_history || []).length
         ? (assetData.asset.scan_history || []).map(h => {
@@ -18177,7 +18181,7 @@ async function openHostPanel(id, ip) {
                 </div>` : ''}
             </div>`;
         }).join('')
-        : '<div class="hp-empty" style="padding:4px 0">No per-scan history yet</div>';
+        : '<div class="hp-empty st-host-empty">No scan-to-scan deltas yet. Repeat scans build this timeline.</div>';
 
     const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
         ? `<div class="hp-actions hp-actions-host-primary mt14 st-host-actionbar">
@@ -18190,7 +18194,7 @@ async function openHostPanel(id, ip) {
     const zbxHtml = renderHostPanelZabbixBlock(a);
     const enrichmentBody = zbxHtml
         ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
-        : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty">No Zabbix enrichment data for this host.</div></section>`;
+        : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty st-host-empty">No Zabbix enrichment for this address. Connect Zabbix under Integrations if you monitor this host there.</div></section>`;
     const hostVendorSummary = stVendorSummaryForAsset(a);
     const scanHistList = Array.isArray(assetData.asset.scan_history) ? assetData.asset.scan_history : [];
     const latestScan = scanHistList.length ? scanHistList[0] : null;
@@ -18198,13 +18202,15 @@ async function openHostPanel(id, ip) {
     const latestScanLabel = latestScanWhen ? localDate(latestScanWhen) : '—';
     const enrichmentState = zbxHtml ? 'Linked / cached' : 'Not linked';
     const lifecycleState = String(a.lifecycle_state || 'active');
-    const riskState = openFindings.length ? (openFindings.length + ' open CVEs') : 'No open CVEs';
     const scopeLabel = scopeAssignable
         ? esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')
         : '—';
     const deviceLinkHtml = a.device_id != null && a.device_id !== ''
         ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Logical device overview">${esc(String(a.device_id))}</span>`
         : '—';
+    const deviceSummaryHtml = a.device_id != null && a.device_id !== ''
+        ? `<span class="click-ip" onclick="openDevicePanel(${a.device_id})" title="Open logical device overview">${esc(String(a.device_id))}</span>`
+        : '<span class="text-dim">No linked device</span>';
 
     try {
     hpBody.innerHTML = `
@@ -18224,23 +18230,20 @@ async function openHostPanel(id, ip) {
           <div class="st-host-identity-main">
             <div class="st-host-identity-kicker">Investigation target</div>
             <div class="st-host-identity-title">${esc(a.hostname || '—')}${hnTrustChip ? ' ' + hnTrustChip : ''}</div>
-            <div class="st-host-identity-sub mono-sm">${esc(a.ip)} · ${esc(String(a.category || 'unk'))} · ${esc(String(a.environment || 'unknown'))}</div>
-          </div>
-          <div class="st-host-identity-meta mono-sm">
-            <span><span class="text-dim">Scope</span> ${scopeLabel}</span>
-            <span><span class="text-dim">Lifecycle</span> ${esc(lifecycleState)}</span>
-            <span><span class="text-dim">Risk</span> ${esc(riskState)}</span>
-            <span><span class="text-dim">Last seen</span> ${relTime(a.last_seen)}</span>
+            <div class="st-host-identity-sub mono-sm"><span class="st-host-identity-ip">${esc(a.ip)}</span><span class="text-dim"> · ${esc(String(a.category || 'unk'))} · ${esc(String(a.environment || 'unknown'))}</span></div>
           </div>
         </div>
         <div class="st-host-summary-strip">
+          <div class="st-host-summary-item st-host-summary-item--emph"><span class="st-host-summary-k">Open CVEs</span><span class="st-host-summary-v">${esc(String(openFindings.length))}</span></div>
+          <div class="st-host-summary-item st-host-summary-item--emph"><span class="st-host-summary-k">Lifecycle</span><span class="st-host-summary-v">${esc(lifecycleState)}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Findings</span><span class="st-host-summary-v">${esc(String(openFindings.length + acceptedFindings.length))}</span></div>
-          <div class="st-host-summary-item"><span class="st-host-summary-k">Open CVEs</span><span class="st-host-summary-v">${esc(String(openFindings.length))}</span></div>
+          <div class="st-host-summary-item"><span class="st-host-summary-k">Scope</span><span class="st-host-summary-v">${scopeLabel}</span></div>
+          <div class="st-host-summary-item"><span class="st-host-summary-k">Last seen</span><span class="st-host-summary-v">${relTime(a.last_seen)}</span></div>
+          <div class="st-host-summary-item"><span class="st-host-summary-k">Enrichment</span><span class="st-host-summary-v">${esc(enrichmentState)}</span></div>
+          <div class="st-host-summary-item"><span class="st-host-summary-k">Device</span><span class="st-host-summary-v mono-sm">${deviceSummaryHtml}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Services</span><span class="st-host-summary-v">${esc(String(serviceChips.length))}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Open ports</span><span class="st-host-summary-v">${esc(String(ports.length))}</span></div>
-          <div class="st-host-summary-item"><span class="st-host-summary-k">Enrichment</span><span class="st-host-summary-v">${esc(enrichmentState)}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Last scan</span><span class="st-host-summary-v">${esc(latestScanLabel)}</span></div>
-          <div class="st-host-summary-item"><span class="st-host-summary-k">Device link</span><span class="st-host-summary-v mono">${deviceLinkHtml}</span></div>
         </div>
         ${hpActionsHtml}
         <section class="host-section st-host-subsection" aria-label="Identity and inventory">
@@ -18249,9 +18252,6 @@ async function openHostPanel(id, ip) {
           <table class="hp-meta-table">
             <tr><td class="hp-meta-key">IP</td><td class="hp-meta-val">${esc(a.ip)}</td></tr>
             <tr><td class="hp-meta-key">Lifecycle</td><td class="hp-meta-val">${lifecycleBadgeHtml(a)} <span class="text-dim mono-sm">${esc(a.lifecycle_reason || '—')}</span></td></tr>
-            <tr><td class="hp-meta-key">Missed scans</td><td class="hp-meta-val-dim">${esc(String(a.missed_scan_count ?? 0))}</td></tr>
-            <tr><td class="hp-meta-key">Owner / BU</td><td class="hp-meta-val-dim">${esc([a.owner, a.business_unit].filter(Boolean).join(' · ') || '—')}</td></tr>
-            <tr><td class="hp-meta-key">Criticality / env</td><td class="hp-meta-val-dim">${esc(String(a.criticality || 'medium'))} · ${esc(String(a.environment || 'unknown'))}</td></tr>
             <tr><td class="hp-meta-key">Device ID</td><td class="hp-meta-val mono">${deviceLinkHtml}</td></tr>
             ${scopeAssignable ? `<tr><td class="hp-meta-key">Scope</td><td class="hp-meta-val-dim">${esc(a.scope_name != null && String(a.scope_name).trim() ? String(a.scope_name) : '—')}${
                 stRoleCanManageScans()
@@ -18266,20 +18266,23 @@ async function openHostPanel(id, ip) {
             </td></tr>
             <tr><td class="hp-meta-key">Vendor</td><td class="hp-meta-val"><span title="${esc(hostVendorSummary.title)}">${esc(hostVendorSummary.label)}</span></td></tr>
             <tr><td class="hp-meta-key">OS</td><td class="hp-meta-val">${esc(a.os_guess||'—')}</td></tr>
-            <tr><td class="hp-meta-key">CPE</td><td class="hp-meta-val-dim cpe-break">${esc(a.cpe||'—')}</td></tr>
-            <tr><td class="hp-meta-key">IPv6</td><td class="hp-meta-val-dim cpe-break">${
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Missed scans</td><td class="hp-meta-val-dim">${esc(String(a.missed_scan_count ?? 0))}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Owner / BU</td><td class="hp-meta-val-dim">${esc([a.owner, a.business_unit].filter(Boolean).join(' · ') || '—')}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Criticality / env</td><td class="hp-meta-val-dim">${esc(String(a.criticality || 'medium'))} · ${esc(String(a.environment || 'unknown'))}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">CPE</td><td class="hp-meta-val-dim cpe-break">${esc(a.cpe||'—')}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">IPv6</td><td class="hp-meta-val-dim cpe-break">${
               (a.ipv6_addrs || []).length ? esc((a.ipv6_addrs || []).join(', ')) : '—'
             }</td></tr>
-            <tr><td class="hp-meta-key">Connected via</td><td class="hp-meta-val-dim">${esc(a.connected_via||'—')}</td></tr>
-            <tr><td class="hp-meta-key">First seen</td><td class="hp-meta-val-dim">${localTime(a.first_seen)}</td></tr>
-            <tr><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>
-            <tr><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${discoverySources.length ? esc(discoverySources.join(', ')) : '—'}</td></tr>
-            ${aiInfluenced ? '<tr><td class="hp-meta-key">Classification</td><td class="hp-meta-val-dim">Local AI enrichment influenced category</td></tr>' : ''}
-            ${a.ai_last_attempted ? `<tr><td class="hp-meta-key">AI confidence</td><td class="hp-meta-val-dim">${a.ai_last_confidence != null ? esc(String(a.ai_last_confidence.toFixed ? a.ai_last_confidence.toFixed(2) : a.ai_last_confidence)) : '—'}</td></tr>` : ''}
-            ${a.ai_last_attempted ? `<tr><td class="hp-meta-key">AI suggestion</td><td class="hp-meta-val-dim">${esc(a.ai_last_suggested_category || '—')} ${a.ai_last_applied ? '(applied)' : '(not applied)'}</td></tr>` : ''}
-            ${a.ai_last_rationale ? `<tr><td class="hp-meta-key">AI rationale</td><td class="hp-meta-val-dim">${esc(a.ai_last_rationale)}</td></tr>` : ''}
-            ${a.ai_last_reason ? `<tr><td class="hp-meta-key">AI skip reason</td><td class="hp-meta-val-dim">${esc(a.ai_last_reason)}</td></tr>` : ''}
-            ${a.notes ? `<tr><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Connected via</td><td class="hp-meta-val-dim">${esc(a.connected_via||'—')}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">First seen</td><td class="hp-meta-val-dim">${localTime(a.first_seen)}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Last seen</td><td class="hp-meta-val-dim">${relTime(a.last_seen)}</td></tr>
+            <tr class="st-host-meta-secondary"><td class="hp-meta-key">Discovery</td><td class="hp-meta-val-dim">${discoverySources.length ? esc(discoverySources.join(', ')) : '—'}</td></tr>
+            ${aiInfluenced ? '<tr class="st-host-meta-secondary"><td class="hp-meta-key">Classification</td><td class="hp-meta-val-dim">Local AI enrichment influenced category</td></tr>' : ''}
+            ${a.ai_last_attempted ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">AI confidence</td><td class="hp-meta-val-dim">${a.ai_last_confidence != null ? esc(String(a.ai_last_confidence.toFixed ? a.ai_last_confidence.toFixed(2) : a.ai_last_confidence)) : '—'}</td></tr>` : ''}
+            ${a.ai_last_attempted ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">AI suggestion</td><td class="hp-meta-val-dim">${esc(a.ai_last_suggested_category || '—')} ${a.ai_last_applied ? '(applied)' : '(not applied)'}</td></tr>` : ''}
+            ${a.ai_last_rationale ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">AI rationale</td><td class="hp-meta-val-dim">${esc(a.ai_last_rationale)}</td></tr>` : ''}
+            ${a.ai_last_reason ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">AI skip reason</td><td class="hp-meta-val-dim">${esc(a.ai_last_reason)}</td></tr>` : ''}
+            ${a.notes ? `<tr class="st-host-meta-secondary"><td class="hp-meta-key">Notes</td><td class="hp-meta-val-dim">${esc(a.notes)}</td></tr>` : ''}
           </table>
           </div>
         </section>
@@ -18322,7 +18325,7 @@ async function openHostPanel(id, ip) {
           <div class="hp-history-row">
             <span class="hp-history-ts">${esc((h.seen_at||'').slice(0,16))}</span>
             <span class="hp-history-ports">${(h.ports||[]).join(', ')||'none'}</span>
-          </div>`).join('') || '<div class="hp-empty" style="padding:4px 0">No history yet</div>'
+          </div>`).join('') || '<div class="hp-empty st-host-empty">No port change timeline yet.</div>'
       }</div>
       </section>
       <section class="host-section" aria-label="Scan change history">
