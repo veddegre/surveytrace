@@ -2215,6 +2215,107 @@ body.light-mode #t-scopes.on .st-scopes-tbl tbody tr.st-scopes-row--populated td
   color:var(--text-muted);
   margin:0 0 10px;
 }
+/* Integrations tab — connector operations workspace (#t-integrations); st-integrations-* scoped */
+#t-integrations.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-integrations.on > .st-band{margin-bottom:0}
+.st-integrations-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-integrations-band-head{grid-template-columns:1fr}
+}
+.st-integrations-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-integrations-kicker{color:var(--primary)}
+.st-integrations-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-integrations-section-head{margin-bottom:12px}
+.st-integrations-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-integrations-section-lede,.st-integrations-workflow-lede,.st-integrations-diagnostics-lede,.st-integrations-security-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-integrations-tbl-wrap{min-width:0;font-size:13px}
+.st-integrations-loading{line-height:1.45}
+.st-integrations-empty{line-height:1.5;max-width:52rem}
+.st-integrations-on{
+  display:inline-block;
+  border:1px solid var(--bd2);
+  border-radius:999px;
+  padding:2px 8px;
+  font-family:var(--mf);
+  font-size:10px;
+  letter-spacing:.03em;
+}
+.st-integrations-on--enabled{
+  color:var(--green);
+  border-color:color-mix(in srgb,var(--green) 65%,var(--bd));
+}
+.st-integrations-on--disabled{
+  color:var(--tx3);
+  border-color:var(--bd2);
+}
+#t-integrations.on .st-integrations-tbl tbody tr.st-integrations-row--enabled td{
+  background:color-mix(in srgb,var(--green) 4%,var(--section-bg));
+}
+body.light-mode #t-integrations.on .st-integrations-tbl tbody tr.st-integrations-row--enabled td{
+  background:color-mix(in srgb,var(--green) 5%,var(--surface-muted));
+}
+.st-integrations-health--ok{color:var(--green)}
+.st-integrations-health--fail{color:var(--red);font-weight:600}
+.st-integrations-health--unknown{color:var(--tx3)}
+.st-integrations-quickstart-summary{margin-bottom:2px}
+.st-integrations-pull-hint{line-height:1.45;max-width:min(100%,52rem)}
+.st-integrations-modal .st-integrations-modal-body{
+  border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent);
+  padding-top:14px;
+  margin-top:2px;
+}
+.st-integrations-modal-sec{
+  padding-top:14px;
+  margin-top:14px;
+  border-top:1px dashed color-mix(in srgb,var(--border) 55%,transparent);
+}
+.st-integrations-modal-body > .st-integrations-modal-sec:first-child{
+  padding-top:0;
+  margin-top:0;
+  border-top:none;
+}
+.st-integrations-modal-sec-title{
+  font-family:var(--sf);
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--text-muted);
+  margin:0 0 10px;
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}

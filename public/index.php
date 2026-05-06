@@ -2029,40 +2029,77 @@ if (!headers_sent()) {
 
 <!-- ================================================================ INTEGRATIONS (admin) -->
 <div class="tab" id="t-integrations">
-  <div class="card">
-    <div class="ct">Integrations</div>
-    <p class="help-line mb10">
-      Configure <strong>push</strong> destinations (manual <strong>Test</strong> / <strong>Sample</strong> only; no automatic fan-out yet)
-      and <strong>pull / API</strong> consumers with <strong>per-integration bearer tokens</strong>.
-      Secrets and token hashes stay on the server and are <strong>never</strong> returned in list responses.
-    </p>
-    <p class="hint-micro mb10">
-      Create one pull integration per external consumer so tokens can be rotated independently.
-    </p>
-    <div class="hint-micro mb10 text-dim" id="st-int-pull-hint">Loading pull token status…</div>
+  <section class="st-band st-integrations-band st-integrations-band--overview" aria-labelledby="st-integrations-overview-title">
+    <header class="st-integrations-band-head">
+      <div class="st-integrations-kicker">Data flow</div>
+      <div class="st-integrations-band-main">
+        <h2 class="st-integrations-page-title" id="st-integrations-overview-title">Integrations</h2>
+        <p class="hint-micro text-dim st-integrations-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Connector workspace for <strong>inbound pull</strong> consumers and <strong>outbound push</strong> delivery targets. Pull integrations expose SurveyTrace data endpoints (Grafana, Prometheus/Alloy, scripted inputs) with per-integration tokens; push integrations deliver canonical events outward (webhook, syslog, Splunk HEC, Loki) when you run <strong>Test</strong> / <strong>Sample</strong>. Secrets and token hashes remain server-side and are never returned raw.
+        </p>
+      </div>
+    </header>
+  </section>
 
-    <details class="mb10">
-      <summary class="flbl" style="display:inline-block;cursor:pointer">Quick start (Grafana, Prometheus / Alloy, Splunk)</summary>
-      <div class="row-wrap gap10 mt8" style="align-items:stretch">
-        <div class="help-box" style="flex:1;min-width:220px">
+  <section class="st-band st-integrations-band st-integrations-band--configured" aria-labelledby="st-integrations-configured-title">
+    <header class="st-integrations-section-head">
+      <h3 class="st-integrations-section-title" id="st-integrations-configured-title">Configured integrations</h3>
+      <p class="hint-micro text-dim st-integrations-section-lede mb0">Two inventories below: <strong>Push</strong> destinations (outbound delivery) and <strong>Pull/API</strong> consumers (inbound reads into external dashboards/tools). Enabled state, endpoint summary, auth/token state, and recency are shown per row.</p>
+    </header>
+    <div class="hint-micro mb10 text-dim st-integrations-pull-hint" id="st-int-pull-hint">Loading pull token status…</div>
+
+    <details class="mb10 st-integrations-quickstart">
+      <summary class="flbl st-integrations-quickstart-summary" style="display:inline-block;cursor:pointer">Quick start (Grafana, Prometheus / Alloy, Splunk)</summary>
+      <div class="row-wrap gap10 mt8 st-integrations-quickstart-grid" style="align-items:stretch">
+        <div class="help-box st-integrations-quickstart-item" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Grafana Infinity</div>
           <div class="hint-micro">Choose <strong>Grafana Infinity dashboard pull</strong> for the starter (one token on the Infinity datasource). Endpoints include <code class="code-accent">/api/integrations_dashboard.php</code> (<code class="code-accent">?view=trends|events|metrics|compliance</code>), report summary, and optional JSON metrics/events. Or use <strong>Grafana Infinity / report summary pull</strong> for dashboard + report summary only.</div>
         </div>
-        <div class="help-box" style="flex:1;min-width:220px">
+        <div class="help-box st-integrations-quickstart-item" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Grafana / Prometheus / Alloy</div>
           <div class="hint-micro">Choose <strong>Prometheus / Grafana metrics pull</strong>. Endpoint: <code class="code-accent">/api/integrations_metrics.php</code>. Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>.</div>
         </div>
-        <div class="help-box" style="flex:1;min-width:220px">
+        <div class="help-box st-integrations-quickstart-item" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Splunk HEC</div>
           <div class="hint-micro">Choose <strong>Splunk HEC push</strong>. Set HEC URL and token in the form. Use <strong>Test</strong> / <strong>Sample</strong> to validate.</div>
         </div>
-        <div class="help-box" style="flex:1;min-width:220px">
+        <div class="help-box st-integrations-quickstart-item" style="flex:1;min-width:220px">
           <div class="text-strong mb4">Splunk scripted / modular input</div>
           <div class="hint-micro">Choose <strong>Splunk scripted input / JSON events pull</strong>. Endpoint: <code class="code-accent">/api/integrations_events.php?since=…&amp;format=jsonl</code>. Auth: <code class="code-accent">Authorization: Bearer &lt;token&gt;</code>. See <code class="code-accent">integrations/starter/splunk_surveytrace/</code>.</div>
         </div>
       </div>
     </details>
 
+    <div class="flbl mt12">Push integrations</div>
+    <p class="hint-micro mb6">Destination URLs or syslog host:port. Use <strong>Test</strong> / <strong>Sample</strong> to send a canonical reporting event.</p>
+    <div class="tbl-wrap tbl-wrap--data st-integrations-tbl-wrap">
+      <table class="tbl tbl--data st-integrations-tbl st-integrations-tbl--push">
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>Destination</th><th>Auth</th><th>Last test</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="st-int-push-tbody"><tr><td colspan="8" class="loading st-integrations-loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="flbl mt12">Pull / API integrations</div>
+    <p class="hint-micro mb6">Per-row <strong>Generate / Rotate token</strong>. After rotation, copy the plaintext once — it will not be shown again.</p>
+    <div class="tbl-wrap tbl-wrap--data st-integrations-tbl-wrap">
+      <table class="tbl tbl--data st-integrations-tbl st-integrations-tbl--pull">
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>API paths</th><th>Token</th><th>Last used</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="st-int-pull-tbody"><tr><td colspan="8" class="loading st-integrations-loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="st-band st-integrations-band st-integrations-band--workflow" aria-labelledby="st-integrations-workflow-title">
+    <h3 class="st-integrations-section-title" id="st-integrations-workflow-title">Add integration workflow</h3>
+    <p class="hint-micro text-dim st-integrations-workflow-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Create connectors with name, type, enabled state, endpoint/host settings, and optional secret token fields. Pull/API types hide destination secret inputs and show endpoint-specific token usage help. Edit uses the existing modal with the same save and secret-clear behavior.</p>
     <div class="flbl">Add integration</div>
     <div class="row-wrap gap6 mb6 flex-wrap">
       <input class="finp" id="st-int-new-name" placeholder="Name" style="min-width:160px">
@@ -2091,32 +2128,11 @@ if (!headers_sent()) {
     </div>
     <div class="help-box mb10" id="st-int-new-pull-help" style="display:none"></div>
 
-    <div class="flbl mt12">Push integrations</div>
-    <p class="hint-micro mb6">Destination URLs or syslog host:port. Use <strong>Test</strong> / <strong>Sample</strong> to send a canonical reporting event.</p>
-    <div class="tbl-wrap">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>Destination</th><th>Auth</th><th>Last test</th><th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="st-int-push-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
-      </table>
-    </div>
+  </section>
 
-    <div class="flbl mt12">Pull / API integrations</div>
-    <p class="hint-micro mb6">Per-row <strong>Generate / Rotate token</strong>. After rotation, copy the plaintext once — it will not be shown again.</p>
-    <div class="tbl-wrap">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Name</th><th>Type</th><th>Mode</th><th>On</th><th>API paths</th><th>Token</th><th>Last used</th><th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="st-int-pull-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
-      </table>
-    </div>
-
+  <section class="st-band st-integrations-band st-integrations-band--diagnostics" aria-labelledby="st-integrations-diagnostics-title">
+    <h3 class="st-integrations-section-title" id="st-integrations-diagnostics-title">Delivery &amp; diagnostics</h3>
+    <p class="hint-micro text-dim st-integrations-diagnostics-lede mb10" style="max-width:min(100%,52rem);line-height:1.45">Use row-level <strong>Last test</strong> and <strong>Last used</strong> fields to detect stale/failing connectors quickly. For push connectors, run <strong>Test</strong> / <strong>Sample</strong> after edits; for pull connectors, rotate tokens if compromised and verify client-side bearer usage.</p>
     <div class="card mt12" id="st-zabbix-card">
       <div class="ct">Zabbix (integration)</div>
       <p class="hint-micro mb10">
@@ -2169,21 +2185,28 @@ if (!headers_sent()) {
       <div id="zb-output-status" class="hint-micro mb8">—</div>
       <p class="hint-micro text-dim mb0">SurveyTrace sends health and security summary metrics to Zabbix. No alerts are created by default.</p>
     </div>
+  </section>
 
+  <section class="st-band st-integrations-band st-integrations-band--security" aria-labelledby="st-integrations-security-title">
+    <h3 class="st-integrations-section-title" id="st-integrations-security-title">Tokens &amp; security</h3>
     <p class="help-line text-dim mt10 text-micro">
       Pull APIs: use <code class="code-accent">Authorization: Bearer &lt;token&gt;</code> in production. Legacy <code class="code-accent">?token=</code> still works but is deprecated (responses include a <code class="code-accent">Warning</code> header).
       Starter files: <code class="code-accent">integrations/starter/</code> (see README).
     </p>
-  </div>
+    <p class="hint-micro text-dim st-integrations-security-lede mb0">Integrations are optional. Common first deployments: Grafana pull dashboards, Prometheus/Alloy metrics pull, Splunk webhook/HEC or scripted pull, syslog forwarding, and custom webhooks for external dashboards/automation.</p>
+  </section>
 
   <div id="st-int-edit-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-int-edit-title" onclick="if(event.target===this)stIntegrationEditClose()">
-    <div class="modal-card modal-w560" onclick="event.stopPropagation()">
+    <div class="modal-card modal-w560 st-integrations-modal" onclick="event.stopPropagation()">
       <div class="row-between mb14" style="gap:12px;align-items:center">
         <div class="modal-title" style="margin-bottom:0" id="st-int-edit-title">Edit integration</div>
         <button type="button" class="modal-close-x" onclick="stIntegrationEditClose()" title="Close" aria-label="Close">×</button>
       </div>
       <input type="hidden" id="st-int-edit-id" value="">
       <input type="hidden" id="st-int-edit-extra-json" value="{}">
+      <div class="st-integrations-modal-body">
+      <section class="st-integrations-modal-sec" aria-labelledby="st-integrations-edit-model">
+      <h4 class="st-integrations-modal-sec-title" id="st-integrations-edit-model">Connector identity</h4>
       <label class="flbl">Name</label>
       <input class="finp w100 mb10" id="st-int-edit-name" placeholder="Name">
       <label class="flbl">Integration type</label>
@@ -2198,6 +2221,9 @@ if (!headers_sent()) {
         <option value="grafana_infinity_pull">Grafana Infinity dashboard pull</option>
       </select>
       <label class="switch-field text-micro mb10" style="display:block"><span class="tog"><input type="checkbox" id="st-int-edit-enabled"><div class="trk"></div><div class="tth"></div></span><span>Enabled</span></label>
+      </section>
+      <section class="st-integrations-modal-sec" aria-labelledby="st-integrations-edit-destination">
+      <h4 class="st-integrations-modal-sec-title" id="st-integrations-edit-destination">Destination or endpoint</h4>
       <div id="st-int-edit-row-endpoint">
         <label class="flbl">Endpoint URL</label>
         <input class="finp w100 mb10" id="st-int-edit-endpoint" placeholder="HTTPS URL">
@@ -2208,12 +2234,17 @@ if (!headers_sent()) {
         <label class="flbl">Port</label>
         <input class="finp w100 mb10" id="st-int-edit-port" type="number" placeholder="514">
       </div>
+      </section>
+      <section class="st-integrations-modal-sec" aria-labelledby="st-integrations-edit-auth">
+      <h4 class="st-integrations-modal-sec-title" id="st-integrations-edit-auth">Secrets &amp; token handling</h4>
       <div id="st-int-edit-row-secret">
         <label class="flbl">New secret (optional)</label>
         <input class="finp w100 mb6" id="st-int-edit-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
         <label class="text-micro chk" style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="chk-input" id="st-int-edit-secret-clear"><span class="chk-label">Clear stored push secret</span></label>
       </div>
       <div class="help-box mb10" id="st-int-edit-pull-help" style="display:none"></div>
+      </section>
+      </div>
       <div class="row-wrap gap6" style="justify-content:flex-end">
         <button type="button" class="tbtn" onclick="stIntegrationEditClose()">Cancel</button>
         <button type="button" class="btnp" onclick="stIntegrationEditSave()">Save</button>
@@ -10052,11 +10083,14 @@ function stIntegrationRowPushHtml(r) {
     const dest = esc(r.destination_summary || '—');
     const typ = esc(r.type_label || r.type);
     const typTitle = esc(r.type || '');
-    const on = r.enabled ? 'yes' : 'no';
+    const on = r.enabled ? '<span class="st-integrations-on st-integrations-on--enabled">Enabled</span>' : '<span class="st-integrations-on st-integrations-on--disabled">Disabled</span>';
     const auth = r.auth_configured ? '<span class="text-strong">configured</span>' : '<span class="text-dim">—</span>';
     const lt = r.last_test_at ? esc(r.last_test_at) : '—';
-    const st = r.last_test_status ? esc(r.last_test_status) : '—';
-    return `<tr>
+    const stRaw = r.last_test_status ? String(r.last_test_status) : '';
+    const stCls = /fail|err|timeout/i.test(stRaw) ? 'st-integrations-health--fail' : (/ok|success|200/i.test(stRaw) ? 'st-integrations-health--ok' : 'st-integrations-health--unknown');
+    const st = stRaw ? `<span class="${stCls}">${esc(stRaw)}</span>` : '<span class="text-dim">—</span>';
+    const rowCls = r.enabled ? 'st-integrations-row--enabled' : 'st-integrations-row--disabled';
+    return `<tr class="${rowCls}">
       <td>${esc(r.name)}</td>
       <td title="${typTitle}">${typ}</td>
       <td>Push</td>
@@ -10078,7 +10112,7 @@ function stIntegrationRowPullHtml(r) {
     const dest = esc(r.destination_summary || '—');
     const typ = esc(r.type_label || r.type);
     const typTitle = esc(r.type || '');
-    const on = r.enabled ? 'yes' : 'no';
+    const on = r.enabled ? '<span class="st-integrations-on st-integrations-on--enabled">Enabled</span>' : '<span class="st-integrations-on st-integrations-on--disabled">Disabled</span>';
     const tc = r.token_configured ? '<span class="text-strong">configured</span>' : '<span class="text-dim">not set</span>';
     const created = r.token_created_at ? `<div class="text-dim text-micro">created ${esc(r.token_created_at)}</div>` : '';
     const tokCell = `<div class="text-micro">${tc}</div>${created}
@@ -10086,7 +10120,8 @@ function stIntegrationRowPullHtml(r) {
     const used = r.token_last_used_at
         ? esc(r.token_last_used_at) + (r.token_last_used_ip ? ' · ' + esc(r.token_last_used_ip) : '')
         : '—';
-    return `<tr>
+    const rowCls = r.enabled ? 'st-integrations-row--enabled' : 'st-integrations-row--disabled';
+    return `<tr class="${rowCls}">
       <td>${esc(r.name)}</td>
       <td title="${typTitle}">${typ}</td>
       <td>Pull</td>
@@ -10107,12 +10142,12 @@ async function loadIntegrationsTab() {
     const tbPush = document.getElementById('st-int-push-tbody');
     const tbPull = document.getElementById('st-int-pull-tbody');
     const hint = document.getElementById('st-int-pull-hint');
-    const loading = '<tr><td colspan="8" class="loading">Loading…</td></tr>';
+    const loading = '<tr><td colspan="8" class="loading st-integrations-empty">Loading…</td></tr>';
     if (tbPush) tbPush.innerHTML = loading;
     if (tbPull) tbPull.innerHTML = loading;
     const d = await api('/api/integrations.php');
     if (!d || !d.ok) {
-        const err = '<tr><td colspan="8">Could not load integrations.</td></tr>';
+        const err = '<tr><td colspan="8" class="st-integrations-empty">Could not load integrations.</td></tr>';
         if (tbPush) tbPush.innerHTML = err;
         if (tbPull) tbPull.innerHTML = err;
         return;
@@ -10129,12 +10164,12 @@ async function loadIntegrationsTab() {
     if (tbPush) {
         tbPush.innerHTML = pushRows.length
             ? pushRows.map((r) => stIntegrationRowPushHtml(r)).join('')
-            : '<tr><td colspan="8" class="text-dim">No push integrations.</td></tr>';
+            : '<tr><td colspan="8" class="text-dim st-integrations-empty">Push integrations are optional. None configured yet — common first targets are Splunk HEC, syslog, webhook, or Loki.</td></tr>';
     }
     if (tbPull) {
         tbPull.innerHTML = pullRows.length
             ? pullRows.map((r) => stIntegrationRowPullHtml(r)).join('')
-            : '<tr><td colspan="8" class="text-dim">No pull / API integrations.</td></tr>';
+            : '<tr><td colspan="8" class="text-dim st-integrations-empty">Pull/API integrations are optional. Add one for Grafana, Prometheus/Alloy, Splunk scripted input, or external dashboard consumers.</td></tr>';
     }
     stIntegrationsSyncCreateForm();
     void loadZabbixIntegrationOnly();
