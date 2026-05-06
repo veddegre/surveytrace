@@ -1652,19 +1652,51 @@ if (!headers_sent()) {
 </div>
 
 <div class="tab" id="t-logs">
-  <div class="fbar">
-    <input class="finp wide" id="lf-q" placeholder="Filter log output…" oninput="filterLog()">
-    <select class="finp narrow" id="lf-level" onchange="filterLog()">
-      <option value="">All levels</option>
-      <option value="PROBE">PROBE</option><option value="INFO">INFO</option>
-      <option value="WARN">WARN</option><option value="ERR">ERR</option>
-    </select>
-    <button class="tbtn" onclick="loadLog()">&#8635; Refresh</button>
-    <button class="tbtn" id="btn-autoscroll" onclick="toggleAutoscroll()">Auto-scroll: ON</button>
-  </div>
-  <div class="log-wrap" id="log-wrap">
-    <div class="loading">Loading…</div>
-  </div>
+  <section class="st-band st-audit-band st-audit-band--overview" aria-labelledby="st-audit-overview-title">
+    <header class="st-audit-band-head">
+      <div class="st-audit-kicker">Traceability</div>
+      <div class="st-audit-band-main">
+        <h2 class="st-audit-page-title" id="st-audit-overview-title">Audit log</h2>
+        <p class="hint-micro text-dim st-audit-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Operational event record for operator and system activity across SurveyTrace. Use this stream to answer <strong>what changed</strong>, <strong>who acted</strong>, and <strong>when</strong>, with source IP context and severity labels for investigation.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-audit-band st-audit-band--filters" aria-labelledby="st-audit-filters-title">
+    <header class="st-audit-section-head">
+      <h3 class="st-audit-section-title" id="st-audit-filters-title">Filters &amp; review controls</h3>
+      <p class="hint-micro text-dim st-audit-section-lede mb0">Filter by free-text and level, refresh the stream, and toggle auto-scroll for live review. Controls are read-only and preserve backend audit semantics.</p>
+    </header>
+    <div class="fbar st-audit-fbar">
+      <input class="finp wide" id="lf-q" placeholder="Filter log output…" oninput="filterLog()">
+      <select class="finp narrow" id="lf-level" onchange="filterLog()">
+        <option value="">All levels</option>
+        <option value="PROBE">PROBE</option><option value="INFO">INFO</option>
+        <option value="WARN">WARN</option><option value="ERR">ERR</option>
+      </select>
+      <button class="tbtn" onclick="loadLog()">&#8635; Refresh</button>
+      <button class="tbtn" id="btn-autoscroll" onclick="toggleAutoscroll()">Auto-scroll: ON</button>
+    </div>
+  </section>
+
+  <section class="st-band st-audit-band st-audit-band--stream" aria-labelledby="st-audit-stream-title">
+    <header class="st-audit-section-head">
+      <h3 class="st-audit-section-title" id="st-audit-stream-title">Audit event stream</h3>
+      <p class="hint-micro text-dim st-audit-section-lede mb0">Dense chronological entries. Timestamp + level indicate recency and severity; message body includes actor/IP context when emitted by the source subsystem.</p>
+    </header>
+    <div class="log-wrap st-audit-log-wrap" id="log-wrap">
+      <div class="loading st-audit-empty">Loading…</div>
+    </div>
+  </section>
+
+  <section class="st-band st-audit-band st-audit-band--details" aria-labelledby="st-audit-details-title">
+    <h3 class="st-audit-section-title" id="st-audit-details-title">Event details &amp; no-data guidance</h3>
+    <p class="hint-micro text-dim st-audit-details-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      Message text is shown inline for fast triage. If the stream is empty, either no entries have been recorded yet or current filters return no matches — clear filters or refresh before concluding no activity.
+    </p>
+  </section>
 </div>
 
 <!-- ================================================================ ENRICHMENT -->
@@ -8757,11 +8789,14 @@ function filterLog() {
         (!q   || (r.message||'').toLowerCase().includes(q) || (r.ip||'').includes(q))
     );
     const wrap = document.getElementById('log-wrap');
-    wrap.innerHTML = filtered.map(r => `<div class="lr">
+    wrap.innerHTML = filtered.map(r => {
+      const lvlCls = r.level === 'ERR' ? 'st-audit-row--err' : (r.level === 'WARN' ? 'st-audit-row--warn' : '');
+      return `<div class="lr ${lvlCls}">
       <span class="lts">${(r.ts||'').split(' ')[1]||r.ts||''}</span>
       <span class="llv ${r.level}">${r.level}</span>
       <span class="lm">${r.ip ? '<b>'+esc(r.ip)+'</b> ' : ''}${esc(r.message||'')}</span>
-    </div>`).join('') || '<div class="loading">No log entries</div>';
+    </div>`;
+    }).join('') || '<div class="loading st-audit-empty">No log entries match current filters</div>';
     if (autoscroll) wrap.scrollTop = wrap.scrollHeight;
 }
 

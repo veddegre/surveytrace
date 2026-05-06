@@ -2384,6 +2384,66 @@ body.light-mode #t-access.on .st-access-users-tbl tbody tr.st-access-user-row--d
 }
 #t-access.on .st-access-user-row-actions{max-width:none}
 .st-access-user-action-delete{color:var(--red)}
+/* Audit log tab — operational accountability workspace (#t-logs); st-audit-* scoped */
+#t-logs.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-logs.on > .st-band{margin-bottom:0}
+.st-audit-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-audit-band-head{grid-template-columns:1fr}
+}
+.st-audit-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-audit-kicker{color:var(--primary)}
+.st-audit-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-audit-section-head{margin-bottom:12px}
+.st-audit-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-audit-section-lede,.st-audit-details-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-audit-log-wrap{max-height:560px}
+.st-audit-empty{line-height:1.5}
+#t-logs.on .st-audit-log-wrap .lr.st-audit-row--warn{
+  background:color-mix(in srgb,var(--amber) 8%,transparent);
+}
+#t-logs.on .st-audit-log-wrap .lr.st-audit-row--err{
+  background:color-mix(in srgb,var(--red) 9%,transparent);
+}
+body.light-mode #t-logs.on .st-audit-log-wrap .lr.st-audit-row--warn{
+  background:color-mix(in srgb,var(--amber) 10%,transparent);
+}
+body.light-mode #t-logs.on .st-audit-log-wrap .lr.st-audit-row--err{
+  background:color-mix(in srgb,var(--red) 9%,transparent);
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
