@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SurveyTrace</title>
+  <meta name="description" content="SurveyTrace is a free, self-hostable security visibility platform for scanning, enrichment, reporting, and integrations.">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Lato:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --faint:#94a3b8;
+      --bg:#0f172a;
+      --panel:#1e293b;
+      --panel-2:#243348;
+      --panel-3:#1a2436;
+      --border:#334155;
+      --primary:#3b82f6;
+      --primary-hover:#60a5fa;
+      --success:#34d399;
+      --warning:#fbbf24;
+      --mono:'IBM Plex Mono',ui-monospace,monospace;
+      --sans:'Lato',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    }
+
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{
+      min-height:100vh;
+      background:
+        radial-gradient(circle at 15% 5%,rgba(59,130,246,.18),transparent 28%),
+        radial-gradient(circle at 90% 35%,rgba(52,211,153,.09),transparent 24%),
+        var(--bg);
+      color:var(--text);
+      font-family:var(--sans);
+      line-height:1.58;
+      -webkit-font-smoothing:antialiased;
+    }
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      z-index:-1;
+      background:
+        linear-gradient(90deg,rgba(255,255,255,.024) 1px,transparent 1px),
+        linear-gradient(0deg,rgba(255,255,255,.018) 1px,transparent 1px);
+      background-size:44px 44px;
+    }
+    a{color:inherit;text-decoration:none}
+
+    .shell{
+      width:min(1280px,calc(100% - 28px));
+      margin:14px auto;
+      border:1px solid rgba(255,255,255,.075);
+      border-radius:34px;
+      background:rgba(15,23,42,.72);
+      overflow:hidden;
+      box-shadow:0 28px 80px rgba(0,0,0,.42);
+      backdrop-filter:blur(18px);
+    }
+
+    .nav{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:18px;
+      padding:22px 30px;
+      border-bottom:1px solid rgba(255,255,255,.075);
+    }
+    .brand{display:flex;align-items:center;gap:13px;font-weight:800;font-size:20px;letter-spacing:-.02em}
+    .brand-mark{
+      width:42px;height:42px;border-radius:15px;
+      background:linear-gradient(135deg,#2563eb,#60a5fa);
+      display:grid;place-items:center;
+      font-family:var(--mono);font-size:12px;color:#fff;
+      box-shadow:0 12px 28px rgba(59,130,246,.35);
+    }
+    .nav-links{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:flex-end}
+    .nav-links a{font-size:13px;font-weight:800;color:var(--muted)}
+    .nav-links a:hover{color:var(--text)}
+
+    .hero{
+      padding:76px 42px 44px;
+      display:grid;
+      grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);
+      gap:38px;
+      align-items:end;
+    }
+    .eyebrow{
+      display:inline-flex;align-items:center;gap:8px;
+      font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--success);margin-bottom:18px;
+    }
+    .eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+    h1{font-size:clamp(54px,8.5vw,108px);line-height:.9;letter-spacing:-.08em;font-weight:900;max-width:830px}
+    .lead{margin-top:26px;max-width:720px;color:var(--muted);font-size:20px;line-height:1.68}
+    .actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:32px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border-radius:999px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);font-size:14px;font-weight:800;transition:.15s ease}
+    .btn.primary{background:linear-gradient(135deg,#2563eb,#60a5fa);border:none;color:#fff}
+    .btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.065)}
+
+    .status-panel{
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:28px;
+      background:linear-gradient(180deg,rgba(36,51,72,.9),rgba(26,36,54,.9));
+      padding:24px;
+    }
+    .status-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#7dd3fc;margin-bottom:16px}
+    .status-list{display:grid;gap:12px}
+    .status-item{display:grid;grid-template-columns:1fr auto;gap:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.07)}
+    .status-item:last-child{border-bottom:0;padding-bottom:0}
+    .status-item strong{font-size:16px}.status-item span{color:var(--muted);font-size:14px}.status-value{font-family:var(--mono);color:var(--success);font-size:13px;white-space:nowrap}
+
+    .main{display:grid;gap:34px;padding:10px 42px 42px}
+    .band{
+      border:1px solid rgba(255,255,255,.075);
+      border-radius:34px;
+      background:linear-gradient(180deg,rgba(30,41,59,.72),rgba(26,36,54,.72));
+      padding:42px;
+      position:relative;
+      overflow:hidden;
+    }
+    .band::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(135deg,rgba(255,255,255,.03),transparent 40%);
+      pointer-events:none;
+    }
+    .band > *{position:relative;z-index:1}
+    .band-head{display:grid;grid-template-columns:220px minmax(0,1fr);gap:30px;margin-bottom:26px}
+    .kicker{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:#7dd3fc;padding-top:8px}
+    h2{font-size:clamp(32px,4.5vw,56px);line-height:1.03;letter-spacing:-.055em;font-weight:900;max-width:840px}
+    .copy{max-width:860px;color:var(--muted);font-size:17px;line-height:1.75}.copy p+p{margin-top:15px}
+
+    .meaning{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:42px;
+      margin-top:34px;
+      align-items:start;
+    }
+    .meaning-block{
+      padding:22px 0 22px 22px;
+      background:linear-gradient(90deg,rgba(59,130,246,.11),transparent 75%);
+      border-left:3px solid var(--primary);
+      border-radius:0 24px 24px 0;
+    }
+    .meaning-block:nth-child(2){
+      background:linear-gradient(90deg,rgba(52,211,153,.09),transparent 75%);
+      border-left-color:var(--success);
+    }
+    .meaning-block h3{font-size:28px;letter-spacing:-.04em;margin-bottom:10px}.meaning-block p{color:var(--muted)}
+
+    .model-strip{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:16px;
+      margin-top:34px
+    }
+    .model-item{
+      border-left:3px solid var(--primary);
+      padding:16px 16px 16px 18px;
+      min-height:92px;
+      background:rgba(15,23,42,.22);
+      border-radius:0 18px 18px 0;
+    }
+    .model-item:nth-child(2){border-left-color:var(--success)}
+    .model-item:nth-child(3){border-left-color:var(--warning)}
+    .model-item:nth-child(4){border-left-color:var(--primary-hover)}
+    .model-item span{display:block;font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}.model-item strong{font-size:21px;line-height:1.15}
+
+    .workflow{
+      display:grid;
+      gap:0;
+      margin-top:34px;
+    }
+    .workflow-row{
+      display:grid;
+      grid-template-columns:190px minmax(0,1fr) 260px;
+      gap:28px;
+      align-items:start;
+      padding:24px 22px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(90deg,rgba(15,23,42,.2),transparent 55%);
+      border-radius:20px;
+      margin-bottom:10px;
+    }
+    .workflow-row:last-child{border-bottom:0;margin-bottom:0}.workflow-name{font-size:20px;font-weight:900}.workflow-copy{color:var(--muted)}.tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.tag{font-family:var(--mono);font-size:11px;color:var(--faint);border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);border-radius:999px;padding:5px 8px}
+
+    .data-flow{
+      display:grid;
+      grid-template-columns:1fr 72px 1fr;
+      gap:28px;
+      margin-top:34px;
+      align-items:center
+    }.flow-pane{
+      padding:22px 0 22px 22px;
+      border-left:3px solid var(--primary);
+      background:linear-gradient(90deg,rgba(59,130,246,.1),transparent 75%);
+      border-radius:0 24px 24px 0;
+    }
+    .flow-pane:last-child{
+      border-left-color:var(--success);
+      background:linear-gradient(90deg,rgba(52,211,153,.08),transparent 75%);
+    }.flow-pane h3{font-size:32px;letter-spacing:-.05em;margin-bottom:12px}.flow-pane p{color:var(--muted)}.flow-arrow{display:grid;place-items:center;font-family:var(--mono);font-size:30px;color:var(--primary-hover)}
+
+    .donate-band{display:flex;justify-content:space-between;align-items:flex-end;gap:30px;flex-wrap:wrap}.donate-text{max-width:780px}.donate-text p{margin-top:14px;color:var(--muted);font-size:17px;line-height:1.7}
+
+    footer{padding:24px 42px 34px;color:var(--faint);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.footer-links{display:flex;gap:14px;flex-wrap:wrap}.footer-links a{color:var(--muted)}.footer-links a:hover{color:var(--text)}
+
+    @media(max-width:980px){.hero,.band-head,.meaning,.model-strip,.workflow-row,.data-flow{grid-template-columns:1fr}.status-panel{margin-top:12px}.tags{justify-content:flex-start}.flow-arrow{display:none}.model-strip{gap:12px}.shell{width:calc(100% - 18px);border-radius:24px;margin:9px auto}.hero,.main,footer{padding-left:22px;padding-right:22px}}
+    @media(max-width:640px){.nav{align-items:flex-start;flex-direction:column}.hero{padding-top:48px}h1{font-size:50px}.band{padding:24px;border-radius:24px}.status-item{grid-template-columns:1fr}.donate-band{align-items:flex-start}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="nav">
+      <a class="brand" href="#top"><span class="brand-mark">ST</span><span>SurveyTrace</span></a>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#meaning">Meaning</a>
+        <a href="#model">Model</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#donate">Donate</a>
+      </nav>
+    </header>
+
+    <section class="hero" id="top">
+      <div>
+        <div class="eyebrow">Free • self-hostable • release 1.0.0</div>
+        <h1>Survey your network. Trace what changes.</h1>
+        <p class="lead">SurveyTrace is a security visibility platform for scanning, enrichment, reporting, and integration workflows.</p>
+        <div class="actions"><a class="btn primary" href="#">View on GitHub</a><a class="btn" href="#">Read the docs</a></div>
+      </div>
+      <aside class="status-panel">
+        <div class="status-label">Operational snapshot</div>
+        <div class="status-list">
+          <div class="status-item"><div><strong>Historical scans</strong><br><span>Evidence is retained as completed job snapshots.</span></div><div class="status-value">stable</div></div>
+          <div class="status-item"><div><strong>Current inventory</strong><br><span>Assets stay current as scans and enrichment update context.</span></div><div class="status-value">live</div></div>
+          <div class="status-item"><div><strong>Data flow</strong><br><span>Telemetry can move into dashboards, SIEMs, and automation.</span></div><div class="status-value">portable</div></div>
+        </div>
+      </aside>
+    </section>
+
+    <main class="main">
+      <section class="band" id="meaning">
+        <div class="band-head">
+          <div class="kicker">Name and purpose</div>
+          <div>
+            <h2>SurveyTrace combines two ideas at the core of network visibility.</h2>
+          </div>
+        </div>
+        <div class="meaning">
+          <div class="meaning-block">
+            <h3>Survey</h3>
+            <p>Survey refers to systematically examining an area to map what exists within it, similar to how a land surveyor documents every boundary and structure on a property.</p>
+            <p>In practice, that means continuously discovering hosts, services, operating systems, exposed ports, and infrastructure details across an environment instead of relying on static inventories that quickly drift out of date.</p>
+          </div>
+          <div class="meaning-block">
+            <h3>Trace</h3>
+            <p>Trace refers to following connections to their source and keeping a record of what was found and when.</p>
+            <p>SurveyTrace keeps historical scan evidence, enrichment state, operational metadata, and reporting snapshots so operators can understand how systems evolve over time instead of only seeing a single momentary view.</p>
+          </div>
+        </div>
+        <div class="copy" style="margin-top:24px">
+          <p>Together, the name describes exactly what the tool does: it surveys your network to discover what is there, then traces those assets over time so you can understand how your environment changes.</p>
+        </div>
+      </section>
+
+      <section class="band" id="model">
+        <div class="band-head">
+          <div class="kicker">Operating model</div>
+          <div>
+            <h2>Evidence and current state are intentionally separate.</h2>
+            <p class="copy">Completed scans are historical snapshots. Inventory is the current operational view. SurveyTrace keeps both useful without blurring them together.</p>
+          </div>
+        </div>
+        <div class="model-strip">
+          <div class="model-item"><span>historical</span><strong>scan jobs</strong><p>Completed scans remain preserved as point-in-time evidence for reporting, comparison, and operational review.</p></div>
+          <div class="model-item"><span>current</span><strong>inventory</strong><p>The inventory view represents the current known operational state of discovered systems and enrichment data.</p></div>
+          <div class="model-item"><span>reviewable</span><strong>enrichment</strong><p>External monitoring and context sources are intentionally reviewable before changes affect operational inventory.</p></div>
+          <div class="model-item"><span>portable</span><strong>integrations</strong><p>Structured exports, APIs, and outbound integrations make the collected data usable across existing tooling.</p></div>
+        </div>
+      </section>
+
+      <section class="band" id="workflow">
+        <div class="band-head">
+          <div class="kicker">Workflow</div>
+          <div>
+            <h2>Discovery, context, reporting, and control in one operating loop.</h2>
+            <p class="copy">SurveyTrace is organized around practical security operations work instead of hiding changes behind opaque automation.</p>
+          </div>
+        </div>
+        <div class="workflow">
+          <div class="workflow-row"><div class="workflow-name">Discovery</div><div class="workflow-copy">Queue scans, monitor progress, retain historical evidence, and maintain live asset visibility.<br><br>SurveyTrace is built around continuous operational awareness rather than one-time scanning. Historical jobs remain available for review while inventory stays focused on the current known state of the environment.</div><div class="tags"><span class="tag">scheduled scans</span><span class="tag">history</span><span class="tag">fingerprinting</span></div></div>
+          <div class="workflow-row"><div class="workflow-name">Enrichment</div><div class="workflow-copy">Correlate assets with monitoring systems and enrichment sources through reviewable workflows.<br><br>External systems provide additional operational context while still keeping operators in control of matching, review, linking, and apply decisions before inventory changes are committed.</div><div class="tags"><span class="tag">Zabbix</span><span class="tag">link review</span><span class="tag">freshness</span></div></div>
+          <div class="workflow-row"><div class="workflow-name">Reporting</div><div class="workflow-copy">Use scan-based reports for snapshots and inventory reports for current operational state.<br><br>Reporting workflows are designed to distinguish historical evidence from live inventory so operators can compare change over time without losing current operational visibility.</div><div class="tags"><span class="tag">drift</span><span class="tag">snapshots</span><span class="tag">exports</span></div></div>
+          <div class="workflow-row"><div class="workflow-name">Operations</div><div class="workflow-copy">Track scheduler status, workers, freshness windows, queue activity, audit logs, and platform health.<br><br>The platform emphasizes visibility into its own behavior so operators can understand queue state, worker activity, integration freshness, and operational health without relying on hidden background automation.</div><div class="tags"><span class="tag">health</span><span class="tag">workers</span><span class="tag">audit</span></div></div>
+          <div class="workflow-row"><div class="workflow-name">Control</div><div class="workflow-copy">Review, approve, apply, and audit enrichment and operational changes before they affect inventory.<br><br>SurveyTrace favors explicit operator workflows, confirmation steps, and auditability instead of automatically mutating inventory state behind the scenes.</div><div class="tags"><span class="tag">review queues</span><span class="tag">apply flows</span><span class="tag">overrides</span></div></div>
+        </div>
+      </section>
+
+      <section class="band" id="integrations">
+        <div class="band-head">
+          <div class="kicker">Data flow</div>
+          <div>
+            <h2>Pull context in. Push useful data out.</h2>
+            <p class="copy">SurveyTrace supports enrichment-style integrations and outbound data flow for dashboards, SIEMs, logging systems, and automation pipelines.</p>
+          </div>
+        </div>
+        <div class="data-flow">
+          <div class="flow-pane"><h3>Inbound context</h3><p>Bring monitoring and operational data into SurveyTrace so assets carry more useful state.</p><p>Monitoring systems, enrichment connectors, and future infrastructure APIs help provide operational context beyond raw scan results alone.</p></div>
+          <div class="flow-arrow">⇄</div>
+          <div class="flow-pane"><h3>Outbound telemetry</h3><p>Expose metrics and events through pull APIs or push structured data to external tools like Splunk, Grafana, syslog, and webhooks.</p><p>The goal is to make SurveyTrace part of an existing operational ecosystem instead of becoming another isolated dashboard.</p></div>
+        </div>
+      </section>
+
+      <section class="band donate-band" id="donate">
+        <div class="donate-text">
+          <div class="kicker">Support the project</div>
+          <h2>Free. Self-hostable. Operator-focused.</h2>
+          <p>SurveyTrace is intended to remain freely available. Donations help support continued development, testing, infrastructure, and future features.</p>
+        </div>
+        <div class="actions"><a class="btn primary" href="#">Donate</a><a class="btn" href="#">View on GitHub</a></div>
+      </section>
+    </main>
+
+    <footer>
+      <div>SurveyTrace • Security visibility for operators</div>
+      <div class="footer-links"><a href="#">GitHub</a><a href="#">Docs</a><a href="#">Releases</a><a href="#">Donate</a></div>
+    </footer>
+  </div>
+</body>
+</html>

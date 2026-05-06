@@ -226,23 +226,33 @@ if (!headers_sent()) {
     </div>
   </div>
   <div id="dash-exec">
-    <div class="exec-top-grid">
-      <div class="card exec-top-card">
-        <div class="ct">Overview</div>
-        <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
-        <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+    <section class="dash-workspace dash-workspace--exec" aria-labelledby="dash-exec-ws-title">
+      <header class="dash-ws-head">
+        <h2 class="dash-ws-title" id="dash-exec-ws-title">Executive overview</h2>
+        <p class="dash-ws-lede">Roll-up deltas, recent actions, and trend charts for the window above—same data as operator mode, framed for a quick read.</p>
+      </header>
+      <div class="exec-top-grid dash-exec-brief">
+        <div class="dash-exec-brief-col">
+          <div class="dash-inset-h">Overview</div>
+          <div class="exec-brief-deltas" id="exec-brief-deltas"></div>
+          <div class="exec-brief-list" id="exec-brief-list">Loading…</div>
+        </div>
+        <div class="dash-exec-brief-col dash-exec-brief-col--secondary">
+          <div class="dash-inset-h">Recent changes</div>
+          <div id="exec-actions" class="exec-brief-list">Loading…</div>
+        </div>
       </div>
-      <div class="card exec-top-card">
-        <div class="ct">Recent changes</div>
-        <div id="exec-actions" class="exec-brief-list">Loading…</div>
-      </div>
-    </div>
-    <details class="mb10">
+    </section>
+    <details class="mb10 dash-exec-readme">
       <summary class="flbl text-secondary">How to read this summary</summary>
-      <div class="hint-micro mt6 text-dim">Read top cards first, then trends and top-risk systems. Use links in tables for host or device detail.</div>
+      <div class="hint-micro mt6 text-dim">Read the overview first, then risk snapshot and trends. Use links in tables for host or device detail.</div>
     </details>
-    <div class="sth">Risk snapshot</div>
-    <div class="sgrid" id="exec-kpis">
+    <section class="dash-workspace dash-workspace--exec-kpis" aria-labelledby="dash-exec-risk-title">
+      <header class="dash-ws-head dash-ws-head--tight">
+        <h2 class="dash-ws-title" id="dash-exec-risk-title">Risk snapshot</h2>
+        <p class="dash-ws-lede">Counts across assets, findings, and scans. Charts below follow the trend window.</p>
+      </header>
+      <div class="sgrid" id="exec-kpis">
       <div class="sc g"><div class="sl">Total systems tracked</div><div class="sv" id="ex-assets">—</div><div class="ss" id="ex-assets-new">—</div></div>
       <div class="sc r"><div class="sl">Open security issues</div><div class="sv" id="ex-findings">—</div><div class="ss" id="ex-findings-sev">—</div></div>
       <div class="sc"><div class="sl">Scans run (7d)</div><div class="sv" id="ex-scans">—</div><div class="ss" id="ex-scans-fail">—</div></div>
@@ -252,26 +262,28 @@ if (!headers_sent()) {
       <div class="sc"><div class="sl">Scan success rate (14d)</div><div class="sv" id="ex-comp-rate">—</div><div class="ss">completed successfully</div></div>
       <div class="sc"><div class="sl">Avg scan time (7d)</div><div class="sv" id="ex-avg-dur">—</div><div class="ss" id="ex-sla">—</div></div>
     </div>
-    <div class="sgrid exec-grid-2" style="margin-top:12px">
-      <div class="card">
-        <div class="ct">Recent changes (14d)</div>
-        <div id="exec-trend-findings" class="exec-chart"></div>
+    </section>
+    <section class="dash-workspace dash-workspace--charts" aria-labelledby="dash-exec-charts-title">
+      <h2 class="visually-hidden" id="dash-exec-charts-title">Trends and distributions</h2>
+      <div class="dash-exec-charts-grid">
+        <div class="dash-chart-cell">
+          <div class="dash-inset-h">Recent changes (14d)</div>
+          <div id="exec-trend-findings" class="exec-chart"></div>
+        </div>
+        <div class="dash-chart-cell">
+          <div class="dash-inset-h">Asset / coverage snapshot (14d)</div>
+          <div id="exec-trend-assets" class="exec-chart"></div>
+        </div>
+        <div class="dash-chart-cell">
+          <div class="dash-inset-h">Operational health (14d)</div>
+          <div id="exec-trend-scans" class="exec-chart"></div>
+        </div>
+        <div class="dash-chart-cell">
+          <div class="dash-inset-h">Issue severity mix</div>
+          <div id="exec-severity" class="help-mono">Loading…</div>
+        </div>
       </div>
-      <div class="card">
-        <div class="ct">Asset / coverage snapshot (14d)</div>
-        <div id="exec-trend-assets" class="exec-chart"></div>
-      </div>
-    </div>
-    <div class="sgrid exec-grid-2" style="margin-top:12px">
-      <div class="card">
-        <div class="ct">Operational health (14d)</div>
-        <div id="exec-trend-scans" class="exec-chart"></div>
-      </div>
-      <div class="card">
-        <div class="ct">Issue severity mix</div>
-        <div id="exec-severity" class="help-mono">Loading…</div>
-      </div>
-    </div>
+    </section>
     <div class="sth section-top">Top risk items</div>
     <div class="tbl-wrap tbl-wrap--data mb16">
       <table class="tbl tbl--data"><thead><tr><th class="tbl-th-no-sort">IP</th><th class="mono-sm tbl-th-no-sort">Device</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Top CVE</th><th class="tbl-th-no-sort">CVSS</th><th class="tbl-th-no-sort">Findings</th></tr></thead>
@@ -279,28 +291,49 @@ if (!headers_sent()) {
     </div>
   </div>
   <div id="dash-ops">
-  <div class="sgrid" id="dash-stats">
+    <section class="dash-workspace dash-workspace--ops" aria-labelledby="dash-ops-ws-title">
+      <header class="dash-ws-head">
+        <h2 class="dash-ws-title" id="dash-ops-ws-title">Operations overview</h2>
+        <p class="dash-ws-lede">Coverage, classification split, and recency—use this strip before drilling into assets, scans, or reports.</p>
+      </header>
+      <div class="dash-ops-metrics">
+        <div class="sgrid dash-ops-stats-grid" id="dash-stats">
     <div class="sc g"><div class="sl">Total assets</div><div class="sv" id="d-total">—</div><div class="ss" id="d-new">loading…</div></div>
     <div class="sc a"><div class="sl">Unclassified</div><div class="sv" id="d-unk">—</div><div class="ss">needs review</div></div>
     <div class="sc r"><div class="sl">Open CVEs</div><div class="sv" id="d-cves">—</div><div class="ss" id="d-crit">— critical</div></div>
     <div class="sc"><div class="sl">Last scan</div><div class="sv sv-sm" id="d-age">—</div><div class="ss" id="d-scan-target">—</div></div>
-  </div>
-
-  <div class="sgrid" id="dash-cats">
+        </div>
+        <div class="dash-ws-divider" role="presentation"></div>
+        <div class="sgrid dash-ops-stats-grid" id="dash-cats">
     <div class="sc"><div class="sl">Servers</div><div class="sv sv-md" id="dc-srv">—</div></div>
     <div class="sc"><div class="sl">Workstations</div><div class="sv sv-md" id="dc-ws">—</div></div>
     <div class="sc"><div class="sl">Network gear</div><div class="sv sv-md" id="dc-net">—</div></div>
     <div class="sc"><div class="sl">IoT / OT / other</div><div class="sv sv-md" id="dc-iot">—</div></div>
-  </div>
+        </div>
+      </div>
+    </section>
 
-  <div class="sth">Top vulnerable assets</div>
-  <div class="tbl-wrap mb16">
-    <table class="tbl"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
+    <section class="dash-workspace dash-workspace--table" aria-labelledby="dash-ops-vuln-heading">
+      <header class="dash-ws-head dash-ws-head--tight">
+        <h2 class="dash-ws-title" id="dash-ops-vuln-heading">Top vulnerable assets</h2>
+        <p class="dash-ws-lede">Highest open finding counts with representative CVE—open a row to jump into host context.</p>
+      </header>
+  <div class="tbl-wrap tbl-wrap--data mb16">
+    <table class="tbl tbl--data"><thead><tr><th>IP</th><th class="mono-sm">Device</th><th>Hostname</th><th>Type</th><th>Vendor</th><th>Top CVE</th><th>CVSS</th><th>Findings</th></tr></thead>
     <tbody id="dash-top-vuln"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody></table>
   </div>
+    </section>
 
-  <div class="sth">Recent activity <button class="sth-btn" onclick="loadDashboard()">&#8635; Refresh</button></div>
-  <div class="feed" id="dash-feed"><div class="loading">Loading…</div></div>
+    <section class="dash-workspace dash-workspace--activity" aria-labelledby="dash-ops-feed-heading">
+      <header class="dash-ws-head dash-ws-head--tight">
+        <div class="dash-ws-head-row">
+          <h2 class="dash-ws-title" id="dash-ops-feed-heading">Recent activity</h2>
+          <button type="button" class="sth-btn" onclick="loadDashboard()">&#8635; Refresh</button>
+        </div>
+        <p class="dash-ws-lede">Latest platform events—same feed you refresh when verifying scans, imports, or admin actions.</p>
+      </header>
+  <div class="feed dash-feed--inset" id="dash-feed"><div class="loading">Loading…</div></div>
+    </section>
   </div>
 </div>
 
