@@ -361,7 +361,33 @@ if (!headers_sent()) {
 
 <!-- ================================================================ ASSETS -->
 <div class="tab" id="t-assets">
-  <div class="fbar">
+  <section class="st-band st-assets-band st-assets-band--overview" aria-labelledby="st-assets-overview-title">
+    <header class="st-assets-band-head">
+      <div class="st-assets-kicker">Inventory</div>
+      <div class="st-assets-band-main">
+        <h2 class="st-assets-page-title" id="st-assets-overview-title">Assets</h2>
+        <p class="hint-micro text-dim st-assets-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Live registry of scanned hosts. Triage with search, type, severity, lifecycle, and optional <strong>inventory scope</strong>, <strong>AI</strong>, or <strong>Zabbix</strong> filters — active constraints show in the summary above the table. Row selection powers bulk scope actions. Use <strong>Details</strong> / IP for host context; <strong>Reports</strong> for job-scoped evidence; <strong>Enrichment</strong> for Zabbix match workflows.
+        </p>
+      </div>
+    </header>
+  <div id="af-device-banner" class="device-filter-banner hide st-assets-device-banner">
+    <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
+  </div>
+  </section>
+
+  <section class="st-band st-assets-band st-assets-band--filters" aria-labelledby="st-assets-filters-title">
+    <header class="st-assets-region-head">
+      <div class="st-assets-region-row">
+        <span class="st-assets-step-mark" aria-hidden="true"></span>
+        <div class="st-assets-region-text">
+          <h2 class="st-assets-region-title" id="st-assets-filters-title">Search &amp; filters</h2>
+          <p class="hint-micro text-dim st-assets-region-lede mb0">Primary query row, then optional AI / Zabbix / scope panels. Exports and <strong>Clear filters</strong> apply to the current result set.</p>
+        </div>
+      </div>
+    </header>
+    <div class="st-assets-filter-primary">
+  <div class="fbar st-assets-fbar">
     <input class="finp wide" id="af-q" placeholder="Search IP, hostname, vendor, MAC… (numeric device id + Enter filters by device)" autocomplete="off"
       oninput="debounceAssets()" onkeydown="assetMainSearchKeydown(event)">
     <select class="finp narrow" id="af-cat" onchange="loadAssets(1)">
@@ -391,13 +417,15 @@ if (!headers_sent()) {
       <option value="zabbix_problem_count" id="af-sort-opt-zbx" hidden>Sort: Zabbix problems</option>
       <option value="scope_name">Sort: Scope</option>
     </select>
-    <span class="row-wrap gap4" style="display:inline-flex;align-items:center;flex-wrap:wrap">
+    <span class="row-wrap gap4 st-assets-export-actions" style="display:inline-flex;align-items:center;flex-wrap:wrap">
       <button class="tbtn" onclick="exportAssets('csv')" title="Export as CSV">&#8595; CSV</button>
       <button class="tbtn" onclick="exportAssets('json')" title="Export as JSON">&#8595; JSON</button>
     </span>
     <button type="button" class="tbtn" onclick="clearAllAssetFilters()" title="Clear search, type, severity, sort, device, scope, AI filters, and Zabbix filters">Clear filters</button>
   </div>
-  <div id="af-filter-disclosures-row" class="row-wrap gap6 mb8" style="align-items:center;flex-wrap:wrap" role="toolbar" aria-label="Asset list filters">
+    </div>
+    <div class="st-assets-advanced-filters">
+  <div id="af-filter-disclosures-row" class="row-wrap gap6 st-assets-disclosures-toolbar" style="align-items:center;flex-wrap:wrap" role="toolbar" aria-label="Asset list filters">
     <span id="af-ai-filter-btn-wrap" style="display:none">
       <button type="button" id="af-ai-filters-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-ai-filters-panel" onclick="stAssetsAiFiltersDisclosureToggle()" title="Scan-time AI review and optional host summary list filters">AI filters</button>
     </span>
@@ -408,9 +436,9 @@ if (!headers_sent()) {
       <button type="button" id="af-scope-disclosure-btn" class="tbtn btn-sm" aria-expanded="false" aria-controls="af-scope-panel" disabled aria-disabled="true" onclick="stAssetsScopeDisclosureToggle()" title="Inventory scope filter (assets.scope_id). Not available until the server exposes scope options.">Scope filters</button>
     </span>
   </div>
-  <div id="af-ai-filters-wrap" class="mb8" style="display:none">
+  <div id="af-ai-filters-wrap" style="display:none">
     <div id="af-ai-filters-panel" class="hide" role="region" aria-labelledby="af-ai-filters-disclosure-btn">
-      <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+      <div class="row-wrap gap6 flex-wrap st-assets-expandable-well" style="align-items:center">
         <label id="af-ai-review-wrap" class="text-micro chk" style="display:none;align-items:center;gap:6px;color:var(--tx3);flex-wrap:wrap" title="Scan-time AI suggested a different category than the stored row, scan AI left a non-informational reason after an attempt, or identity_confidence is under 0.75. Does not use operator host summary cache.">
           <input type="checkbox" class="chk-input" id="af-ai-review" onchange="stAssetsOnAiFilterCheckboxChange()"><span class="chk-label">Needs AI review</span>
         </label>
@@ -420,9 +448,9 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
-  <div id="af-zbx-section" class="mb8" style="display:none">
+  <div id="af-zbx-section" style="display:none">
     <div id="af-zbx-panel" class="hide" role="region" aria-labelledby="af-zbx-disclosure-btn">
-      <div class="row-wrap gap6 flex-wrap" style="align-items:center;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+      <div class="row-wrap gap6 flex-wrap st-assets-expandable-well" style="align-items:center">
         <select class="finp narrow" id="af-zbx-monitored" onchange="stAssetsOnZbxFilterDirty()" title="Zabbix monitoring">
           <option value="">All monitored states</option>
           <option value="0">Not monitored</option>
@@ -442,9 +470,9 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
-  <div id="af-scope-section" class="mb8">
+  <div id="af-scope-section">
     <div id="af-scope-panel" class="hide" role="region" aria-labelledby="af-scope-disclosure-btn">
-      <div class="row-wrap gap6 flex-wrap" style="align-items:flex-start;margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+      <div class="row-wrap gap6 flex-wrap st-assets-expandable-well st-assets-scope-well" style="align-items:flex-start">
         <p id="af-scope-unavailable-hint" class="text-micro text-dim hide" style="max-width:52rem;line-height:1.45">Named inventory scopes are not available on this database yet (upgrade / migrations). Reports job scope is separate.</p>
         <select class="finp narrow" id="af-scope-filter" onchange="stAssetsOnScopeFilterChange()" style="display:none" title="Filter by inventory scope (assets.scope_id). Distinct from Reports job scope.">
           <option value="">All scopes</option>
@@ -452,8 +480,21 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
-  <div id="af-bulk-actions-bar" class="mb8" style="display:none">
-    <div class="row-between gap10 flex-wrap" style="align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel2)">
+    </div>
+  </section>
+
+  <section class="st-band st-assets-band st-assets-band--inventory" aria-labelledby="st-assets-inventory-title">
+    <header class="st-assets-region-head st-assets-inventory-head">
+      <div class="st-assets-region-row">
+        <span class="st-assets-step-mark st-assets-step-mark--table" aria-hidden="true"></span>
+        <div class="st-assets-region-text">
+          <h2 class="st-assets-region-title" id="st-assets-inventory-title">Inventory list</h2>
+          <p class="hint-micro text-dim st-assets-inventory-lede mb0">Dense table — sort columns for risk, recency, or scope. Selection on this page ties to the bulk bar.</p>
+        </div>
+      </div>
+    </header>
+  <div id="af-bulk-actions-bar" class="st-assets-bulk-bar" style="display:none">
+    <div class="row-between gap10 flex-wrap st-assets-bulk-well" style="align-items:center">
       <span class="text-secondary mono-sm" id="af-bulk-selected-label">0 selected</span>
       <div class="row-wrap gap6">
         <button type="button" class="btnp btn-xs" onclick="void stAssetsOpenBulkSetScopeModal()">Set scope</button>
@@ -461,11 +502,9 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
-  <div id="af-device-banner" class="device-filter-banner hide">
-    <span class="text-secondary">Assets for device</span> <span class="mono" id="af-device-banner-id"></span>
-  </div>
-  <div id="af-filter-summary-bar" class="af-filter-summary text-micro mb8" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div class="tbl-wrap tbl-wrap--data">
+  <div id="af-filter-summary-bar" class="af-filter-summary text-micro st-assets-active-filters" role="status" aria-live="polite" aria-atomic="true"></div>
+  <p class="hint-micro text-dim st-assets-empty-hint mb8" id="st-assets-empty-hint">No rows often means <strong>tight filters</strong> — try <strong>Clear filters</strong> or widen search. A genuinely empty inventory is uncommon after successful scans.</p>
+  <div class="tbl-wrap tbl-wrap--data st-assets-tbl-shell">
     <table class="tbl tbl--data">
       <thead><tr>
         <th id="af-th-select" class="tbl-th-no-sort" style="width:36px" title="Select rows on this page for bulk scope"><input type="checkbox" class="chk-input" id="af-select-all" onclick="stAssetsToggleSelectAll(this.checked)" aria-label="Select all on page"></th>
@@ -486,12 +525,13 @@ if (!headers_sent()) {
       <tbody id="asset-tbody"><tr><td colspan="14" class="loading tbl-empty">Loading assets…</td></tr></tbody>
     </table>
   </div>
-  <div class="hint-micro mt6">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
-  <div class="pgn">
+  <div class="hint-micro mt6 st-assets-table-tip">Tip: click <strong>Details</strong> (or the IP address) to open full host details.</div>
+  <div class="pgn st-assets-pgn">
     <button id="aprev" onclick="loadAssets(assetPage-1)" disabled>&#8592; Prev</button>
     <span id="apgn-info">—</span>
     <button id="anext" onclick="loadAssets(assetPage+1)" disabled>Next &#8594;</button>
   </div>
+  </section>
 </div>
 
 <!-- ================================================================ SCOPES (catalog + asset counts) -->
