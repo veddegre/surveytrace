@@ -65,25 +65,38 @@ $hasTable = function(string $name) use ($existingTables): bool {
     return isset($existingTables[$name]);
 };
 $hasCollectors = $hasTable('collectors');
+$hasCollectorSubmissions = $hasTable('collector_submissions');
+$hasCollectorIngestQueue = $hasTable('collector_ingest_queue');
+$collectorIngestColsSql = ",
+               " . ($hasCollectorSubmissions ? "(SELECT cs.status FROM collector_submissions cs WHERE cs.job_id = j.id ORDER BY cs.updated_at DESC, cs.id DESC LIMIT 1)" : "NULL") . " AS collector_submission_status,
+               " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.chunk_count) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_expected,
+               " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.received_chunks) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_received,
+               " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.processed_chunks) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_applied,
+               " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='pending')" : "0") . " AS collector_ingest_pending_count,
+               " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='failed')" : "0") . " AS collector_ingest_failed_count,
+               " . ($hasCollectorIngestQueue ? "(SELECT MAX(COALESCE(q.attempts,0)) FROM collector_ingest_queue q WHERE q.job_id = j.id)" : "0") . " AS collector_ingest_attempts,
+               " . ($hasCollectorIngestQueue ? "(SELECT q.error_msg FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='failed' AND COALESCE(q.error_msg,'')<>'' ORDER BY COALESCE(q.processed_at,q.created_at) DESC, q.id DESC LIMIT 1)" : "NULL") . " AS collector_ingest_error,
+               " . ($hasCollectorIngestQueue ? "(SELECT MIN(q.created_at) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='pending')" : "NULL") . " AS collector_ingest_oldest_pending_at";
 $scopeColSql = in_array('scope_id', $scanJobCols, true) ? ', j.scope_id' : '';
 
 if ($id > 0) {
     $stmt = $db->prepare("
-        SELECT id, status, target_cidr, label, exclusions, phases, rate_pps, inter_delay,
-               created_at, started_at, finished_at, hosts_found, hosts_scanned,
-               error_msg, COALESCE(profile, 'standard_inventory') AS profile,
-               COALESCE(collector_id, 0) AS collector_id,
-               COALESCE(scan_mode, 'auto') AS scan_mode,
-               COALESCE(batch_id, 0) AS batch_id,
-               COALESCE(batch_index, 0) AS batch_index,
-               COALESCE(batch_total, 0) AS batch_total,
-               COALESCE(priority, 10) AS priority,
-               COALESCE(retry_count, 0) AS retry_count,
-               summary_json, deleted_at
+        SELECT j.id, j.status, j.target_cidr, j.label, j.exclusions, j.phases, j.rate_pps, j.inter_delay,
+               j.created_at, j.started_at, j.finished_at, j.hosts_found, j.hosts_scanned,
+               j.error_msg, COALESCE(j.profile, 'standard_inventory') AS profile,
+               COALESCE(j.collector_id, 0) AS collector_id,
+               COALESCE(j.scan_mode, 'auto') AS scan_mode,
+               COALESCE(j.batch_id, 0) AS batch_id,
+               COALESCE(j.batch_index, 0) AS batch_index,
+               COALESCE(j.batch_total, 0) AS batch_total,
+               COALESCE(j.priority, 10) AS priority,
+               COALESCE(j.retry_count, 0) AS retry_count,
+               j.summary_json, j.deleted_at
+               $collectorIngestColsSql
                " . (in_array('scope_id', $scanJobCols, true) ? ', scope_id' : '') . ",
-               CAST((julianday(COALESCE(finished_at,'now')) - julianday(COALESCE(started_at, created_at))) * 86400 AS INTEGER) AS duration_secs
-        FROM scan_jobs
-        WHERE id = ?
+               CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
+        FROM scan_jobs j
+        WHERE j.id = ?
         LIMIT 1
     ");
     $stmt->execute([$id]);
@@ -92,6 +105,15 @@ if ($id > 0) {
         st_json(['error' => "Job #$id not found"], 404);
     }
     $job['profile'] = st_normalize_scan_profile((string)($job['profile'] ?? 'standard_inventory'));
+    $job['collector_submission_status'] = (string)($job['collector_submission_status'] ?? '');
+    $job['collector_chunks_expected'] = (int)($job['collector_chunks_expected'] ?? 0);
+    $job['collector_chunks_received'] = (int)($job['collector_chunks_received'] ?? 0);
+    $job['collector_chunks_applied'] = (int)($job['collector_chunks_applied'] ?? 0);
+    $job['collector_ingest_pending_count'] = (int)($job['collector_ingest_pending_count'] ?? 0);
+    $job['collector_ingest_failed_count'] = (int)($job['collector_ingest_failed_count'] ?? 0);
+    $job['collector_ingest_attempts'] = (int)($job['collector_ingest_attempts'] ?? 0);
+    $job['collector_ingest_error'] = (string)($job['collector_ingest_error'] ?? '');
+    $job['collector_ingest_oldest_pending_at'] = (string)($job['collector_ingest_oldest_pending_at'] ?? '');
     $job['collector_name'] = '';
     if ($hasCollectors && (int)($job['collector_id'] ?? 0) > 0) {
         $cstmt = $db->prepare("SELECT name FROM collectors WHERE id=? LIMIT 1");
@@ -415,6 +437,7 @@ if ($likePat !== null) {
                COALESCE(j.priority, 10) AS priority,
                COALESCE(j.retry_count, 0) AS retry_count,
                j.summary_json
+               $collectorIngestColsSql
                $scopeColSql,
                CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs j
@@ -446,6 +469,7 @@ if ($likePat !== null) {
                COALESCE(j.priority, 10) AS priority,
                COALESCE(j.retry_count, 0) AS retry_count,
                j.summary_json
+               $collectorIngestColsSql
                $scopeColSql,
                CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
         FROM scan_jobs j
@@ -472,6 +496,15 @@ $history = array_map(function($r) {
     unset($r['summary_json']);
     $r['priority'] = (int)($r['priority'] ?? 10);
     $r['retry_count'] = (int)($r['retry_count'] ?? 0);
+    $r['collector_submission_status'] = (string)($r['collector_submission_status'] ?? '');
+    $r['collector_chunks_expected'] = (int)($r['collector_chunks_expected'] ?? 0);
+    $r['collector_chunks_received'] = (int)($r['collector_chunks_received'] ?? 0);
+    $r['collector_chunks_applied'] = (int)($r['collector_chunks_applied'] ?? 0);
+    $r['collector_ingest_pending_count'] = (int)($r['collector_ingest_pending_count'] ?? 0);
+    $r['collector_ingest_failed_count'] = (int)($r['collector_ingest_failed_count'] ?? 0);
+    $r['collector_ingest_attempts'] = (int)($r['collector_ingest_attempts'] ?? 0);
+    $r['collector_ingest_error'] = (string)($r['collector_ingest_error'] ?? '');
+    $r['collector_ingest_oldest_pending_at'] = (string)($r['collector_ingest_oldest_pending_at'] ?? '');
     $r['profile'] = st_normalize_scan_profile((string)($r['profile'] ?? 'standard_inventory'));
     return $r;
 }, $rows->fetchAll());

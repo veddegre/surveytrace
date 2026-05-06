@@ -58,12 +58,24 @@ foreach ($scanJobMigrations as $col => $defn) {
 }
 $hasCollectors = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collectors' LIMIT 1")->fetchColumn();
 $hasCollectorLeases = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_job_leases' LIMIT 1")->fetchColumn();
+$hasCollectorSubmissions = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_submissions' LIMIT 1")->fetchColumn();
+$hasCollectorIngestQueue = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_ingest_queue' LIMIT 1")->fetchColumn();
 
 // ---------------------------------------------------------------------------
 // Fetch job row
 // ---------------------------------------------------------------------------
 if ($job_id > 0) {
-    $jstmt = $db->prepare("SELECT * FROM scan_jobs WHERE id = ? AND deleted_at IS NULL");
+    $collectorCols = ",
+        " . ($hasCollectorSubmissions ? "(SELECT cs.status FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id ORDER BY cs.updated_at DESC, cs.id DESC LIMIT 1)" : "NULL") . " AS collector_submission_status,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.chunk_count) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_expected,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.received_chunks) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_received,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.processed_chunks) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_applied,
+        " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='pending')" : "0") . " AS collector_ingest_pending_count,
+        " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='failed')" : "0") . " AS collector_ingest_failed_count,
+        " . ($hasCollectorIngestQueue ? "(SELECT MAX(COALESCE(q.attempts,0)) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id)" : "0") . " AS collector_ingest_attempts,
+        " . ($hasCollectorIngestQueue ? "(SELECT q.error_msg FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='failed' AND COALESCE(q.error_msg,'')<>'' ORDER BY COALESCE(q.processed_at,q.created_at) DESC, q.id DESC LIMIT 1)" : "NULL") . " AS collector_ingest_error,
+        " . ($hasCollectorIngestQueue ? "(SELECT MIN(q.created_at) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='pending')" : "NULL") . " AS collector_ingest_oldest_pending_at";
+    $jstmt = $db->prepare("SELECT scan_jobs.*$collectorCols FROM scan_jobs WHERE id = ? AND deleted_at IS NULL");
     $jstmt->execute([$job_id]);
     $job = $jstmt->fetch();
     if (!$job) {
@@ -71,7 +83,17 @@ if ($job_id > 0) {
     }
 } else {
     // Most recent job of any status
-    $job = $db->query("SELECT * FROM scan_jobs WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1")->fetch();
+    $collectorCols = ",
+        " . ($hasCollectorSubmissions ? "(SELECT cs.status FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id ORDER BY cs.updated_at DESC, cs.id DESC LIMIT 1)" : "NULL") . " AS collector_submission_status,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.chunk_count) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_expected,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.received_chunks) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_received,
+        " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.processed_chunks) FROM collector_submissions cs WHERE cs.job_id = scan_jobs.id)" : "NULL") . " AS collector_chunks_applied,
+        " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='pending')" : "0") . " AS collector_ingest_pending_count,
+        " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='failed')" : "0") . " AS collector_ingest_failed_count,
+        " . ($hasCollectorIngestQueue ? "(SELECT MAX(COALESCE(q.attempts,0)) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id)" : "0") . " AS collector_ingest_attempts,
+        " . ($hasCollectorIngestQueue ? "(SELECT q.error_msg FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='failed' AND COALESCE(q.error_msg,'')<>'' ORDER BY COALESCE(q.processed_at,q.created_at) DESC, q.id DESC LIMIT 1)" : "NULL") . " AS collector_ingest_error,
+        " . ($hasCollectorIngestQueue ? "(SELECT MIN(q.created_at) FROM collector_ingest_queue q WHERE q.job_id = scan_jobs.id AND q.status='pending')" : "NULL") . " AS collector_ingest_oldest_pending_at";
+    $job = $db->query("SELECT scan_jobs.*$collectorCols FROM scan_jobs WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1")->fetch();
 }
 
 if (!$job) {
@@ -83,6 +105,15 @@ if (!$job) {
 // ---------------------------------------------------------------------------
 $job['phases'] = json_decode($job['phases'] ?? '[]', true) ?: [];
 $job['collector_id'] = (int)($job['collector_id'] ?? 0);
+$job['collector_submission_status'] = (string)($job['collector_submission_status'] ?? '');
+$job['collector_chunks_expected'] = (int)($job['collector_chunks_expected'] ?? 0);
+$job['collector_chunks_received'] = (int)($job['collector_chunks_received'] ?? 0);
+$job['collector_chunks_applied'] = (int)($job['collector_chunks_applied'] ?? 0);
+$job['collector_ingest_pending_count'] = (int)($job['collector_ingest_pending_count'] ?? 0);
+$job['collector_ingest_failed_count'] = (int)($job['collector_ingest_failed_count'] ?? 0);
+$job['collector_ingest_attempts'] = (int)($job['collector_ingest_attempts'] ?? 0);
+$job['collector_ingest_error'] = (string)($job['collector_ingest_error'] ?? '');
+$job['collector_ingest_oldest_pending_at'] = (string)($job['collector_ingest_oldest_pending_at'] ?? '');
 $job['collector_name'] = '';
 if ($hasCollectors && $job['collector_id'] > 0) {
     $cstmt = $db->prepare("SELECT name FROM collectors WHERE id=? LIMIT 1");
@@ -227,6 +258,15 @@ $historySql = "
            COALESCE(j.profile, 'standard_inventory') AS profile,
            COALESCE(j.scan_mode, 'auto') AS scan_mode,
            COALESCE(j.priority, 10) AS priority,
+           " . ($hasCollectorSubmissions ? "(SELECT cs.status FROM collector_submissions cs WHERE cs.job_id = j.id ORDER BY cs.updated_at DESC, cs.id DESC LIMIT 1)" : "NULL") . " AS collector_submission_status,
+           " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.chunk_count) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_expected,
+           " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.received_chunks) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_received,
+           " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.processed_chunks) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_applied,
+           " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='pending')" : "0") . " AS collector_ingest_pending_count,
+           " . ($hasCollectorIngestQueue ? "(SELECT COUNT(*) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='failed')" : "0") . " AS collector_ingest_failed_count,
+           " . ($hasCollectorIngestQueue ? "(SELECT MAX(COALESCE(q.attempts,0)) FROM collector_ingest_queue q WHERE q.job_id = j.id)" : "0") . " AS collector_ingest_attempts,
+           " . ($hasCollectorIngestQueue ? "(SELECT q.error_msg FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='failed' AND COALESCE(q.error_msg,'')<>'' ORDER BY COALESCE(q.processed_at,q.created_at) DESC, q.id DESC LIMIT 1)" : "NULL") . " AS collector_ingest_error,
+           " . ($hasCollectorIngestQueue ? "(SELECT MIN(q.created_at) FROM collector_ingest_queue q WHERE q.job_id = j.id AND q.status='pending')" : "NULL") . " AS collector_ingest_oldest_pending_at,
            " . ($hasCollectors ? "COALESCE(c.name, '')" : "''") . " AS collector_name,
            CAST((julianday(COALESCE(j.finished_at,'now')) - julianday(COALESCE(j.started_at, j.created_at))) * 86400 AS INTEGER) AS duration_secs
     FROM scan_jobs j
@@ -256,6 +296,15 @@ st_json([
         };
         $h['retry_count'] = (int)($h['retry_count'] ?? 0);
         $h['priority']    = (int)($h['priority']    ?? 10);
+        $h['collector_submission_status'] = (string)($h['collector_submission_status'] ?? '');
+        $h['collector_chunks_expected'] = (int)($h['collector_chunks_expected'] ?? 0);
+        $h['collector_chunks_received'] = (int)($h['collector_chunks_received'] ?? 0);
+        $h['collector_chunks_applied'] = (int)($h['collector_chunks_applied'] ?? 0);
+        $h['collector_ingest_pending_count'] = (int)($h['collector_ingest_pending_count'] ?? 0);
+        $h['collector_ingest_failed_count'] = (int)($h['collector_ingest_failed_count'] ?? 0);
+        $h['collector_ingest_attempts'] = (int)($h['collector_ingest_attempts'] ?? 0);
+        $h['collector_ingest_error'] = (string)($h['collector_ingest_error'] ?? '');
+        $h['collector_ingest_oldest_pending_at'] = (string)($h['collector_ingest_oldest_pending_at'] ?? '');
         $h['profile']     = st_normalize_scan_profile((string)($h['profile'] ?? 'standard_inventory'));
         $h['summary']     = json_decode((string)($h['summary_json'] ?? ''), true) ?: null;
         unset($h['summary_json']);

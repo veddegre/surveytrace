@@ -393,8 +393,10 @@ $health = [
         'online_recent_2m' => 0,
         'stale' => 0,
         'queued_chunks' => 0,
+        'retrying_chunks' => 0,
         'failed_chunks' => 0,
         'oldest_pending_age_sec' => 0,
+        'oldest_failed_age_sec' => 0,
     ],
     'ai' => [
         'configured' => st_config('ai_enrichment_enabled', '0') === '1',
@@ -469,11 +471,19 @@ try {
     $health['collectors']['failed_chunks'] = (int)$db->query(
         "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='failed'"
     )->fetchColumn();
+    $health['collectors']['retrying_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='failed' AND COALESCE(attempts,0) > 0"
+    )->fetchColumn();
     $oldest = $db->query(
         "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(created_at))) AS INTEGER)
          FROM collector_ingest_queue WHERE status='pending'"
     )->fetchColumn();
     $health['collectors']['oldest_pending_age_sec'] = max(0, (int)($oldest ?: 0));
+    $oldestFailed = $db->query(
+        "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(COALESCE(processed_at, created_at)))) AS INTEGER)
+         FROM collector_ingest_queue WHERE status='failed'"
+    )->fetchColumn();
+    $health['collectors']['oldest_failed_age_sec'] = max(0, (int)($oldestFailed ?: 0));
 } catch (Throwable $e) {
     // collectors not yet initialized.
 }

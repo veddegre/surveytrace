@@ -4865,7 +4865,10 @@ function renderHealthHtml(h, zbxResp) {
             : 'No recent run');
     const feedStatusClass = feedRunning ? 'hstate-warn' : (feedLast ? (feedLastOk ? 'hstate-ok' : (feedLast.cancelled ? 'hstate-warn' : 'hstate-err')) : 'hstate-ok');
     const queueCount = parseInt(String(collectors.queued_chunks || 0), 10) || 0;
+    const retryCount = parseInt(String(collectors.retrying_chunks || 0), 10) || 0;
     const failCount = parseInt(String(collectors.failed_chunks || 0), 10) || 0;
+    const oldestPendingSec = parseInt(String(collectors.oldest_pending_age_sec || 0), 10) || 0;
+    const oldestFailedSec = parseInt(String(collectors.oldest_failed_age_sec || 0), 10) || 0;
     const collectorStateText = collectorOk ? 'active' : 'inactive';
     const collectorStateClass = collectorOk ? 'hstate-ok' : 'hstate-err';
     const zbxSyncRaw = zbx && zbx.last_sync_status != null ? String(zbx.last_sync_status).toLowerCase() : '';
@@ -4939,7 +4942,7 @@ function renderHealthHtml(h, zbxResp) {
         {
             label: 'Collector ingest',
             value: esc(healthHumanizeServiceState(collectorStateText)),
-            helper: `Queued ${esc(String(queueCount))} · failed ${esc(String(failCount))}`,
+            helper: `Queued ${esc(String(queueCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}`,
             cls: collectorStateClass,
         },
         {
@@ -5000,7 +5003,8 @@ function renderHealthHtml(h, zbxResp) {
     const integrationRows = [];
     integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'Active and not paused' : 'Schedule table not available'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : '—')}</td></tr>`);
-    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector chunks</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">online ${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector ingest queue</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">oldest pending ${esc(fmtDuration(oldestPendingSec))} · oldest failed ${esc(fmtDuration(oldestFailedSec))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector online</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td><td class="tbl-cell-muted">recent heartbeat within 2 minutes</td></tr>`);
     const aiConfigured = !!ai.configured;
     const aiRunning = !!ai.running;
     integrationRows.push(`<tr><td class="tbl-cell-primary">AI enrichment</td><td class="tbl-cell-muted">${aiConfigured ? (aiRunning ? '<span class="hstate-ok">Available</span>' : '<span class="hstate-warn">Not reachable</span>') : '<span class="hstate-unk">Disabled</span>'}</td><td class="tbl-cell-muted">${esc(String(ai.provider || 'ollama'))} · ${esc(String(ai.model || 'phi3:mini'))}</td></tr>`);
@@ -5014,6 +5018,8 @@ function renderHealthHtml(h, zbxResp) {
     if (!scannerOk) warnings.push('Scanner daemon is not active.');
     if (!schedulerOk) warnings.push('Scheduler daemon is not active.');
     if (!collectorOk) warnings.push('Collector ingest daemon is not active.');
+    if (queueCount > 0 && oldestPendingSec >= 300) warnings.push(`${queueCount} collector chunk(s) are awaiting master ingest for ${fmtDuration(oldestPendingSec)}.`);
+    if (retryCount > 0) warnings.push(`${retryCount} collector chunk(s) are retrying ingest.`);
     if (failCount > 0) warnings.push(`${failCount} collector chunk(s) are in failed state.`);
     if (disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024) warnings.push('Data directory free space is low.');
     if (feedLast && !feedLastOk && !feedLast.cancelled) warnings.push('Last feed sync failed.');
@@ -7765,6 +7771,61 @@ function stScanHistChipLabel(st) {
     return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
+function stCollectorIngestState(job, opts = {}) {
+    const j = job && typeof job === 'object' ? job : {};
+    if (Number(j.collector_id || 0) <= 0) return null;
+    const showApplied = opts && opts.showApplied === false ? false : true;
+    const status = String(j.status || '').toLowerCase();
+    const subStatus = String(j.collector_submission_status || '').toLowerCase();
+    const expected = Number(j.collector_chunks_expected || 0);
+    const recv = Number(j.collector_chunks_received || 0);
+    const applied = Number(j.collector_chunks_applied || 0);
+    const pending = Number(j.collector_ingest_pending_count || 0);
+    const failed = Number(j.collector_ingest_failed_count || 0);
+    const attempts = Number(j.collector_ingest_attempts || 0);
+    const err = String(j.collector_ingest_error || '').trim();
+
+    if (status === 'failed' && (failed > 0 || pending > 0 || err)) {
+        return { label: 'Ingest failed', detail: 'see execution record', level: 'err' };
+    }
+    if (failed > 0 || attempts > 0) {
+        const att = attempts > 0 ? attempts : 1;
+        const chunkTxt = expected > 0 ? `${Math.max(recv, applied)}/${expected} chunks` : `${Math.max(recv, applied)} chunks`;
+        return { label: 'Ingest retrying', detail: `attempt ${att} · ${chunkTxt}`, level: 'warn' };
+    }
+    if (pending > 0) {
+        if (recv > 0 || subStatus === 'receiving' || subStatus === 'applied') {
+            const chunkTxt = expected > 0 ? `${recv}/${expected} chunks received` : `${recv} chunks received`;
+            return { label: 'Awaiting master ingest', detail: chunkTxt, level: 'warn' };
+        }
+        return { label: 'Running on collector', detail: 'collector execution in progress', level: 'dim' };
+    }
+    if (recv > 0) {
+        if (applied >= recv && showApplied) {
+            return {
+                label: 'Applied on master',
+                detail: expected > 0 ? `${applied}/${expected} chunks applied` : `${applied} chunks applied`,
+                level: 'ok',
+            };
+        }
+        return { label: 'Collector result received', detail: expected > 0 ? `${recv}/${expected} chunks received` : `${recv} chunks received`, level: 'dim' };
+    }
+    if ((status === 'done' || status === 'aborted') && showApplied) {
+        return { label: 'Applied on master', detail: expected > 0 ? `${applied}/${expected} chunks applied` : 'collector ingest complete', level: 'ok' };
+    }
+    if (status === 'running' || status === 'retrying' || status === 'queued') {
+        return { label: 'Running on collector', detail: 'awaiting collector submission', level: 'dim' };
+    }
+    return null;
+}
+
+function stCollectorIngestBadgeHtml(job, opts = {}) {
+    const s = stCollectorIngestState(job, opts);
+    if (!s) return '';
+    const cls = s.level === 'ok' ? 'hstate-ok' : (s.level === 'err' ? 'hstate-err' : (s.level === 'warn' ? 'hstate-warn' : 'text-dim'));
+    return `<div class="text-micro ${cls}" title="${esc(String(s.detail || ''))}">${esc(String(s.label || ''))}${s.detail ? ` · ${esc(String(s.detail))}` : ''}</div>`;
+}
+
 function stSyncScanHistStatusFilterButtons() {
     document.querySelectorAll('.st-shsf').forEach((btn) => {
         const on = btn.getAttribute('data-shsf') === stScanHistStatusFilter;
@@ -7873,6 +7934,7 @@ function stRenderQueuePanelFromCache() {
         const elapsed = isRun && j.elapsed_secs != null ? fmtDuration(j.elapsed_secs) : '';
         const metaPlain = 'Profile ' + profPlain + ' \u00b7 Started ' + started + (elapsed ? ' \u00b7 Elapsed ' + elapsed : '');
         const metaLine = `<div class="text-micro scan-hist-inline-meta">${esc(metaPlain)}</div>`;
+        const ingestLine = stCollectorIngestBadgeHtml(j, { showApplied: false });
         const rowCls = 'scan-hist-row' + (isRun ? ' scan-hist-row--active' : '');
         return `<tr class="${rowCls}" data-job-id="${j.id}" data-status="${esc(j.status)}" title="Open scan details">
           <td class="mono scan-hist-cell-id"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
@@ -7881,6 +7943,7 @@ function stRenderQueuePanelFromCache() {
             ${batchMeta}
             <div class="mono-sm scan-hist-target-sub">${esc(j.target_cidr || '')}</div>
             <div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div>
+            ${ingestLine}
             ${metaLine}
           </td>
           <td class="text-micro scan-hist-cell-muted">${prof}</td>
@@ -7968,6 +8031,7 @@ function stRenderCompletedScanHistFromCache() {
         const fin = localDate(j.finished_at);
         const started = j.created_at ? localTime(j.created_at, { hour: '2-digit', minute: '2-digit' }) : '\u2014';
         const metaLine = `<div class="text-micro scan-hist-inline-meta">Started ${esc(started)} \u00b7 Finished ${esc(fin)} \u00b7 Profile ${prof}</div>`;
+        const ingestLine = stCollectorIngestBadgeHtml(j, { showApplied: false });
         return `<tr class="${rowCls}" data-job-id="${j.id}" data-status="${esc(j.status)}" title="Open scan details">
       <td class="mono scan-hist-cell-id"><button type="button" class="tbtn text-micro" data-scan-action="details" data-job-id="${j.id}">#${j.id}</button></td>
       <td class="scan-hist-cell-primary">
@@ -7975,6 +8039,7 @@ function stRenderCompletedScanHistFromCache() {
         ${j.retry_count > 0 ? ` <span class="text-micro scan-hist-retry-hint">retry ${j.retry_count}</span>` : ''}
         <div class="mono-sm scan-hist-target-sub">${esc(j.target_cidr || '')}</div>
         <div class="text-micro text-dim">source: ${j.collector_id ? esc(j.collector_name || ('collector #' + j.collector_id)) : 'master'}</div>
+        ${ingestLine}
         ${metaLine}
       </td>
       <td><span class="${stScanHistChipClass(j.status)}">${stScanHistChipLabel(j.status)}</span>${err}</td>
@@ -8616,11 +8681,24 @@ function stScanHistDetailStatCardsHtml(j) {
     const assetsLabel = 'Assets found';
     const dur = fmtDuration(j.duration_secs || 0);
     const src = j.collector_id ? String(j.collector_name || ('Collector #' + j.collector_id)) : 'Master';
+    const collectorIngest = (() => {
+        if (Number(j.collector_id || 0) <= 0) return '';
+        const expected = Number(j.collector_chunks_expected || 0);
+        const recv = Number(j.collector_chunks_received || 0);
+        const applied = Number(j.collector_chunks_applied || 0);
+        const attempts = Number(j.collector_ingest_attempts || 0);
+        const pending = Number(j.collector_ingest_pending_count || 0);
+        const failed = Number(j.collector_ingest_failed_count || 0);
+        const err = String(j.collector_ingest_error || '').trim();
+        const chunksTxt = expected > 0 ? `${recv}/${expected} received · ${applied}/${expected} applied` : `${recv} received · ${applied} applied`;
+        const retryTxt = attempts > 0 ? `attempt ${attempts}` : 'attempt 0';
+        return `<div class="text-micro text-dim mt6">Collector ingest: ${esc(chunksTxt)} · pending ${esc(String(pending))} · failed ${esc(String(failed))} · ${esc(retryTxt)}${err ? `</div><div class="text-micro hstate-err mt4">Latest ingest error: ${esc(err.slice(0, 220))}` : ''}</div>`;
+    })();
     return `<div class="scan-hist-detail-stat-grid">
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">${esc(assetsLabel)}</div><div class="scan-hist-detail-stat-val">${esc(assetsVal)}</div></div>
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Duration</div><div class="scan-hist-detail-stat-val">${esc(dur)}</div></div>
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">Source</div><div class="scan-hist-detail-stat-val mono-sm">${esc(src)}</div></div>
-    </div>`;
+    </div>${collectorIngest}`;
 }
 
 function stScanHistDetailProgressHtml(j) {
@@ -8653,10 +8731,15 @@ function stScanHistDetailHeaderSubHtml(j) {
     const start = j.started_at ? esc(localTime(j.started_at)) : '\u2014';
     const fin = j.finished_at ? esc(localTime(j.finished_at)) : '\u2014';
     const times = `<div class="scan-hist-detail-hd-row text-micro"><span class="text-dim">Started</span> ${start} <span class="text-dim">\u00b7</span> <span class="text-dim">Finished</span> ${fin}</div>`;
+    const ingest = stCollectorIngestState(j);
+    const ingestLine = ingest
+        ? `<div class="scan-hist-detail-hd-row text-micro ${ingest.level === 'ok' ? 'hstate-ok' : (ingest.level === 'err' ? 'hstate-err' : (ingest.level === 'warn' ? 'hstate-warn' : 'text-dim'))}"><span class="text-dim">Collector ingest</span> ${esc(String(ingest.label || ''))}${ingest.detail ? ` \u00b7 ${esc(String(ingest.detail))}` : ''}</div>`
+        : '';
     return `<div class="scan-hist-detail-hd-id text-micro text-dim mono-sm">#${esc(String(j.id))}</div>
       <div class="scan-hist-detail-hd-chips">${chip}</div>
       <div class="scan-hist-detail-hd-row scan-hist-detail-hd-target"><span class="text-dim text-micro">Target</span> ${tgt}</div>
       ${scopeLine}
+      ${ingestLine}
       ${times}`;
 }
 
@@ -8676,6 +8759,15 @@ function stScanHistDetailLogHtml(j, logTail) {
         profile: j.profile,
         scan_mode: j.scan_mode,
         error_msg: j.error_msg || null,
+        collector_submission_status: j.collector_submission_status || null,
+        collector_chunks_expected: Number(j.collector_chunks_expected || 0),
+        collector_chunks_received: Number(j.collector_chunks_received || 0),
+        collector_chunks_applied: Number(j.collector_chunks_applied || 0),
+        collector_ingest_pending_count: Number(j.collector_ingest_pending_count || 0),
+        collector_ingest_failed_count: Number(j.collector_ingest_failed_count || 0),
+        collector_ingest_attempts: Number(j.collector_ingest_attempts || 0),
+        collector_ingest_error: j.collector_ingest_error || null,
+        collector_ingest_oldest_pending_at: j.collector_ingest_oldest_pending_at || null,
     };
     let rawPre = '';
     try {

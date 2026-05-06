@@ -146,6 +146,17 @@ try {
             $chunkCount,
         ),
     ]);
+    if ($submissionComplete) {
+        $db->prepare("INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)")->execute([
+            $jobId,
+            sprintf(
+                'Collector submission %s fully received on master (%d/%d chunks); awaiting ingest worker status transition.',
+                $submissionId,
+                (int)($subStats['received_chunks'] ?? 0),
+                (int)($subStats['chunk_count'] ?? $chunkCount),
+            ),
+        ]);
+    }
 } catch (Throwable $e) {
     // Non-fatal
 }

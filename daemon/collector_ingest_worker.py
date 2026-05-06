@@ -43,6 +43,7 @@ _INGEST_ROW_COMMIT_INTERVAL = 100
 _EXEC_AI_FOLLOWUP_MAX_ATTEMPTS = 12
 _EXEC_AI_POLL_SEC = 2
 _EXEC_AI_STALE_PROCESSING_MIN = 30
+_INGEST_CHUNK_MAX_ATTEMPTS = 8
 
 
 def _exec_ai_wall_seconds() -> float:
@@ -702,8 +703,21 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
 def process_one(qrow: dict) -> None:
     qid = int(qrow["id"])
     job_id = int(qrow["job_id"])
+    collector_id = int(qrow["collector_id"])
+    submission_id = str(qrow["submission_id"])
+    chunk_index = int(qrow["chunk_index"])
+    chunk_count = int(qrow["chunk_count"])
     rel = str(qrow["local_relpath"] or "")
     path = INGEST_DIR / rel
+    with db_conn() as conn:
+        conn.execute(
+            "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)",
+            (
+                job_id,
+                f"Collector ingest started (submission {submission_id}, chunk {chunk_index + 1}/{chunk_count}).",
+            ),
+        )
+        conn.commit()
     if not path.exists():
         raise RuntimeError(f"artifact missing: {rel}")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -878,11 +892,11 @@ def process_one(qrow: dict) -> None:
                ),
                    updated_at=datetime('now')
                WHERE collector_id=? AND job_id=? AND submission_id=?""",
-            (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+            (collector_id, job_id, submission_id),
         )
         row = conn.execute(
             "SELECT chunk_count, processed_chunks FROM collector_submissions WHERE collector_id=? AND job_id=? AND submission_id=?",
-            (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+            (collector_id, job_id, submission_id),
         ).fetchone()
         if not row or int(row["processed_chunks"]) < int(row["chunk_count"]):
             pc = int(row["processed_chunks"]) if row else 0
@@ -893,6 +907,14 @@ def process_one(qrow: dict) -> None:
                 pc,
                 cc,
             )
+            conn.execute(
+                "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)",
+                (
+                    job_id,
+                    f"Collector ingest applied chunk {chunk_index + 1}/{chunk_count}; waiting for all chunks ({pc}/{cc}).",
+                ),
+            )
+            conn.commit()
             return
 
         srow = conn.execute("SELECT summary_json FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
@@ -921,9 +943,31 @@ def process_one(qrow: dict) -> None:
                 job_id,
                 job_status,
             )
+            conn.execute(
+                "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)",
+                (
+                    job_id,
+                    f"Collector ingest finalized submission {submission_id}; scan marked {job_status}.",
+                ),
+            )
+        else:
+            srow_status = conn.execute(
+                "SELECT status FROM scan_jobs WHERE id=? LIMIT 1",
+                (job_id,),
+            ).fetchone()
+            cur_status = str(srow_status["status"]) if srow_status else "missing"
+            warn = (
+                f"Collector ingest applied submission {submission_id}, but scan_jobs was not transitioned "
+                f"(expected running, found {cur_status})."
+            )
+            conn.execute(
+                "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'WARN', ?)",
+                (job_id, warn),
+            )
+            log.warning("[job %d] %s", job_id, warn)
         conn.execute(
             "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
-            (int(qrow["collector_id"]), job_id, str(qrow["submission_id"])),
+            (collector_id, job_id, submission_id),
         )
         if job_status == "done":
             jcid = conn.execute("SELECT target_cidr FROM scan_jobs WHERE id=? LIMIT 1", (job_id,)).fetchone()
@@ -968,7 +1012,15 @@ def process_one(qrow: dict) -> None:
             "UPDATE scan_jobs SET summary_json=? WHERE id=?",
             (json.dumps(summary_doc2, separators=(",", ":"), ensure_ascii=False), job_id),
         )
+        conn.execute(
+            "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)",
+            (
+                job_id,
+                f"Collector ingest complete for submission {submission_id}; master enrichment status=ok (cve_matches={int(cve_count)}, ai_attempts={int(ai_attempts)}, ai_applied={int(ai_applied)}).",
+            ),
+        )
         _enqueue_executive_ai_followup(conn, job_id)
+        conn.commit()
 
 
 def main() -> None:
@@ -1013,7 +1065,9 @@ def main() -> None:
                 try:
                     process_one(row_dict)
                 except Exception as exc:
-                    delay = min(300, 5 * (2 ** min(6, int(row_dict.get("attempts") or 0))))
+                    attempts_before = int(row_dict.get("attempts") or 0)
+                    attempts_after = attempts_before + 1
+                    delay = min(300, 5 * (2 ** min(6, attempts_before)))
                     with db_conn() as conn:
                         conn.execute(
                             """UPDATE collector_ingest_queue
@@ -1024,6 +1078,50 @@ def main() -> None:
                                WHERE id=?""",
                             (f"+{delay} seconds", str(exc)[:600], int(row_dict["id"])),
                         )
+                        conn.execute(
+                            "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'WARN', ?)",
+                            (
+                                int(row_dict["job_id"]),
+                                (
+                                    "Collector ingest failed for submission "
+                                    f"{str(row_dict.get('submission_id') or '')} chunk {int(row_dict.get('chunk_index') or 0) + 1}/"
+                                    f"{int(row_dict.get('chunk_count') or 0)} "
+                                    f"(attempt {attempts_after}/{_INGEST_CHUNK_MAX_ATTEMPTS}): {str(exc)[:280]}"
+                                ),
+                            ),
+                        )
+                        if attempts_after >= _INGEST_CHUNK_MAX_ATTEMPTS:
+                            jid = int(row_dict["job_id"])
+                            cid = int(row_dict.get("collector_id") or 0)
+                            sid = str(row_dict.get("submission_id") or "")
+                            err = f"collector ingest failed after {attempts_after} attempts: {str(exc)[:300]}"
+                            conn.execute(
+                                """UPDATE scan_jobs
+                                   SET status='failed',
+                                       finished_at=COALESCE(finished_at, datetime('now')),
+                                       error_msg=?
+                                   WHERE id=? AND status='running'""",
+                                (err, jid),
+                            )
+                            conn.execute(
+                                """UPDATE collector_submissions
+                                   SET status='failed',
+                                       updated_at=datetime('now')
+                                   WHERE collector_id=? AND job_id=? AND submission_id=?""",
+                                (cid, jid, sid),
+                            )
+                            conn.execute("DELETE FROM collector_job_leases WHERE job_id=?", (jid,))
+                            conn.execute(
+                                "INSERT INTO scan_log (job_id, level, message) VALUES (?, 'ERR', ?)",
+                                (
+                                    jid,
+                                    (
+                                        "Collector artifact ingest exhausted retries; scan marked failed. "
+                                        f"submission={sid} last_error={str(exc)[:240]}"
+                                    ),
+                                ),
+                            )
+                        conn.commit()
                     log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
         except Exception as outer:
             if isinstance(outer, sqlite3.OperationalError) and "unable to open database file" in str(outer):
