@@ -845,6 +845,125 @@ body.light-mode .log-wrap{box-shadow:var(--card-shadow-light)}
 .loading{color:var(--tx2);font-family:var(--mf);font-size:13px;padding:20px;text-align:center}
 
 /* Dashboard view mode */
+#t-dash{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-dash > .st-band{
+  margin-bottom:0;
+}
+.st-dash-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-dash-band-head{grid-template-columns:1fr}
+}
+.st-dash-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-dash-kicker{color:var(--primary)}
+.st-dash-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-dash-overview-lede{color:var(--text-muted)}
+#t-dash .st-dash-actions.dash-actions{
+  margin:14px 0 0;
+  padding-top:14px;
+  border-top:1px solid color-mix(in srgb,var(--bd) 68%,transparent);
+}
+#dash-ops{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-width:0;
+}
+#t-dash #dash-exec{
+  flex-direction:column;
+  gap:12px;
+}
+#t-dash #dash-exec > .dash-workspace,
+#t-dash #dash-exec > details,
+#t-dash #dash-ops > .dash-workspace{
+  margin-bottom:0;
+}
+.st-dash-metrics-unified{
+  padding:10px 12px;
+  border-radius:var(--app-radius-md);
+  border:1px solid color-mix(in srgb,var(--bd) 62%,transparent);
+  background:color-mix(in srgb,var(--card) 40%,var(--section-bg));
+}
+.st-dash-metric-zone{min-width:0}
+#t-dash .st-dash-metric-zone--attention{
+  padding-left:10px;
+  margin-left:2px;
+  border-left:3px solid color-mix(in srgb,var(--primary) 42%,var(--bd));
+}
+#t-dash .st-dash-metric-zone--mix{
+  padding-top:2px;
+}
+.st-dash-zone-label{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+  margin:0 0 8px;
+}
+#t-dash .dash-workspace--ops .st-dash-tile-attn{
+  border-left:2px solid color-mix(in srgb,var(--amber) 40%,var(--red));
+  padding-left:14px;
+}
+#t-dash .dash-workspace--ops .st-dash-tile-freshness{
+  border-left:2px solid color-mix(in srgb,var(--primary) 32%,var(--bd));
+  padding-left:14px;
+}
+.st-dash-attn-mark{color:var(--text);font-weight:700}
+#t-dash .st-dash-inset-divider{
+  margin:12px 0;
+  opacity:.75;
+}
+#t-dash .st-dash-band--vuln{
+  border-left:3px solid color-mix(in srgb,var(--red) 28%,var(--bd));
+  padding-left:17px;
+}
+#t-dash .st-dash-band--timeline{
+  border-left:3px solid color-mix(in srgb,var(--text-muted) 32%,var(--bd));
+  padding-left:17px;
+}
+#t-dash .st-dash-band--triage{
+  border-left:3px solid color-mix(in srgb,var(--red) 26%,var(--bd));
+  padding-left:17px;
+}
+#t-dash .st-dash-tbl-shell{margin-bottom:0}
+#t-dash .st-dash-feed-track{
+  border-left:2px solid color-mix(in srgb,var(--primary) 20%,var(--bd));
+  padding-left:12px;
+  margin-left:2px;
+  border-radius:0 var(--app-radius-md) var(--app-radius-md) 0;
+}
+#t-dash .st-dash-exec-readme{
+  border:1px dashed color-mix(in srgb,var(--bd) 55%,transparent);
+  border-radius:var(--app-radius-md);
+  padding:8px 12px;
+  background:color-mix(in srgb,var(--section-bg) 40%,transparent);
+}
 .dash-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:-4px 0 10px}
 .dash-actions-left,.dash-actions-right{display:flex;align-items:center;gap:8px;min-width:0}
 .dash-actions-right{margin-left:auto}
@@ -1016,10 +1135,10 @@ body.exec-mode #t-dash .fr{
   padding-top:8px;
   padding-bottom:8px;
 }
-body.exec-mode #dash-ops{display:none}
-body.exec-mode #dash-exec{display:block}
+body.exec-mode #t-dash #dash-ops{display:none}
+body.exec-mode #dash-exec{display:flex}
 body:not(.exec-mode) .dash-actions-right{visibility:hidden;pointer-events:none}
-#dash-exec{display:none}
+#dash-exec{display:none;flex-direction:column;gap:12px;min-width:0}
 .exec-top-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:12px;margin-bottom:12px}
 .exec-grid-2{grid-template-columns:repeat(2,minmax(320px,1fr))}
 .exec-top-card{padding:14px 16px}
