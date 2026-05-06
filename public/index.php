@@ -1911,28 +1911,51 @@ if (!headers_sent()) {
 
 <!-- ================================================================ CHANGE ALERTS -->
 <div class="tab" id="t-alerts">
-  <div class="row-between mb12">
-    <div class="sth section-title-reset">Change alerts</div>
-    <div class="row-wrap">
-      <button type="button" class="tbtn" onclick="loadChangeAlerts()">&#8635; Refresh</button>
-      <button type="button" class="tbtn" onclick="dismissAllChangeAlerts()" id="btn-alerts-dismiss-all" style="display:none">Dismiss all (open)</button>
+  <section class="st-band st-alerts-band st-alerts-band--overview" aria-labelledby="st-alerts-overview-title">
+    <header class="st-alerts-band-head">
+      <div class="st-alerts-kicker">Trace over time</div>
+      <div class="st-alerts-band-main">
+        <h2 class="st-alerts-page-title" id="st-alerts-overview-title">Change alerts</h2>
+        <p class="hint-micro text-dim st-alerts-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Review stream for observed state changes across scans and inventory. Alerts capture <strong>what changed</strong>, affected <strong>assets</strong>, detection time, and lifecycle signals (new, reopened, mitigated) so operators can triage expected vs suspicious drift quickly.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-alerts-band st-alerts-band--filters" aria-labelledby="st-alerts-filters-title">
+    <header class="st-alerts-section-head">
+      <h3 class="st-alerts-section-title" id="st-alerts-filters-title">Filters &amp; review controls</h3>
+      <p class="hint-micro text-dim st-alerts-section-lede mb0">Refresh updates the open-change view. <strong>Dismiss all</strong> is available for scan editors/admins and hides open rows without altering underlying scan/finding data.</p>
+    </header>
+    <div class="row-between st-alerts-toolbar">
+      <div id="alerts-summary" class="help-line text-dim st-alerts-summary">Loading…</div>
+      <div class="row-wrap st-alerts-actions">
+        <button type="button" class="tbtn" onclick="loadChangeAlerts()">&#8635; Refresh</button>
+        <button type="button" class="tbtn st-alerts-action-dismiss-all" onclick="dismissAllChangeAlerts()" id="btn-alerts-dismiss-all" style="display:none">Dismiss all (open)</button>
+      </div>
     </div>
-  </div>
-  <p class="help-line mb16" style="max-width:min(100%, 52rem)">
-    Feed of <strong>new hosts</strong>, <strong>open-port changes</strong>, and <strong>CVE lifecycle</strong> events (new detections, mitigated when a scan no longer sees a match, reopened after regression).
-    Dismissing hides an item from this list; it does not change scan data or findings.
-    For <strong>new CVE</strong> and <strong>CVE reopened</strong> rows, <strong>Accept risk</strong> marks the finding as acknowledged (same as on the Vulnerabilities tab), dismisses open alerts for it, and stops repeat alerts until you unaccept from the host detail panel.
-  </p>
-  <div class="card">
-    <div class="ct">Open alerts</div>
-    <div id="alerts-summary" class="help-line mb8 text-dim">Loading…</div>
-    <div class="tbl-wrap tbl-wrap--data">
-      <table class="tbl tbl--data" id="alerts-table">
+  </section>
+
+  <section class="st-band st-alerts-band st-alerts-band--stream" aria-labelledby="st-alerts-stream-title">
+    <header class="st-alerts-section-head">
+      <h3 class="st-alerts-section-title" id="st-alerts-stream-title">Change alert stream</h3>
+      <p class="hint-micro text-dim st-alerts-section-lede mb0">Dense table for timestamp, change type, affected asset/job, and evidence summary. Rows with unresolved CVE changes are visually emphasized for review.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data st-alerts-tbl-wrap">
+      <table class="tbl tbl--data st-alerts-tbl" id="alerts-table">
         <thead><tr><th class="tbl-th-no-sort">When</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Target</th><th class="tbl-th-no-sort">Detail</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-        <tbody id="alerts-table-body"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
+        <tbody id="alerts-table-body"><tr><td colspan="5" class="loading tbl-empty st-alerts-empty">Loading…</td></tr></tbody>
       </table>
     </div>
-  </div>
+  </section>
+
+  <section class="st-band st-alerts-band st-alerts-band--actions" aria-labelledby="st-alerts-actions-title">
+    <h3 class="st-alerts-section-title" id="st-alerts-actions-title">Review &amp; resolution actions</h3>
+    <p class="hint-micro text-dim st-alerts-actions-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      Dismissing hides an item from this list only. For <strong>new CVE</strong> and <strong>CVE reopened</strong> rows, <strong>Accept risk</strong> acknowledges the finding (same as Vulnerabilities), dismisses related open alerts, and suppresses repeats until risk is unaccepted.
+    </p>
+  </section>
 </div>
 
 <!-- ================================================================ ACCESS CONTROL -->
@@ -5113,7 +5136,7 @@ async function loadChangeAlerts() {
     if (!tbody) return;
     const d = await api('/api/change_alerts.php?dismissed=0&limit=200');
     if (!d || !d.ok) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load alerts.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim st-alerts-empty">Could not load alerts.</td></tr>';
         if (sum) sum.textContent = '';
         return;
     }
@@ -5122,7 +5145,7 @@ async function loadChangeAlerts() {
     if (btnAll) btnAll.style.display = (d.open_count > 0 && stRoleCanManageScans()) ? 'inline-block' : 'none';
     const rows = d.alerts || [];
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">No open alerts. Run scans to populate change detection.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim st-alerts-empty">No open alerts. Run scans to populate change detection, or continue monitoring for newly detected drift.</td></tr>';
         return;
     }
     const canDismiss = stRoleCanManageScans();
@@ -5138,7 +5161,10 @@ async function loadChangeAlerts() {
         const actions = (accept || dismiss)
             ? `<span class="row-wrap" style="gap:4px;justify-content:flex-end">${[accept, dismiss].filter(Boolean).join('')}</span>`
             : '';
-        return `<tr>
+        const rowCls = (r.alert_type === 'new_cve' || r.alert_type === 'finding_reopened')
+            ? 'st-alerts-row--needs-review'
+            : '';
+        return `<tr class="${rowCls}">
           <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${esc(r.created_at || '')}</td>
           <td class="tbl-cell-primary">${esc(_alertTypeLabel(r.alert_type))}</td>
           <td class="mono tbl-cell-mono tbl-cell-muted">${ip || '—'} <span class="text-dim mono-sm">job ${esc(jid)}</span></td>

@@ -2444,6 +2444,63 @@ body.light-mode #t-logs.on .st-audit-log-wrap .lr.st-audit-row--warn{
 body.light-mode #t-logs.on .st-audit-log-wrap .lr.st-audit-row--err{
   background:color-mix(in srgb,var(--red) 9%,transparent);
 }
+/* Change alerts tab — change-detection workspace (#t-alerts); st-alerts-* scoped */
+#t-alerts.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-alerts.on > .st-band{margin-bottom:0}
+.st-alerts-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-alerts-band-head{grid-template-columns:1fr}
+}
+.st-alerts-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-alerts-kicker{color:var(--primary)}
+.st-alerts-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-alerts-section-head{margin-bottom:12px}
+.st-alerts-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-alerts-section-lede,.st-alerts-actions-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-alerts-toolbar{gap:10px;align-items:flex-start;flex-wrap:wrap}
+.st-alerts-summary{line-height:1.45}
+.st-alerts-action-dismiss-all{color:var(--amber)}
+.st-alerts-tbl-wrap{min-width:0;font-size:13px}
+.st-alerts-empty{line-height:1.5;max-width:52rem}
+#t-alerts.on .st-alerts-tbl tbody tr.st-alerts-row--needs-review td{
+  background:color-mix(in srgb,var(--amber) 9%,var(--section-bg));
+}
+body.light-mode #t-alerts.on .st-alerts-tbl tbody tr.st-alerts-row--needs-review td{
+  background:color-mix(in srgb,var(--amber) 10%,var(--surface-muted));
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
