@@ -2501,6 +2501,80 @@ body.light-mode .st-alerts-kicker{color:var(--primary)}
 body.light-mode #t-alerts.on .st-alerts-tbl tbody tr.st-alerts-row--needs-review td{
   background:color-mix(in srgb,var(--amber) 10%,var(--surface-muted));
 }
+/* Settings tab — structured configuration workspace (#t-settings); st-settings-* scoped */
+#t-settings.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-settings.on > .st-band{margin-bottom:0}
+.st-settings-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-settings-band-head{grid-template-columns:1fr}
+}
+.st-settings-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-settings-kicker{color:var(--primary)}
+.st-settings-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-settings-section-head{margin-bottom:12px}
+.st-settings-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-settings-section-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-settings-grid{margin-top:4px}
+.st-settings-col-title{
+  font-family:var(--sf);
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--text-muted);
+  margin:2px 0 8px;
+}
+#t-settings.on .st-settings-card{margin-bottom:12px}
+#t-settings.on .st-settings-card:last-child{margin-bottom:0}
+#t-settings.on .st-settings-card--security{
+  border-left:3px solid color-mix(in srgb,var(--amber) 55%,var(--border));
+}
+#t-settings.on .st-settings-card--feeds,
+#t-settings.on .st-settings-card--integrations{
+  border-left:3px solid color-mix(in srgb,var(--primary) 52%,var(--border));
+}
+#t-settings.on .st-settings-card--ai{
+  border-left:3px solid color-mix(in srgb,var(--green) 55%,var(--border));
+}
+#t-settings.on .st-settings-card--maintenance{
+  border-left:3px solid color-mix(in srgb,var(--tx3) 45%,var(--border));
+}
+#t-settings.on .st-settings-card--advanced{
+  border-left:3px solid color-mix(in srgb,var(--tx3) 30%,var(--border));
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}

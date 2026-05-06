@@ -2328,9 +2328,27 @@ if (!headers_sent()) {
 
 <!-- ================================================================ SETTINGS -->
 <div class="tab" id="t-settings">
-  <div class="scgrid">
+  <section class="st-band st-settings-band st-settings-band--overview" aria-labelledby="st-settings-overview-title">
+    <header class="st-settings-band-head">
+      <div class="st-settings-kicker">Configuration</div>
+      <div class="st-settings-band-main">
+        <h2 class="st-settings-page-title" id="st-settings-overview-title">Settings</h2>
+        <p class="hint-micro text-dim st-settings-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          System configuration workspace for app/service behavior, feeds, AI automation, and maintenance controls. Authentication and user lifecycle policy live in <strong>Access control</strong>; this tab focuses on runtime/system options and operational tuning.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-settings-band st-settings-band--workspace" aria-labelledby="st-settings-workspace-title">
+    <header class="st-settings-section-head">
+      <h3 class="st-settings-section-title" id="st-settings-workspace-title">Configuration groups</h3>
+      <p class="hint-micro text-dim st-settings-section-lede mb0">Each card keeps its own save/test actions. Security-sensitive toggles, external credentials, AI behavior, and operational maintenance settings are grouped below for faster review.</p>
+    </header>
+  <div class="scgrid st-settings-grid">
     <div>
-      <div class="card">
+      <div class="st-settings-col-title">Security &amp; session</div>
+      <div class="card st-settings-card st-settings-card--security">
         <div class="ct">Sign-in session</div>
         <div class="help-line mb10">
           Idle timeout for the PHP session cookie after you sign in (session auth) or after the first successful
@@ -2351,7 +2369,7 @@ if (!headers_sent()) {
           <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
         </div>
       </div>
-      <div class="card" id="st-security-controls-card">
+      <div class="card st-settings-card st-settings-card--security" id="st-security-controls-card">
         <div class="ct">Security controls</div>
         <p class="help-line mb10 text-dim">
           When enabled, <strong>viewer</strong> accounts can no longer call the System Health or inventory export APIs—only <strong>scan editor</strong> and <strong>admin</strong> roles. Default is off (unchanged from prior releases).
@@ -2368,7 +2386,8 @@ if (!headers_sent()) {
         </div>
         <button class="tbtn" type="button" onclick="saveSecurityControlsSettings()">Save security controls</button>
       </div>
-      <div class="card">
+      <div class="st-settings-col-title">API keys, feeds &amp; external data</div>
+      <div class="card st-settings-card st-settings-card--feeds">
         <div class="ct">NVD, CVE intelligence &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
           One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, WebFP, and CVE intel in a single job at the bottom of this card.
@@ -2452,7 +2471,8 @@ if (!headers_sent()) {
       </div>
     </div>
     <div>
-      <div class="card">
+      <div class="st-settings-col-title">Optional / advanced reference</div>
+      <div class="card st-settings-card st-settings-card--advanced">
         <div class="ct">About</div>
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(ST_VERSION, ENT_QUOTES, 'UTF-8') ?><br>
@@ -2461,7 +2481,7 @@ if (!headers_sent()) {
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
         </div>
       </div>
-      <div class="card">
+      <div class="card st-settings-card st-settings-card--advanced">
         <div class="ct">Asset categories</div>
         <table class="table-mini">
           <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server, macOS in server roles)</td></tr>
@@ -2474,7 +2494,8 @@ if (!headers_sent()) {
           <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (VMware ESXi / vSphere / vCenter, Proxmox VE, Hyper-V)</td></tr>
         </table>
       </div>
-      <div class="card">
+      <div class="st-settings-col-title">Integrations &amp; credentials</div>
+      <div class="card st-settings-card st-settings-card--integrations">
         <div class="ct">Collector setup</div>
         <div id="st-collector-install-help" class="help-line mb8">Loading…</div>
         <div class="row-wrap gap6 mb6">
@@ -2482,7 +2503,8 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro mb6" id="st-collector-install-token-status">Not configured</div>
       </div>
-      <div class="card">
+      <div class="st-settings-col-title">Maintenance &amp; operations</div>
+      <div class="card st-settings-card st-settings-card--maintenance">
         <div class="ct">Scan trash retention</div>
         <div class="help-line mb8">
           Trashed scans are permanently purged after this many days by the scheduler daemon.
@@ -2492,7 +2514,7 @@ if (!headers_sent()) {
           <button type="button" class="tbtn btn-xs" id="scan-trash-retention-save" onclick="saveScanTrashRetentionDays()" title="Save trash retention days (admin)">Save retention</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card st-settings-card st-settings-card--maintenance">
         <div class="ct">Database backups</div>
         <div class="help-line mb8">
           Scheduler-triggered SQLite backups using <code class="code-accent">daemon/backup_db.sh</code>.
@@ -2520,7 +2542,8 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
-      <div class="card">
+      <div class="st-settings-col-title">AI / automation</div>
+      <div class="card st-settings-card st-settings-card--ai">
         <div class="ct" id="st-ai-section-title">AI enrichment</div>
         <div class="hint-micro mb6">Generated summary and suggestions. Verify before acting.</div>
         <div id="st-ai-provider-blurb" class="help-line mb8 text-dim" style="font-size:13px;line-height:1.5"></div>
@@ -2675,6 +2698,7 @@ if (!headers_sent()) {
       </div>
     </div>
   </div>
+  </section>
 </div>
 
 </div><!-- .main -->
