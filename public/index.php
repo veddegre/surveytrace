@@ -7783,15 +7783,24 @@ function stCollectorIngestState(job, opts = {}) {
     const pending = Number(j.collector_ingest_pending_count || 0);
     const failed = Number(j.collector_ingest_failed_count || 0);
     const attempts = Number(j.collector_ingest_attempts || 0);
-    const err = String(j.collector_ingest_error || '').trim();
 
-    if (status === 'failed' && (failed > 0 || pending > 0 || err)) {
-        return { label: 'Ingest failed', detail: 'see execution record', level: 'err' };
+    const chunkProgressTxt = () => {
+        const n = Math.max(recv, applied);
+        return expected > 0 ? `${n}/${expected} chunks` : `${n} chunks`;
+    };
+
+    // 1) Failed ingest queue rows: terminal job => failed; still running => active retry pressure
+    if (failed > 0) {
+        if (status === 'failed') {
+            return { label: 'Ingest failed', detail: 'see execution record', level: 'err' };
+        }
+        const det = attempts > 0 ? `attempt ${attempts} · ${chunkProgressTxt()}` : chunkProgressTxt();
+        return { label: 'Ingest retrying', detail: det, level: 'warn' };
     }
-    if (failed > 0 || attempts > 0) {
-        const att = attempts > 0 ? attempts : 1;
-        const chunkTxt = expected > 0 ? `${Math.max(recv, applied)}/${expected} chunks` : `${Math.max(recv, applied)} chunks`;
-        return { label: 'Ingest retrying', detail: `attempt ${att} · ${chunkTxt}`, level: 'warn' };
+
+    // 2) Pending work: retrying only when pending rows exist AND attempts reflect worker pressure
+    if (pending > 0 && attempts > 0) {
+        return { label: 'Ingest retrying', detail: `attempt ${attempts} · ${chunkProgressTxt()}`, level: 'warn' };
     }
     if (pending > 0) {
         if (recv > 0 || subStatus === 'receiving' || subStatus === 'applied') {
@@ -7800,22 +7809,49 @@ function stCollectorIngestState(job, opts = {}) {
         }
         return { label: 'Running on collector', detail: 'collector execution in progress', level: 'dim' };
     }
-    if (recv > 0) {
-        if (applied >= recv && showApplied) {
+
+    // 3) Terminal jobs with no queue pressure: list rows omit quiet success; detail may show applied
+    const terminalSettled = status === 'done' || status === 'aborted';
+    const fullyApplied =
+        (expected > 0 && applied >= expected && recv > 0) ||
+        (expected <= 0 && recv > 0 && applied >= recv) ||
+        (expected <= 0 && recv === 0 && applied > 0);
+    if (terminalSettled && pending === 0 && failed === 0) {
+        if (!showApplied) return null;
+        if (fullyApplied || (applied > 0 && recv >= applied)) {
             return {
                 label: 'Applied on master',
-                detail: expected > 0 ? `${applied}/${expected} chunks applied` : `${applied} chunks applied`,
+                detail:
+                    expected > 0
+                        ? `${applied}/${expected} chunks applied`
+                        : applied > 0
+                          ? `${applied} chunks applied`
+                          : 'collector ingest complete',
                 level: 'ok',
             };
         }
-        return { label: 'Collector result received', detail: expected > 0 ? `${recv}/${expected} chunks received` : `${recv} chunks received`, level: 'dim' };
+        return null;
     }
-    if ((status === 'done' || status === 'aborted') && showApplied) {
-        return { label: 'Applied on master', detail: expected > 0 ? `${applied}/${expected} chunks applied` : 'collector ingest complete', level: 'ok' };
+
+    // 4) Chunks on master but not fully applied (no pending/failed rows — uncommon)
+    if (recv > 0 && applied < recv) {
+        const chunkTxt = expected > 0 ? `${recv}/${expected} chunks received` : `${recv} chunks received`;
+        return { label: 'Awaiting master ingest', detail: chunkTxt, level: 'warn' };
     }
+
+    if (recv > 0) {
+        return {
+            label: 'Collector result received',
+            detail: expected > 0 ? `${recv}/${expected} chunks received` : `${recv} chunks received`,
+            level: 'dim',
+        };
+    }
+
     if (status === 'running' || status === 'retrying' || status === 'queued') {
         return { label: 'Running on collector', detail: 'awaiting collector submission', level: 'dim' };
     }
+
+    // collector_ingest_attempts alone is historical (max per queue row); never implies current retry
     return null;
 }
 
@@ -8691,8 +8727,8 @@ function stScanHistDetailStatCardsHtml(j) {
         const failed = Number(j.collector_ingest_failed_count || 0);
         const err = String(j.collector_ingest_error || '').trim();
         const chunksTxt = expected > 0 ? `${recv}/${expected} received · ${applied}/${expected} applied` : `${recv} received · ${applied} applied`;
-        const retryTxt = attempts > 0 ? `attempt ${attempts}` : 'attempt 0';
-        return `<div class="text-micro text-dim mt6">Collector ingest: ${esc(chunksTxt)} · pending ${esc(String(pending))} · failed ${esc(String(failed))} · ${esc(retryTxt)}${err ? `</div><div class="text-micro hstate-err mt4">Latest ingest error: ${esc(err.slice(0, 220))}` : ''}</div>`;
+        const histAttemptsTxt = `max ingest attempts (historical): ${attempts}`;
+        return `<div class="text-micro text-dim mt6">Collector ingest: ${esc(chunksTxt)} · pending ${esc(String(pending))} · failed ${esc(String(failed))} · ${esc(histAttemptsTxt)}${err ? `</div><div class="text-micro hstate-err mt4">Latest ingest error: ${esc(err.slice(0, 220))}` : ''}</div>`;
     })();
     return `<div class="scan-hist-detail-stat-grid">
       <div class="scan-hist-detail-stat"><div class="scan-hist-detail-stat-label">${esc(assetsLabel)}</div><div class="scan-hist-detail-stat-val">${esc(assetsVal)}</div></div>

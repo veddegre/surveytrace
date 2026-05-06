@@ -67,6 +67,10 @@ $hasTable = function(string $name) use ($existingTables): bool {
 $hasCollectors = $hasTable('collectors');
 $hasCollectorSubmissions = $hasTable('collector_submissions');
 $hasCollectorIngestQueue = $hasTable('collector_ingest_queue');
+
+// TODO(perf): Collector ingest metadata uses correlated subqueries per history row. Fine for
+// now; optimize later with joined aggregates if list/poll cost becomes noticeable.
+
 $collectorIngestColsSql = ",
                " . ($hasCollectorSubmissions ? "(SELECT cs.status FROM collector_submissions cs WHERE cs.job_id = j.id ORDER BY cs.updated_at DESC, cs.id DESC LIMIT 1)" : "NULL") . " AS collector_submission_status,
                " . ($hasCollectorSubmissions ? "(SELECT MAX(cs.chunk_count) FROM collector_submissions cs WHERE cs.job_id = j.id)" : "NULL") . " AS collector_chunks_expected,

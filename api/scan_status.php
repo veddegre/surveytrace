@@ -61,6 +61,10 @@ $hasCollectorLeases = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='
 $hasCollectorSubmissions = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_submissions' LIMIT 1")->fetchColumn();
 $hasCollectorIngestQueue = (bool)$db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collector_ingest_queue' LIMIT 1")->fetchColumn();
 
+// TODO(perf): Collector ingest metadata (submission + ingest queue) is computed via correlated
+// subqueries per job row. Acceptable for current poll volume; if scan history or polling load
+// grows, replace with a single joined aggregate subquery or a materialized view/cache.
+
 // ---------------------------------------------------------------------------
 // Fetch job row
 // ---------------------------------------------------------------------------
