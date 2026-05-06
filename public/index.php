@@ -1695,17 +1695,24 @@ if (!headers_sent()) {
 
 <!-- ================================================================ SYSTEM HEALTH -->
 <div class="tab" id="t-health">
-  <div class="row-between mb12">
-    <div class="sth section-title-reset">System health</div>
-    <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
-  </div>
-  <p class="help-line mb16" style="max-width:min(100%, 52rem)">
-    This view summarizes operational health: core services, storage, database files, the scan queue, and feed activity.
-    It is <strong>read-only</strong> and does not change configuration. Use <b>Refresh</b> to load the latest snapshot.
-  </p>
-  <div class="card health-page">
-    <div class="ct">Summary</div>
-    <div id="health-snapshot"><div class="text-dim">Open this tab or choose Refresh to load the latest health snapshot.</div></div>
+  <section class="st-band st-health-band st-health-band--intro" aria-labelledby="st-health-overview-title">
+    <header class="st-health-band-head">
+      <div class="st-health-kicker">Operations</div>
+      <div class="st-health-band-main">
+        <div class="row-between st-health-toolbar">
+          <h2 class="st-health-page-title" id="st-health-overview-title">System health</h2>
+          <button type="button" class="tbtn" onclick="loadHealth()">&#8635; Refresh</button>
+        </div>
+        <p class="hint-micro text-dim st-health-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Operational status console for <strong>services</strong>, <strong>scheduler</strong>, <strong>storage</strong>, <strong>database files</strong>, and <strong>integration freshness</strong> (feeds, Zabbix, collectors). All checks are <strong>read-only</strong> — use <strong>Refresh</strong> for a new snapshot. Follow <strong>Needs attention</strong> when anything requires operator follow-up; raw detail stays under <strong>Advanced diagnostics</strong>.
+        </p>
+      </div>
+    </header>
+  </section>
+  <div id="health-snapshot" class="st-health-snapshot-root">
+    <section class="st-band st-health-band st-health-band--placeholder">
+      <p class="text-dim mb0">Open this tab or choose <strong>Refresh</strong> to load the latest health snapshot.</p>
+    </section>
   </div>
 </div>
 
@@ -4723,41 +4730,57 @@ function renderHealthHtml(h, zbxResp) {
 
     const summaryCardsHtml = summaryCards.map((c) => {
         const v = c.rawValue ? String(c.value) : esc(String(c.value));
-        return `<div class="health-kpi card"><div class="health-kpi-label">${esc(String(c.label))}</div><div class="health-kpi-value ${esc(String(c.cls || ''))}">${v}</div><div class="health-kpi-help text-dim">${esc(String(c.helper || ''))}</div></div>`;
+        return `<div class="health-kpi st-health-kpi"><div class="health-kpi-label">${esc(String(c.label))}</div><div class="health-kpi-value ${esc(String(c.cls || ''))}">${v}</div><div class="health-kpi-help text-dim">${esc(String(c.helper || ''))}</div></div>`;
     }).join('');
 
+    const attentionBandClass = warnings.length ? ' st-health-band--attention' : '';
+
     return `
-      <section class="health-section">
-        <h3 class="health-sec-title">Overall health</h3>
-        <div class="hint-micro text-dim mb8">Snapshot status: ${overallItems.join(' · ')}</div>
-        <div class="health-kpi-grid">${summaryCardsHtml}</div>
+      <section class="st-band st-health-band st-health-band--summary health-section" aria-labelledby="st-health-sec-summary">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-summary">Platform snapshot</h3>
+          <div class="hint-micro text-dim mb8 st-health-snapshot-line">Snapshot status: ${overallItems.join(' · ')}</div>
+        </header>
+        <div class="health-kpi-grid st-health-kpi-grid">${summaryCardsHtml}</div>
       </section>
 
-      <section class="health-section">
-        <h3 class="health-sec-title">Services / daemons</h3>
+      <section class="st-band st-health-band st-health-band--services health-section" aria-labelledby="st-health-sec-services">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-services">Core services</h3>
+          <p class="hint-micro text-dim st-health-sec-lede mb0">Scheduler, scanner, and collector ingest — expected state is <span class="hstate-ok">Running</span> for active operations.</p>
+        </header>
         ${mkTable(['Service', 'State', 'Detail'], serviceRows, 'Service status has not been reported yet.')}
       </section>
 
-      <section class="health-section">
-        <h3 class="health-sec-title">Storage / database</h3>
+      <section class="st-band st-health-band st-health-band--storage health-section" aria-labelledby="st-health-sec-storage">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-storage">Storage &amp; database readiness</h3>
+          <p class="hint-micro text-dim st-health-sec-lede mb0">Data directory access, free space, and SQLite / NVD files on disk.</p>
+        </header>
         ${mkTable(['Component', 'Value', 'Status'], storageRows, 'Health data unavailable.')}
       </section>
 
-      <section class="health-section">
-        <h3 class="health-sec-title">Integrations / scheduler</h3>
+      <section class="st-band st-health-band st-health-band--integrations health-section" aria-labelledby="st-health-sec-integrations">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-integrations">Integrations &amp; freshness</h3>
+          <p class="hint-micro text-dim st-health-sec-lede mb0">Schedules, feed sync, collectors, AI reachability, and Zabbix sync / output — watch timestamps and status classes for staleness.</p>
+        </header>
         ${mkTable(['Item', 'State', 'Detail'], integrationRows, 'Health data unavailable.')}
       </section>
 
-      <section class="health-section">
-        <h3 class="health-sec-title">Recent errors / warnings</h3>
+      <section class="st-band st-health-band st-health-band--warnings health-section${attentionBandClass}" aria-labelledby="st-health-sec-attention">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-attention">Needs attention</h3>
+          <p class="hint-micro text-dim st-health-sec-lede mb0">Condensed from this snapshot — resolve upstream issues, then refresh.</p>
+        </header>
         ${warnings.length
-            ? `<ul class="exec-brief-ul">${warnings.map((w) => `<li>${esc(String(w))}</li>`).join('')}</ul>`
-            : '<div class="text-dim">No outstanding issues reported for this snapshot.</div>'}
+            ? `<ul class="exec-brief-ul st-health-warning-list">${warnings.map((w) => `<li>${esc(String(w))}</li>`).join('')}</ul>`
+            : '<div class="text-dim st-health-all-clear">No outstanding issues reported for this snapshot.</div>'}
       </section>
 
-      <section class="health-section">
-        <details class="health-adv-details">
-          <summary class="health-sec-title">Advanced diagnostics</summary>
+      <section class="st-band st-health-band st-health-band--advanced health-section">
+        <details class="health-adv-details st-health-adv-details">
+          <summary class="health-sec-title st-health-adv-summary">Advanced diagnostics</summary>
           <div class="hint-micro text-dim mt6 mb8">${stRoleIsAdmin() ? 'Raw runtime details and file paths.' : 'Detailed diagnostics are limited to reduce sensitive data exposure.'}</div>
           ${mkTable(['Field', 'Value'], advancedRows, 'Health data unavailable.')}
         </details>
@@ -4774,7 +4797,7 @@ async function loadHealth() {
         api('/api/zabbix.php?status=1&cb=' + cb, { quiet: true }),
     ]);
     if (!h) {
-        el.innerHTML = '<div class="text-dim">Health check failed (not signed in or network error).</div>';
+        el.innerHTML = '<section class="st-band st-health-band st-health-band--error"><p class="text-dim mb0">Health check failed (not signed in or network error).</p></section>';
         return;
     }
     el.innerHTML = renderHealthHtml(h, zbx);

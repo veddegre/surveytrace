@@ -2582,7 +2582,83 @@ body.light-mode .sync-status.run{
 
 /* System health tab */
 .health-page .health-panel{max-width:none}
-.health-section{margin-bottom:16px}
+#t-health.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-health.on > .st-band{margin-bottom:0}
+.st-health-snapshot-root{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-width:0;
+}
+.st-health-snapshot-root > .st-band{margin-bottom:0}
+.st-health-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-health-band-head{grid-template-columns:1fr}
+}
+.st-health-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-health-kicker{color:var(--primary)}
+.st-health-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-health-toolbar{
+  align-items:flex-start;
+  gap:10px;
+  margin-bottom:8px;
+}
+.st-health-toolbar .st-health-page-title{flex:1;min-width:0}
+.st-health-overview-lede{margin-top:0}
+.st-health-section-head{margin-bottom:12px}
+.st-health-section-head .health-sec-title{margin-bottom:6px}
+.st-health-sec-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-health-snapshot-line{max-width:min(100%,52rem);line-height:1.45}
+.st-health-kpi-grid{min-width:0}
+.st-health-kpi{
+  margin:0;
+  padding:12px 14px;
+  background:color-mix(in srgb,var(--card) 58%,var(--section-bg));
+  border:1px solid color-mix(in srgb,var(--bd) 55%,transparent);
+  border-radius:var(--app-radius-md);
+  box-shadow:none;
+}
+body.light-mode .st-health-kpi{
+  border-color:color-mix(in srgb,var(--border) 85%,transparent);
+}
+.st-health-band--attention{
+  border-left:3px solid color-mix(in srgb,var(--amber) 72%,var(--bd));
+  padding-left:calc(20px - 3px);
+}
+.st-health-warning-list{margin:0;padding-left:1.2em}
+.st-health-warning-list li{margin:4px 0;line-height:1.45}
+.st-health-warning-list li::marker{color:var(--amber)}
+.st-health-all-clear{line-height:1.45}
+.st-health-adv-details{margin:0}
+.st-health-adv-summary{cursor:pointer;list-style-position:outside}
+.st-health-band--placeholder .mb0{margin-bottom:0}
+.st-health-band--error .mb0{margin-bottom:0}
+.health-section{margin-bottom:0}
 .health-sec-title{
   font-family:var(--sf);
   font-size:13px;
