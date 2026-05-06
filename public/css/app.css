@@ -338,6 +338,10 @@ body.light-mode .ni.on{background:var(--adim2)}
   background:var(--bg);
   min-height:0;
 }
+/* Tab visibility guardrail:
+ * - Keep .tab { display:none } by default so inactive panels stay hidden.
+ * - Put tab-root flex/grid on #t-name.on only (e.g. #t-dash.on { display:flex }).
+ * - Never #t-name { display:flex|grid|block } without .on — ID specificity beats .tab and shows every tab. */
 .tab{display:none;padding:22px 26px 28px}
 .tab.on{display:block}
 
