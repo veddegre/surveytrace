@@ -1532,18 +1532,41 @@ if (!headers_sent()) {
 </div>
 
 <div class="tab" id="t-collectors">
-  <div class="row-between mb12">
-    <div class="sth section-title-reset">Collector overview</div>
-    <button class="tbtn" onclick="loadCollectorsOverview()">&#8635; Refresh</button>
-  </div>
-  <div class="hint-micro mb10">Collectors register with install token, heartbeat to master, and submit chunked artifacts for async ingest/CVE+AI enrichment.</div>
-  <div id="collector-overview-stats" class="help-mono mb10">Loading…</div>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Last seen</th><th>IP</th><th>Pending</th><th>Failed</th><th></th></tr></thead>
-      <tbody id="collector-overview-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
-    </table>
-  </div>
+  <section class="st-band st-collectors-band st-collectors-band--overview" aria-labelledby="st-collectors-overview-title">
+    <header class="st-collectors-band-head">
+      <div class="st-collectors-kicker">Infrastructure</div>
+      <div class="st-collectors-band-main">
+        <div class="row-between st-collectors-toolbar">
+          <h2 class="st-collectors-page-title" id="st-collectors-overview-title">Collectors</h2>
+          <button type="button" class="tbtn" onclick="loadCollectorsOverview()">&#8635; Refresh</button>
+        </div>
+        <p class="hint-micro text-dim st-collectors-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          <strong>Optional</strong> remote scan agents: the <strong>master</strong> queues work and ingests results; each <strong>collector</strong> registers with an install token, <strong>polls</strong> for assigned jobs, runs work locally (better ARP/mDNS visibility on-site), and <strong>uploads chunked artifacts</strong> back for async ingest, CVE correlation, and enrichment. <strong>Master-only</strong> installs never need a collector row here. Generate or rotate install tokens under <strong>Settings</strong> (admin).
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-collectors-band st-collectors-band--fleet" aria-labelledby="st-collectors-fleet-title">
+    <header class="st-collectors-section-head">
+      <h3 class="st-collectors-section-title" id="st-collectors-fleet-title">Fleet status &amp; registration</h3>
+      <p class="hint-micro text-dim st-collectors-section-lede mb0">Live counts and one row per registered collector: name/site context, allowed CIDR ranges, schedule assignments, heartbeat, last IP, and chunk queue health (pending / failed).</p>
+    </header>
+    <div id="collector-overview-stats" class="help-mono st-collectors-stats mb10">Loading…</div>
+    <div class="tbl-wrap tbl-wrap--data st-collectors-tbl-wrap">
+      <table class="tbl tbl--data st-collectors-tbl">
+        <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Last seen</th><th>IP</th><th>Pending</th><th>Failed</th><th></th></tr></thead>
+        <tbody id="collector-overview-tbody"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="st-band st-collectors-band st-collectors-band--controls" aria-labelledby="st-collectors-controls-title">
+    <h3 class="st-collectors-section-title" id="st-collectors-controls-title">Operator controls</h3>
+    <p class="hint-micro text-dim st-collectors-controls-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      Per row: <strong>Set ranges</strong> constrains target CIDRs for that collector; <strong>Manage in schedules</strong> ties recurring work to a collector; <strong>Rotate token</strong> invalidates old install credentials (confirm, then update the agent); <strong class="st-collectors-revoke-label">Revoke</strong> permanently removes the collector and its tokens — use only when decommissioning. Job assignment and chunk return health show in <strong>Pending</strong> / <strong>Failed</strong>; use <strong>Refresh</strong> and <strong>System health</strong> for broader service state.
+    </p>
+  </section>
 </div>
 
 <div class="tab" id="t-logs">
@@ -13095,7 +13118,7 @@ async function loadCollectorsOverview() {
         d = null;
     }
     if (!d || !d.ok) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="loading">Could not load collectors</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="loading tbl-empty st-collectors-empty">Could not load collectors</td></tr>';
         if (stats) stats.textContent = 'Collectors unavailable';
         return;
     }
@@ -13110,7 +13133,7 @@ async function loadCollectorsOverview() {
     }
     if (!tbody) return;
     if (!collectorsCache.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="loading">No collectors registered yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="loading tbl-empty st-collectors-empty">No remote collectors registered. <strong>Master-only</strong> deployments are valid — collectors are optional for extra sites. After an agent registers and checks in, it appears in this table. Use <strong>Settings</strong> to create install tokens.</td></tr>';
         return;
     }
     tbody.innerHTML = collectorsCache.map(c => {
@@ -13120,6 +13143,9 @@ async function loadCollectorsOverview() {
         const failed = Number(c.failed_chunks || 0);
         const seen = c.last_seen_at ? relTime(c.last_seen_at) : 'never';
         const ip = c.last_ip ? esc(String(c.last_ip)) : '—';
+        const online = Number(c.online_recent_2m || 0) === 1;
+        const rowCls = online ? 'st-collectors-row st-collectors-row--online' : 'st-collectors-row st-collectors-row--stale';
+        const chunkWarn = failed > 0 ? ' st-collectors-row--chunks-warn' : '';
         let ranges = 'any';
         try {
             const arr = JSON.parse(String(c.allowed_cidrs_json || '[]'));
@@ -13130,7 +13156,7 @@ async function loadCollectorsOverview() {
             ? assignedSchedules.map(s => String(s.name || ('#' + Number(s.id || 0)))).slice(0, 2).join(', ')
                 + (assignedSchedules.length > 2 ? ` (+${assignedSchedules.length - 2} more)` : '')
             : 'None';
-        return `<tr>
+        return `<tr class="${rowCls}${chunkWarn}">
           <td class="mono">#${id}</td>
           <td class="text-primary">${esc(collectorDisplayName(c))}<div class="text-micro text-dim">ranges: ${esc(ranges)}</div><div class="text-micro text-dim">schedules: ${esc(schedSummary)}</div></td>
           <td class="mono-sm">${esc(st)}</td>
@@ -13138,11 +13164,11 @@ async function loadCollectorsOverview() {
           <td class="mono-sm">${ip}</td>
           <td class="mono-sm">${pending}</td>
           <td class="mono-sm">${failed}</td>
-          <td class="row-actions">
-            <button class="tbtn btn-xxs" onclick="setCollectorAllowedCidrs(${id})">Set ranges</button>
-            <button class="tbtn btn-xxs" onclick="goTab('sched')">Manage in schedules</button>
-            <button class="tbtn btn-xxs" onclick="rotateCollectorToken(${id})">Rotate token</button>
-            <button class="tbtn btn-xxs" style="color:var(--red)" onclick="revokeCollector(${id})">Revoke</button>
+          <td class="row-actions st-collectors-row-actions">
+            <button type="button" class="tbtn btn-xxs" onclick="setCollectorAllowedCidrs(${id})">Set ranges</button>
+            <button type="button" class="tbtn btn-xxs" onclick="goTab('sched')">Manage in schedules</button>
+            <button type="button" class="tbtn btn-xxs st-collectors-action-rotate" onclick="rotateCollectorToken(${id})">Rotate token</button>
+            <button type="button" class="tbtn btn-xxs st-collectors-action-revoke" style="color:var(--red)" onclick="revokeCollector(${id})">Revoke</button>
           </td>
         </tr>`;
     }).join('');

@@ -1945,6 +1945,81 @@ body.light-mode .st-devices-merge-well{
 .st-devices-merge-lede{max-width:40rem}
 .device-panel.st-devices-panel .st-devices-panel-assets-tbl{font-size:12px}
 .device-panel.st-devices-panel .st-devices-panel-history-body{font-size:12px}
+/* Collectors tab — distributed scanning workspace (#t-collectors); st-collectors-* scoped */
+#t-collectors.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-collectors.on > .st-band{margin-bottom:0}
+.st-collectors-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-collectors-band-head{grid-template-columns:1fr}
+}
+.st-collectors-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-collectors-kicker{color:var(--primary)}
+.st-collectors-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-collectors-toolbar{
+  align-items:flex-start;
+  gap:10px;
+  margin-bottom:8px;
+}
+.st-collectors-toolbar .st-collectors-page-title{flex:1;min-width:0}
+.st-collectors-overview-lede{margin-top:0}
+.st-collectors-section-head{margin-bottom:12px}
+.st-collectors-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-collectors-section-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-collectors-stats{line-height:1.45;max-width:min(100%,52rem)}
+.st-collectors-tbl-wrap{min-width:0;font-size:13px}
+.st-collectors-controls-lede{margin-top:0}
+.st-collectors-revoke-label{color:var(--red);font-weight:600}
+#t-collectors.on .st-collectors-tbl tbody tr.st-collectors-row--online td{
+  background:color-mix(in srgb,var(--green) 6%,var(--section-bg));
+}
+#t-collectors.on .st-collectors-tbl tbody tr.st-collectors-row--stale td{
+  background:color-mix(in srgb,var(--amber) 8%,var(--section-bg));
+}
+#t-collectors.on .st-collectors-tbl tbody tr.st-collectors-row--chunks-warn td:first-child{
+  box-shadow:inset 3px 0 0 0 color-mix(in srgb,var(--amber) 70%,var(--bd));
+}
+body.light-mode #t-collectors.on .st-collectors-tbl tbody tr.st-collectors-row--online td{
+  background:color-mix(in srgb,var(--green) 7%,var(--surface-muted));
+}
+body.light-mode #t-collectors.on .st-collectors-tbl tbody tr.st-collectors-row--stale td{
+  background:color-mix(in srgb,var(--amber) 9%,var(--surface-muted));
+}
+.st-collectors-empty{line-height:1.5;max-width:46rem}
+#t-collectors.on .st-collectors-row-actions{max-width:none;justify-content:flex-end}
+.st-collectors-action-revoke{font-weight:600}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
