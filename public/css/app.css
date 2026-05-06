@@ -1866,6 +1866,85 @@ body.light-mode #t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--medium td{
   line-height:1.5;
   max-width:42rem;
 }
+/* Devices tab — logical identity workspace (#t-devices); st-devices-* scoped */
+#t-devices.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-devices.on > .st-band{margin-bottom:0}
+.st-devices-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-devices-band-head{grid-template-columns:1fr}
+}
+.st-devices-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-devices-kicker{color:var(--primary)}
+.st-devices-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-devices-overview-lede{margin-top:0}
+.st-devices-section-head{margin-bottom:12px}
+.st-devices-section-head--table{margin-bottom:10px}
+.st-devices-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-devices-section-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-devices-fbar{margin-bottom:0}
+.st-devices-filter-summary{margin-top:10px;line-height:1.45;max-width:min(100%,52rem)}
+.st-devices-tbl-wrap{min-width:0}
+.st-devices-pgn{margin-top:10px}
+#t-devices.on .st-devices-tbl tbody tr.st-devices-row--multi td{
+  background:color-mix(in srgb,var(--primary) 5%,var(--section-bg));
+}
+body.light-mode #t-devices.on .st-devices-tbl tbody tr.st-devices-row--multi td{
+  background:color-mix(in srgb,var(--primary) 6%,var(--surface-muted));
+}
+#t-devices.on .st-devices-empty{
+  line-height:1.5;
+  max-width:42rem;
+}
+/* Device detail panel — merge / linked assets (st-devices-panel*) */
+.st-devices-merge-well{
+  padding:12px 14px;
+  margin-top:4px;
+  margin-bottom:4px;
+  border-radius:var(--app-radius-md);
+  border:1px dashed color-mix(in srgb,var(--amber) 35%,var(--bd));
+  background:color-mix(in srgb,var(--section-bg) 55%,var(--card));
+}
+body.light-mode .st-devices-merge-well{
+  border-color:color-mix(in srgb,var(--amber) 28%,var(--border));
+  background:color-mix(in srgb,var(--surface-muted) 45%,var(--card));
+}
+.st-devices-panel-merge-title{margin-top:0!important}
+.st-devices-merge-lede{max-width:40rem}
+.device-panel.st-devices-panel .st-devices-panel-assets-tbl{font-size:12px}
+.device-panel.st-devices-panel .st-devices-panel-history-body{font-size:12px}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}

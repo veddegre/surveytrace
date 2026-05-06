@@ -560,38 +560,61 @@ if (!headers_sent()) {
 
 <!-- ================================================================ DEVICES -->
 <div class="tab" id="t-devices">
-  <div class="fbar">
-    <input class="finp wide" id="df-q" placeholder="Search device id, MAC, label, or linked IP/hostname…" oninput="debounceDevices()">
-    <select class="finp narrow" id="df-sort" onchange="loadDevices(1)">
-      <option value="id">Sort: ID</option>
-      <option value="asset_count">Sort: # assets</option>
-      <option value="last_seen">Sort: Last activity</option>
-      <option value="primary_mac_norm">Sort: MAC</option>
-    </select>
-    <button class="tbtn" onclick="loadDevices(1)" title="Reload">&#8635; Refresh</button>
-  </div>
-  <p class="hint-micro mb8 text-dim" style="line-height:1.45;max-width:min(100%,52rem)">
-    Devices represent discovered systems and infrastructure sources used during scans and enrichment.
-  </p>
-  <div class="tbl-wrap tbl-wrap--data">
-    <table class="tbl tbl--data">
-      <thead><tr>
-        <th class="tbl-th-no-sort">ID</th>
-        <th class="tbl-th-no-sort">MAC (norm)</th>
-        <th class="tbl-th-no-sort"># Assets</th>
-        <th class="tbl-th-no-sort">IP sample</th>
-        <th class="tbl-th-no-sort">Last activity</th>
-        <th class="tbl-th-no-sort">Created</th>
-        <th class="tbl-th-action tbl-th-no-sort"></th>
-      </tr></thead>
-      <tbody id="device-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
-    </table>
-  </div>
-  <div class="pgn">
-    <button id="dprev" onclick="loadDevices(devicePage-1)" disabled>&#8592; Prev</button>
-    <span id="dpgn-info">—</span>
-    <button id="dnext" onclick="loadDevices(devicePage+1)" disabled>Next &#8594;</button>
-  </div>
+  <section class="st-band st-devices-band st-devices-band--overview" aria-labelledby="st-devices-overview-title">
+    <header class="st-devices-band-head">
+      <div class="st-devices-kicker">Identity</div>
+      <div class="st-devices-band-main">
+        <h2 class="st-devices-page-title" id="st-devices-overview-title">Devices</h2>
+        <p class="hint-micro text-dim st-devices-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          A <strong>device</strong> is a stable <code class="code-accent">device_id</code> — the logical identity SurveyTrace uses to group <strong>IP-based assets</strong> that belong to the same system (shared MAC / correlation rules). <strong>Assets</strong> remain one row per address; open a device to see linked IPs, hostnames, and recency. Use <strong>Assets</strong> to browse all addresses for a device; use <strong>Merge</strong> in the side panel only after operator review (confirmed, audited).
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-devices-band st-devices-band--filters" aria-labelledby="st-devices-filters-title">
+    <header class="st-devices-section-head">
+      <h3 class="st-devices-section-title" id="st-devices-filters-title">Search &amp; sort</h3>
+      <p class="hint-micro text-dim st-devices-section-lede mb0">Find devices by id, normalized MAC, label, or any linked IP/hostname. Sort highlights busy identities (# assets, last activity) or MAC order.</p>
+    </header>
+    <div class="fbar st-devices-fbar">
+      <input class="finp wide" id="df-q" placeholder="Search device id, MAC, label, or linked IP/hostname…" oninput="debounceDevices()">
+      <select class="finp narrow" id="df-sort" onchange="loadDevices(1)">
+        <option value="id">Sort: ID</option>
+        <option value="asset_count">Sort: # assets</option>
+        <option value="last_seen">Sort: Last activity</option>
+        <option value="primary_mac_norm">Sort: MAC</option>
+      </select>
+      <button class="tbtn" onclick="loadDevices(1)" title="Reload">&#8635; Refresh</button>
+    </div>
+    <p id="st-devices-filter-summary" class="hint-micro text-dim st-devices-filter-summary hide mb0" aria-live="polite"></p>
+  </section>
+
+  <section class="st-band st-devices-band st-devices-band--inventory" aria-labelledby="st-devices-table-title">
+    <header class="st-devices-section-head st-devices-section-head--table">
+      <h3 class="st-devices-section-title" id="st-devices-table-title">Device inventory</h3>
+      <p class="hint-micro text-dim st-devices-section-lede mb0">Dense list — click <strong>ID</strong> for detail and linked addresses; <strong>Assets</strong> jumps to the Assets tab filtered to this <code class="code-accent">device_id</code>. Multi-address devices get a light emphasis.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data st-devices-tbl-wrap">
+      <table class="tbl tbl--data st-devices-tbl">
+        <thead><tr>
+          <th class="tbl-th-no-sort">ID</th>
+          <th class="tbl-th-no-sort">MAC (norm)</th>
+          <th class="tbl-th-no-sort"># Assets</th>
+          <th class="tbl-th-no-sort">IP sample</th>
+          <th class="tbl-th-no-sort">Last activity</th>
+          <th class="tbl-th-no-sort">Created</th>
+          <th class="tbl-th-action tbl-th-no-sort"></th>
+        </tr></thead>
+        <tbody id="device-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pgn st-devices-pgn">
+      <button id="dprev" onclick="loadDevices(devicePage-1)" disabled>&#8592; Prev</button>
+      <span id="dpgn-info">—</span>
+      <button id="dnext" onclick="loadDevices(devicePage+1)" disabled>Next &#8594;</button>
+    </div>
+  </section>
 </div>
 
 <!-- ================================================================ VULNERABILITIES -->
@@ -2569,7 +2592,7 @@ if (!headers_sent()) {
 </div>
 
 <!-- Device detail panel (logical identity + linked addresses) -->
-<div id="device-panel" class="host-panel device-panel">
+<div id="device-panel" class="host-panel device-panel st-devices-panel">
   <div class="host-panel-head">
     <div class="host-panel-title" id="dp-title">Device</div>
     <button type="button" class="tbtn host-panel-close" onclick="closeDevicePanel()">✕</button>
@@ -5393,14 +5416,34 @@ async function loadDevices(page) {
 
     const url = `/api/devices.php?page=${page}&per_page=50&q=${enc(q)}&sort=${enc(sort)}&order=${order}`;
     const d   = await api(url);
-    if (!d) return;
+    if (!d) {
+        const fsDead = document.getElementById('st-devices-filter-summary');
+        if (fsDead) {
+            fsDead.textContent = '';
+            fsDead.classList.add('hide');
+        }
+        return;
+    }
 
-    document.getElementById('device-tbody').innerHTML = (d.devices || []).map(dev => {
+    const sortLabel = { id: 'ID', asset_count: '# assets', last_seen: 'last activity', primary_mac_norm: 'MAC' };
+    const fsEl = document.getElementById('st-devices-filter-summary');
+    if (fsEl) {
+        const bits = [];
+        if (String(q || '').trim()) bits.push('search “' + String(q).trim() + '”');
+        if (sort && sort !== 'id') bits.push('sort: ' + (sortLabel[sort] || sort));
+        fsEl.textContent = bits.length ? ('Active: ' + bits.join(' · ')) : '';
+        fsEl.classList.toggle('hide', !bits.length);
+    }
+
+    const filtersActive = !!(String(q || '').trim() || (sort && sort !== 'id'));
+    const rowsHtml = (d.devices || []).map((dev) => {
         const mac = dev.primary_mac_norm ? esc(dev.primary_mac_norm) : '—';
         const ips = dev.ip_sample ? esc(dev.ip_sample) : '—';
         const last = dev.last_seen_max ? relTime(dev.last_seen_max) : '—';
         const created = dev.created_at ? relTime(dev.created_at) : '—';
-        return `<tr>
+        const ac = parseInt(String(dev.asset_count || 0), 10) || 0;
+        const rowMulti = ac > 1 ? ' st-devices-row--multi' : '';
+        return `<tr class="st-devices-row${rowMulti}">
           <td class="mono mono-sm tbl-cell-mono tbl-cell-primary"><span class="click-ip" onclick="openDevicePanel(${dev.id})" title="Device detail">${dev.id}</span></td>
           <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${mac}</td>
           <td class="mono tbl-cell-mono tbl-cell-muted">${dev.asset_count}</td>
@@ -5409,7 +5452,23 @@ async function loadDevices(page) {
           <td class="mono mono-sm tbl-cell-mono tbl-cell-muted">${created}</td>
           <td class="tbl-cell-actions"><button type="button" class="tbtn btn-xs" onclick="viewDeviceAssets(${dev.id})">Assets</button></td>
         </tr>`;
-    }).join('') || '<tr><td colspan="7" class="loading tbl-empty">No devices found.</td></tr>';
+    }).join('');
+
+    let emptyMsg = 'No devices match the current search or sort. Clear the search box or reset sort to ID.';
+    if (!rowsHtml) {
+        if ((d.total || 0) === 0) {
+            if (filtersActive) {
+                emptyMsg = 'No devices match the current filters. Try a broader search or sort by ID.';
+            } else {
+                emptyMsg = 'No logical devices yet. Devices appear when scans correlate IP assets (e.g. shared MAC) or after identity migration — run inventory scans, then refresh.';
+            }
+        } else {
+            emptyMsg = 'No devices on this page.';
+        }
+    }
+
+    document.getElementById('device-tbody').innerHTML = rowsHtml
+        || `<tr><td colspan="7" class="loading tbl-empty st-devices-empty">${emptyMsg}</td></tr>`;
 
     document.getElementById('dpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} devices)`;
     document.getElementById('dprev').disabled = page <= 1;
@@ -18054,7 +18113,7 @@ async function openDevicePanel(deviceId) {
         : '<div class="hp-empty" style="padding:4px 0">No device scan history yet</div>';
 
     document.getElementById('dp-body').innerHTML = `
-      <div class="hp-meta">
+      <div class="hp-meta st-devices-panel-meta">
         <div class="hp-meta-title">
           <span class="mono mono-sm">#${did}</span>
           <span class="hp-meta-host" style="margin-left:8px">${assets.length} address${assets.length === 1 ? '' : 'es'}</span>
@@ -18066,33 +18125,35 @@ async function openDevicePanel(deviceId) {
           <tr><td class="hp-meta-key">Updated</td><td class="hp-meta-val-dim">${localTime(d.updated_at)}</td></tr>
         </table>
       </div>
-      <div class="hp-actions" style="margin-top:12px;margin-bottom:14px">
+      <div class="hp-actions st-devices-panel-actions" style="margin-top:12px;margin-bottom:14px">
         <button type="button" class="btnp btn-xs" onclick="viewDeviceAssets(${did});closeDevicePanel()">View in Assets</button>
       </div>
-      <div class="hp-head" style="margin-top:16px">Merge other devices into this one</div>
-      <p class="text-secondary" style="font-size:12px;line-height:1.45;margin:0 0 10px">All assets on the listed devices are reassigned here; those device rows are removed. A line is written to the audit log. Cannot be undone.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-        <input type="text" class="finp" id="dp-merge-ids" placeholder="Other device ids, e.g. 12, 18" autocomplete="off" style="min-width:0;flex:1;max-width:280px">
-        <button type="button" class="tbtn" onclick="requestDeviceMerge(${did})">Merge…</button>
+      <div class="st-devices-merge-well">
+        <div class="hp-head st-devices-panel-merge-title" style="margin-top:16px">Merge other devices into this one</div>
+        <p class="text-secondary st-devices-merge-lede" style="font-size:12px;line-height:1.45;margin:0 0 10px">Operator-reviewed action: all assets on the devices you list are reassigned to <strong>#${did}</strong>; merged device rows are removed. A line is written to the <strong>audit log</strong>. Cannot be undone — confirm IDs before proceeding.</p>
+        <div class="st-devices-merge-row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+          <input type="text" class="finp st-devices-merge-input" id="dp-merge-ids" placeholder="Other device ids, e.g. 12, 18" autocomplete="off" style="min-width:0;flex:1;max-width:280px">
+          <button type="button" class="tbtn st-devices-merge-btn" onclick="requestDeviceMerge(${did})">Merge…</button>
+        </div>
       </div>
-      <div class="hp-head">
+      <div class="hp-head st-devices-panel-assets-hd">
         Linked addresses
         <div class="hp-head-line"></div>
       </div>
-      <div class="tbl-wrap" style="margin-bottom:12px">
-        <table class="tbl">
+      <div class="tbl-wrap st-devices-panel-tbl-wrap" style="margin-bottom:12px">
+        <table class="tbl st-devices-panel-assets-tbl">
           <thead><tr>
             <th>IP</th><th>Hostname</th><th>Type</th><th>CVSS</th><th>Last seen</th>
           </tr></thead>
           <tbody>${assetRows}</tbody>
         </table>
       </div>
-      <div class="hp-head">
+      <div class="hp-head st-devices-panel-history-hd">
         Device scan history
         <div class="hp-head-line"></div>
       </div>
-      <div class="mb12">${scanHistoryRows}</div>
-      <p class="text-secondary" style="font-size:12px;margin:0">Click a row for full host detail (ports, CVEs, history).</p>`;
+      <div class="mb12 st-devices-panel-history-body">${scanHistoryRows}</div>
+      <p class="text-secondary st-devices-panel-foot" style="font-size:12px;margin:0">Click a row for full host detail (ports, CVEs, history).</p>`;
 
     const hnHint = (assets[0] && assets[0].hostname) ? String(assets[0].hostname) : '';
     document.getElementById('dp-title').textContent = hnHint
