@@ -1283,7 +1283,7 @@ if (!headers_sent()) {
 <div class="tab" id="t-sched">
   <!-- Schedule modal -->
   <div id="sched-bg" class="modal-bg z100">
-    <div class="modal-card modal-w560">
+    <div class="modal-card modal-w560 st-sched-modal">
       <div class="row-between mb14" style="gap:12px;align-items:center">
         <div class="modal-title" style="margin-bottom:0" id="sched-title">New schedule</div>
         <button type="button" class="modal-close-x" onclick="closeSchedModal()" title="Close without saving" aria-label="Close without saving">×</button>
@@ -1291,6 +1291,9 @@ if (!headers_sent()) {
       <input type="hidden" id="sched-id" value="">
       <input type="hidden" id="sched-paused" value="0">
 
+      <div class="st-sched-modal-body">
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-ident">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-ident">Identity &amp; cadence</h4>
       <label class="flbl">Schedule name</label>
       <input class="finp w100 mb10" id="sched-name" placeholder="Weekly full scan">
 
@@ -1299,18 +1302,21 @@ if (!headers_sent()) {
 
       <label class="flbl">Cron expression</label>
       <div class="row-wrap mb6 gap6" id="cron-presets">
-        <button class="tbtn" onclick="setCron('@daily')">Daily</button>
-        <button class="tbtn" onclick="setCron('@weekly')">Weekly</button>
-        <button class="tbtn" onclick="setCron('@monthly')">Monthly</button>
-        <button class="tbtn" onclick="setCron('0 2 * * 0')">Sun 2am</button>
-        <button class="tbtn" onclick="setCron('0 3 * * 1-5')">Weekdays 3am</button>
-        <button class="tbtn" onclick="setCron('0 */6 * * *')">Every 6h</button>
+        <button type="button" class="tbtn" onclick="setCron('@daily')">Daily</button>
+        <button type="button" class="tbtn" onclick="setCron('@weekly')">Weekly</button>
+        <button type="button" class="tbtn" onclick="setCron('@monthly')">Monthly</button>
+        <button type="button" class="tbtn" onclick="setCron('0 2 * * 0')">Sun 2am</button>
+        <button type="button" class="tbtn" onclick="setCron('0 3 * * 1-5')">Weekdays 3am</button>
+        <button type="button" class="tbtn" onclick="setCron('0 */6 * * *')">Every 6h</button>
       </div>
       <input class="finp w100 mb4" id="sched-cron" placeholder="0 3 * * 0">
       <div class="hint-micro mb10" id="sched-cron-desc">
         Format: minute hour day-of-month month day-of-week
       </div>
+      </section>
 
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-profile">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-profile">Profile &amp; performance</h4>
       <label class="flbl">Profile</label>
       <select class="finp w100 mb10" id="sched-profile">
         <option value="standard_inventory">Standard Inventory</option>
@@ -1346,8 +1352,10 @@ if (!headers_sent()) {
       <label class="flbl">Job priority in queue</label>
       <div class="hint-micro mb4">1 = highest, 100 = lowest. Default 20 for scheduled runs.</div>
       <input class="finp w100 mb10" type="number" id="sched-priority" min="1" max="100" value="20">
+      </section>
 
-      <label class="flbl">Scan steps</label>
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-steps">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-steps">Scan steps</h4>
       <div class="hint-micro mb6">Same as the Scan tab — pick at least one.</div>
       <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP / mDNS — no active probes</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="sched-ph-passive" checked aria-label="Include passive discovery for scheduled runs"><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP discovery</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="sched-ph-icmp" checked aria-label="Include ICMP sweep for scheduled runs"><div class="trk"></div><div class="tth"></div></label></div>
@@ -1356,12 +1364,18 @@ if (!headers_sent()) {
       <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, ifTable — no SET</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="sched-ph-snmp" aria-label="Include SNMP read-only probes for scheduled runs"><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Read-only OT probes</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="sched-ph-ot" aria-label="Include OT protocol probes for scheduled runs"><div class="trk"></div><div class="tth"></div></label></div>
       <div class="tr2 mb10"><div><div class="tl">CVE correlation</div><div class="tsubl">Local NVD match</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="sched-ph-cve" checked aria-label="Include CVE correlation for scheduled runs"><div class="trk"></div><div class="tth"></div></label></div>
+      </section>
 
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-enrich">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-enrich">Network enrichment</h4>
       <label class="flbl">Network enrichment</label>
       <div class="hint-micro mb6">Same sources as <strong>Enrichment</strong> — matches the Scan tab; all enabled on = default.</div>
       <div id="sched-enrichment-wrap" data-ready="0" class="mb10"><div class="hint-micro">Sources load when you open this form.</div></div>
+      </section>
 
-      <label class="flbl">Timezone</label>
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-tz">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-tz">Timezone</h4>
+      <label class="flbl" for="sched-tz">Timezone</label>
       <select class="finp w100 mb10" id="sched-tz">
         <option value="UTC">UTC</option>
         <option value="America/New_York">America/New_York (ET)</option>
@@ -1380,7 +1394,10 @@ if (!headers_sent()) {
       <div class="hint-micro mb10" id="sched-tz-note">
         Cron times are interpreted in this timezone
       </div>
+      </section>
 
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-exec">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-exec">Execution &amp; reporting</h4>
       <label class="flbl">Collector target</label>
       <select class="finp w100 mb8" id="sched-collector">
         <option value="0">Master scanner (local)</option>
@@ -1398,7 +1415,10 @@ if (!headers_sent()) {
 
       <label class="flbl">Notes (optional)</label>
       <input class="finp w100 mb10" id="sched-notes" placeholder="Description or reason for this schedule">
+      </section>
 
+      <section class="st-sched-modal-sec" aria-labelledby="st-sched-sec-missed">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-missed">Missed runs &amp; catch-up</h4>
       <label class="flbl">If a run is missed (daemon down, pause, etc.)</label>
       <select class="finp w100 mb6" id="sched-missed-pol">
         <option value="run_once">Run one catch-up scan, then resume cadence</option>
@@ -1412,15 +1432,20 @@ if (!headers_sent()) {
       <div class="hint-micro mb12">
         “Run all” uses this cap so a long outage cannot flood the queue.
       </div>
+      </section>
 
+      <section class="st-sched-modal-sec st-sched-modal-sec--footer" aria-labelledby="st-sched-sec-state">
+      <h4 class="st-sched-modal-sec-title" id="st-sched-sec-state">Activation &amp; save</h4>
       <label class="switch-field row-wrap mb14 gap8" style="font-family:var(--mf);font-size:13px;color:var(--tx2);align-items:flex-start">
         <span class="tog" style="margin-top:2px"><input type="checkbox" id="sched-en" checked><div class="trk"></div><div class="tth"></div></span>
         <span>Cron enabled (off = schedule dormant; use Pause on the list to freeze without turning off)</span>
       </label>
 
       <div class="stack8">
-        <button class="btnp" onclick="saveSchedule()">Save schedule</button>
-        <button class="tbtn" onclick="closeSchedModal()">Cancel</button>
+        <button type="button" class="btnp" onclick="saveSchedule()">Save schedule</button>
+        <button type="button" class="tbtn" onclick="closeSchedModal()">Cancel</button>
+      </div>
+      </section>
       </div>
     </div>
   </div>
@@ -1514,21 +1539,51 @@ if (!headers_sent()) {
     </div>
   </div>
 
-  <div class="row-between mb12">
-    <div class="sth section-title-reset">Scan schedules</div>
-    <button class="btnp btn-sm" onclick="openSchedModal()">+ New schedule</button>
-  </div>
+  <section class="st-band st-sched-band st-sched-band--overview" aria-labelledby="st-sched-overview-title">
+    <header class="st-sched-band-head">
+      <div class="st-sched-kicker">Automation</div>
+      <div class="st-sched-band-main">
+        <div class="row-between st-sched-toolbar">
+          <h2 class="st-sched-page-title" id="st-sched-overview-title">Scan schedules</h2>
+          <button type="button" class="btnp btn-sm" onclick="openSchedModal()">+ New schedule</button>
+        </div>
+        <p class="hint-micro text-dim st-sched-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          <strong>Recurring scans</strong> are <strong>optional</strong> — ad-hoc runs from <strong>Scan control</strong> work without any row here. When you do use schedules, each definition has its own <strong>target</strong>, <strong>profile</strong>, <strong>cron cadence</strong>, and <strong>timezone</strong>; the scheduler computes <strong>next run</strong> while the entry is <strong>enabled</strong> and not <strong>paused</strong>. <strong>Pause</strong> freezes cadence without deleting; turning <strong>Cron enabled</strong> off in the editor marks the definition dormant. Collectors and reporting scopes attach per schedule so jobs queue to the right agent and inherit context.
+        </p>
+      </div>
+    </header>
+  </section>
 
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr>
-        <th>Name</th><th>Target</th><th>Scope</th><th>Profile</th><th>Cron</th>
-        <th>Collector</th><th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
-        <th>On</th><th></th>
-      </tr></thead>
-      <tbody id="sched-tbody"><tr><td colspan="12" class="loading">Loading…</td></tr></tbody>
-    </table>
-  </div>
+  <section class="st-band st-sched-band st-sched-band--builder" aria-labelledby="st-sched-builder-title">
+    <h3 class="st-sched-section-title" id="st-sched-builder-title">Create &amp; edit</h3>
+    <p class="hint-micro text-dim st-sched-builder-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      Open <strong>+ New schedule</strong> or the <strong>edit</strong> (&#9998;) control on a row. The dialog keeps <strong>target CIDR</strong>, <strong>cron</strong> (and presets), <strong>profile</strong>, discovery <strong>mode</strong>, <strong>rate limits</strong>, <strong>scan steps</strong>, <strong>enrichment</strong> sources, <strong>timezone</strong>, <strong>collector</strong> vs master, optional <strong>reporting scope</strong>, <strong>exclusions</strong>, <strong>missed-run</strong> policy, and <strong>cron enabled</strong> — same fields as before, grouped for quicker scanning.
+    </p>
+  </section>
+
+  <section class="st-band st-sched-band st-sched-band--inventory" aria-labelledby="st-sched-inventory-title">
+    <header class="st-sched-section-head">
+      <h3 class="st-sched-section-title" id="st-sched-inventory-title">Schedule inventory</h3>
+      <p class="hint-micro text-dim st-sched-inventory-lede mb0">Each row is one automation: <strong>ON</strong> / <strong>OFF</strong> is the cron switch; <strong>Paused</strong> (when ON) stops advancing until you <strong>Resume</strong>. Scan <strong>next</strong> / <strong>last</strong> run, <strong>profile</strong>, <strong>scope</strong>, and <strong>collector</strong> columns summarize what will execute.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data st-sched-tbl-wrap">
+      <table class="tbl tbl--data st-sched-tbl">
+        <thead><tr>
+          <th>Name</th><th>Target</th><th>Scope</th><th>Profile</th><th>Cron</th>
+          <th>Collector</th><th>Missed runs</th><th>Next run</th><th>Last run</th><th>Last result</th>
+          <th>On</th><th></th>
+        </tr></thead>
+        <tbody id="sched-tbody"><tr><td colspan="12" class="loading st-sched-loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="st-band st-sched-band st-sched-band--controls" aria-labelledby="st-sched-controls-title">
+    <h3 class="st-sched-section-title" id="st-sched-controls-title">Operator controls</h3>
+    <p class="hint-micro text-dim st-sched-controls-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      <strong>Hist</strong> opens run history; <strong>Pause</strong> / <strong>Resume</strong> toggles frozen cadence; <strong>&#9654; Run now</strong> queues an immediate job (confirm if prompted). <strong class="st-sched-delete-label">Delete</strong> (<span class="mono-sm">&#10005;</span>) removes the schedule permanently — confirm before proceeding. Row shading highlights <strong>active</strong> (enabled, not paused), <strong>paused</strong>, or <strong>off</strong> schedules.
+    </p>
+  </section>
 </div>
 
 <div class="tab" id="t-collectors">
@@ -16203,7 +16258,7 @@ async function loadSchedules() {
     const statColor = {done:'var(--green)',failed:'var(--red)',aborted:'var(--amber)'};
     const tbody = document.getElementById('sched-tbody');
     if (!d.schedules || !d.schedules.length) {
-        tbody.innerHTML = '<tr><td colspan="12" class="loading">No schedules yet — create one to get started</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="loading tbl-empty st-sched-empty"><div class="st-sched-empty-inner"><strong>Optional automation.</strong> No recurring scans are defined yet — one-off scans from <strong>Scan control</strong> still work. Use <strong>+ New schedule</strong> to add a cadence with a target, profile, and cron. After you save, the row appears here with <strong>next run</strong> and <strong>ON</strong> / <strong>Pause</strong> state.</div></td></tr>';
         return;
     }
 
@@ -16217,8 +16272,12 @@ async function loadSchedules() {
         const isPaused = !!(parseInt(s.paused, 10) || 0);
         const isOn = !!(parseInt(s.enabled, 10) || 0);
         const pausedTag = isPaused
-            ? '<span class="paused-chip">Paused</span>'
+            ? '<span class="paused-chip st-sched-paused-chip">Paused</span>'
             : '';
+
+        const rowStateCls = !isOn
+            ? 'st-sched-row--off'
+            : (isPaused ? 'st-sched-row--paused' : 'st-sched-row--active');
 
         // next_run is stored as UTC — display as local browser time
         let nextRun = '<span class="pending">pending</span>';
@@ -16245,14 +16304,14 @@ async function loadSchedules() {
 
         const pauseResume = isOn
             ? (isPaused
-                ? `<button class="tbtn btn-xxs" onclick="resumeSchedule(${s.id})" title="Resume schedule">Resume</button>`
-                : `<button class="tbtn btn-xxs" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
+                ? `<button type="button" class="tbtn btn-xxs" onclick="resumeSchedule(${s.id})" title="Resume schedule">Resume</button>`
+                : `<button type="button" class="tbtn btn-xxs" onclick="pauseSchedule(${s.id})" title="Pause without deleting">Pause</button>`)
             : '';
 
         const scn = s.scope_name && String(s.scope_name).trim()
             ? esc(String(s.scope_name).slice(0, 80))
             : (parseInt(String(s.scope_id || 0), 10) > 0 ? '<span class="text-dim">#' + esc(String(s.scope_id)) + '</span>' : '—');
-        return `<tr>
+        return `<tr class="${rowStateCls}">
           <td class="text-primary">${esc(s.name)}${pausedTag}</td>
           <td class="mono">${esc(s.target_cidr)}</td>
           <td class="status-text">${scn}</td>
@@ -16264,18 +16323,18 @@ async function loadSchedules() {
           <td class="status-text">${lastRun}</td>
           <td>${lastStat}</td>
           <td>
-            <button class="tbtn btn-xs ${isOn ? 'toggle-on' : 'toggle-off'}"
+            <button type="button" class="tbtn btn-xs st-sched-toggle ${isOn ? 'toggle-on' : 'toggle-off'}"
               onclick="toggleSchedule(${s.id})"
               title="${isOn ? 'Click to disable' : 'Click to enable'}">
               ${isOn ? '● ON' : '○ OFF'}
             </button>
           </td>
-          <td class="row-actions">
-            <button class="tbtn btn-xxs" onclick="openSchedHist(${s.id})" title="Run history">Hist</button>
+          <td class="row-actions st-sched-row-actions">
+            <button type="button" class="tbtn btn-xxs" onclick="openSchedHist(${s.id})" title="Run history">Hist</button>
             ${pauseResume}
-            <button class="tbtn btn-xs" onclick="runSchedNow(${s.id})" title="Run now">&#9654;</button>
-            <button class="tbtn btn-xs" onclick="editSchedule(${s.id})">&#9998;</button>
-            <button class="tbtn btn-xs" style="color:var(--red)" onclick="deleteSchedule(${s.id})">&#10005;</button>
+            <button type="button" class="tbtn btn-xs" onclick="runSchedNow(${s.id})" title="Run now">&#9654;</button>
+            <button type="button" class="tbtn btn-xs" onclick="editSchedule(${s.id})">&#9998;</button>
+            <button type="button" class="tbtn btn-xs st-sched-action-delete" style="color:var(--red)" onclick="deleteSchedule(${s.id})">&#10005;</button>
           </td>
         </tr>`;
     }).join('');
