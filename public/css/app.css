@@ -1788,6 +1788,84 @@ body.light-mode #t-enrich.on .st-enrich-band--workflows.enrich-zabbix-tools-card
 .hp-cve{font-family:var(--mf);font-size:11px;color:var(--tx3)}
 .hp-date{font-size:11px;color:var(--tx3);margin-left:auto}
 .hp-desc{font-size:12px;color:var(--tx2);line-height:1.5}
+/* Vulnerabilities tab — risk triage workspace (#t-vulns); st-vuln-* scoped */
+#t-vulns.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-vulns.on > .st-band{margin-bottom:0}
+.st-vuln-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-vuln-band-head{grid-template-columns:1fr}
+}
+.st-vuln-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-vuln-kicker{color:var(--primary)}
+.st-vuln-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-vuln-overview-lede{margin-top:0}
+.st-vuln-section-head{margin-bottom:12px}
+.st-vuln-section-head--table{margin-bottom:10px}
+.st-vuln-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-vuln-section-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-vuln-fbar{margin-bottom:0}
+.st-vuln-filter-summary{margin-top:10px;line-height:1.45;max-width:min(100%,52rem)}
+.st-vuln-tbl-wrap{min-width:0}
+.st-vuln-pgn{margin-top:10px}
+.st-vuln-actions-lede{margin-top:0}
+#t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--critical td{
+  background:color-mix(in srgb,var(--red) 9%,var(--section-bg));
+}
+#t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--high td{
+  background:color-mix(in srgb,var(--amber) 10%,var(--section-bg));
+}
+#t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--medium td{
+  background:color-mix(in srgb,var(--amber) 5%,var(--section-bg));
+}
+body.light-mode #t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--critical td{
+  background:color-mix(in srgb,var(--red) 8%,var(--surface-muted));
+}
+body.light-mode #t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--high td{
+  background:color-mix(in srgb,var(--amber) 9%,var(--surface-muted));
+}
+body.light-mode #t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--medium td{
+  background:color-mix(in srgb,var(--amber) 5%,var(--surface-muted));
+}
+#t-vulns.on .st-vuln-tbl tbody tr.st-vuln-row--resolved td{
+  opacity:0.94;
+}
+#t-vulns.on .st-vuln-empty{
+  line-height:1.5;
+  max-width:42rem;
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}

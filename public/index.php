@@ -596,55 +596,88 @@ if (!headers_sent()) {
 
 <!-- ================================================================ VULNERABILITIES -->
 <div class="tab" id="t-vulns">
-  <div class="fbar">
-    <input class="finp wide" id="vf-cve" placeholder="Search CVE ID or description…" oninput="debounceFindings()">
-    <input class="finp narrow w130" id="vf-ip" placeholder="Filter by IP…" oninput="debounceFindings()">
-    <button class="tbtn btn-xs hide" id="vf-clear-ip" onclick="clearIPFilter()">✕ clear</button>
-    <select class="finp narrow" id="vf-sev" onchange="loadFindings(1)">
-      <option value="">All severity</option>
-      <option value="critical">Critical</option><option value="high">High</option>
-      <option value="medium">Medium</option><option value="low">Low</option>
-    </select>
-    <select class="finp narrow" id="vf-cat" onchange="loadFindings(1)">
-      <option value="">All asset types</option>
-      <option value="srv">Server</option><option value="ws">Workstation</option>
-      <option value="net">Network</option><option value="iot">IoT</option>
-      <option value="ot">OT/ICS</option><option value="voi">VoIP</option>
-      <option value="prn">Printer</option><option value="hv">Hypervisor</option>
-    </select>
-    <select class="finp narrow" id="vf-resolved" onchange="loadFindings(1)">
-      <option value="0">Open</option><option value="1">Resolved</option>
-    </select>
-    <select class="finp narrow" id="vf-minyear" onchange="loadFindings(1)" title="Filter out old CVEs">
-      <option value="">All years</option>
-      <option value="2020">2020+</option>
-      <option value="2018">2018+</option>
-      <option value="2015">2015+</option>
-    </select>
-    <select class="finp narrow" id="vf-confidence" onchange="loadFindings(1)" title="Detection confidence (CVE triage)">
-      <option value="">All confidence</option>
-      <option value="high">High</option>
-      <option value="medium">Medium</option>
-      <option value="low">Low</option>
-    </select>
-    <select class="finp narrow" id="vf-sort" onchange="loadFindings(1)" title="Sort order">
-      <option value="cvss">Sort: CVSS</option>
-      <option value="risk_score">Sort: Risk score</option>
-    </select>
-    <button class="tbtn" onclick="exportFindings('csv')" title="Export filtered CVEs as CSV">&#8595; CSV</button>
-    <button class="tbtn" onclick="exportFindings('json')" title="Export filtered CVEs as JSON">&#8595; JSON</button>
-  </div>
-  <div class="tbl-wrap tbl-wrap--data">
-    <table class="tbl tbl--data">
-      <thead><tr><th class="tbl-th-no-sort">CVE ID</th><th class="tbl-th-no-sort">Asset IP</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">CVSS</th><th class="tbl-th-no-sort">Triage</th><th class="tbl-th-no-sort">Match</th><th class="tbl-th-no-sort">Published</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-      <tbody id="vuln-tbody"><tr><td colspan="10" class="loading tbl-empty">Loading vulnerabilities…</td></tr></tbody>
-    </table>
-  </div>
-  <div class="pgn">
-    <button id="vprev" onclick="loadFindings(vulnPage-1)" disabled>&#8592; Prev</button>
-    <span id="vpgn-info">—</span>
-    <button id="vnext" onclick="loadFindings(vulnPage+1)" disabled>Next &#8594;</button>
-  </div>
+  <section class="st-band st-vuln-band st-vuln-band--overview" aria-labelledby="st-vuln-overview-title">
+    <header class="st-vuln-band-head">
+      <div class="st-vuln-kicker">Risk</div>
+      <div class="st-vuln-band-main">
+        <h2 class="st-vuln-page-title" id="st-vuln-overview-title">Vulnerabilities</h2>
+        <p class="hint-micro text-dim st-vuln-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          CVE-centric <strong>review and triage</strong>: sort and filter by severity, asset type, resolution, age, and detection confidence. Each row ties a finding to an <strong>asset</strong> (IP/hostname); use IP filters or row clicks to narrow. <strong>Evidence</strong> columns summarize match method; open <strong>host detail</strong> for full context. <strong>Actions</strong> (when permitted): mark <strong>resolved</strong> after remediation or <strong>accept risk</strong> with audit — exports respect the same filters as the table.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-vuln-band st-vuln-band--filters" aria-labelledby="st-vuln-filters-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vuln-filters-title">Triage controls</h3>
+      <p class="hint-micro text-dim st-vuln-section-lede mb0">Combine search, IP, severity, asset class, open vs resolved, publication year, confidence, and sort. CSV/JSON exports use the current filter set.</p>
+    </header>
+    <div class="fbar st-vuln-fbar">
+      <input class="finp wide" id="vf-cve" placeholder="Search CVE ID or description…" oninput="debounceFindings()">
+      <input class="finp narrow w130" id="vf-ip" placeholder="Filter by IP…" oninput="debounceFindings()">
+      <button class="tbtn btn-xs hide" id="vf-clear-ip" onclick="clearIPFilter()">✕ clear</button>
+      <select class="finp narrow" id="vf-sev" onchange="loadFindings(1)">
+        <option value="">All severity</option>
+        <option value="critical">Critical</option><option value="high">High</option>
+        <option value="medium">Medium</option><option value="low">Low</option>
+      </select>
+      <select class="finp narrow" id="vf-cat" onchange="loadFindings(1)">
+        <option value="">All asset types</option>
+        <option value="srv">Server</option><option value="ws">Workstation</option>
+        <option value="net">Network</option><option value="iot">IoT</option>
+        <option value="ot">OT/ICS</option><option value="voi">VoIP</option>
+        <option value="prn">Printer</option><option value="hv">Hypervisor</option>
+      </select>
+      <select class="finp narrow" id="vf-resolved" onchange="loadFindings(1)">
+        <option value="0">Open</option><option value="1">Resolved</option>
+      </select>
+      <select class="finp narrow" id="vf-minyear" onchange="loadFindings(1)" title="Filter out old CVEs">
+        <option value="">All years</option>
+        <option value="2020">2020+</option>
+        <option value="2018">2018+</option>
+        <option value="2015">2015+</option>
+      </select>
+      <select class="finp narrow" id="vf-confidence" onchange="loadFindings(1)" title="Detection confidence (CVE triage)">
+        <option value="">All confidence</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select class="finp narrow" id="vf-sort" onchange="loadFindings(1)" title="Sort order">
+        <option value="cvss">Sort: CVSS</option>
+        <option value="risk_score">Sort: Risk score</option>
+      </select>
+      <button class="tbtn" onclick="exportFindings('csv')" title="Export filtered CVEs as CSV">&#8595; CSV</button>
+      <button class="tbtn" onclick="exportFindings('json')" title="Export filtered CVEs as JSON">&#8595; JSON</button>
+    </div>
+    <p id="st-vuln-filter-summary" class="hint-micro text-dim st-vuln-filter-summary hide mb0" aria-live="polite"></p>
+  </section>
+
+  <section class="st-band st-vuln-band st-vuln-band--workspace" aria-labelledby="st-vuln-table-title">
+    <header class="st-vuln-section-head st-vuln-section-head--table">
+      <h3 class="st-vuln-section-title" id="st-vuln-table-title">Findings</h3>
+      <p class="hint-micro text-dim st-vuln-section-lede mb0">Dense table — severity chips and triage scores surface risk; high/critical rows are subtly highlighted. Use pagination to walk the full filtered set.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data st-vuln-tbl-wrap">
+      <table class="tbl tbl--data st-vuln-tbl">
+        <thead><tr><th class="tbl-th-no-sort">CVE ID</th><th class="tbl-th-no-sort">Asset IP</th><th class="tbl-th-no-sort">Hostname</th><th class="tbl-th-no-sort">Type</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">CVSS</th><th class="tbl-th-no-sort">Triage</th><th class="tbl-th-no-sort">Match</th><th class="tbl-th-no-sort">Published</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+        <tbody id="vuln-tbody"><tr><td colspan="10" class="loading tbl-empty">Loading vulnerabilities…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pgn st-vuln-pgn">
+      <button id="vprev" onclick="loadFindings(vulnPage-1)" disabled>&#8592; Prev</button>
+      <span id="vpgn-info">—</span>
+      <button id="vnext" onclick="loadFindings(vulnPage+1)" disabled>Next &#8594;</button>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band st-vuln-band--actions" aria-labelledby="st-vuln-actions-title">
+    <h3 class="st-vuln-section-title" id="st-vuln-actions-title">Review actions</h3>
+    <p class="hint-micro text-dim st-vuln-actions-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      <strong>Resolve</strong> when remediation is verified (finding leaves the open list; audited). <strong>Accept risk</strong> documents acceptance and suppresses recurring open alerts for that finding while it remains accepted — use with governance alignment. Readers see status only. If the table is empty, confirm whether filters exclude everything vs. no data yet (see message in the findings grid).
+    </p>
+  </section>
 </div>
 
 <!-- ================================================================ SCAN CONTROL -->
@@ -6560,8 +6593,26 @@ async function loadFindings(page) {
     const d   = await api(url);
     if (!d) return;
 
-    // WARNING: innerHTML — row cells must stay escaped via esc() for API fields.
-    document.getElementById('vuln-tbody').innerHTML = (d.findings || []).map(f => `<tr>
+    const filtersActive = !!(String(cve || '').trim() || String(ip || '').trim() || sev || cat || res !== '0' || miny || conf || (sort && sort !== 'cvss'));
+    const fsEl = document.getElementById('st-vuln-filter-summary');
+    if (fsEl) {
+        const bits = [];
+        if (String(cve || '').trim()) bits.push('search “' + String(cve).trim() + '”');
+        if (String(ip || '').trim()) bits.push('IP ' + String(ip).trim());
+        if (sev) bits.push('severity ' + sev);
+        if (cat) bits.push('type ' + cat);
+        if (res === '1') bits.push('resolved only');
+        if (miny) bits.push('year ≥ ' + miny);
+        if (conf) bits.push('confidence ' + conf);
+        if (sort && sort !== 'cvss') bits.push('sort ' + sort);
+        fsEl.textContent = bits.length ? ('Active filters: ' + bits.join(' · ')) : '';
+        fsEl.classList.toggle('hide', !bits.length);
+    }
+
+    const rowsHtml = (d.findings || []).map((f) => {
+        const sevRow = sevClass(f.cvss);
+        const rowExtra = f.resolved ? ' st-vuln-row--resolved' : '';
+        return `<tr class="st-vuln-row st-vuln-row--${sevRow}${rowExtra}">
       <td class="mono mono-sm tbl-cell-mono tbl-cell-primary">${esc(f.cve_id)}</td>
       <td class="mono tbl-cell-mono click-ip"
           onclick="filterVulnsByIP('${esc(f.ip)}')"
@@ -6571,7 +6622,7 @@ async function loadFindings(page) {
           title="Filter to this host">${esc(f.hostname||'—')}</td>
       <td><span class="cat ${esc(f.category||'unk')}">${esc(f.category||'unk')}</span></td>
       <td class="tbl-cell-muted" style="font-size:12px;max-width:220px">${esc(f.description||'—')}</td>
-      <td><span class="sev ${sevClass(f.cvss)}">${f.cvss||'—'}</span></td>
+      <td><span class="sev ${sevRow}">${f.cvss||'—'}</span></td>
       <td class="mono-sm tbl-cell-mono tbl-cell-muted" style="white-space:nowrap;text-align:right" title="Triage score (0–100, CVSS weighted by detection confidence)">
         <span>${f.risk_score != null ? esc(String(f.risk_score)) : '—'}</span>
         <span class="${findingConfidenceChipClass(f.confidence)}">${esc((f.confidence || 'low').toUpperCase())}</span>
@@ -6583,7 +6634,27 @@ async function loadFindings(page) {
           : stRoleCanManageScans()
               ? `<span class="row-wrap" style="gap:4px;justify-content:flex-end"><button type="button" class="tbtn btn-xs" onclick="resolveFinding(${f.id}, this)">Resolve</button><button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="acceptFindingRisk(${f.id}, this)">Accept risk</button></span>`
               : '<span class="text-dim">—</span>'}</td>
-    </tr>`).join('') || '<tr><td colspan="10" class="loading tbl-empty">No findings match the current filters.</td></tr>';
+    </tr>`;
+    }).join('');
+
+    let emptyMsg = 'No findings match the current filters. Try clearing IP, search, or widening severity/year.';
+    if (!rowsHtml) {
+        if ((d.total || 0) === 0) {
+            if (filtersActive) {
+                emptyMsg = 'No findings match the current filters. Adjust triage controls or clear search/IP.';
+            } else if (res === '1') {
+                emptyMsg = 'No resolved findings to show.';
+            } else {
+                emptyMsg = 'No open findings yet. Run scans with CVE correlation enabled, then refresh this tab.';
+            }
+        } else {
+            emptyMsg = 'No findings on this page.';
+        }
+    }
+
+    // WARNING: innerHTML — row cells must stay escaped via esc() for API fields.
+    document.getElementById('vuln-tbody').innerHTML = rowsHtml
+        || `<tr><td colspan="10" class="loading tbl-empty st-vuln-empty">${emptyMsg}</td></tr>`;
 
     document.getElementById('vpgn-info').textContent = `Page ${d.page} of ${d.pages} (${d.total} findings)`;
     document.getElementById('vprev').disabled = page <= 1;
