@@ -428,6 +428,97 @@ CREATE TABLE IF NOT EXISTS change_alerts (
 CREATE INDEX IF NOT EXISTS idx_change_alerts_created ON change_alerts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_change_alerts_open ON change_alerts(dismissed_at, created_at DESC);
 
+-- -------------------------------------------------------
+-- Trusted reconciliation v1 — observations, assertions, evidence (read-model slice)
+-- Milestone 1: foundational tables for multi-source beliefs + audit trail.
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS recon_sources (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    source_type          TEXT NOT NULL,
+        -- surveytrace_scan | zabbix_inventory | surveytrace_enrichment | connector | ...
+    source_instance_key  TEXT NOT NULL DEFAULT 'default',
+        -- future: per-connector instance id or URL fingerprint
+    display_name         TEXT NOT NULL DEFAULT '',
+    trust_level          TEXT NOT NULL DEFAULT 'medium',
+        -- low | medium | high | authoritative
+    freshness_sec        INTEGER NOT NULL DEFAULT 86400,
+        -- hint for stale-aware reconciliation (optional)
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    meta_json            TEXT,
+    UNIQUE(source_type, source_instance_key)
+);
+CREATE INDEX IF NOT EXISTS idx_recon_sources_type ON recon_sources(source_type, enabled);
+
+CREATE TABLE IF NOT EXISTS asset_observations (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    observation_type     TEXT NOT NULL,
+        -- os_fingerprint_scan | os_fingerprint_cpe | os_inventory_zabbix | os_hint_enrichment | ...
+    raw_value            TEXT,
+    normalized_value     TEXT,
+    source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
+    source_object_ref    TEXT NOT NULL DEFAULT '',
+        -- e.g. Zabbix hostid
+    observed_at          DATETIME NOT NULL DEFAULT (datetime('now')),
+    confidence_level     TEXT NOT NULL DEFAULT 'medium',
+        -- low | medium | high | authoritative (per-observation hint)
+    provenance_json      TEXT,
+    UNIQUE(asset_id, observation_type, source_id, source_object_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_obs_asset ON asset_observations(asset_id, observation_type);
+CREATE INDEX IF NOT EXISTS idx_asset_obs_seen ON asset_observations(observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS asset_assertions (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    assertion_type       TEXT NOT NULL,
+        -- os_platform | ...
+    asserted_value       TEXT NOT NULL,
+        -- normalized bucket key (machine-readable)
+    confidence_level     TEXT NOT NULL DEFAULT 'medium',
+        -- low | medium | high | authoritative
+    status               TEXT NOT NULL DEFAULT 'active',
+        -- active | superseded | conflict (reserved)
+    reconciled_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+    explanation          TEXT,
+    version              INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(asset_id, assertion_type)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_assert_asset ON asset_assertions(asset_id, assertion_type);
+
+CREATE TABLE IF NOT EXISTS assertion_sources (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    assertion_id         INTEGER NOT NULL REFERENCES asset_assertions(id) ON DELETE CASCADE,
+    observation_id       INTEGER NOT NULL REFERENCES asset_observations(id) ON DELETE CASCADE,
+    source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
+    contribution         TEXT NOT NULL DEFAULT 'corroborates',
+        -- primary | corroborates | conflicting (reserved)
+    weight_note          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_assertion_src_assert ON assertion_sources(assertion_id);
+CREATE INDEX IF NOT EXISTS idx_assertion_src_obs ON assertion_sources(observation_id);
+
+CREATE TABLE IF NOT EXISTS reconciliation_runs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at          DATETIME NOT NULL DEFAULT (datetime('now')),
+    entity_type          TEXT NOT NULL DEFAULT 'asset',
+    entity_id            INTEGER NOT NULL,
+    slice_key            TEXT NOT NULL,
+        -- e.g. os_platform
+    status               TEXT NOT NULL DEFAULT 'ok',
+        -- ok | skipped | error
+    result_summary_json  TEXT,
+    error                TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recon_runs_entity ON reconciliation_runs(entity_type, entity_id, slice_key, finished_at DESC);
+
 INSERT OR IGNORE INTO config VALUES
     ('nvd_last_sync',   ''),
     ('snmp_community',  'public'),

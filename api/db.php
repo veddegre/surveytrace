@@ -401,6 +401,7 @@ function st_db(): PDO {
     st_migrate_phase16_remove_legacy_integrations_pull_token_v1($pdo);
     st_migrate_phase16_zabbix_source_v1($pdo);
     st_migrate_phase16_2_zabbix_workflow_v1($pdo);
+    st_migrate_reconciliation_trusted_data_v1($pdo);
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -956,6 +957,104 @@ function st_migrate_phase16_2_zabbix_workflow_v1(PDO $pdo): void
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_phase16_2_zabbix_workflow_v1', '1')"
+    );
+}
+
+/**
+ * Trusted data model v1 — reconciliation primitives (observations, assertions, audit runs).
+ */
+function st_migrate_reconciliation_trusted_data_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_reconciliation_trusted_data_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS recon_sources (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            source_type          TEXT NOT NULL,
+            source_instance_key  TEXT NOT NULL DEFAULT 'default',
+            display_name         TEXT NOT NULL DEFAULT '',
+            trust_level          TEXT NOT NULL DEFAULT 'medium',
+            freshness_sec        INTEGER NOT NULL DEFAULT 86400,
+            enabled              INTEGER NOT NULL DEFAULT 1,
+            meta_json            TEXT,
+            UNIQUE(source_type, source_instance_key)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_recon_sources_type ON recon_sources(source_type, enabled)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS asset_observations (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            observation_type     TEXT NOT NULL,
+            raw_value            TEXT,
+            normalized_value     TEXT,
+            source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
+            source_object_ref    TEXT NOT NULL DEFAULT '',
+            observed_at          DATETIME NOT NULL DEFAULT (datetime('now')),
+            confidence_level     TEXT NOT NULL DEFAULT 'medium',
+            provenance_json      TEXT,
+            UNIQUE(asset_id, observation_type, source_id, source_object_ref)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_obs_asset ON asset_observations(asset_id, observation_type)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_obs_seen ON asset_observations(observed_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS asset_assertions (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            assertion_type       TEXT NOT NULL,
+            asserted_value       TEXT NOT NULL,
+            confidence_level     TEXT NOT NULL DEFAULT 'medium',
+            status               TEXT NOT NULL DEFAULT 'active',
+            reconciled_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+            explanation          TEXT,
+            version              INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(asset_id, assertion_type)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_assert_asset ON asset_assertions(asset_id, assertion_type)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS assertion_sources (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+            assertion_id         INTEGER NOT NULL REFERENCES asset_assertions(id) ON DELETE CASCADE,
+            observation_id       INTEGER NOT NULL REFERENCES asset_observations(id) ON DELETE CASCADE,
+            source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
+            contribution         TEXT NOT NULL DEFAULT 'corroborates',
+            weight_note          TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_assertion_src_assert ON assertion_sources(assertion_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_assertion_src_obs ON assertion_sources(observation_id)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS reconciliation_runs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            finished_at          DATETIME NOT NULL DEFAULT (datetime('now')),
+            entity_type          TEXT NOT NULL DEFAULT 'asset',
+            entity_id            INTEGER NOT NULL,
+            slice_key            TEXT NOT NULL,
+            status               TEXT NOT NULL DEFAULT 'ok',
+            result_summary_json  TEXT,
+            error                TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_recon_runs_entity ON reconciliation_runs(entity_type, entity_id, slice_key, finished_at DESC)');
+
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_reconciliation_trusted_data_v1', '1')"
     );
 }
 

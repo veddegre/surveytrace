@@ -6873,9 +6873,35 @@ function findingEvidenceTitle(f) {
 
 function findingConfidenceChipClass(conf) {
     const c = String(conf || 'low').toLowerCase();
+    if (c === 'authoritative') return 'conf-chip conf-high';
     if (c === 'high') return 'conf-chip conf-high';
     if (c === 'medium') return 'conf-chip conf-med';
     return 'conf-chip conf-low';
+}
+
+function stHostReconciliationEvidenceHtml(assetData) {
+    if (!assetData || assetData.os_platform_assertion == null) return '';
+    const asserted = String(assetData.os_platform_assertion).trim();
+    if (!asserted) return '';
+    const conf = String(assetData.os_platform_confidence || 'medium').toLowerCase();
+    const chipClass = findingConfidenceChipClass(conf);
+    const sources = Array.isArray(assetData.os_platform_sources) ? assetData.os_platform_sources : [];
+    const srcLine = sources.length ? sources.map((s) => esc(String(s))).join(', ') : '\u2014';
+    const expl = assetData.os_platform_explanation != null && String(assetData.os_platform_explanation).trim()
+        ? `<p class="text-micro mt6 st-host-evidence-expl">${esc(String(assetData.os_platform_explanation))}</p>`
+        : '';
+    return `<section class="host-section st-host-subsection st-host-evidence" aria-label="Reconciled evidence">
+      <h3 class="host-section-heading">Evidence \u2014 OS / platform</h3>
+      <div class="host-inner-surface st-host-evidence-inner">
+        <div class="st-host-evidence-row">
+          <span class="text-dim text-micro">Asserted</span>
+          <strong class="mono-sm">${esc(asserted)}</strong>
+          <span class="${chipClass}" title="Reconciliation confidence">${esc(conf.toUpperCase())}</span>
+        </div>
+        <div class="text-micro text-dim mt4">Sources \u00b7 ${srcLine}</div>
+        ${expl}
+      </div>
+    </section>`;
 }
 
 function formatHpFindingTriage(f) {
@@ -18313,6 +18339,8 @@ async function openHostPanel(id, ip) {
         }).join('')
         : '<div class="hp-empty st-host-empty">No scan-to-scan deltas yet. Repeat scans build this timeline.</div>';
 
+    const reconEvidenceHtml = stHostReconciliationEvidenceHtml(assetData);
+
     const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
         ? `<div class="hp-actions hp-actions-host-primary mt14 st-host-actionbar">
         ${stRoleCanManageScans() ? `<button type="button" class="btnp btn-xs" onclick='void queueHostRescan(${JSON.stringify(a.ip)}, this)' title="Rescan: profile, collector target, scan steps, rates, discovery, exclusions, enrichment; Scan tab syncs after a successful queue">&#8635; Rescan host</button>
@@ -18375,6 +18403,7 @@ async function openHostPanel(id, ip) {
           <div class="st-host-summary-item"><span class="st-host-summary-k">Open ports</span><span class="st-host-summary-v">${esc(String(ports.length))}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Last scan</span><span class="st-host-summary-v">${esc(latestScanLabel)}</span></div>
         </div>
+        ${reconEvidenceHtml}
         ${hpActionsHtml}
         <section class="host-section st-host-subsection" aria-label="Identity and inventory">
           <h3 class="host-section-heading">Identity &amp; inventory</h3>

@@ -46,11 +46,14 @@
  * Single asset (?id=N) adds:
  *   "findings": [{cve_id, cvss, severity, description, published, resolved}]
  *   "port_history": [{ports, seen_at}]
+ *   Reconciliation (additive, lazy OS/platform slice): "assertions", "evidence_summary",
+ *   "os_platform_assertion", "os_platform_confidence", "os_platform_sources", "os_platform_explanation"
  */
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
+require_once __DIR__ . '/lib_reconciliation.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -624,9 +627,22 @@ if ($single_id > 0) {
         $asset['scope_name'] = null;
     }
 
+    $reconBundle = st_recon_empty_bundle();
+    try {
+        $reconBundle = st_recon_lazy_reconcile_os_platform($db, $single_id, $asset);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php reconciliation: ' . $e->getMessage());
+    }
+
     st_json([
         'asset'                  => $asset,
         'asset_scope_assignable' => st_assets_has_scope_id($db),
+        'assertions'             => $reconBundle['assertions'],
+        'evidence_summary'       => $reconBundle['evidence_summary'],
+        'os_platform_assertion'  => $reconBundle['os_platform_assertion'],
+        'os_platform_confidence' => $reconBundle['os_platform_confidence'],
+        'os_platform_sources'    => $reconBundle['os_platform_sources'],
+        'os_platform_explanation' => $reconBundle['os_platform_explanation'],
     ]);
 }
 
