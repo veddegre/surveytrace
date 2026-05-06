@@ -2838,15 +2838,12 @@ body.light-mode .host-modal-dialog{box-shadow:0 22px 56px rgba(15,23,42,.2)}
   -webkit-overflow-scrolling:touch;
   background:var(--host-modal-body-bg);
 }
-/* Loading / error-only body: keep outer scroll. With tabs: scroll only the panel stack so tabs never overlap content. */
-.host-modal-body:has(.host-tab-shell){
+/* Tabbed host detail: outer body does not scroll; .host-tab-panels scrolls (class toggled in JS when shell is rendered). */
+.host-modal-body--tabbed{
   display:flex;
   flex-direction:column;
   overflow:hidden;
   overflow-y:hidden;
-}
-.host-modal-body:not(:has(.host-tab-shell)){
-  overflow-y:auto;
 }
 /* Host modal — in-modal tabs */
 .host-tab-shell{

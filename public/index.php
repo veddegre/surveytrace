@@ -18046,6 +18046,7 @@ async function openHostPanel(id, ip) {
     hpEl.dataset.hpAssetId = String(id);
     if (hpTitle) hpTitle.textContent = ip;
     if (hpBadges) hpBadges.innerHTML = '';
+    hpBody.classList.remove('host-modal-body--tabbed');
     hpBody.innerHTML = '<div class="loading">Loading…</div>';
     syncHostPanelExplainBusyUi();
 
@@ -18056,6 +18057,7 @@ async function openHostPanel(id, ip) {
     ]);
 
     if (!assetData || !assetData.asset) {
+        hpBody.classList.remove('host-modal-body--tabbed');
         hpBody.innerHTML = '<div class="loading">Failed to load</div>';
         if (hpBadges) hpBadges.innerHTML = '';
         delete hpEl.dataset.hpAssetId;
@@ -18338,9 +18340,11 @@ async function openHostPanel(id, ip) {
           </div>
         </div>
       </div>`;
+    hpBody.classList.add('host-modal-body--tabbed');
     stHostSetTab('overview');
     } catch (e) {
         console.error('openHostPanel render', e);
+        hpBody.classList.remove('host-modal-body--tabbed');
         hpBody.innerHTML = '<div class="loading">Could not render host detail.</div>';
     }
     syncHostPanelExplainBusyUi();
@@ -18350,6 +18354,10 @@ function closeHostPanel() {
     const hpEl = document.getElementById('host-panel');
     if (!hpEl) {
         return;
+    }
+    const hpBody = document.getElementById('hp-body');
+    if (hpBody) {
+        hpBody.classList.remove('host-modal-body--tabbed');
     }
     const hpBadges = document.getElementById('hp-header-badges');
     stHostPanelDetachEsc();
