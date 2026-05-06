@@ -1905,16 +1905,24 @@ if (!headers_sent()) {
 
 <!-- ================================================================ ACCESS CONTROL -->
 <div class="tab" id="t-access">
-  <div class="card">
-    <div class="ct">Access control</div>
-    <div class="help-line mb8">Manage sign-in mode, local users, and recovery options.</div>
-    <div class="help-box mb10">
-      <div class="help-line"><strong>Setup quick guide:</strong></div>
-      <div class="help-line">1) Choose auth mode: <strong>Session</strong> (local accounts) or <strong>OIDC</strong>.</div>
-      <div class="help-line">2) Keep <strong>Breakglass local access</strong> enabled so one emergency account can still sign in if SSO is unavailable.</div>
-      <div class="help-line">3) Choose <strong>SSO role assignment</strong>: manage roles here in SurveyTrace (recommended) or map from IdP groups.</div>
-    </div>
-    <details class="mb10" open>
+  <section class="st-band st-access-band st-access-band--overview" aria-labelledby="st-access-overview-title">
+    <header class="st-access-band-head">
+      <div class="st-access-kicker">Identity</div>
+      <div class="st-access-band-main">
+        <h2 class="st-access-page-title" id="st-access-overview-title">Access control</h2>
+        <p class="hint-micro text-dim st-access-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Security administration workspace for <strong>local users</strong>, <strong>role assignment</strong>, <strong>OIDC/SSO</strong>, and emergency <strong>breakglass</strong> access. UI permissions are role-aware: viewer, scan editor, and admin capabilities are enforced server-side and reflected throughout the product.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-access-band st-access-band--users" aria-labelledby="st-access-users-title">
+    <header class="st-access-section-head">
+      <h3 class="st-access-section-title" id="st-access-users-title">Users and roles</h3>
+      <p class="hint-micro text-dim st-access-section-lede mb0">Account state, role, MFA status, and sensitive actions are managed here. Disabled users stay in the list for auditability.</p>
+    </header>
+    <details class="mb10 st-access-daily" open>
       <summary class="flbl text-secondary">Daily admin tasks</summary>
       <label class="flbl mt6">Authentication mode</label>
       <div class="row-wrap mb10">
@@ -1991,10 +1999,10 @@ if (!headers_sent()) {
       </details>
       <div class="flbl">Local users and roles</div>
       <div class="hint-micro mb6">Use this table to assign application roles. In SurveyTrace-managed mode, SSO users keep the role assigned here.</div>
-      <div class="tbl-wrap tbl-wrap--data mb8">
-        <table class="tbl tbl--data" id="auth-users-table">
+      <div class="tbl-wrap tbl-wrap--data mb8 st-access-tbl-wrap">
+        <table class="tbl tbl--data st-access-users-tbl" id="auth-users-table">
           <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Email</th><th class="tbl-th-no-sort">Role</th><th class="tbl-th-no-sort">MFA</th><th class="tbl-th-no-sort">Disabled</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-          <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody>
+          <tbody id="auth-users-tbody"><tr><td colspan="7" class="loading tbl-empty st-access-empty">Loading…</td></tr></tbody>
         </table>
       </div>
       <div class="hint-micro mb8"><strong>Save</strong> applies account fields immediately. <strong>Password</strong> opens a dialog to set an optional temporary password.</div>
@@ -2009,22 +2017,32 @@ if (!headers_sent()) {
       </div>
       <div class="flbl">Live auth operations (non-historical)</div>
       <div class="hint-micro mb6">Operational view of current failed/locked sign-in state. This is not a permanent history.</div>
-      <div class="tbl-wrap tbl-wrap--data mb8">
-        <table class="tbl tbl--data">
+      <div class="tbl-wrap tbl-wrap--data mb8 st-access-tbl-wrap">
+        <table class="tbl tbl--data st-access-live-tbl">
           <thead><tr><th class="tbl-th-no-sort">User</th><th class="tbl-th-no-sort">Failed attempts</th><th class="tbl-th-no-sort">Last failed (UTC)</th><th class="tbl-th-no-sort">Locked until (UTC)</th><th class="tbl-th-no-sort">IP</th></tr></thead>
-          <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
+          <tbody id="auth-live-tbody"><tr><td colspan="5" class="loading tbl-empty st-access-empty">Loading…</td></tr></tbody>
         </table>
       </div>
       <div class="flbl">Historical user audit</div>
       <div class="hint-micro mb6">Persistent trail of sign-ins, account, and scan operator actions.</div>
-      <div class="tbl-wrap tbl-wrap--data">
-        <table class="tbl tbl--data">
+      <div class="tbl-wrap tbl-wrap--data st-access-tbl-wrap">
+        <table class="tbl tbl--data st-access-audit-tbl">
           <thead><tr><th class="tbl-th-no-sort">When (UTC)</th><th class="tbl-th-no-sort">Action</th><th class="tbl-th-no-sort">Actor</th><th class="tbl-th-no-sort">Target</th><th class="tbl-th-no-sort">IP</th></tr></thead>
-          <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody>
+          <tbody id="auth-audit-tbody"><tr><td colspan="5" class="loading tbl-empty st-access-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </details>
-  </div>
+  </section>
+
+  <section class="st-band st-access-band st-access-band--signin" aria-labelledby="st-access-signin-title">
+    <h3 class="st-access-section-title" id="st-access-signin-title">Sign-in methods</h3>
+    <p class="hint-micro text-dim st-access-signin-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Authentication mode, OIDC configuration, and SSO role-source mapping are managed in Daily admin tasks above. Keep breakglass configured so emergency local login exists if IdP auth is unavailable.</p>
+  </section>
+
+  <section class="st-band st-access-band st-access-band--sensitive" aria-labelledby="st-access-sensitive-title">
+    <h3 class="st-access-section-title" id="st-access-sensitive-title">Security-sensitive controls</h3>
+    <p class="hint-micro text-dim st-access-sensitive-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Password policy, OIDC secret fields, breakglass username, MFA reset, password reset, role changes, and user deletion are trust-affecting actions. Use these controls deliberately; confirmations and server-side authorization remain enforced.</p>
+  </section>
 </div>
 
 <!-- ================================================================ INTEGRATIONS (admin) -->
@@ -9398,16 +9416,19 @@ async function loadAuthUsers() {
     if (!tbody) return;
     const r = await api('/api/auth.php?users=1');
     if (!r || !r.ok) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-dim">Role management unavailable for current account.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-dim st-access-empty">Role management unavailable for current account.</td></tr>';
         const liveTbody = document.getElementById('auth-live-tbody');
-        if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+        if (liveTbody) liveTbody.innerHTML = '<tr><td colspan="5" class="text-dim st-access-empty">Live auth view unavailable for current account.</td></tr>';
         const auditTbody = document.getElementById('auth-audit-tbody');
-        if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+        if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="5" class="text-dim st-access-empty">Audit log unavailable for current account.</td></tr>';
         return;
     }
     const users = r.users || [];
-    tbody.innerHTML = users.length ? users.map(u => `
-      <tr>
+    tbody.innerHTML = users.length ? users.map(u => {
+      const roleCls = u.role === 'admin' ? 'st-access-user-row--admin' : (u.role === 'scan_editor' ? 'st-access-user-row--editor' : 'st-access-user-row--viewer');
+      const rowCls = u.disabled ? 'st-access-user-row--disabled' : roleCls;
+      return `
+      <tr class="${rowCls}">
         <td><input class="finp" id="u-name-${u.id}" value="${esc(u.username)}"></td>
         <td><input class="finp" id="u-dn-${u.id}" value="${esc(u.display_name || '')}" placeholder="Optional"></td>
         <td><input class="finp" id="u-em-${u.id}" value="${esc(u.email || '')}" placeholder="Optional"></td>
@@ -9421,15 +9442,16 @@ async function loadAuthUsers() {
         <td class="mono-sm">${u.mfa_enabled ? 'enabled' : 'off'}</td>
         <td style="text-align:center;vertical-align:middle"><label class="tog tog--sm" title="Disabled"><input type="checkbox" id="u-dis-${u.id}" ${u.disabled ? 'checked' : ''}><div class="trk"></div><div class="tth"></div></label></td>
         <td class="tbl-cell-actions">
-          <div class="user-row-actions">
+          <div class="user-row-actions st-access-user-row-actions">
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUserQuick(${u.id})" title="Save account settings without changing password">Save</button>
             <button type="button" class="tbtn btn-xs" onclick="saveAuthUser(${u.id})" title="Set temporary password">Password</button>
             ${u.auth_source === 'local' && u.mfa_enabled ? `<button type="button" class="tbtn btn-xs" onclick="resetUserMfa(${u.id})">Clear MFA</button>` : ''}
-            <button type="button" class="tbtn btn-xs" onclick="deleteAuthUser(${u.id})">Delete</button>
+            <button type="button" class="tbtn btn-xs st-access-user-action-delete" onclick="deleteAuthUser(${u.id})">Delete</button>
           </div>
         </td>
-      </tr>`).join('')
-      : '<tr><td colspan="7" class="text-dim">No users</td></tr>';
+      </tr>`;
+    }).join('')
+      : '<tr><td colspan="7" class="text-dim st-access-empty">No local users yet. Create one account to establish local access policy and role ownership.</td></tr>';
     void Promise.allSettled([loadAuthLive(), loadAuthAudit()]);
 }
 
@@ -9515,13 +9537,13 @@ async function loadAuthLive() {
         try { r = raw ? JSON.parse(raw) : null; } catch (e) { r = null; }
         if (!resp.ok || !r || !r.ok) {
             const msg = (r && (r.error || r.detail)) ? String(r.error || r.detail) : (`HTTP ${resp.status}`);
-            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Live auth view unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim st-access-empty">Live auth view unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
             return;
         }
         const rows = Array.isArray(r.live) ? r.live : [];
         if (r.warning) {
             const detail = r.detail ? ` (${String(r.detail).slice(0, 180)})` : '';
-            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Live auth view unavailable${esc(detail)}.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim st-access-empty">Live auth view unavailable${esc(detail)}.</td></tr>`;
             return;
         }
         tbody.innerHTML = rows.length ? rows.map(ev => `
@@ -9532,9 +9554,9 @@ async function loadAuthLive() {
             <td class="mono-sm">${esc(localTime(ev.locked_until || ''))}</td>
             <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
           </tr>`).join('')
-          : '<tr><td colspan="5" class="text-dim">No active sign-in failures or lockouts.</td></tr>';
+          : '<tr><td colspan="5" class="text-dim st-access-empty">No active sign-in failures or lockouts.</td></tr>';
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Live auth view unavailable for current account.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim st-access-empty">Live auth view unavailable for current account.</td></tr>';
     }
 }
 
@@ -9548,13 +9570,13 @@ async function loadAuthAudit() {
         try { r = raw ? JSON.parse(raw) : null; } catch (e) { r = null; }
         if (!resp.ok || !r || !r.ok) {
             const msg = (r && (r.error || r.detail)) ? String(r.error || r.detail) : (`HTTP ${resp.status}`);
-            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Audit log unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim st-access-empty">Audit log unavailable (${esc(msg.slice(0, 220))}).</td></tr>`;
             return;
         }
         const rows = Array.isArray(r.audit) ? r.audit : [];
         if (r.warning) {
             const detail = r.detail ? ` (${String(r.detail).slice(0, 180)})` : '';
-            tbody.innerHTML = `<tr><td colspan="5" class="text-dim">Audit log unavailable${esc(detail)}.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-dim st-access-empty">Audit log unavailable${esc(detail)}.</td></tr>`;
             return;
         }
         tbody.innerHTML = rows.length ? rows.map(ev => `
@@ -9565,9 +9587,9 @@ async function loadAuthAudit() {
             <td class="mono-sm">${esc(formatAuditTarget(ev))}</td>
             <td class="mono-sm">${esc(ev.source_ip || '—')}</td>
           </tr>`).join('')
-          : '<tr><td colspan="5" class="text-dim">No user activity yet.</td></tr>';
+          : '<tr><td colspan="5" class="text-dim st-access-empty">No user activity yet.</td></tr>';
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-dim">Audit log unavailable for current account.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-dim st-access-empty">Audit log unavailable for current account.</td></tr>';
     }
 }
 

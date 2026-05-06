@@ -2316,6 +2316,74 @@ body.light-mode #t-integrations.on .st-integrations-tbl tbody tr.st-integrations
   color:var(--text-muted);
   margin:0 0 10px;
 }
+/* Access control tab — security administration workspace (#t-access); st-access-* scoped */
+#t-access.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-access.on > .st-band{margin-bottom:0}
+.st-access-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-access-band-head{grid-template-columns:1fr}
+}
+.st-access-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-access-kicker{color:var(--primary)}
+.st-access-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-access-section-head{margin-bottom:12px}
+.st-access-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-access-section-lede,.st-access-signin-lede,.st-access-sensitive-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-access-tbl-wrap{min-width:0;font-size:13px}
+.st-access-empty{line-height:1.5;max-width:52rem}
+#t-access.on .st-access-users-tbl tbody tr.st-access-user-row--admin td{
+  background:color-mix(in srgb,var(--primary) 6%,var(--section-bg));
+}
+#t-access.on .st-access-users-tbl tbody tr.st-access-user-row--editor td{
+  background:color-mix(in srgb,var(--green) 5%,var(--section-bg));
+}
+#t-access.on .st-access-users-tbl tbody tr.st-access-user-row--disabled td{
+  background:color-mix(in srgb,var(--amber) 9%,var(--section-bg));
+}
+body.light-mode #t-access.on .st-access-users-tbl tbody tr.st-access-user-row--admin td{
+  background:color-mix(in srgb,var(--primary) 7%,var(--surface-muted));
+}
+body.light-mode #t-access.on .st-access-users-tbl tbody tr.st-access-user-row--editor td{
+  background:color-mix(in srgb,var(--green) 6%,var(--surface-muted));
+}
+body.light-mode #t-access.on .st-access-users-tbl tbody tr.st-access-user-row--disabled td{
+  background:color-mix(in srgb,var(--amber) 10%,var(--surface-muted));
+}
+#t-access.on .st-access-user-row-actions{max-width:none}
+.st-access-user-action-delete{color:var(--red)}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
