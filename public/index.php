@@ -754,54 +754,82 @@ if (!headers_sent()) {
 
 <!-- ================================================================ SCAN HISTORY -->
 <div class="tab" id="t-scanhist">
-  <div class="hint-micro mb10">
-    <span id="scan-hist-intro-viewer" style="display:none">Job queue and finished scans. Scan creation requires scan editor access.</span>
-    <span id="scan-hist-intro-editor">Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.</span>
-  </div>
-  <div id="st-shsf-wrap" class="st-shsf-wrap row-wrap gap6 mb10" role="group" aria-label="Filter by job status">
-    <span class="text-micro text-dim st-shsf-label">Status</span>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-on" data-shsf="all" id="st-shsf-all">All</button>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="running" id="st-shsf-running">Running</button>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="queued" id="st-shsf-queued">Queued</button>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="completed" id="st-shsf-completed">Completed</button>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="failed" id="st-shsf-failed">Failed</button>
-    <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="aborted" id="st-shsf-aborted">Aborted</button>
-  </div>
-  <!-- Job queue — primary status view -->
-  <div class="sth section-top">Job queue</div>
-  <div id="job-queue-wrap">
-    <div id="job-queue" class="mb8" style="display:none">
-      <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
-        <table class="tbl tbl--data">
-          <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-          <tbody id="queue-tbody"></tbody>
-        </table>
+  <section class="st-band st-scanhist-overview" aria-labelledby="st-scanhist-overview-title">
+    <header class="st-scanhist-band-head">
+      <div class="st-scanhist-kicker">Operations</div>
+      <div class="st-scanhist-band-head-main">
+        <h2 class="st-scanhist-page-title" id="st-scanhist-overview-title">Queue &amp; execution log</h2>
+        <div class="hint-micro st-scanhist-intro">
+          <span id="scan-hist-intro-viewer" style="display:none">Job queue and finished scans. Scan creation requires scan editor access.</span>
+          <span id="scan-hist-intro-editor">Job queue and finished scans. New jobs: <button type="button" class="tbtn text-micro" onclick="goTab('scan');hiNav('nscan')">Scan control</button>.</span>
+        </div>
       </div>
+    </header>
+    <div id="st-shsf-wrap" class="st-shsf-wrap row-wrap gap6 st-scanhist-status-filters" role="group" aria-label="Filter by job status">
+      <span class="text-micro text-dim st-shsf-label">Status</span>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-on" data-shsf="all" id="st-shsf-all">All</button>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="running" id="st-shsf-running">Running</button>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="queued" id="st-shsf-queued">Queued</button>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="completed" id="st-shsf-completed">Completed</button>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="failed" id="st-shsf-failed">Failed</button>
+      <button type="button" class="tbtn btn-xs st-shsf toggle-off" data-shsf="aborted" id="st-shsf-aborted">Aborted</button>
     </div>
-    <div id="job-queue-empty" class="hint-micro mb8 pad8y st-scan-hist-queue-empty">No jobs queued or running right now.</div>
-  </div>
+  </section>
 
-  <div class="sth section-top">Scan history</div>
-  <div class="fbar">
-    <div class="row-wrap gap6">
-      <button type="button" class="tbtn btn-xs" id="scan-view-active" onclick="setScanHistoryView('active')">Active</button>
-      <button type="button" class="tbtn btn-xs" id="scan-view-trash" onclick="setScanHistoryView('trash')">Trash</button>
-      <button type="button" class="tbtn btn-xs" id="scan-view-all" onclick="setScanHistoryView('all')">All</button>
+  <section class="st-band st-scanhist-queue-band" aria-labelledby="st-scanhist-queue-title">
+    <header class="st-scanhist-region-head">
+      <div class="st-scanhist-region-title-row">
+        <span class="st-scanhist-timeline-mark st-scanhist-timeline-mark--live" aria-hidden="true"></span>
+        <div class="st-scanhist-region-text">
+          <h2 class="st-scanhist-region-title" id="st-scanhist-queue-title">Live queue</h2>
+          <p class="st-scanhist-region-lede text-micro text-dim">Jobs waiting or executing now — progress, priority, and start time.</p>
+        </div>
+      </div>
+    </header>
+    <div id="job-queue-wrap">
+      <div id="job-queue" class="mb8" style="display:none">
+        <div class="tbl-wrap tbl-scan-hist tbl-wrap--data st-scanhist-table">
+          <table class="tbl tbl--data">
+            <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+            <tbody id="queue-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="job-queue-empty" class="hint-micro mb8 pad8y st-scan-hist-queue-empty st-scanhist-empty-hint">No jobs queued or running right now.</div>
     </div>
-    <select class="finp narrow" id="scan-source-filter" onchange="loadScanHistory()" title="Filter by scan execution source">
-      <option value="any">Any source</option>
-      <option value="master">Master only</option>
-      <option value="collector">Collectors only</option>
-    </select>
-    <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
-    <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
-  </div>
-  <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
-    <table class="tbl tbl--data">
-      <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Status</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Hosts</th><th class="tbl-th-no-sort">AI</th><th class="tbl-th-no-sort">Duration</th><th class="tbl-th-no-sort">Completed</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-      <tbody id="scan-hist"><tr><td colspan="9" class="loading tbl-empty">Loading scan history…</td></tr></tbody>
-    </table>
-  </div>
+  </section>
+
+  <section class="st-band st-scanhist-archive-band" aria-labelledby="st-scanhist-archive-title">
+    <header class="st-scanhist-region-head">
+      <div class="st-scanhist-region-title-row">
+        <span class="st-scanhist-timeline-mark st-scanhist-timeline-mark--archive" aria-hidden="true"></span>
+        <div class="st-scanhist-region-text">
+          <h2 class="st-scanhist-region-title" id="st-scanhist-archive-title">History &amp; outcomes</h2>
+          <p class="st-scanhist-region-lede text-micro text-dim">Finished and failed runs in time order — filter by view, source, label, target, or job id.</p>
+        </div>
+      </div>
+    </header>
+    <div class="fbar st-scanhist-toolbar">
+      <div class="row-wrap gap6">
+        <button type="button" class="tbtn btn-xs" id="scan-view-active" onclick="setScanHistoryView('active')">Active</button>
+        <button type="button" class="tbtn btn-xs" id="scan-view-trash" onclick="setScanHistoryView('trash')">Trash</button>
+        <button type="button" class="tbtn btn-xs" id="scan-view-all" onclick="setScanHistoryView('all')">All</button>
+      </div>
+      <select class="finp narrow" id="scan-source-filter" onchange="loadScanHistory()" title="Filter by scan execution source">
+        <option value="any">Any source</option>
+        <option value="master">Master only</option>
+        <option value="collector">Collectors only</option>
+      </select>
+      <input class="finp wide" id="scan-hist-q" type="search" placeholder="Filter by scan label, target CIDR, or job #…" autocomplete="off" aria-label="Filter scan history by label, target, or job id" oninput="debounceScanHistSearch()">
+      <button type="button" class="tbtn" onclick="loadScanHistory()" title="Reload scan history">&#8635; Refresh</button>
+    </div>
+    <div class="tbl-wrap tbl-scan-hist tbl-wrap--data st-scanhist-table">
+      <table class="tbl tbl--data">
+        <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Status</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Hosts</th><th class="tbl-th-no-sort">AI</th><th class="tbl-th-no-sort">Duration</th><th class="tbl-th-no-sort">Completed</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+        <tbody id="scan-hist"><tr><td colspan="9" class="loading tbl-empty">Loading scan history…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
 <!-- ================================================================ REPORTS & ANALYSIS -->
@@ -1205,6 +1233,7 @@ if (!headers_sent()) {
     <div class="modal-card modal-w760 scan-hist-detail-card" role="dialog" aria-modal="true" aria-labelledby="scan-hist-detail-title" onclick="event.stopPropagation()">
       <header class="scan-hist-detail-hd">
         <div class="scan-hist-detail-hd-text">
+          <p class="scan-hist-detail-eyebrow">Execution record</p>
           <h2 id="scan-hist-detail-title" class="scan-hist-detail-title">Scan detail</h2>
           <div id="scan-hist-detail-header-sub" class="scan-hist-detail-header-sub"></div>
         </div>
@@ -1324,26 +1353,50 @@ if (!headers_sent()) {
 
 <!-- ================================================================ ENRICHMENT -->
 <div class="tab" id="t-enrich">
-  <div class="sth section-top">Enrichment</div>
-  <p class="hint-micro enrich-intro mb12">
-    Network enrichment sources and optional vendor connectors add context to assets and scans. Configure <strong>active sources</strong> first; optional <strong>Zabbix</strong> adds monitoring you already trust (sync, match review, and scope workflows below).
-  </p>
+  <section class="st-band st-enrich-band st-enrich-band--overview" aria-labelledby="st-enrich-overview-title">
+    <header class="st-enrich-band-head">
+      <div class="st-enrich-kicker">Enrichment</div>
+      <div class="st-enrich-band-main">
+        <h2 class="st-enrich-page-title" id="st-enrich-overview-title">External context &amp; operator workflows</h2>
+        <p class="hint-micro enrich-intro st-enrich-intro">
+          Configure <strong>network enrichment sources</strong> (SNMP, files, APIs, integrations) for scan-time context. Optionally connect <strong>Zabbix</strong>: <em>sync</em> pulls host data into SurveyTrace; <em>review</em> validates candidate matches; <em>apply</em> writes only after explicit confirmation. <strong>Output push</strong> (when enabled) is separate from sync — it sends state out to monitoring, not into the cache.
+        </p>
+        <ul class="st-enrich-legend" aria-label="Enrichment workflow summary">
+          <li><span class="st-enrich-legend-k">Sources</span> <span class="st-enrich-legend-v">what runs during scans</span></li>
+          <li><span class="st-enrich-legend-k">Sync</span> <span class="st-enrich-legend-v">pull into SurveyTrace</span></li>
+          <li><span class="st-enrich-legend-k">Review</span> <span class="st-enrich-legend-v">matches &amp; rules before apply</span></li>
+          <li><span class="st-enrich-legend-k">Apply</span> <span class="st-enrich-legend-v">confirmed identity / scope only</span></li>
+          <li><span class="st-enrich-legend-k">Push</span> <span class="st-enrich-legend-v">optional outbound integration</span></li>
+        </ul>
+      </div>
+    </header>
+  </section>
 
-  <div class="enrich-stack enrich-sources-stack mb12">
-      <div class="card">
-        <div class="ct">Active sources</div>
-      <p class="hint-micro text-dim mb10" style="line-height:1.45">
-        SNMP, files, APIs, and similar sources run during scans or scheduled jobs when configured.
-      </p>
-      <div class="flbl enrich-sources-subhd enrich-sources-subhd--top">Configured</div>
-        <div id="enrich-list"><div class="loading">Loading…</div></div>
-      <div class="enrich-card-actions mt10">
-        <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
+  <section class="st-band st-enrich-band st-enrich-band--sources enrich-sources-stack" aria-labelledby="st-enrich-sources-title">
+    <header class="st-enrich-region-head">
+      <div class="st-enrich-region-row">
+        <span class="st-enrich-step-mark st-enrich-step-mark--1" aria-hidden="true"></span>
+        <div class="st-enrich-region-text">
+          <h2 class="st-enrich-region-title" id="st-enrich-sources-title">Configure sources</h2>
+          <p class="st-enrich-region-lede hint-micro text-dim">Enable and tune connectors used as <strong>network enrichment</strong> on the Scan tab and in scheduled jobs.</p>
         </div>
-      <div class="flbl enrich-sources-subhd enrich-sources-subhd--avail">Available sources</div>
-      <p class="hint-micro text-dim mb6" style="line-height:1.45">Types you can add; status shows readiness on this server.</p>
+      </div>
+    </header>
+    <div class="st-enrich-body">
+      <div class="st-enrich-source-block">
+        <div class="flbl enrich-sources-subhd enrich-sources-subhd--top">Configured</div>
+        <div id="enrich-list"><div class="loading">Loading…</div></div>
+        <div class="enrich-card-actions mt10">
+          <button class="btnp btn-sm" onclick="openAddSource()">+ Add source</button>
+        </div>
+      </div>
+      <div class="st-enrich-inset-divider" role="presentation"></div>
+      <div class="st-enrich-source-block">
+        <div class="flbl enrich-sources-subhd enrich-sources-subhd--avail">Available sources</div>
+        <p class="hint-micro text-dim mb6" style="line-height:1.45">Types you can add; status reflects readiness on this server.</p>
         <div id="enrich-types"><div class="loading">Loading…</div></div>
-      <details class="enrich-how-details mt12">
+      </div>
+      <details class="enrich-how-details mt12 st-enrich-how">
         <summary class="enrich-how-details-summary">How enrichment works</summary>
         <div class="help-line mt8" style="line-height:1.8">
           Enrichment sources run during each scan as <b class="text-strong">network enrichment</b> (you can narrow or skip them per job on the <b>Scan</b> tab).<br>
@@ -1354,31 +1407,48 @@ if (!headers_sent()) {
         </div>
       </details>
     </div>
-  </div>
+  </section>
 
-  <div class="enrich-stack enrich-zabbix-suite mb12">
-      <div class="card enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
+  <div class="st-enrich-zabbix-flow">
+  <section class="st-band st-enrich-band st-enrich-band--sync" aria-labelledby="st-enrich-sync-title">
+    <header class="st-enrich-region-head">
+      <div class="st-enrich-region-row">
+        <span class="st-enrich-step-mark st-enrich-step-mark--2" aria-hidden="true"></span>
+        <div class="st-enrich-region-text">
+          <h2 class="st-enrich-region-title" id="st-enrich-sync-title">Sync external context (Zabbix)</h2>
+          <p class="st-enrich-region-lede hint-micro text-dim">Connector status, last sync, cache freshness, and manual pull. <strong>Run sync now</strong> refreshes the in-app host cache — not an output push.</p>
+        </div>
+      </div>
+    </header>
+      <div class="st-enrich-zbx-overview enrich-overview-card enrich-zabbix-overview" id="enrich-zbx-overview-card">
         <div class="ct enrich-zabbix-ct">Zabbix monitoring</div>
         <div id="enrich-zbx-status-line" class="hint-micro mb6 text-dim">Zabbix: Loading status…</div>
-        <p class="hint-micro text-dim mb6" style="line-height:1.45">
-          Integration status, cache freshness, and (for admins) output push. <strong>Run sync now</strong> refreshes cached hosts.
-        </p>
         <div id="enrich-zbx-overview-details" class="enrich-zbx-card-body enrich-zabbix-overview-body"><p class="hint-micro text-dim mb0">Loading…</p></div>
         <div class="enrich-zbx-overview-actions">
           <button type="button" class="btnp btn-sm" id="enrich-zbx-sync-btn" style="display:none" onclick="stZabbixSyncFromEnrichment()">Run sync now</button>
           <button type="button" class="tbtn btn-sm" id="enrich-zbx-tools-cta" style="display:none" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel" title="Open or close match review, scope rules, and apply workflows">Open tools</button>
         </div>
       </div>
-      <p id="enrich-zbx-connector" class="enrich-zbx-connector hint-micro text-dim" style="display:none" role="note">Use workflows below to review and apply matches.</p>
-      <div class="card enrich-zabbix-tools-card mb0" id="st-zabbix-enrich-tools-wrap" style="display:none">
-    <div class="zb-enrich-tools-head">
-          <div>
-            <div id="zb-enrich-tools-heading" class="ct mb0">Match review &amp; workflows</div>
-            <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>; results also surface on host <strong>Details</strong>. Scope-rule diagnostics live in this panel.</p>
+  </section>
+      <p id="enrich-zbx-connector" class="enrich-zbx-connector hint-micro text-dim st-enrich-connector" style="display:none" role="note">Use the review &amp; apply workspace below after sync.</p>
+  <section class="st-band st-enrich-band st-enrich-band--workflows enrich-zabbix-tools-card" id="st-zabbix-enrich-tools-wrap" style="display:none" aria-labelledby="zb-enrich-tools-heading">
+    <header class="st-enrich-region-head st-enrich-region-head--tools">
+      <div class="st-enrich-region-row">
+        <span class="st-enrich-step-mark st-enrich-step-mark--3" aria-hidden="true"></span>
+        <div class="st-enrich-region-text minw0">
+          <p class="st-enrich-tools-eyebrow">Review · apply · link</p>
+          <div id="zb-enrich-tools-heading" class="st-enrich-tools-heading" role="heading" aria-level="2">Match review &amp; workflows</div>
+          <p class="hint-micro enrich-zabbix-tools-sub mb0">Same connector as <strong>Integrations → Zabbix</strong>. Match review and scope rules stay here; host <strong>Details</strong> shows linked context. Use <strong>Diagnostics</strong> for rule validation and integration health.</p>
+        </div>
+      </div>
+    </header>
+    <div class="zb-enrich-tools-head st-enrich-tools-toolbar">
+          <div class="minw0">
+            <p class="hint-micro text-dim mb0 st-enrich-tools-toolbar-hint">Expand the panel to run match review, edit scope rules, confirm applies, and manual link/unlink.</p>
     </div>
           <button type="button" class="tbtn btn-sm" id="btn-zb-enrich-tools-toggle" onclick="stZabbixEnrichToolsToggle()" aria-expanded="false" aria-controls="zb-enrich-tools-panel">Open tools</button>
         </div>
-        <div id="zb-enrich-freshness-banner" class="mb8" style="display:none" aria-live="polite"></div>
+        <div id="zb-enrich-freshness-banner" class="mb8 st-enrich-freshness-slot" style="display:none" aria-live="polite"></div>
         <p class="hint-micro mb8 text-dim" id="zb-enrich-tools-preview">Review matches, apply scope rules, and link assets.</p>
     <div id="zb-enrich-tools-panel" class="hide" role="region" aria-labelledby="btn-zb-enrich-tools-toggle">
       <div id="zb-scope-prereq-banner" class="help-box mb10" style="display:none">
@@ -1389,17 +1459,18 @@ if (!headers_sent()) {
         </div>
       </div>
 
-      <div class="zb-enrich-section">
+      <div class="zb-enrich-section st-enrich-zb-sec st-enrich-zb-sec--match">
         <div class="flbl">Match review</div>
-        <p class="hint-micro mb6">Summary first; expand sections for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
+        <p class="hint-micro mb6">Candidate matches and confidence — summary first; expand for long lists. Manual link sets <code class="code-accent">match_method</code> / confidence (marked manual).</p>
             <button type="button" class="tbtn btn-sm mb6" onclick="stZabbixMatchReviewRefresh()">Refresh match review</button>
             <div id="zb-match-review-body" class="zb-enrich-match-box mb0">Open tools above, then click Refresh.</div>
       </div>
 
-      <div class="zb-enrich-section">
+      <div class="zb-enrich-section st-enrich-zb-sec st-enrich-zb-sec--scope">
         <div class="flbl">Scope map rules</div>
         <p class="hint-micro mb6">Rules default to <strong>disabled</strong>. Each row needs a valid <strong>scan scope</strong>. Saving rejects incomplete or invalid rows (nothing is silently dropped).</p>
-        <div id="zb-enrich-diagnostics-row" class="mb8" style="display:none">
+        <div id="zb-enrich-diagnostics-row" class="mb8 st-enrich-diagnostics-row" style="display:none">
+          <p class="st-enrich-diag-label text-micro text-dim mb6">Diagnostics — rule validation, errors, and <code class="code-accent">zabbix_sender</code> / push health where applicable.</p>
           <button type="button" class="tbtn btn-sm" id="btn-zb-diagnostics-toggle" onclick="stZabbixEnrichDiagnosticsToggle()" aria-expanded="false" aria-controls="zb-diagnostics-panel">Diagnostics</button>
           <div id="zb-diagnostics-panel" class="hide mt6" role="region" aria-labelledby="btn-zb-diagnostics-toggle">
             <div id="zb-diagnostics-warn" class="help-box mb6" style="display:none" aria-live="polite"></div>
@@ -1415,7 +1486,7 @@ if (!headers_sent()) {
         <div id="zb-preview" class="mb0">—</div>
       </div>
 
-      <div class="zb-enrich-section">
+      <div class="zb-enrich-section st-enrich-zb-sec st-enrich-zb-sec--apply">
         <div class="flbl">Apply actions</div>
         <p class="hint-micro mb8">Preview and confirm workflows for hostname fill and inventory scope mapping.</p>
         <div id="zb-identity-block">
@@ -1447,7 +1518,7 @@ if (!headers_sent()) {
         </div>
       </div>
 
-      <div class="zb-enrich-section">
+      <div class="zb-enrich-section st-enrich-zb-sec st-enrich-zb-sec--manual">
         <div class="flbl">Manual link / unlink</div>
         <p class="hint-micro mb6">Use the Zabbix <code class="code-accent">hostid</code> from unmatched hosts or Zabbix. One asset ↔ one Zabbix host.</p>
         <div class="row-wrap gap6 mb6">
@@ -1459,11 +1530,11 @@ if (!headers_sent()) {
         </div>
         <div class="row-wrap gap6">
           <input class="finp narrow zb-manual-inp zb-manual-inp--unlink" id="zb-unlink-aid" type="number" min="1" placeholder="Asset id to unlink">
-              <button type="button" class="tbtn btn-sm tbtn--danger-quiet" onclick="stZabbixManualUnlink()">Unlink asset</button>
-            </div>
+          <button type="button" class="tbtn btn-sm tbtn--danger-quiet" onclick="stZabbixManualUnlink()">Unlink asset</button>
         </div>
       </div>
     </div>
+  </section>
   </div>
 </div>
 
