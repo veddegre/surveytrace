@@ -756,6 +756,99 @@ body.light-mode .finp:focus{box-shadow:0 0 0 2px rgba(0,111,255,.18)}
 
 /* Scan control layout */
 .scgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* Scan control tab — guided launch bands (#t-scan); st-scan-* scoped */
+#t-scan.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-scan.on > .st-band{margin-bottom:0}
+.st-scan-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-scan-band-head{grid-template-columns:1fr}
+}
+.st-scan-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-scan-kicker{color:var(--primary)}
+.st-scan-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 8px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-scan-block-title{
+  font-family:var(--sf);
+  font-size:15px;
+  font-weight:700;
+  color:var(--text);
+  margin:0 0 6px;
+  line-height:1.3;
+  letter-spacing:.01em;
+}
+.st-scan-band-lede,.st-scan-overview-lede{margin-top:0}
+.st-scan-split{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px 24px;
+  align-items:start;
+}
+@media (max-width:900px){
+  .st-scan-split{grid-template-columns:1fr}
+}
+.st-scan-split-col{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+}
+.st-scan-region{padding-top:0;margin-top:0}
+.st-scan-region + .st-scan-region{
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid color-mix(in srgb,var(--bd) 55%,transparent);
+}
+.st-scan-region-h{
+  font-family:var(--sf);
+  font-size:11px;
+  color:var(--tx3);
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  margin-bottom:12px;
+  font-weight:700;
+}
+.st-scan-region--enrich .st-scan-region-h{margin-bottom:8px}
+.st-scan-enrich-lede{
+  margin-bottom:8px;
+  font-size:13px;
+  font-weight:400;
+  color:var(--tx2);
+  font-family:var(--mf);
+  line-height:1.45;
+}
+.st-scan-auto-split{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  margin:8px 0 2px;
+  color:var(--tx3);
+}
+.st-scan-launch-buttons{flex-wrap:wrap}
+.st-scan-hist-cta{margin-top:10px}
 .card{
   background:var(--app-surface-veil);
   border:1px solid color-mix(in srgb,var(--border) 92%,transparent);

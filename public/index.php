@@ -649,170 +649,217 @@ if (!headers_sent()) {
 
 <!-- ================================================================ SCAN CONTROL -->
 <div class="tab" id="t-scan">
-  <div class="scgrid">
-    <div>
-      <div class="card">
-        <div class="ct">Target &amp; scope</div>
-        <label class="flbl">CIDR target(s)</label>
-        <input class="finput" id="sc-cidr" type="text" placeholder="192.168.0.0/16, 10.0.0.0/8" value="192.168.0.0/16">
-        <label class="text-micro chk" style="display:flex;align-items:center;gap:8px;margin:8px 0 2px;color:var(--tx3)">
-          <input type="checkbox" class="chk-input" id="sc-auto-split-24" checked><span class="chk-label">Auto-split targets broader than /24 into /24 batch jobs (safer resume/checkpoint behavior)</span>
-        </label>
-        <label class="flbl">Exclusion list (IPs, CIDRs, ranges, # comments)</label>
-        <textarea class="finput" id="sc-excl" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
-        <label class="flbl">Scan label (optional)</label>
-        <input class="finput" id="sc-label" type="text" placeholder="Weekly full scan">
-        <label class="flbl">Reporting scope (optional)</label>
-        <select class="finput" id="sc-scope-id">
-          <option value="0">None — unscoped job</option>
-        </select>
-        <div class="hint-micro mt4 mb0">Tags the job for Reports &amp; Analysis so drift and baselines stay within the same network/environment.</div>
+  <section class="st-band st-scan-band st-scan-band--overview" aria-labelledby="st-scan-overview-title">
+    <header class="st-scan-band-head">
+      <div class="st-scan-kicker">Operations</div>
+      <div class="st-scan-band-main">
+        <h2 class="st-scan-page-title" id="st-scan-overview-title">Scan launch workspace</h2>
+        <p class="hint-micro text-dim st-scan-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          <strong>What you&rsquo;re scanning</strong> — CIDR targets, exclusions, optional label and reporting scope. <strong>Profile</strong> sets port depth and intensity. <strong>Discovery and scan steps</strong> control how hosts are found and what runs on each. <strong>Enrichment</strong> applies your configured sources after collection (per-job overrides below). After you queue, <strong>live counters</strong> and the job table link forward to <strong>Scan history</strong> for full status.
+        </p>
       </div>
-      <div class="card">
-        <div class="ct">Rate limiting</div>
-        <div class="rr">
-          <label class="flbl">Max packets/sec per host</label>
-          <div class="rv"><span>1</span><span id="pps-val">5 pps</span><span>50</span></div>
-          <input class="rng" type="range" id="sc-pps" min="1" max="50" step="1" value="5" oninput="document.getElementById('pps-val').textContent=this.value+' pps'">
-        </div>
-        <div class="rr">
-          <label class="flbl">Inter-host delay</label>
-          <div class="rv"><span>0</span><span id="delay-val">200 ms</span><span>2000</span></div>
-          <input class="rng" type="range" id="sc-delay" min="0" max="2000" step="10" value="200" oninput="document.getElementById('delay-val').textContent=this.value+' ms'">
-        </div>
+    </header>
+  </section>
+
+  <section class="st-band st-scan-band st-scan-band--target" aria-labelledby="st-scan-target-title">
+    <header class="st-scan-band-head">
+      <div class="st-scan-kicker">Targets</div>
+      <div class="st-scan-band-main">
+        <h2 class="st-scan-block-title" id="st-scan-target-title">Targets &amp; profile</h2>
+        <p class="hint-micro text-dim st-scan-band-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Define addresses in scope, what to skip, and how aggressively to scan. Rate limits and discovery mode apply to this job only.</p>
       </div>
-      <div class="card">
-        <div class="ct">Discovery mode</div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Auto</div>
-            <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
+    </header>
+    <div class="st-scan-split">
+      <div class="st-scan-split-col">
+        <div class="st-scan-region">
+          <div class="st-scan-region-h">Target &amp; scope</div>
+          <label class="flbl">CIDR target(s)</label>
+          <input class="finput" id="sc-cidr" type="text" placeholder="192.168.0.0/16, 10.0.0.0/8" value="192.168.0.0/16">
+          <label class="text-micro chk st-scan-auto-split">
+            <input type="checkbox" class="chk-input" id="sc-auto-split-24" checked><span class="chk-label">Auto-split targets broader than /24 into /24 batch jobs (safer resume/checkpoint behavior)</span>
+          </label>
+          <label class="flbl">Exclusion list (IPs, CIDRs, ranges, # comments)</label>
+          <textarea class="finput" id="sc-excl" placeholder="192.168.1.254&#10;10.0.0.0/24&#10;# SCADA servers&#10;192.168.10.88-95"></textarea>
+          <label class="flbl">Scan label (optional)</label>
+          <input class="finput" id="sc-label" type="text" placeholder="Weekly full scan">
+          <label class="flbl">Reporting scope (optional)</label>
+          <select class="finput" id="sc-scope-id">
+            <option value="0">None — unscoped job</option>
+          </select>
+          <div class="hint-micro mt4 mb0">Tags the job for Reports &amp; Analysis so drift and baselines stay within the same network/environment.</div>
+        </div>
+        <div class="st-scan-region">
+          <div class="st-scan-region-h">Rate limiting</div>
+          <div class="rr">
+            <label class="flbl">Max packets/sec per host</label>
+            <div class="rv"><span>1</span><span id="pps-val">5 pps</span><span>50</span></div>
+            <input class="rng" type="range" id="sc-pps" min="1" max="50" step="1" value="5" oninput="document.getElementById('pps-val').textContent=this.value+' pps'">
           </div>
-          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-auto" value="auto" checked aria-label="Discovery mode: Auto — ARP on same subnet, ping scan when routed"></label>
-        </div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Routed</div>
-            <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
+          <div class="rr">
+            <label class="flbl">Inter-host delay</label>
+            <div class="rv"><span>0</span><span id="delay-val">200 ms</span><span>2000</span></div>
+            <input class="rng" type="range" id="sc-delay" min="0" max="2000" step="10" value="200" oninput="document.getElementById('delay-val').textContent=this.value+' ms'">
           </div>
-          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-routed" value="routed" aria-label="Discovery mode: Routed — ICMP/TCP ping only, no ARP"></label>
         </div>
-        <div class="tr2">
-          <div>
-            <div class="tl">Force (-Pn)</div>
-            <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
+        <div class="st-scan-region">
+          <div class="st-scan-region-h">Discovery mode</div>
+          <div class="tr2">
+            <div>
+              <div class="tl">Auto</div>
+              <div class="tsubl">ARP for same-subnet, ping scan for routed</div>
+            </div>
+            <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-auto" value="auto" checked aria-label="Discovery mode: Auto — ARP on same subnet, ping scan when routed"></label>
           </div>
-          <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-force" value="force" aria-label="Discovery mode: Force (-Pn) — treat all targets as up"></label>
+          <div class="tr2">
+            <div>
+              <div class="tl">Routed</div>
+              <div class="tsubl">ICMP/TCP ping scan only — no ARP (cross-router)</div>
+            </div>
+            <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-routed" value="routed" aria-label="Discovery mode: Routed — ICMP/TCP ping only, no ARP"></label>
+          </div>
+          <div class="tr2">
+            <div>
+              <div class="tl">Force (-Pn)</div>
+              <div class="tsubl warn-text">&#9888; Scan all IPs regardless of ping — use for firewalled hosts</div>
+            </div>
+            <label class="chk tr2-check"><input type="radio" class="chk-input" name="scan_mode" id="sm-force" value="force" aria-label="Discovery mode: Force (-Pn) — treat all targets as up"></label>
+          </div>
         </div>
       </div>
-      <div class="card">
-        <div class="ct">Scan steps</div>
-        <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-passive" checked aria-label="Include passive discovery for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-icmp" checked aria-label="Include ICMP sweep for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-banner" checked aria-label="Include port and banner probe for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-fingerprint" checked aria-label="Include service fingerprinting for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-snmp" aria-label="Include SNMP read-only probes for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-ot" aria-label="Include OT protocol probes for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-        <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-cve" checked aria-label="Include CVE correlation for this scan"><div class="trk"></div><div class="tth"></div></label></div>
-      </div>
-    </div>
-    <div>
-      <div class="card">
-        <div class="ct">Scan profile</div>
-        <div class="profile-grid">
-          <label class="profile-card on" id="prof-standard_inventory" title="Balanced default: common ports, light banners, CVE correlation">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="standard_inventory" checked>
-            <div class="pc-icon">&#128203;</div>
-            <div class="profile-copy">
-              <div class="pc-name">Standard Inventory</div>
-              <div class="pc-desc">Common ports, light banner probing, CVE correlation</div>
-            </div>
-          </label>
-          <label class="profile-card" id="prof-iot_safe" title="Safest option: passive-first, no banner probing">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="iot_safe">
-            <div class="pc-icon">&#128737;</div>
-            <div class="profile-copy">
-              <div class="pc-name">IoT Safe</div>
-              <div class="pc-desc">Passive only — ARP/ICMP, no port scanning, no banners</div>
-            </div>
-            <div class="pc-badge safe">Safe for IoT</div>
-          </label>
-          <label class="profile-card" id="prof-deep_scan" title="Aggressive -sV on a large fixed port list (~60+ ports), SNMP on — not a 1–65535 sweep">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="deep_scan">
-            <div class="pc-icon">&#128300;</div>
-            <div class="profile-copy">
-              <div class="pc-name">Deep Scan</div>
-              <div class="pc-desc">Intense service detection on SurveyTrace&rsquo;s full port list — use Full TCP for every TCP port</div>
-            </div>
-            <div class="pc-badge warn">Confirmation required</div>
-          </label>
-          <label class="profile-card" id="prof-full_tcp" title="Only profile that runs nmap across all 65,535 TCP ports (-p-) with -sV; longest per-host runtime">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="full_tcp">
-            <div class="pc-icon">&#129517;</div>
-            <div class="profile-copy">
-              <div class="pc-name">Full TCP</div>
-              <div class="pc-desc">Every TCP port 1&ndash;65535 (-p-) + service detect — use when services are off the common lists</div>
-            </div>
-            <div class="pc-badge warn">Confirmation required</div>
-          </label>
-          <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: read-only OT probes on by default; strict rate limits">
-            <input class="radio-hidden" type="radio" name="scan_profile" value="ot_careful">
-            <div class="pc-icon">&#9888;</div>
-            <div class="profile-copy">
-              <div class="pc-name">OT Careful</div>
-              <div class="pc-desc">Passive only, 2pps max — safe for industrial networks</div>
-            </div>
-            <div class="pc-badge safe">Safe for OT</div>
-          </label>
-        </div>
-        <div id="profile-help" class="help-box">
-          <strong class="text-strong">Standard Inventory:</strong>
-          Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
-        </div>
-        <div id="scan-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber)"></div>
-      </div>
-      <div class="card" id="scan-enrich-card">
-        <div class="ct">Network enrichment (this scan)</div>
-        <div class="tsubl" style="margin-bottom:8px">Network enrichment runs the sources you configure under <strong>Enrichment</strong> (controllers, SNMP, logs, and other integrations). All enabled sources are used by default; uncheck any you want to skip for this job only, or turn all off to skip enrichment for this run.</div>
-        <div id="scan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
-      </div>
-      <div class="card">
-        <div class="ct">Launch</div>
-        <label class="flbl">Collector target</label>
-        <select class="finp w100 mb8" id="sc-collector">
-          <option value="0">Master scanner (local)</option>
-        </select>
-        <div class="hint-micro mb8">Route this run to a remote collector when you need local-site ARP/mDNS visibility.</div>
-        <label class="flbl">Queue priority (1 = highest, 100 = lowest)</label>
-        <input class="finp w100 mb8" type="number" id="sc-priority" min="1" max="100" value="10">
-        <div class="brow">
-          <button class="btnp" id="btn-start" onclick="startScan()">&#9654; Queue scan</button>
-          <button class="tbtn" id="btn-start-urgent" onclick="startScan(true)">&#9888; Queue urgent (priority 1)</button>
-        </div>
-        <div id="scan-stats" class="scan-stats">
-          Hosts found: <span id="ss-found">0</span> &nbsp;·&nbsp;
-          Scanned: <span id="ss-scanned">0</span> &nbsp;·&nbsp;
-          Elapsed: <span id="ss-elapsed">0s</span>
+      <div class="st-scan-split-col">
+        <div class="st-scan-region">
+          <div class="st-scan-region-h">Scan profile</div>
+          <div class="profile-grid">
+            <label class="profile-card on" id="prof-standard_inventory" title="Balanced default: common ports, light banners, CVE correlation">
+              <input class="radio-hidden" type="radio" name="scan_profile" value="standard_inventory" checked>
+              <div class="pc-icon">&#128203;</div>
+              <div class="profile-copy">
+                <div class="pc-name">Standard Inventory</div>
+                <div class="pc-desc">Common ports, light banner probing, CVE correlation</div>
+              </div>
+            </label>
+            <label class="profile-card" id="prof-iot_safe" title="Safest option: passive-first, no banner probing">
+              <input class="radio-hidden" type="radio" name="scan_profile" value="iot_safe">
+              <div class="pc-icon">&#128737;</div>
+              <div class="profile-copy">
+                <div class="pc-name">IoT Safe</div>
+                <div class="pc-desc">Passive only — ARP/ICMP, no port scanning, no banners</div>
+              </div>
+              <div class="pc-badge safe">Safe for IoT</div>
+            </label>
+            <label class="profile-card" id="prof-deep_scan" title="Aggressive -sV on a large fixed port list (~60+ ports), SNMP on — not a 1–65535 sweep">
+              <input class="radio-hidden" type="radio" name="scan_profile" value="deep_scan">
+              <div class="pc-icon">&#128300;</div>
+              <div class="profile-copy">
+                <div class="pc-name">Deep Scan</div>
+                <div class="pc-desc">Intense service detection on SurveyTrace&rsquo;s full port list — use Full TCP for every TCP port</div>
+              </div>
+              <div class="pc-badge warn">Confirmation required</div>
+            </label>
+            <label class="profile-card" id="prof-full_tcp" title="Only profile that runs nmap across all 65,535 TCP ports (-p-) with -sV; longest per-host runtime">
+              <input class="radio-hidden" type="radio" name="scan_profile" value="full_tcp">
+              <div class="pc-icon">&#129517;</div>
+              <div class="profile-copy">
+                <div class="pc-name">Full TCP</div>
+                <div class="pc-desc">Every TCP port 1&ndash;65535 (-p-) + service detect — use when services are off the common lists</div>
+              </div>
+              <div class="pc-badge warn">Confirmation required</div>
+            </label>
+            <label class="profile-card" id="prof-ot_careful" title="OT-safe baseline: read-only OT probes on by default; strict rate limits">
+              <input class="radio-hidden" type="radio" name="scan_profile" value="ot_careful">
+              <div class="pc-icon">&#9888;</div>
+              <div class="profile-copy">
+                <div class="pc-name">OT Careful</div>
+                <div class="pc-desc">Passive only, 2pps max — safe for industrial networks</div>
+              </div>
+              <div class="pc-badge safe">Safe for OT</div>
+            </label>
+          </div>
+          <div id="profile-help" class="help-box">
+            <strong class="text-strong">Standard Inventory:</strong>
+            Balanced default for general-purpose networks. Scans common ports with light banner probing, then correlates CVEs.
+          </div>
+          <div id="scan-profile-warn" class="help-box mb8" style="display:none;border-color:var(--amber);color:var(--amber)"></div>
         </div>
       </div>
     </div>
-  </div>
-  <div class="hint-micro mb4" style="margin-top:2px">
-    Queue and past runs: <button type="button" class="tbtn text-micro" onclick="goTab('scanhist');hiNav('nscanhist')">Open Scan history</button>
-  </div>
-  <div class="sth section-top">Job queue</div>
-  <div id="job-queue-wrap-scan">
-    <div id="job-queue-scan" class="mb8" style="display:none">
-      <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
-        <table class="tbl tbl--data">
-          <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
-          <tbody id="queue-tbody-scan"></tbody>
-        </table>
+  </section>
+
+  <section class="st-band st-scan-band st-scan-band--behavior" aria-labelledby="st-scan-behavior-title">
+    <header class="st-scan-band-head">
+      <div class="st-scan-kicker">Behavior</div>
+      <div class="st-scan-band-main">
+        <h2 class="st-scan-block-title" id="st-scan-behavior-title">Scan steps &amp; enrichment</h2>
+        <p class="hint-micro text-dim st-scan-band-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Turn phases on or off for this run. Enrichment uses sources from the Enrichment tab; override inclusions here without changing saved defaults.</p>
+      </div>
+    </header>
+    <div class="st-scan-split">
+      <div class="st-scan-split-col">
+        <div class="st-scan-region">
+          <div class="st-scan-region-h">Scan steps</div>
+          <div class="tr2"><div><div class="tl">Passive discovery</div><div class="tsubl">ARP watch, mDNS/Bonjour sniff — zero packets sent</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-passive" checked aria-label="Include passive discovery for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">ICMP sweep</div><div class="tsubl">Ping / ARP sweep all hosts in scope</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-icmp" checked aria-label="Include ICMP sweep for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">Port &amp; banner probe</div><div class="tsubl">TCP connect on safe port list only</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-banner" checked aria-label="Include port and banner probe for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">Service fingerprinting</div><div class="tsubl">OUI + banner + port profile → CPE</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-fingerprint" checked aria-label="Include service fingerprinting for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">SNMP GET (read-only)</div><div class="tsubl">sysDescr, sysName, ifTable — no SET</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-snmp" aria-label="Include SNMP read-only probes for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">OT protocol probes</div><div class="tsubl warn-text">&#9888; Modbus/S7 read coils only — no writes</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-ot" aria-label="Include OT protocol probes for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+          <div class="tr2"><div><div class="tl">CVE correlation</div><div class="tsubl">Match CPE strings against local NVD db</div></div><label class="tog tog--sm tr2-check"><input type="checkbox" id="ph-cve" checked aria-label="Include CVE correlation for this scan"><div class="trk"></div><div class="tth"></div></label></div>
+        </div>
+      </div>
+      <div class="st-scan-split-col">
+        <div class="st-scan-region st-scan-region--enrich" id="scan-enrich-card">
+          <div class="st-scan-region-h">Network enrichment (this scan)</div>
+          <div class="tsubl st-scan-enrich-lede">Network enrichment runs the sources you configure under <strong>Enrichment</strong> (controllers, SNMP, logs, and other integrations). All enabled sources are used by default; uncheck any you want to skip for this job only, or turn all off to skip enrichment for this run.</div>
+          <div id="scan-enrichment-wrap" data-ready="0"><div class="hint-micro">Loading…</div></div>
+        </div>
       </div>
     </div>
-    <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y st-scan-hist-queue-empty">No jobs queued or running right now.</div>
+  </section>
+
+  <section class="st-band st-scan-band st-scan-band--launch" aria-labelledby="st-scan-launch-title">
+    <header class="st-scan-band-head">
+      <div class="st-scan-kicker">Launch</div>
+      <div class="st-scan-band-main">
+        <h2 class="st-scan-block-title" id="st-scan-launch-title">Queue, progress &amp; job list</h2>
+        <p class="hint-micro text-dim st-scan-band-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Send the job to the collector queue. Counters reflect the active run when applicable; the table below mirrors queued work on this page — open <strong>Scan history</strong> for the full log.</p>
+      </div>
+    </header>
+    <div class="st-scan-region">
+      <div class="st-scan-region-h">Collector &amp; priority</div>
+      <label class="flbl">Collector target</label>
+      <select class="finp w100 mb8" id="sc-collector">
+        <option value="0">Master scanner (local)</option>
+      </select>
+      <div class="hint-micro mb8">Route this run to a remote collector when you need local-site ARP/mDNS visibility.</div>
+      <label class="flbl">Queue priority (1 = highest, 100 = lowest)</label>
+      <input class="finp w100 mb8" type="number" id="sc-priority" min="1" max="100" value="10">
+      <div class="brow st-scan-launch-buttons">
+        <button class="btnp" id="btn-start" onclick="startScan()">&#9654; Queue scan</button>
+        <button class="tbtn" id="btn-start-urgent" onclick="startScan(true)">&#9888; Queue urgent (priority 1)</button>
+      </div>
+      <div id="scan-stats" class="scan-stats">
+        Hosts found: <span id="ss-found">0</span> &nbsp;·&nbsp;
+        Scanned: <span id="ss-scanned">0</span> &nbsp;·&nbsp;
+        Elapsed: <span id="ss-elapsed">0s</span>
+      </div>
+      <p class="hint-micro st-scan-hist-cta mb0">Queue and past runs: <button type="button" class="tbtn text-micro" onclick="goTab('scanhist');hiNav('nscanhist')">Open Scan history</button></p>
     </div>
-  </div>
+    <div class="st-scan-region st-scan-region--queue">
+      <div class="st-scan-region-h">Job queue</div>
+      <div id="job-queue-wrap-scan">
+        <div id="job-queue-scan" class="mb8" style="display:none">
+          <div class="tbl-wrap tbl-scan-hist tbl-wrap--data">
+            <table class="tbl tbl--data">
+              <thead><tr><th class="tbl-th-no-sort">#</th><th class="tbl-th-no-sort">Job / target</th><th class="tbl-th-no-sort">Profile</th><th class="tbl-th-no-sort">Status / progress</th><th class="tbl-th-no-sort">Priority</th><th class="tbl-th-no-sort">Started</th><th class="tbl-th-action tbl-th-no-sort">Actions</th></tr></thead>
+              <tbody id="queue-tbody-scan"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="job-queue-empty-scan" class="hint-micro mb8 pad8y st-scan-hist-queue-empty">No jobs queued or running right now.</div>
+      </div>
+    </div>
+  </section>
+</div>
 
 <!-- ================================================================ SCAN HISTORY -->
 <div class="tab" id="t-scanhist">
