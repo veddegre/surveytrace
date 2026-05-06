@@ -536,26 +536,53 @@ if (!headers_sent()) {
 
 <!-- ================================================================ SCOPES (catalog + asset counts) -->
 <div class="tab" id="t-scopes">
-  <div class="row-between mb10" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-    <div>
-      <div class="sth section-title-reset" style="margin-bottom:4px">Scan scopes</div>
-      <p class="hint-micro mb0" style="max-width:52rem;line-height:1.45">
-        Named scopes drive <strong>Reports &amp; Analysis</strong> filters (by <strong>job</strong> <code class="code-accent">scan_jobs.scope_id</code> at queue time) and optional <strong>inventory</strong> tags on assets (<code class="code-accent">assets.scope_id</code>). Those are independent: asset tags do not change historical job rows.
-        Zabbix scope mapping still applies only when you use the Enrichment apply workflow — nothing auto-assigns from this screen.
+  <section class="st-band st-scopes-band st-scopes-band--overview" aria-labelledby="st-scopes-overview-title">
+    <header class="st-scopes-band-head">
+      <div class="st-scopes-kicker">Organization</div>
+      <div class="st-scopes-band-main">
+        <div class="row-between st-scopes-toolbar">
+          <h2 class="st-scopes-page-title" id="st-scopes-overview-title">Scan scopes</h2>
+          <div class="row-wrap gap6 st-scopes-toolbar-actions" style="align-items:center">
+            <button type="button" class="btnp btn-sm" id="st-scopes-btn-create" onclick="stScopesOpenCreateModal()">+ New scope</button>
+            <button type="button" class="tbtn btn-sm" onclick="void loadScopesTab()">&#8635; Refresh</button>
+          </div>
+        </div>
+        <p class="hint-micro text-dim st-scopes-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Scopes are named organization buckets for scan and inventory context. <strong>Job scope</strong> (<code class="code-accent">scan_jobs.scope_id</code>) is saved when work is queued and powers historical reporting; <strong>inventory scope</strong> (<code class="code-accent">assets.scope_id</code>) groups current assets and posture. Those dimensions are related by name but independent by storage, so changing asset tags does not rewrite prior jobs.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-scopes-band st-scopes-band--editor" aria-labelledby="st-scopes-editor-title">
+    <h3 class="st-scopes-section-title" id="st-scopes-editor-title">Create &amp; edit scope</h3>
+    <p class="hint-micro text-dim st-scopes-editor-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      Use <strong>+ New scope</strong> to add catalog entries with <strong>name</strong>, optional <strong>description</strong>, <strong>environment</strong>, and CIDR hints. Use <strong>Edit</strong> per row to update metadata safely. Scope assignment happens from Scan, Schedules, Assets bulk actions, or Enrichment workflows; this page manages the scope catalog and impact visibility.
+    </p>
+  </section>
+
+  <section class="st-band st-scopes-band st-scopes-band--inventory" aria-labelledby="st-scopes-inventory-title">
+    <header class="st-scopes-section-head">
+      <h3 class="st-scopes-section-title" id="st-scopes-inventory-title">Scope inventory</h3>
+      <p class="hint-micro text-dim st-scopes-inventory-lede mb0">
+        Dense list of configured scopes. Counts show live <strong>assets</strong>, finished <strong>jobs</strong>, and linked <strong>schedules</strong>; use these to spot populated vs dormant scopes before changes.
       </p>
+    </header>
+    <div id="st-scopes-err" class="help-mono st-scopes-err mb8" style="display:none"></div>
+    <div class="tbl-wrap tbl-wrap--data st-scopes-tbl-wrap">
+      <table class="tbl tbl--data st-scopes-tbl">
+        <thead><tr><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">Environment</th><th class="tbl-th-no-sort">Assets</th><th class="tbl-th-no-sort" title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th class="tbl-th-no-sort" title="Schedules defaulting to this scope">Schedules</th><th class="tbl-th-action tbl-th-no-sort" style="min-width:200px">Actions</th></tr></thead>
+        <tbody id="st-scopes-tbody"><tr><td colspan="7" class="loading tbl-empty st-scopes-loading">Loading scopes…</td></tr></tbody>
+      </table>
     </div>
-    <div class="row-wrap gap6" style="align-items:center">
-      <button type="button" class="btnp btn-sm" id="st-scopes-btn-create" onclick="stScopesOpenCreateModal()">+ New scope</button>
-      <button type="button" class="tbtn btn-sm" onclick="void loadScopesTab()">&#8635; Refresh</button>
-    </div>
-  </div>
-  <div id="st-scopes-err" class="help-mono mb8" style="display:none"></div>
-  <div class="tbl-wrap tbl-wrap--data">
-    <table class="tbl tbl--data">
-      <thead><tr><th class="tbl-th-no-sort">Name</th><th class="tbl-th-no-sort">Description</th><th class="tbl-th-no-sort">Environment</th><th class="tbl-th-no-sort">Assets</th><th class="tbl-th-no-sort" title="Finished jobs with this scan_jobs.scope_id">Jobs</th><th class="tbl-th-no-sort" title="Schedules defaulting to this scope">Schedules</th><th class="tbl-th-action tbl-th-no-sort" style="min-width:200px">Actions</th></tr></thead>
-      <tbody id="st-scopes-tbody"><tr><td colspan="7" class="loading tbl-empty">Loading scopes…</td></tr></tbody>
-    </table>
-  </div>
+  </section>
+
+  <section class="st-band st-scopes-band st-scopes-band--controls" aria-labelledby="st-scopes-controls-title">
+    <h3 class="st-scopes-section-title" id="st-scopes-controls-title">Operator controls</h3>
+    <p class="hint-micro text-dim st-scopes-controls-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+      <strong>Edit</strong> updates labels/metadata without changing historical evidence. <strong class="st-scopes-delete-label">Delete</strong> clears dependent references after confirmation and shows impact counts first (assets unscoped, job/schedule scope links cleared, related mappings removed). For assignment workflows, use Assets bulk scope tools, Scan/Schedules scope selectors, or Enrichment scope apply.
+    </p>
+  </section>
 </div>
 
 <!-- ================================================================ DEVICES -->
@@ -3008,20 +3035,31 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
 
 <!-- Create scan scope (Reports & Analysis + Enrichment → Zabbix tools) -->
 <div id="st-create-scope-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-create-scope-title" onclick="if(event.target===this)closeStCreateScopeModal()">
-  <div class="modal-card modal-w520" onclick="event.stopPropagation()">
+  <div class="modal-card modal-w520 st-scopes-modal" onclick="event.stopPropagation()">
     <div class="row-between mb14" style="gap:12px;align-items:center">
       <div class="modal-title" style="margin-bottom:0" id="st-create-scope-title">Create scan scope</div>
       <button type="button" class="modal-close-x" onclick="closeStCreateScopeModal()" title="Close" aria-label="Close">×</button>
     </div>
-    <p class="hint-micro mb10">Adds a row to the <strong>scan_scopes</strong> catalog only. Scans or Zabbix rules can reference it later — <strong>no assets are assigned</strong> and <strong>Zabbix rules are not applied</strong> automatically.</p>
-    <label class="flbl">Name <span class="text-dim">(required)</span></label>
-    <input class="finp w100 mb8" id="st-scope-create-name" maxlength="200" placeholder="e.g. Datacenter — site A">
-    <label class="flbl">Description <span class="text-dim">(optional)</span></label>
-    <textarea class="finp w100 mb8" id="st-scope-create-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
-    <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
-    <input class="finp w100 mb8" id="st-scope-create-env" maxlength="120" placeholder="e.g. production, staging">
-    <label class="flbl">CIDR hints <span class="text-dim">(optional, one per line)</span></label>
-    <textarea class="finp w100 mb10 mono-sm" id="st-scope-create-cidrs" rows="2" placeholder="10.0.0.0/8&#10;192.168.0.0/16"></textarea>
+    <div class="st-scopes-modal-body">
+      <section class="st-scopes-modal-sec" aria-labelledby="st-scopes-create-model">
+        <h4 class="st-scopes-modal-sec-title" id="st-scopes-create-model">Scope model</h4>
+        <p class="hint-micro mb10">Adds a row to the <strong>scan_scopes</strong> catalog only. Scans or Zabbix rules can reference it later — <strong>no assets are assigned</strong> and <strong>Zabbix rules are not applied</strong> automatically.</p>
+      </section>
+      <section class="st-scopes-modal-sec" aria-labelledby="st-scopes-create-fields">
+        <h4 class="st-scopes-modal-sec-title" id="st-scopes-create-fields">Name &amp; metadata</h4>
+        <label class="flbl">Name <span class="text-dim">(required)</span></label>
+        <input class="finp w100 mb8" id="st-scope-create-name" maxlength="200" placeholder="e.g. Datacenter — site A">
+        <label class="flbl">Description <span class="text-dim">(optional)</span></label>
+        <textarea class="finp w100 mb8" id="st-scope-create-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
+        <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
+        <input class="finp w100 mb8" id="st-scope-create-env" maxlength="120" placeholder="e.g. production, staging">
+      </section>
+      <section class="st-scopes-modal-sec" aria-labelledby="st-scopes-create-hints">
+        <h4 class="st-scopes-modal-sec-title" id="st-scopes-create-hints">CIDR hints</h4>
+        <label class="flbl">CIDR hints <span class="text-dim">(optional, one per line)</span></label>
+        <textarea class="finp w100 mb10 mono-sm" id="st-scope-create-cidrs" rows="2" placeholder="10.0.0.0/8&#10;192.168.0.0/16"></textarea>
+      </section>
+    </div>
     <div id="st-scope-create-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
       <button type="button" class="tbtn" onclick="closeStCreateScopeModal()">Cancel</button>
@@ -3032,19 +3070,27 @@ ollama run phi3:mini "Return JSON: {\"ok\":true}"
 
 <!-- Edit scan scope (Scopes tab) -->
 <div id="st-edit-scope-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-edit-scope-title" onclick="if(event.target===this)closeStEditScopeModal()">
-  <div class="modal-card modal-w520" onclick="event.stopPropagation()">
+  <div class="modal-card modal-w520 st-scopes-modal" onclick="event.stopPropagation()">
     <div class="row-between mb14" style="gap:12px;align-items:center">
       <div class="modal-title" style="margin-bottom:0" id="st-edit-scope-title">Edit scope</div>
       <button type="button" class="modal-close-x" onclick="closeStEditScopeModal()" title="Close" aria-label="Close">×</button>
     </div>
-    <p class="hint-micro mb10">Updates the catalog row only. Historical scan jobs keep their stored <code class="code-accent">scope_id</code>; labels in dropdowns and Zabbix mapping pick up the new name after save.</p>
-    <input type="hidden" id="st-scope-edit-id" value="0">
-    <label class="flbl">Name <span class="text-dim">(required)</span></label>
-    <input class="finp w100 mb8" id="st-scope-edit-name" maxlength="200" placeholder="e.g. Datacenter — site A">
-    <label class="flbl">Description <span class="text-dim">(optional)</span></label>
-    <textarea class="finp w100 mb8" id="st-scope-edit-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
-    <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
-    <input class="finp w100 mb8" id="st-scope-edit-env" maxlength="120" placeholder="e.g. production, staging">
+    <div class="st-scopes-modal-body">
+      <section class="st-scopes-modal-sec" aria-labelledby="st-scopes-edit-model">
+        <h4 class="st-scopes-modal-sec-title" id="st-scopes-edit-model">Scope model</h4>
+        <p class="hint-micro mb10">Updates the catalog row only. Historical scan jobs keep their stored <code class="code-accent">scope_id</code>; labels in dropdowns and Zabbix mapping pick up the new name after save.</p>
+      </section>
+      <section class="st-scopes-modal-sec" aria-labelledby="st-scopes-edit-fields">
+        <h4 class="st-scopes-modal-sec-title" id="st-scopes-edit-fields">Name &amp; metadata</h4>
+        <input type="hidden" id="st-scope-edit-id" value="0">
+        <label class="flbl">Name <span class="text-dim">(required)</span></label>
+        <input class="finp w100 mb8" id="st-scope-edit-name" maxlength="200" placeholder="e.g. Datacenter — site A">
+        <label class="flbl">Description <span class="text-dim">(optional)</span></label>
+        <textarea class="finp w100 mb8" id="st-scope-edit-desc" rows="2" maxlength="2000" placeholder="What this scope represents"></textarea>
+        <label class="flbl">Environment <span class="text-dim">(optional)</span></label>
+        <input class="finp w100 mb8" id="st-scope-edit-env" maxlength="120" placeholder="e.g. production, staging">
+      </section>
+    </div>
     <div id="st-scope-edit-err" class="help-mono mb8" style="display:none"></div>
     <div class="row-end">
       <button type="button" class="tbtn" onclick="closeStEditScopeModal()">Cancel</button>
@@ -6064,10 +6110,10 @@ async function loadScopesTab() {
         err.style.display = 'none';
         err.textContent = '';
     }
-    tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty">Loading scopes…</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty st-scopes-empty">Loading scopes…</td></tr>';
     const d = await api('/api/scopes.php', { quiet: true });
     if (!d || !d.ok || !Array.isArray(d.scopes)) {
-        tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty">Could not load scopes.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="7" class="loading tbl-empty st-scopes-empty">Could not load scopes.</td></tr>';
         if (err) {
             err.textContent = (d && d.error) ? d.error : 'API error';
             err.style.display = '';
@@ -6093,17 +6139,18 @@ async function loadScopesTab() {
             ? `<span class="st-scope-desc-truncate" title="${descTitle}">${esc(descRaw)}</span>`
             : '<span class="text-dim">—</span>';
         const env = esc(String(sc.environment != null && String(sc.environment).trim() ? sc.environment : 'unknown'));
+        const rowCls = cnt > 0 || jn > 0 || sn > 0 ? 'st-scopes-row--populated' : 'st-scopes-row--empty';
         const act = stRoleCanManageScans()
             ? `<button type="button" class="tbtn btn-xs" onclick="void stScopesOpenEditModal(${id})">Edit</button> `
                 + `<button type="button" class="tbtn btn-xs tbtn--danger-quiet" onclick="void stScopesDelete(${id},${JSON.stringify(String(sc.name || ''))})">Delete</button>`
             : '—';
-        return `<tr><td class="tbl-cell-primary"><strong>${nm}</strong> <span class="tbl-cell-muted mono-sm">#${id}</span></td><td class="st-scope-desc-cell tbl-cell-muted">${descCell}</td><td class="tbl-cell-muted">${env}</td><td class="mono tbl-cell-mono tbl-cell-muted">${cnt}</td><td class="mono tbl-cell-mono tbl-cell-muted">${jn}</td><td class="mono tbl-cell-mono tbl-cell-muted">${sn}</td><td class="tbl-cell-actions">${act}</td></tr>`;
+        return `<tr class="${rowCls}"><td class="tbl-cell-primary"><strong>${nm}</strong> <span class="tbl-cell-muted mono-sm">#${id}</span></td><td class="st-scope-desc-cell tbl-cell-muted">${descCell}</td><td class="tbl-cell-muted">${env}</td><td class="mono tbl-cell-mono tbl-cell-muted">${cnt}</td><td class="mono tbl-cell-mono tbl-cell-muted">${jn}</td><td class="mono tbl-cell-mono tbl-cell-muted">${sn}</td><td class="tbl-cell-actions st-scopes-row-actions">${act}</td></tr>`;
     });
     tb.innerHTML = rows.length
         ? rows.join('')
-        : `<tr><td colspan="7" class="loading tbl-empty">${stRoleCanManageScans()
-            ? 'No scopes yet — create one from <strong>+ New scope</strong>.'
-            : 'No scopes in catalog yet.'}</td></tr>`;
+        : `<tr><td colspan="7" class="loading tbl-empty st-scopes-empty"><div class="st-scopes-empty-inner">${stRoleCanManageScans()
+            ? 'Scopes are optional, but useful for grouping inventory and reports. No scopes exist yet — create one with <strong>+ New scope</strong> to organize assets and job-scope reporting.'
+            : 'No scopes in catalog yet.'}</div></td></tr>`;
 }
 
 function stScopesOpenEditModal(scopeId) {

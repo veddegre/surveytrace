@@ -2125,6 +2125,96 @@ body.light-mode #t-sched.on .st-sched-tbl tbody tr.st-sched-row--off td{
   margin:0 0 10px;
 }
 .st-sched-modal-sec--footer .st-sched-modal-sec-title{margin-bottom:12px}
+/* Scopes tab — inventory/report organization workspace (#t-scopes); st-scopes-* scoped */
+#t-scopes.on{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+#t-scopes.on > .st-band{margin-bottom:0}
+.st-scopes-band-head{
+  display:grid;
+  grid-template-columns:minmax(88px,120px) 1fr;
+  gap:12px 20px;
+  align-items:start;
+}
+@media (max-width:720px){
+  .st-scopes-band-head{grid-template-columns:1fr}
+}
+.st-scopes-kicker{
+  font-family:var(--mf);
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--primary);
+  padding-top:5px;
+}
+body.light-mode .st-scopes-kicker{color:var(--primary)}
+.st-scopes-page-title{
+  font-family:var(--sf);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.st-scopes-toolbar{
+  align-items:flex-start;
+  gap:10px;
+  margin-bottom:8px;
+}
+.st-scopes-toolbar .st-scopes-page-title{flex:1;min-width:0}
+.st-scopes-overview-lede{margin-top:0}
+.st-scopes-section-head{margin-bottom:12px}
+.st-scopes-section-title{
+  font-family:var(--sf);
+  font-size:13px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-muted);
+  margin:0 0 6px;
+}
+.st-scopes-editor-lede,.st-scopes-inventory-lede,.st-scopes-controls-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-scopes-controls-lede{margin-top:0}
+.st-scopes-delete-label{color:var(--red);font-weight:600}
+.st-scopes-tbl-wrap{min-width:0;font-size:13px}
+#t-scopes.on .st-scopes-tbl tbody tr.st-scopes-row--populated td{
+  background:color-mix(in srgb,var(--primary) 4%,var(--section-bg));
+}
+body.light-mode #t-scopes.on .st-scopes-tbl tbody tr.st-scopes-row--populated td{
+  background:color-mix(in srgb,var(--primary) 5%,var(--surface-muted));
+}
+.st-scopes-empty{line-height:1.5;max-width:46rem}
+.st-scopes-empty-inner{max-width:46rem}
+#t-scopes.on .st-scopes-row-actions{max-width:none;white-space:nowrap}
+/* Scope create/edit modal grouping */
+.st-scopes-modal .st-scopes-modal-body{
+  border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent);
+  padding-top:14px;
+  margin-top:2px;
+}
+.st-scopes-modal-sec{
+  padding-top:14px;
+  margin-top:14px;
+  border-top:1px dashed color-mix(in srgb,var(--border) 55%,transparent);
+}
+.st-scopes-modal-body > .st-scopes-modal-sec:first-child{
+  padding-top:0;
+  margin-top:0;
+  border-top:none;
+}
+.st-scopes-modal-sec-title{
+  font-family:var(--sf);
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--text-muted);
+  margin:0 0 10px;
+}
 /* CVE triage — vulnerabilities table + host panel */
 .conf-chip{display:inline-block;margin-left:4px;font-family:var(--mf);font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;border:1px solid var(--bd2);vertical-align:middle;letter-spacing:.03em}
 .conf-high{border-color:rgba(120,200,160,.45);color:var(--green)}
