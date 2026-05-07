@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 def decrypt_profile_secret(*, envelope: str, profile_id: int, install_root: Path) -> tuple[str | None, str | None]:
     """
     Returns (plaintext_json_string, None) on success, or (None, error_code) on failure.
-    error_code: decrypt_failed | encryption_unavailable
+    error_code: decrypt_failed | encryption_unavailable | dependency_missing
     """
     env = (envelope or "").strip()
     if env == "":
@@ -24,11 +24,11 @@ def decrypt_profile_secret(*, envelope: str, profile_id: int, install_root: Path
     php = shutil.which("php")
     if not php:
         log.warning("php not on PATH — cannot decrypt profile secret")
-        return None, "decrypt_failed"
+        return None, "dependency_missing"
     cli = install_root / "daemon" / "cred_decrypt_cli.php"
     if not cli.is_file():
         log.warning("cred_decrypt_cli.php missing at %s", cli)
-        return None, "decrypt_failed"
+        return None, "dependency_missing"
     ctx = json.dumps({"credential_profile_id": int(profile_id)}, separators=(",", ":"), ensure_ascii=False)
     try:
         proc = subprocess.run(
@@ -42,11 +42,13 @@ def decrypt_profile_secret(*, envelope: str, profile_id: int, install_root: Path
         return None, "decrypt_failed"
     except OSError as e:
         log.warning("decrypt subprocess: %s", e)
-        return None, "decrypt_failed"
+        return None, "dependency_missing"
     if proc.returncode != 0:
         err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()[:500]
-        if "not configured" in err.lower() or "Credential encryption is not configured" in err:
+        if "encryption_unavailable" in err or "not configured" in err.lower() or "Credential encryption is not configured" in err:
             return None, "encryption_unavailable"
+        if "dependency_missing" in err:
+            return None, "dependency_missing"
         # Do not log stderr — may contain sensitive hints from PHP/OpenSSL in some builds.
         return None, "decrypt_failed"
     out = (proc.stdout or b"").decode("utf-8", errors="replace")

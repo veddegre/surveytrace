@@ -125,12 +125,19 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Doc | Verify |
 |-----|--------|
 | [README.md](../README.md) | Version line and links to changelog / release notes / readiness. |
-| [docs/README.md](README.md) | Index lists trusted data, credentialed checks **design**, release checklist. |
+| [docs/README.md](README.md) | Index lists trusted data, credentialed checks docs, release checklist. |
 | [docs/wiki/README.md](wiki/README.md) | Links to troubleshooting, deployment, trusted data references. |
-| [ROADMAP.md](../ROADMAP.md) | Capability tracks; no accidental promise of shipped credentialed **engine** (design-only until implemented). |
+| [ROADMAP.md](../ROADMAP.md) | Capability tracks reflect shipped slices vs deferred work accurately. |
 | [TRUSTED_DATA_MODEL.md](TRUSTED_DATA_MODEL.md) | Matches current observation/assertion behavior. |
-| [CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md) / [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) | Marked as **design** / implementation plan, not shipped product. |
+| [CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md) / [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) | Implemented slices and deferred scope are clearly distinguished. |
 | Collector docs | [setup-collector](wiki/setup-collector.md), [troubleshooting](wiki/troubleshooting.md) mention ingest states. |
+| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, and no auto-rotation. |
+| Secret rewrap runbook | `scripts/rewrap_credential_secrets.php` dry-run/apply workflow and failure interpretation are documented. |
+| Operational prune runbook | `scripts/prune_operational_history.php` dry-run/apply, include-runs guardrails, and backup-before-apply guidance are documented. |
+| Stale recovery runbook | `scripts/recover_stale_worker_jobs.php` dry-run/apply, threshold guidance, and collector-ingest caution are documented. |
+| Maintenance pre-release dry-runs | `rewrap_credential_secrets.php`, `prune_operational_history.php --older-than-days=90`, and `recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync` are run (or explicitly waived) before tag. |
+| Backup/restore readiness validation | `scripts/validate_backup_restore_readiness.php` runs cleanly on the target restore set before sign-off. |
+| Key material parity | Restore checklist confirms `SURVEYTRACE_CRED_SECRET_KEY` parity across web/API and worker nodes for credentialed checks. |
 
 ---
 
@@ -138,7 +145,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 
 Document for operators **what is not in this release**:
 
-- **Credentialed checks engine** — design and MVP plan only; no in-product execution yet ([CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md)).
+- **Credentialed checks scope limits** — no WinRM execution, no CVE/finding/remediation from package inventory, no auto-prune daemon, no Vault/KMS integration yet.
 - **CVE fusion** / multi-source reconciliation — roadmap [Data fusion](../ROADMAP.md#data-fusion-and-source-reconciliation).
 - **Ownership / Defender / TeamDynamix** — deferred connector track ([Roadmap](../ROADMAP.md#ownership-and-endpoint-enrichment)).
 - **Infrastructure API connectors** (Proxmox, VMware, …) — planned track, not part of stabilization scope.
@@ -152,6 +159,17 @@ Document for operators **what is not in this release**:
 |------|------|------|--------|
 | QA / Operator | | | |
 | Release owner | | | |
+
+### Operational lifecycle milestone closure (1.0.2)
+
+- [ ] Secret rewrap utility validated (`st_cred_secret_rewrap_selftest.php`)
+- [ ] Retention/prune utility validated (`st_operational_prune_selftest.php`)
+- [ ] Stale worker recovery utility validated (`st_stale_worker_recovery_selftest.php`)
+- [ ] Backup/restore readiness validator validated (`st_backup_restore_readiness_selftest.php`)
+- [ ] Slice 7/8/9 selftests and slice10 reconciliation selftest pass
+- [ ] Placeholder smoke passes
+- [ ] `bash -n setup.sh deploy.sh` passes
+- [ ] `php -l` / `python3 -m py_compile` passes on touched operational paths
 
 ---
 

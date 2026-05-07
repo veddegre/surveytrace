@@ -1,5 +1,29 @@
 # SurveyTrace Release Notes
 
+## Unreleased
+
+## 1.0.2 (2026-05-07)
+
+SurveyTrace **1.0.2** completes the **Operational Lifecycle and Maintenance** milestone. This release is focused on long-term survivability and operator safety: explicit manual maintenance tooling, read-only maintenance visibility, and backup/restore validation guidance.
+
+### What changed for operators
+
+- **Manual maintenance toolkit (CLI-first)**:
+  - `scripts/rewrap_credential_secrets.php`
+  - `scripts/prune_operational_history.php`
+  - `scripts/recover_stale_worker_jobs.php`
+  - `scripts/validate_backup_restore_readiness.php`
+- **Admin maintenance visibility** — System Health and Settings now show read-only maintenance signals and runbook references; no browser-triggered maintenance actions were added.
+- **Backup/restore readiness clarity** — explicit required backup set, restore order, post-restore validation, and key parity guidance across web/API and worker nodes.
+- **Runbook/checklist polish** — release readiness now includes maintenance dry-runs and backup/restore validation checks.
+
+### Deferred by design
+
+- No automatic prune scheduler or stale-job sweeper.
+- No cloud backup integration.
+- No Vault/KMS integration.
+- No new credentialed check transports or capability expansion in this milestone.
+
 ## 1.0.1 (2026-05-06)
 
 SurveyTrace **1.0.1** is a **stabilization and maintenance** update on the 1.0 line. It improves day-to-day operator experience, clarifies collector handoff to the master, tightens **deployment parity** for newer libraries and docs, and documents the **trusted data** model and future **credentialed checks** direction **without** shipping credentialed execution yet.

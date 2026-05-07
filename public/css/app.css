@@ -3777,6 +3777,9 @@ body.light-mode .st-health-kpi{
 }
 .st-health-band--worker .st-health-worker-lede{max-width:min(100%,52rem);line-height:1.45}
 .st-health-band--worker .st-health-worker-summary{max-width:min(100%,52rem);line-height:1.45}
+.st-health-band--worker .st-health-maint-summary,
+.st-health-band--worker .st-health-maint-counts,
+.st-health-band--worker .st-health-maint-old{max-width:min(100%,52rem);line-height:1.45}
 .st-health-warning-list{margin:0;padding-left:1.2em}
 .st-health-warning-list li{margin:4px 0;line-height:1.45}
 .st-health-warning-list li::marker{color:var(--amber)}

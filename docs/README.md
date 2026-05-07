@@ -59,6 +59,7 @@ These documents support planning only until the engine is implemented.
 ### Release process
 
 - [Release readiness checklist](RELEASE_READINESS_CHECKLIST.md) — pre-tag verification for installs, workflows, trusted data, reporting, auth, and UI smoke.
+- [Operational lifecycle and maintenance](OPERATIONAL_LIFECYCLE_MAINTENANCE.md) — manual maintenance slices, backup/restore expectations, and admin runbooks.
 
 ### Device identity
 

@@ -86,6 +86,9 @@ Collectors are remote scan workers with their own validation.
 See full documentation:
 
 - [docs/wiki/README.md](docs/wiki/README.md)
+- [Deployment updates](docs/wiki/deployment.md)
+- [Troubleshooting](docs/wiki/troubleshooting.md)
+- [Operational lifecycle and maintenance plan](docs/OPERATIONAL_LIFECYCLE_MAINTENANCE.md)
 
 Integration references:
 

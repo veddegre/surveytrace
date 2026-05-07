@@ -10,6 +10,7 @@ processed by a background thread so slow or timing-out model calls never fail ch
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import logging
@@ -49,6 +50,8 @@ _EXEC_AI_FOLLOWUP_MAX_ATTEMPTS = 12
 _EXEC_AI_POLL_SEC = 2
 _EXEC_AI_STALE_PROCESSING_MIN = 30
 _INGEST_CHUNK_MAX_ATTEMPTS = 8
+_INGEST_STALE_PROCESSING_MIN = 30
+_PENDING_ELIGIBILITY_WARN_SEC = 300
 
 
 def _exec_ai_wall_seconds() -> float:
@@ -92,6 +95,128 @@ def _ensure_collector_exec_ai_queue(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_collector_exec_ai_pending ON collector_ingest_exec_ai_queue(status, next_attempt_at, created_at)"
     )
+
+
+def _ensure_collector_ingest_queue_columns(conn: sqlite3.Connection) -> None:
+    """Schema guard: worker may start before PHP control-plane touches this DB."""
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS collector_ingest_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collector_id INTEGER NOT NULL,
+            job_id INTEGER NOT NULL,
+            submission_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            chunk_count INTEGER NOT NULL,
+            content_sha256 TEXT NOT NULL,
+            local_relpath TEXT NOT NULL,
+            artifact_uri TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at DATETIME,
+            error_msg TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            processed_at DATETIME,
+            processing_started_at DATETIME
+        )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_collector_ingest_pending ON collector_ingest_queue(status, next_attempt_at, created_at)"
+    )
+    cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(collector_ingest_queue)").fetchall()}
+    if "processing_started_at" not in cols:
+        try:
+            conn.execute("ALTER TABLE collector_ingest_queue ADD COLUMN processing_started_at DATETIME")
+            log.info("collector ingest: added collector_ingest_queue.processing_started_at")
+        except sqlite3.OperationalError:
+            pass
+
+
+def _reclaim_stale_processing_rows(conn: sqlite3.Connection) -> int:
+    mins = int(_INGEST_STALE_PROCESSING_MIN)
+    if mins < 1:
+        mins = 30
+    cur = conn.execute(
+        f"""UPDATE collector_ingest_queue
+            SET status='pending',
+                next_attempt_at=datetime('now'),
+                error_msg=CASE
+                    WHEN error_msg IS NULL OR error_msg = '' THEN 'stale_processing_reclaimed'
+                    ELSE error_msg || '; stale_processing_reclaimed'
+                END,
+                processing_started_at=NULL
+            WHERE status='processing'
+              AND processing_started_at IS NOT NULL
+              AND datetime(processing_started_at) < datetime('now', '-{mins} minutes')"""
+    )
+    return int(cur.rowcount or 0)
+
+
+def _queue_diag_counts(conn: sqlite3.Connection) -> dict:
+    row = conn.execute(
+        """SELECT
+             SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending_total,
+             SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed_total,
+             SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END) AS processing_total,
+             SUM(CASE
+                   WHEN status='pending'
+                        AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))
+                   THEN 1 ELSE 0 END) AS pending_eligible_now,
+             SUM(CASE
+                   WHEN status='pending'
+                        AND next_attempt_at IS NOT NULL
+                        AND datetime(next_attempt_at) > datetime('now')
+                   THEN 1 ELSE 0 END) AS pending_blocked_future,
+             CAST((strftime('%s','now') - strftime('%s', MIN(CASE WHEN status='pending' THEN created_at ELSE NULL END))) AS INTEGER) AS oldest_pending_age_sec,
+             CAST((strftime('%s','now') - strftime('%s', MIN(CASE
+                   WHEN status='pending'
+                        AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))
+                   THEN created_at ELSE NULL END))) AS INTEGER) AS oldest_pending_eligible_age_sec
+           FROM collector_ingest_queue"""
+    ).fetchone()
+    if not row:
+        return {
+            "pending_total": 0,
+            "failed_total": 0,
+            "processing_total": 0,
+            "pending_eligible_now": 0,
+            "pending_blocked_future": 0,
+            "oldest_pending_age_sec": 0,
+            "oldest_pending_eligible_age_sec": 0,
+        }
+    return {
+        "pending_total": int(row["pending_total"] or 0),
+        "failed_total": int(row["failed_total"] or 0),
+        "processing_total": int(row["processing_total"] or 0),
+        "pending_eligible_now": int(row["pending_eligible_now"] or 0),
+        "pending_blocked_future": int(row["pending_blocked_future"] or 0),
+        "oldest_pending_age_sec": max(0, int(row["oldest_pending_age_sec"] or 0)),
+        "oldest_pending_eligible_age_sec": max(0, int(row["oldest_pending_eligible_age_sec"] or 0)),
+    }
+
+
+def _lease_next_queue_row(conn: sqlite3.Connection) -> dict | None:
+    row = conn.execute(
+        """SELECT *
+           FROM collector_ingest_queue
+           WHERE status IN ('pending','failed')
+             AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))
+           ORDER BY created_at ASC
+           LIMIT 1"""
+    ).fetchone()
+    if row is None:
+        return None
+    qid = int(row["id"])
+    cur = conn.execute(
+        """UPDATE collector_ingest_queue
+           SET status='processing',
+               processing_started_at=datetime('now')
+           WHERE id=?
+             AND status IN ('pending','failed')""",
+        (qid,),
+    )
+    if int(cur.rowcount or 0) != 1:
+        return None
+    return dict(row)
 
 
 def _enqueue_executive_ai_followup(conn: sqlite3.Connection, job_id: int) -> None:
@@ -890,7 +1015,7 @@ def process_one(qrow: dict, mirror_out: dict | None = None) -> None:
     # so the UI does not stay "running" for hours while Ollama/NVD run (ingest worker is often the bottleneck).
     with db_conn() as conn:
         conn.execute(
-            "UPDATE collector_ingest_queue SET status='applied', processed_at=datetime('now'), error_msg=NULL WHERE id=?",
+            "UPDATE collector_ingest_queue SET status='applied', processed_at=datetime('now'), error_msg=NULL, processing_started_at=NULL WHERE id=?",
             (qid,),
         )
         conn.execute(
@@ -1069,7 +1194,14 @@ def process_one(qrow: dict, mirror_out: dict | None = None) -> None:
         conn.commit()
 
 
+def _parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="SurveyTrace collector ingest worker")
+    ap.add_argument("--once", action="store_true", help="Process one outer ingest pass then exit")
+    return ap.parse_args()
+
+
 def main() -> None:
+    args = _parse_args()
     log.info(
         "collector ingest worker started | install_root=%s | db_path=%s | ingest_dir=%s",
         install_root().resolve(),
@@ -1081,33 +1213,33 @@ def main() -> None:
         time.sleep(30)
     with db_conn() as conn:
         _ensure_asset_metadata_lock_columns(conn)
+        _ensure_collector_ingest_queue_columns(conn)
         _ensure_collector_exec_ai_queue(conn)
+        reclaimed = _reclaim_stale_processing_rows(conn)
         conn.commit()
+    if reclaimed > 0:
+        log.warning("collector ingest: reclaimed %d stale processing row(s)", reclaimed)
     threading.Thread(
         target=_exec_ai_followup_loop,
         name="surveytrace-collector-exec-ai",
         daemon=True,
     ).start()
     log.info("deferred executive AI follow-up thread started (poll=%ds)", _EXEC_AI_POLL_SEC)
+    last_pending_warn_at = 0.0
+    loop_count = 0
     while True:
         try:
             # One queue item per outer attempt: payload vs enrichment are separate transactions;
             # enrichment commits after each asset so AI/Ollama does not hold the writer.
+            had_row = False
             for _ in range(10):
                 row_dict: dict | None = None
                 with db_conn() as conn:
-                    row = conn.execute(
-                        """SELECT *
-                           FROM collector_ingest_queue
-                           WHERE status IN ('pending','failed')
-                             AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))
-                           ORDER BY created_at ASC
-                           LIMIT 1"""
-                    ).fetchone()
-                    if row is not None:
-                        row_dict = dict(row)
+                    row_dict = _lease_next_queue_row(conn)
+                    conn.commit()
                 if row_dict is None:
                     break
+                had_row = True
                 mirror_ctx: dict = {}
                 try:
                     process_one(row_dict, mirror_ctx)
@@ -1121,7 +1253,8 @@ def main() -> None:
                                SET status='failed',
                                    attempts=attempts+1,
                                    next_attempt_at=datetime('now', ?),
-                                   error_msg=?
+                                   error_msg=?,
+                                   processing_started_at=NULL
                                WHERE id=?""",
                             (f"+{delay} seconds", str(exc)[:600], int(row_dict["id"])),
                         )
@@ -1200,11 +1333,34 @@ def main() -> None:
                                 log.debug("collector ingest mirror failure path skipped", exc_info=True)
                         conn.commit()
                     log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
+            if not had_row:
+                with db_conn() as conn:
+                    diag = _queue_diag_counts(conn)
+                now = time.monotonic()
+                eligible_stale = (
+                    diag["pending_eligible_now"] > 0
+                    and diag["oldest_pending_eligible_age_sec"] >= _PENDING_ELIGIBILITY_WARN_SEC
+                )
+                if eligible_stale and (now - last_pending_warn_at) >= _PENDING_ELIGIBILITY_WARN_SEC:
+                    log.warning(
+                        "collector ingest queue has stale eligible pending row(s): pending_total=%d eligible_now=%d blocked_future=%d processing=%d oldest_pending=%ds oldest_eligible=%ds",
+                        diag["pending_total"],
+                        diag["pending_eligible_now"],
+                        diag["pending_blocked_future"],
+                        diag["processing_total"],
+                        diag["oldest_pending_age_sec"],
+                        diag["oldest_pending_eligible_age_sec"],
+                    )
+                    last_pending_warn_at = now
         except Exception as outer:
             if isinstance(outer, sqlite3.OperationalError) and "unable to open database file" in str(outer):
                 log.error("worker loop: SQLite DB unavailable (%s); retry in %ds", outer, POLL_SECS)
             else:
                 log.exception("worker loop error: %s", outer)
+        loop_count += 1
+        if args.once:
+            log.info("collector ingest worker exiting after one pass (--once)")
+            return
         time.sleep(POLL_SECS)
 
 

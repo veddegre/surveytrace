@@ -389,18 +389,21 @@ echo "  Schema file updated"
 # ---------------------------------------------------------------------------
 # Master: collector ingest worker (systemd unit)
 # ---------------------------------------------------------------------------
-if [ -f "$SRC/surveytrace-collector-ingest.service" ]; then
-  sudo cp "$SRC/surveytrace-collector-ingest.service" /etc/systemd/system/
+install_unit_with_install_dir() {
+  local unit_name="$1"
+  local src_unit="$SRC/$unit_name"
+  local dst_unit="/etc/systemd/system/$unit_name"
+  if [ ! -f "$src_unit" ]; then
+    return 0
+  fi
+  sudo sed -e "s|/opt/surveytrace|$DEST|g" "$src_unit" > "$dst_unit"
   sudo systemctl daemon-reload
-  sudo systemctl enable surveytrace-collector-ingest.service
-  echo "  surveytrace-collector-ingest unit installed/enabled"
-fi
-if [ -f "$SRC/surveytrace-credential-check-worker.service" ]; then
-  sudo cp "$SRC/surveytrace-credential-check-worker.service" /etc/systemd/system/
-  sudo systemctl daemon-reload
-  sudo systemctl enable surveytrace-credential-check-worker.service
-  echo "  surveytrace-credential-check-worker unit installed/enabled (optional)"
-fi
+  sudo systemctl enable "$unit_name" >/dev/null 2>&1 || true
+  echo "  $unit_name installed/enabled"
+}
+
+install_unit_with_install_dir "surveytrace-collector-ingest.service"
+install_unit_with_install_dir "surveytrace-credential-check-worker.service"
 
 # ---------------------------------------------------------------------------
 # Restart daemons
@@ -654,6 +657,14 @@ else
   echo "  [FAIL] unit missing: surveytrace-collector-ingest.service"
   VERIFY_OK=0
 fi
+for _st_unit in surveytrace-daemon.service surveytrace-scheduler.service surveytrace-collector-ingest.service surveytrace-credential-check-worker.service; do
+  if sudo systemctl cat "$_st_unit" 2>/dev/null | grep -Eq '^ReadWritePaths=.*/data'; then
+    echo "  [OK] unit writable data path: $_st_unit"
+  else
+    echo "  [FAIL] unit missing ReadWritePaths=/opt/surveytrace/data: $_st_unit"
+    VERIFY_OK=0
+  fi
+done
 
 if command -v zabbix_sender >/dev/null 2>&1; then
   echo "  [OK] zabbix_sender available"

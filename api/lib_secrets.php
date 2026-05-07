@@ -27,6 +27,17 @@ function st_secret_env_key_raw(): string
     return is_string($v) ? trim($v) : '';
 }
 
+function st_secret_strict_key_mode(): bool
+{
+    $v = getenv('SURVEYTRACE_CRED_SECRET_KEY_STRICT');
+    if (! is_string($v)) {
+        return false;
+    }
+    $t = strtolower(trim($v));
+
+    return $t === '1' || $t === 'true' || $t === 'yes' || $t === 'on';
+}
+
 /**
  * Derive exactly 32 bytes for AES-256 / sodium secretbox key.
  */
@@ -43,6 +54,9 @@ function st_secret_derive_key_32(string $configured): ?string
         $h = @hex2bin($configured);
 
         return ($h !== false && strlen($h) === 32) ? $h : null;
+    }
+    if (st_secret_strict_key_mode()) {
+        return null;
     }
 
     return hash('sha256', $configured, true);
@@ -121,6 +135,7 @@ function st_secret_encrypt(string $plaintext, array $context = []): string
         throw new RuntimeException('Credential encryption is not configured.');
     }
     $aad = $context !== [] ? substr(hash('sha256', json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), true), 0, 16) : '';
+    $ctxh = $context !== [] ? hash('sha256', json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), false) : '';
 
     if (extension_loaded('sodium') && function_exists('sodium_crypto_secretbox')) {
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
@@ -134,7 +149,10 @@ function st_secret_encrypt(string $plaintext, array $context = []): string
             'nonce'      => base64_encode($nonce),
             'ciphertext' => base64_encode($ct),
         ];
-        // sodium secretbox has no AAD; optional $context is ignored for binding (use GCM if binding required).
+        // secretbox has no AAD; bind context by storing deterministic hash for decrypt-time verification.
+        if ($ctxh !== '') {
+            $env['ctxh'] = $ctxh;
+        }
         $json = json_encode($env, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             throw new RuntimeException('Envelope encode failed.');
@@ -161,6 +179,7 @@ function st_secret_encrypt(string $plaintext, array $context = []): string
     ];
     if ($aad !== '') {
         $env['aad'] = base64_encode($aad);
+        $env['ctxh'] = $ctxh;
     }
     $json = json_encode($env, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     if ($json === false) {
@@ -190,7 +209,13 @@ function st_secret_decrypt(string $envelope, array $context = []): string
         throw new RuntimeException('Invalid envelope encoding.');
     }
     $aad = $context !== [] ? substr(hash('sha256', json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), true), 0, 16) : '';
+    $ctxh = $context !== [] ? hash('sha256', json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), false) : '';
     if ($alg === ST_SECRET_ALG_SODIUM) {
+        if ($ctxh !== '' && isset($j['ctxh']) && is_string($j['ctxh'])) {
+            if (! hash_equals($ctxh, (string) $j['ctxh'])) {
+                throw new RuntimeException('Envelope context mismatch.');
+            }
+        }
         if (! extension_loaded('sodium') || ! function_exists('sodium_crypto_secretbox_open')) {
             throw new RuntimeException('libsodium not available for decrypt.');
         }

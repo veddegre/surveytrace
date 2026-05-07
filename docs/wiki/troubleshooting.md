@@ -42,6 +42,28 @@ Design reference: [Worker execution MVP plan](../WORKER_EXECUTION_MVP_PLAN.md) Â
 
 **Retention:** `credential_check_results` and `credential_check_artifacts` accumulate with history. There is **no automatic prune** in the MVP slice 11 release â€” treat growth as operational (backup, export, manual cleanup) until a dedicated retention job ships.
 
+**Secrets/key mismatch after restore or node move:** If credentialed runs suddenly fail with `decrypt_failed` or `encryption_unavailable`, confirm `SURVEYTRACE_CRED_SECRET_KEY` is present and identical on both PHP/web and `surveytrace-credential-check-worker` environments. Restoring DB without the original key keeps profile metadata but makes stored secrets undecryptable; operators must re-enter profile secrets.
+
+**Rewrap after envelope hardening:** After upgrading to builds that add context metadata (`ctxh`) for secret envelopes, run `php scripts/rewrap_credential_secrets.php` (dry-run first, then `--apply`) to modernize legacy rows. If rewrap reports `decrypt_failed`, keep the row unchanged and verify key parity before retrying.
+
+**Operational history growth:** For `worker_job_events`, `worker_job_attempts`, `credential_check_results`, `credential_check_artifacts`, and `reconciliation_runs`, use `php scripts/prune_operational_history.php` in dry-run mode first, then `--apply` during maintenance windows. Use `--include-runs` only when you intend to prune old terminal run/job trees.
+
+**Stuck worker substrate rows:** If `worker_jobs` or credentialed runs stay in `running` / `leased` / `retrying` after worker failure, use `php scripts/recover_stale_worker_jobs.php` in dry-run first, then `--apply` with `--run-sync` to align stuck run states. Prefer `--older-than-minutes=60` (or higher in slow environments). This tool marks stale rows terminal; it does not retry remote execution automatically.
+
+**Which maintenance tool should I use?**
+
+- **Rewrap candidates present** (legacy secret envelopes): `rewrap_credential_secrets.php`
+- **DB growth pressure from operational history**: `prune_operational_history.php`
+- **Stuck leased/running worker state after crash/reboot**: `recover_stale_worker_jobs.php`
+
+Always run dry-run first and back up before any `--apply`.
+
+**Backup/restore readiness validation:** Run `php scripts/validate_backup_restore_readiness.php` after restore and before starting normal operations. Any `FAIL` means restore prerequisites are not satisfied; resolve before resuming credentialed checks.
+
+**Key-loss warning (restore):** If DB restore succeeds but `SURVEYTRACE_CRED_SECRET_KEY` is missing or changed, profile metadata remains but decrypt of stored secrets fails. Re-enter profile secrets or restore the original key material.
+
+**Multi-node warning:** Web/API and worker nodes must use the same `SURVEYTRACE_CRED_SECRET_KEY`; mismatch causes credentialed-check decrypt failures even when UI/profile metadata appears healthy.
+
 ---
 
 ## Scans

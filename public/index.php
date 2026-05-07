@@ -2621,6 +2621,22 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
+      <div class="card st-settings-card st-settings-card--maintenance">
+        <div class="ct">Operational maintenance reference</div>
+        <div class="help-line mb8">
+          Read-only runbook shortcuts for manual maintenance tools. Run dry-run first and take a DB backup before any <code class="code-accent">--apply</code> operation.
+        </div>
+        <div class="help-mono" style="line-height:1.45">
+          php scripts/rewrap_credential_secrets.php<br>
+          php scripts/prune_operational_history.php --older-than-days=90<br>
+          php scripts/recover_stale_worker_jobs.php --older-than-minutes=60
+        </div>
+        <p class="hint-micro text-dim mt8 mb0">
+          These tools are CLI-only in this release. No browser-triggered maintenance actions are exposed.
+          <a href="https://github.com/veddegre/surveytrace/blob/main/docs/OPERATIONAL_LIFECYCLE_MAINTENANCE.md" target="_blank" rel="noopener">Runbook</a>
+          · <a href="https://github.com/veddegre/surveytrace/blob/main/docs/wiki/troubleshooting.md" target="_blank" rel="noopener">Troubleshooting</a>
+        </p>
+      </div>
       <div class="st-settings-col-title">AI / automation</div>
       <div class="card st-settings-card st-settings-card--ai">
         <div class="ct" id="st-ai-section-title">AI enrichment</div>
@@ -5077,7 +5093,11 @@ function renderHealthHtml(h, zbxResp) {
     const queueCount = parseInt(String(collectors.queued_chunks || 0), 10) || 0;
     const retryCount = parseInt(String(collectors.retrying_chunks || 0), 10) || 0;
     const failCount = parseInt(String(collectors.failed_chunks || 0), 10) || 0;
+    const processingCount = parseInt(String(collectors.processing_chunks || 0), 10) || 0;
+    const eligiblePendingCount = parseInt(String(collectors.eligible_pending_chunks || 0), 10) || 0;
+    const blockedPendingCount = parseInt(String(collectors.blocked_pending_chunks || 0), 10) || 0;
     const oldestPendingSec = parseInt(String(collectors.oldest_pending_age_sec || 0), 10) || 0;
+    const oldestEligiblePendingSec = parseInt(String(collectors.oldest_eligible_pending_age_sec || 0), 10) || 0;
     const oldestFailedSec = parseInt(String(collectors.oldest_failed_age_sec || 0), 10) || 0;
     const collectorStateText = collectorOk ? 'active' : 'inactive';
     const collectorStateClass = collectorOk ? 'hstate-ok' : 'hstate-err';
@@ -5152,7 +5172,7 @@ function renderHealthHtml(h, zbxResp) {
         {
             label: 'Collector ingest',
             value: esc(healthHumanizeServiceState(collectorStateText)),
-            helper: `Queued ${esc(String(queueCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}`,
+            helper: `Pending ${esc(String(queueCount))} · processing ${esc(String(processingCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}`,
             cls: collectorStateClass,
         },
         {
@@ -5213,7 +5233,8 @@ function renderHealthHtml(h, zbxResp) {
     const integrationRows = [];
     integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'Active and not paused' : 'Schedule table not available'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : '—')}</td></tr>`);
-    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector ingest queue</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">oldest pending ${esc(fmtDuration(oldestPendingSec))} · oldest failed ${esc(fmtDuration(oldestFailedSec))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Collector ingest queue</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · processing ${esc(String(processingCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">oldest pending ${esc(fmtDuration(oldestPendingSec))} · oldest failed ${esc(fmtDuration(oldestFailedSec))}</td></tr>`);
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Pending eligibility</td><td class="tbl-cell-mono tbl-cell-muted">eligible now ${esc(String(eligiblePendingCount))} · blocked until next_attempt_at ${esc(String(blockedPendingCount))}</td><td class="tbl-cell-muted">oldest eligible pending ${esc(fmtDuration(oldestEligiblePendingSec))}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Collector online</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td><td class="tbl-cell-muted">recent heartbeat within 2 minutes</td></tr>`);
     const aiConfigured = !!ai.configured;
     const aiRunning = !!ai.running;
@@ -5270,7 +5291,9 @@ function renderHealthHtml(h, zbxResp) {
     if (!scannerOk) warnings.push('Scanner daemon is not active.');
     if (!schedulerOk) warnings.push('Scheduler daemon is not active.');
     if (!collectorOk) warnings.push('Collector ingest daemon is not active.');
-    if (queueCount > 0 && oldestPendingSec >= 300) warnings.push(`${queueCount} collector chunk(s) are awaiting master ingest for ${fmtDuration(oldestPendingSec)}.`);
+    if (eligiblePendingCount > 0 && oldestEligiblePendingSec >= 300) warnings.push(`${eligiblePendingCount} collector chunk(s) are pending and eligible for ingest for ${fmtDuration(oldestEligiblePendingSec)}.`);
+    if (blockedPendingCount > 0) warnings.push(`${blockedPendingCount} collector chunk(s) are pending but blocked until next_attempt_at.`);
+    if (processingCount > 0 && queueCount === 0) warnings.push(`${processingCount} collector chunk(s) are currently processing on master ingest worker.`);
     if (retryCount > 0) warnings.push(`${retryCount} collector chunk(s) are retrying ingest.`);
     if (failCount > 0) warnings.push(`${failCount} collector chunk(s) are in failed state.`);
     if (disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024) warnings.push('Data directory free space is low.');
@@ -5390,6 +5413,44 @@ function renderHealthHtml(h, zbxResp) {
         });
     }
 
+    const maint = h.maintenance && typeof h.maintenance === 'object' ? h.maintenance : null;
+    let maintSnapHtml = '';
+    if (maint && stRoleIsAdmin() && maint.tables_ready) {
+        const hints = Array.isArray(maint.warning_hints) ? maint.warning_hints : [];
+        const counts = maint.operational_row_counts && typeof maint.operational_row_counts === 'object'
+            ? maint.operational_row_counts
+            : {};
+        const rewrap = maint.secret_rewrap_candidates != null ? (parseInt(String(maint.secret_rewrap_candidates), 10) || 0) : 0;
+        const staleJobs = parseInt(String(maint.stale_worker_job_candidates ?? 0), 10) || 0;
+        const staleAtt = parseInt(String(maint.stale_running_attempt_candidates ?? 0), 10) || 0;
+        const oldJobs = parseInt(String(maint.old_terminal_worker_jobs ?? 0), 10) || 0;
+        const oldRuns = parseInt(String(maint.old_terminal_credential_runs ?? 0), 10) || 0;
+        const noisy = hints.length > 0 || rewrap > 0 || staleJobs > 0 || staleAtt > 0;
+        if (!noisy) {
+            maintSnapHtml = `<p class="hint-micro text-dim st-health-maint-summary mb0">Maintenance posture: no actionable stale/rewrap signals in this snapshot.</p>`;
+        } else {
+            const cRes = parseInt(String(counts.credential_check_results ?? 0), 10) || 0;
+            const cArt = parseInt(String(counts.credential_check_artifacts ?? 0), 10) || 0;
+            const cEvt = parseInt(String(counts.worker_job_events ?? 0), 10) || 0;
+            const cAtt = parseInt(String(counts.worker_job_attempts ?? 0), 10) || 0;
+            const cRec = parseInt(String(counts.reconciliation_runs ?? 0), 10) || 0;
+            const line1 = `<p class="hint-micro text-dim st-health-maint-summary mb0">Maintenance snapshot: secret rewrap candidates <span class="mono-sm">${esc(String(rewrap))}</span> · stale worker jobs <span class="mono-sm">${esc(String(staleJobs))}</span> · stale attempts <span class="mono-sm">${esc(String(staleAtt))}</span>.</p>`;
+            const line2 = `<p class="hint-micro text-dim st-health-maint-counts mb0">Retention-sensitive rows: results ${esc(String(cRes))} · artifacts ${esc(String(cArt))} · worker events ${esc(String(cEvt))} · worker attempts ${esc(String(cAtt))} · reconciliation runs ${esc(String(cRec))}.</p>`;
+            const line3 = `<p class="hint-micro text-dim st-health-maint-old mb0">Old terminal history (>90d): worker jobs ${esc(String(oldJobs))} · credential runs ${esc(String(oldRuns))}.</p>`;
+            const hintList = hints.length
+                ? `<ul class="hint-micro text-dim st-health-cc-hint-list mb0">${hints.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ul>`
+                : '';
+            maintSnapHtml = line1 + line2 + line3 + hintList;
+        }
+        hints.forEach((hint) => {
+            const s = String(hint || '').trim();
+            const prefixed = s ? ('Maintenance: ' + s) : '';
+            if (prefixed && warnings.indexOf(prefixed) === -1) {
+                warnings.push(prefixed);
+            }
+        });
+    }
+
     const workerSectionHtml = `
       <section class="st-band st-health-band st-health-band--worker health-section${wsAttention ? ' st-health-band--attention' : ''}" aria-labelledby="st-health-sec-worker">
         <header class="st-health-section-head">
@@ -5398,6 +5459,7 @@ function renderHealthHtml(h, zbxResp) {
         </header>
         ${workerInner}
         ${ccSnapHtml}
+        ${maintSnapHtml}
       </section>`;
 
     if (ws && Array.isArray(ws.warning_hints)) {

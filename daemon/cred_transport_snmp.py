@@ -35,7 +35,7 @@ def run_test(payload: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {
             "ok": False,
-            "code": "protocol_error",
+            "code": "dependency_missing",
             "transport": transport,
             "duration_ms": int((time.monotonic() - t0) * 1000),
         }

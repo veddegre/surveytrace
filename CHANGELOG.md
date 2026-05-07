@@ -15,6 +15,40 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Removed
 
+## [1.0.2] - 2026-05-07
+
+Operational lifecycle and maintenance milestone completion release: manual maintenance tooling, admin read-only visibility, backup/restore readiness validation, and runbook hardening. No new execution transports or automated maintenance schedulers.
+
+### Added
+
+- Operational maintenance CLI utilities:
+  - `scripts/rewrap_credential_secrets.php`
+  - `scripts/prune_operational_history.php`
+  - `scripts/recover_stale_worker_jobs.php`
+  - `scripts/validate_backup_restore_readiness.php`
+- Maintenance selftests:
+  - `scripts/st_cred_secret_rewrap_selftest.php`
+  - `scripts/st_operational_prune_selftest.php`
+  - `scripts/st_stale_worker_recovery_selftest.php`
+  - `scripts/st_backup_restore_readiness_selftest.php`
+- Admin read-only maintenance visibility in health/settings for stale-state and growth signals.
+
+### Changed
+
+- Operational lifecycle docs/runbooks now include:
+  - monthly and pre-release maintenance checklists
+  - backup/restore required set and restore ordering
+  - explicit key-loss and multi-node key parity guidance
+- Release readiness checklist expanded for maintenance dry-runs and backup/restore readiness validation.
+
+### Fixed
+
+- Credential secret envelope hardening and decrypt-path safety updates carried through milestone slices (ctxh rewrap path, safer failure signaling, dependency classification clarity).
+
+### Removed
+
+- None.
+
 ## [1.0.1] - 2026-05-06
 
 Stabilization and maintenance release: polish, trusted-data foundations, collector ingest clarity, deployment parity, and documentation. **No new credentialed-check execution product** — design docs only.

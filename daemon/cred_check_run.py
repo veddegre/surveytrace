@@ -476,7 +476,12 @@ def process_cred_check_run(
             plain, derr = decrypt_profile_secret(envelope=envelope, profile_id=profile_id, install_root=inst)
             if plain is None:
                 code = derr or "decrypt_failed"
-                safe = "could not decrypt secret" if code == "decrypt_failed" else "encryption not configured on worker host"
+                if code == "encryption_unavailable":
+                    safe = "encryption not configured on worker host"
+                elif code == "dependency_missing":
+                    safe = "decrypt dependency missing on worker host"
+                else:
+                    safe = "could not decrypt secret"
                 conn.execute(
                     """UPDATE credential_check_run_targets SET status = 'failed', error_code = ?, error_message_safe = ?,
                         finished_at = datetime('now') WHERE id = ?""",

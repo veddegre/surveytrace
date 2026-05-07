@@ -217,9 +217,11 @@ Provide **authenticated encryption** for profile secrets in `credential_profiles
 ### Encryption / operations
 
 - **Key:** `SURVEYTRACE_CRED_SECRET_KEY` only (trimmed). Accepts base64 of 32 raw bytes, 64-char hex (32 bytes), or arbitrary string (SHA-256 → 32-byte key). Prefer `openssl rand -base64 32` for production.
+- **Strict key mode:** set `SURVEYTRACE_CRED_SECRET_KEY_STRICT=1` to reject weak ad-hoc passphrase formats and require strong key formats.
 - **Missing key:** metadata CRUD unchanged; `set_secret` returns **503** with message `Credential encryption is not configured.`
 - **Key change:** existing envelopes become undecryptable; operators must re-enter secrets (rotation / dual-key not in this slice).
 - **Backup/restore:** DB backup contains ciphertext; **restore on a host without the same key loses secrets** (plaintext not recoverable).
+- **Multi-node parity:** all decrypting nodes/processes (web/PHP and credential-check worker) must use the same key value.
 
 ### API (POST)
 

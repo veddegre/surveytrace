@@ -318,6 +318,141 @@ function st_health_stat_file_bytes(string $path): ?float {
     return (float) $s;
 }
 
+/**
+ * Read-only operational maintenance snapshot for admin visibility.
+ *
+ * Counts only; no maintenance actions triggered here.
+ *
+ * @return array<string,mixed>
+ */
+function st_health_maintenance_snapshot(PDO $db): array {
+    $out = [
+        'tables_ready' => false,
+        'secret_rewrap_candidates' => null,
+        'operational_row_counts' => [
+            'credential_check_results' => 0,
+            'credential_check_artifacts' => 0,
+            'worker_job_events' => 0,
+            'worker_job_attempts' => 0,
+            'reconciliation_runs' => 0,
+        ],
+        'stale_worker_job_candidates' => 0,
+        'stale_running_attempt_candidates' => 0,
+        'old_terminal_worker_jobs' => 0,
+        'old_terminal_credential_runs' => 0,
+        'warning_hints' => [],
+        'summary' => 'Operational maintenance snapshot unavailable.',
+    ];
+    $hasWorker = false;
+    $hasCred = false;
+    $hasRecon = false;
+    try {
+        $hasWorker = $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='worker_jobs' LIMIT 1")->fetchColumn() !== false;
+        $hasCred = $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='credential_profiles' LIMIT 1")->fetchColumn() !== false;
+        $hasRecon = $db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='reconciliation_runs' LIMIT 1")->fetchColumn() !== false;
+    } catch (Throwable) {
+        return $out;
+    }
+    $out['tables_ready'] = $hasWorker || $hasCred || $hasRecon;
+    if (! $out['tables_ready']) {
+        return $out;
+    }
+
+    try {
+        if ($hasCred) {
+            // Cheap string-based legacy-envelope heuristic (safe on old SQLite builds).
+            $out['secret_rewrap_candidates'] = (int) $db->query(
+                "SELECT COUNT(*)
+                 FROM credential_profiles
+                 WHERE deleted_at IS NULL
+                   AND length(trim(COALESCE(secret_ciphertext,''))) > 0
+                   AND (
+                        (secret_ciphertext LIKE '%\"alg\":\"sodium_secretbox\"%' AND secret_ciphertext NOT LIKE '%\"ctxh\"%')
+                        OR secret_ciphertext LIKE '%\"v\":0%'
+                   )"
+            )->fetchColumn();
+        }
+
+        if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='credential_check_results' LIMIT 1")->fetchColumn() !== false) {
+            $out['operational_row_counts']['credential_check_results'] = (int) $db->query("SELECT COUNT(*) FROM credential_check_results")->fetchColumn();
+        }
+        if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='credential_check_artifacts' LIMIT 1")->fetchColumn() !== false) {
+            $out['operational_row_counts']['credential_check_artifacts'] = (int) $db->query("SELECT COUNT(*) FROM credential_check_artifacts")->fetchColumn();
+        }
+        if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='worker_job_events' LIMIT 1")->fetchColumn() !== false) {
+            $out['operational_row_counts']['worker_job_events'] = (int) $db->query("SELECT COUNT(*) FROM worker_job_events")->fetchColumn();
+        }
+        if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='worker_job_attempts' LIMIT 1")->fetchColumn() !== false) {
+            $out['operational_row_counts']['worker_job_attempts'] = (int) $db->query("SELECT COUNT(*) FROM worker_job_attempts")->fetchColumn();
+        }
+        if ($hasRecon) {
+            $out['operational_row_counts']['reconciliation_runs'] = (int) $db->query("SELECT COUNT(*) FROM reconciliation_runs")->fetchColumn();
+        }
+
+        if ($hasWorker) {
+            $out['stale_worker_job_candidates'] = (int) $db->query(
+                "SELECT COUNT(*)
+                 FROM worker_jobs
+                 WHERE status IN ('leased','running','retrying')
+                   AND (
+                     (lease_expires_at IS NOT NULL AND lease_expires_at <> '' AND lease_expires_at < datetime('now'))
+                     OR COALESCE(updated_at, created_at, '1970-01-01 00:00:00') < datetime('now','-60 minutes')
+                   )"
+            )->fetchColumn();
+            $out['stale_running_attempt_candidates'] = (int) $db->query(
+                "SELECT COUNT(*)
+                 FROM worker_job_attempts a
+                 LEFT JOIN worker_jobs w ON w.id = a.job_id
+                 WHERE a.status = 'running'
+                   AND COALESCE(a.started_at, '1970-01-01 00:00:00') < datetime('now','-60 minutes')
+                   AND (
+                     w.id IS NULL
+                     OR w.status IN ('leased','running','retrying','failed','cancelled','expired','completed')
+                   )"
+            )->fetchColumn();
+            $out['old_terminal_worker_jobs'] = (int) $db->query(
+                "SELECT COUNT(*) FROM worker_jobs
+                 WHERE status IN ('completed','failed','cancelled','expired')
+                   AND COALESCE(finished_at, updated_at, created_at, '1970-01-01 00:00:00') < datetime('now','-90 days')"
+            )->fetchColumn();
+        }
+
+        if ($db->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='credential_check_runs' LIMIT 1")->fetchColumn() !== false) {
+            $out['old_terminal_credential_runs'] = (int) $db->query(
+                "SELECT COUNT(*) FROM credential_check_runs
+                 WHERE status IN ('completed','failed','cancelled','expired')
+                   AND COALESCE(finished_at, started_at, '1970-01-01 00:00:00') < datetime('now','-90 days')"
+            )->fetchColumn();
+        }
+    } catch (Throwable) {
+        $out['summary'] = 'Operational maintenance snapshot unavailable.';
+        return $out;
+    }
+
+    $c = $out['operational_row_counts'];
+    $sumRows = ((int) $c['credential_check_results']) + ((int) $c['credential_check_artifacts'])
+        + ((int) $c['worker_job_events']) + ((int) $c['worker_job_attempts']) + ((int) $c['reconciliation_runs']);
+    $out['summary'] = 'Maintenance counts loaded: ' . $sumRows . ' tracked row(s) across retention-sensitive tables.';
+
+    if (($out['secret_rewrap_candidates'] ?? 0) > 0) {
+        $out['warning_hints'][] = (string) $out['secret_rewrap_candidates'] . ' credential profile secret envelope(s) appear to need manual rewrap.';
+    }
+    if ($out['stale_worker_job_candidates'] > 0) {
+        $out['warning_hints'][] = (string) $out['stale_worker_job_candidates'] . ' stale worker job candidate(s) detected.';
+    }
+    if ($out['stale_running_attempt_candidates'] > 0) {
+        $out['warning_hints'][] = (string) $out['stale_running_attempt_candidates'] . ' stale running worker attempt(s) detected.';
+    }
+    if ($out['old_terminal_worker_jobs'] > 250 || $out['old_terminal_credential_runs'] > 250) {
+        $out['warning_hints'][] = 'Large old terminal run/job history detected; consider manual prune dry-run.';
+    }
+    if (((int) $c['worker_job_events']) > 50000 || ((int) $c['credential_check_results']) > 50000 || ((int) $c['reconciliation_runs']) > 50000) {
+        $out['warning_hints'][] = 'One or more operational history tables exceed 50k rows; plan retention maintenance.';
+    }
+
+    return $out;
+}
+
 try {
     $db = st_db();
 } catch (Throwable $e) {
@@ -395,7 +530,11 @@ $health = [
         'queued_chunks' => 0,
         'retrying_chunks' => 0,
         'failed_chunks' => 0,
+        'processing_chunks' => 0,
+        'eligible_pending_chunks' => 0,
+        'blocked_pending_chunks' => 0,
         'oldest_pending_age_sec' => 0,
+        'oldest_eligible_pending_age_sec' => 0,
         'oldest_failed_age_sec' => 0,
     ],
     'ai' => [
@@ -471,14 +610,31 @@ try {
     $health['collectors']['failed_chunks'] = (int)$db->query(
         "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='failed'"
     )->fetchColumn();
+    $health['collectors']['processing_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='processing'"
+    )->fetchColumn();
     $health['collectors']['retrying_chunks'] = (int)$db->query(
         "SELECT COUNT(*) FROM collector_ingest_queue WHERE status='failed' AND COALESCE(attempts,0) > 0"
+    )->fetchColumn();
+    $health['collectors']['eligible_pending_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue
+         WHERE status='pending' AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))"
+    )->fetchColumn();
+    $health['collectors']['blocked_pending_chunks'] = (int)$db->query(
+        "SELECT COUNT(*) FROM collector_ingest_queue
+         WHERE status='pending' AND next_attempt_at IS NOT NULL AND datetime(next_attempt_at) > datetime('now')"
     )->fetchColumn();
     $oldest = $db->query(
         "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(created_at))) AS INTEGER)
          FROM collector_ingest_queue WHERE status='pending'"
     )->fetchColumn();
     $health['collectors']['oldest_pending_age_sec'] = max(0, (int)($oldest ?: 0));
+    $oldestEligible = $db->query(
+        "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(created_at))) AS INTEGER)
+         FROM collector_ingest_queue
+         WHERE status='pending' AND (next_attempt_at IS NULL OR datetime(next_attempt_at) <= datetime('now'))"
+    )->fetchColumn();
+    $health['collectors']['oldest_eligible_pending_age_sec'] = max(0, (int)($oldestEligible ?: 0));
     $oldestFailed = $db->query(
         "SELECT CAST((strftime('%s','now') - strftime('%s', MIN(COALESCE(processed_at, created_at)))) AS INTEGER)
          FROM collector_ingest_queue WHERE status='failed'"
@@ -649,5 +805,7 @@ try {
     ];
     @error_log('SurveyTrace health trusted_data: ' . $e->getMessage());
 }
+
+$health['maintenance'] = st_health_maintenance_snapshot($db);
 
 st_json($health);

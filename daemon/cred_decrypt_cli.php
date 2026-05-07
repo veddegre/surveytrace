@@ -33,6 +33,15 @@ try {
     echo $plain;
     exit(0);
 } catch (Throwable $e) {
-    fwrite(STDERR, $e->getMessage());
+    $m = strtolower(trim((string) $e->getMessage()));
+    if ($m !== '' && str_contains($m, 'not configured')) {
+        fwrite(STDERR, 'encryption_unavailable');
+        exit(1);
+    }
+    if ($m !== '' && (str_contains($m, 'libsodium not available') || str_contains($m, 'openssl not available'))) {
+        fwrite(STDERR, 'dependency_missing');
+        exit(1);
+    }
+    fwrite(STDERR, 'decrypt_failed');
     exit(1);
 }

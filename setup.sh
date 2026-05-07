@@ -73,6 +73,14 @@ check_systemd_unit_enabled() {
         check_warn "systemd unit not enabled: $unit"
     fi
 }
+check_systemd_unit_has_data_rw() {
+    local unit="$1"
+    if systemctl cat "$unit" 2>/dev/null | grep -Eq '^ReadWritePaths=.*/data'; then
+        check_ok "systemd unit writable data path: $unit"
+    else
+        check_fail "systemd unit missing ReadWritePaths=/opt/surveytrace/data: $unit"
+    fi
+}
 
 # ---- Must be root -----------------------------------------------------------
 [[ $EUID -eq 0 ]] || die "Run this script as root: sudo bash setup.sh"
@@ -853,6 +861,10 @@ check_systemd_unit_enabled "surveytrace-daemon.service"
 check_systemd_unit_enabled "surveytrace-scheduler.service"
 check_systemd_unit_enabled "surveytrace-collector-ingest.service"
 check_systemd_unit_enabled "surveytrace-credential-check-worker.service"
+check_systemd_unit_has_data_rw "surveytrace-daemon.service"
+check_systemd_unit_has_data_rw "surveytrace-scheduler.service"
+check_systemd_unit_has_data_rw "surveytrace-collector-ingest.service"
+check_systemd_unit_has_data_rw "surveytrace-credential-check-worker.service"
 
 if command -v zabbix_sender >/dev/null 2>&1; then
     check_ok "zabbix_sender available"
