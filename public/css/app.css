@@ -2611,12 +2611,22 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   margin:0 0 6px;
 }
 .st-settings-section-lede{max-width:min(100%,52rem);line-height:1.45}
-.st-settings-grid{margin-top:4px}
+.st-settings-grid{
+  margin-top:4px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:12px;
+}
+.st-settings-grid > div{display:contents}
 .st-settings-subnav{
   display:flex;
   flex-wrap:wrap;
   gap:6px;
-  margin:0 0 10px;
+  margin:0 0 8px;
+  padding:4px;
+  border:1px solid var(--bd2);
+  border-radius:10px;
+  background:color-mix(in srgb,var(--bg4) 86%,var(--surface, #000) 14%);
   min-width:0;
 }
 .st-settings-subnav-btn{
@@ -2625,7 +2635,7 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   background:var(--bg4);
   color:var(--tx2);
   border-radius:999px;
-  padding:6px 11px;
+  padding:5px 10px;
   font-size:12px;
   line-height:1.2;
   cursor:pointer;
@@ -2641,6 +2651,7 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   outline-offset:2px;
 }
 #t-settings.on [data-st-group][hidden]{display:none!important}
+.st-settings-tab-intro{max-width:min(100%,56rem)}
 #t-settings.on .st-cc-summary-strip{min-width:0;max-width:100%}
 .st-cc-summary-chips{
   display:grid;

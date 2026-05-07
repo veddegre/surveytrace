@@ -2346,16 +2346,23 @@ if (!headers_sent()) {
       <p class="hint-micro text-dim st-settings-section-lede mb0">Each card keeps its own save/test actions. Use section tabs to focus on one operational area at a time.</p>
     </header>
     <div class="st-settings-subnav" role="tablist" aria-label="Settings sections">
-      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-general" role="tab" aria-selected="true" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('general', true)">General</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-platform" role="tab" aria-selected="true" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('platform', true)">Platform</button>
       <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-integrations" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('integrations', true)">Integrations</button>
       <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-credentialed" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('credentialed', true)">Credentialed Checks</button>
-      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-operations" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('operations', true)">Operations &amp; Maintenance</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-maintenance" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('maintenance', true)">Maintenance</button>
       <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-advanced" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('advanced', true)">Advanced</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-reference" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('reference', true)">Reference</button>
     </div>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="platform">Core application behavior, security defaults, session policy, and role-aware access controls.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="integrations">External systems, collectors, feeds, API access, and data exchange settings.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="credentialed">Credential profiles, bounded check jobs, execution history, and authenticated evidence controls.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="maintenance">Operational lifecycle tools for retention, backup/restore validation, secret rewrap, and stuck-worker recovery.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="advanced">Low-frequency controls, AI behavior, and experimental or diagnostic configuration.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="reference">Reference material, build information, category definitions, and operational documentation links.</p>
   <div class="scgrid st-settings-grid" id="st-settings-grid">
     <div>
-      <div class="st-settings-col-title" data-st-group="general">Security &amp; session</div>
-      <div class="card st-settings-card st-settings-card--security" data-st-group="general">
+      <div class="st-settings-col-title" data-st-group="platform">Security &amp; session</div>
+      <div class="card st-settings-card st-settings-card--security" data-st-group="platform">
         <div class="ct">Sign-in session</div>
         <div class="help-line mb10">
           Idle timeout for the PHP session cookie after you sign in (session auth) or after the first successful
@@ -2376,7 +2383,7 @@ if (!headers_sent()) {
           <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--security" id="st-security-controls-card" data-st-group="general">
+      <div class="card st-settings-card st-settings-card--security" id="st-security-controls-card" data-st-group="platform">
         <div class="ct">Security controls</div>
         <p class="help-line mb10 text-dim">
           When enabled, <strong>viewer</strong> accounts can no longer call the System Health or inventory export APIs—only <strong>scan editor</strong> and <strong>admin</strong> roles. Default is off (unchanged from prior releases).
@@ -2567,8 +2574,8 @@ if (!headers_sent()) {
       </div>
     </div>
     <div>
-      <div class="st-settings-col-title" data-st-group="advanced">Optional / advanced reference</div>
-      <div class="card st-settings-card st-settings-card--advanced" data-st-group="advanced">
+      <div class="st-settings-col-title" data-st-group="reference">Reference information</div>
+      <div class="card st-settings-card st-settings-card--advanced" data-st-group="reference">
         <div class="ct">About</div>
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(ST_VERSION, ENT_QUOTES, 'UTF-8') ?><br>
@@ -2577,7 +2584,7 @@ if (!headers_sent()) {
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--advanced" data-st-group="advanced">
+      <div class="card st-settings-card st-settings-card--advanced" data-st-group="reference">
         <div class="ct">Asset categories</div>
         <table class="table-mini">
           <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server, macOS in server roles)</td></tr>
@@ -2599,8 +2606,8 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro mb6" id="st-collector-install-token-status">Not configured</div>
       </div>
-      <div class="st-settings-col-title" data-st-group="operations">Maintenance &amp; operations</div>
-      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
+      <div class="st-settings-col-title" data-st-group="maintenance">Maintenance &amp; operations</div>
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="maintenance">
         <div class="ct">Scan trash retention</div>
         <div class="help-line mb8">
           Trashed scans are permanently purged after this many days by the scheduler daemon.
@@ -2610,7 +2617,7 @@ if (!headers_sent()) {
           <button type="button" class="tbtn btn-xs" id="scan-trash-retention-save" onclick="saveScanTrashRetentionDays()" title="Save trash retention days (admin)">Save retention</button>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="maintenance">
         <div class="ct">Database backups</div>
         <div class="help-line mb8">
           Scheduler-triggered SQLite backups using <code class="code-accent">daemon/backup_db.sh</code>.
@@ -2638,7 +2645,7 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
-      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="maintenance">
         <div class="ct">Operational maintenance reference</div>
         <div class="help-line mb8">
           Read-only runbook shortcuts for manual maintenance tools. Run dry-run first and take a DB backup before any <code class="code-accent">--apply</code> operation.
@@ -3673,6 +3680,7 @@ function applyRoleAwareUi() {
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
     setHidden('st-security-controls-card', !isAdmin);
+    setHidden('st-cc-summary-wrap', !isAdmin);
     setHidden('st-cred-profiles-card-wrap', !isAdmin);
     setHidden('st-cred-jobs-card-wrap', !isAdmin);
 
@@ -4246,24 +4254,29 @@ function stScrollMainToTop() {
     }
 }
 
-const ST_SETTINGS_SUBTABS = ['general', 'integrations', 'credentialed', 'operations', 'advanced'];
+const ST_SETTINGS_SUBTABS = ['platform', 'integrations', 'credentialed', 'maintenance', 'advanced', 'reference'];
 const ST_SETTINGS_SUBTAB_STORAGE_KEY = 'st_settings_subtab';
 
 function stSettingsGetPreferredSubtab() {
     try {
         const hash = String(window.location.hash || '').trim();
         const m = hash.match(/^#settings-([a-z_]+)$/i);
-        if (m && ST_SETTINGS_SUBTABS.includes(m[1])) return m[1];
+        if (m) {
+            const old = String(m[1] || '').toLowerCase();
+            const mapped = old === 'general' ? 'platform' : (old === 'operations' ? 'maintenance' : old);
+            if (ST_SETTINGS_SUBTABS.includes(mapped)) return mapped;
+        }
     } catch (e) {}
     try {
         const saved = String(localStorage.getItem(ST_SETTINGS_SUBTAB_STORAGE_KEY) || '').trim();
-        if (ST_SETTINGS_SUBTABS.includes(saved)) return saved;
+        const mapped = saved === 'general' ? 'platform' : (saved === 'operations' ? 'maintenance' : saved);
+        if (ST_SETTINGS_SUBTABS.includes(mapped)) return mapped;
     } catch (e) {}
-    return 'general';
+    return 'platform';
 }
 
 function stSettingsSetSubtab(name, persistHash) {
-    const tab = ST_SETTINGS_SUBTABS.includes(name) ? name : 'general';
+    const tab = ST_SETTINGS_SUBTABS.includes(name) ? name : 'platform';
     document.querySelectorAll('#t-settings [data-st-group]').forEach((el) => {
         const group = String(el.getAttribute('data-st-group') || '').trim();
         el.hidden = (group !== tab);
@@ -11434,7 +11447,7 @@ async function stCcLoadJobsAndRuns() {
 function stCcSummaryChip(label, value, tone, hint) {
     const t = tone ? ' st-cc-summary-chip--' + tone : '';
     const note = hint ? `<div class="st-cc-summary-chip-note">${esc(String(hint))}</div>` : '';
-    return `<div class="st-cc-summary-chip${t}" role="listitem" aria-label="${esc(String(label + ': ' + value))}">
+    return `<div class="st-cc-summary-chip${t}" role="listitem" aria-label="${esc(String(label + ': ' + value))}" title="${hint ? esc(String(hint)) : ''}">
       <div class="st-cc-summary-chip-label">${esc(String(label))}</div>
       <div class="st-cc-summary-chip-value mono-sm">${esc(String(value))}</div>
       ${note}
@@ -11469,7 +11482,7 @@ function stCcRenderOperationalSummary() {
         return;
     }
 
-    const stuckQueued = queuedActive > 0 && oldestQueuedSec >= 3600;
+    const stuckQueued = queuedActive > 0 && oldestQueuedSec >= 10800;
     const chips = [
         stCcSummaryChip('Profiles configured', profilesTotal, ''),
         stCcSummaryChip('Profiles with secrets', profilesSecrets, profilesTotal > 0 && profilesSecrets === 0 ? 'warn' : ''),
@@ -11478,7 +11491,7 @@ function stCcRenderOperationalSummary() {
         stCcSummaryChip('Failed runs (24h)', failed24, failed24 > 0 ? 'bad' : ''),
         stCcSummaryChip('Partial results (24h)', partial24, partial24 > 0 ? 'warn' : ''),
         stCcSummaryChip('Queued/active runs', queuedActive, stuckQueued ? 'warn' : ''),
-        stCcSummaryChip('Oldest queued worker age', oldestQueuedSec > 0 ? fmtDuration(oldestQueuedSec) : '—', stuckQueued ? 'bad' : ''),
+        stCcSummaryChip('Oldest queued worker age', oldestQueuedSec > 0 ? fmtDuration(oldestQueuedSec) : '—', stuckQueued ? 'bad' : '', 'Queue age warning triggers at 3h+; lower ages can be normal during active processing.'),
         stCcSummaryChip('Last successful execution', lastOk, lastOk === '—' ? 'warn' : '')
     ];
     const states = [];
