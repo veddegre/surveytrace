@@ -2428,7 +2428,7 @@ if (!headers_sent()) {
           </table>
         </div>
         <div class="mt8">
-          <button type="button" class="tbtn" onclick="stCredProfileCardTestHint()" title="Handshake test runs from the profile editor modal">How to run handshake test</button>
+          <button type="button" class="tbtn" onclick="stCredProfileCardTestHint()" title="Save profile → set secret → target host → run test → read the result panel in the modal">How to run handshake test</button>
         </div>
       </div>
       </div>
@@ -2878,7 +2878,7 @@ if (!headers_sent()) {
       <p class="hint-micro text-dim mb6">Optional extra keys merged with the fields above (advanced overrides on save). Never put passwords or keys here.</p>
       <textarea class="finp w100 mb0" id="st-cred-pf-principal-adv" rows="4" style="font-family:monospace;font-size:12px" placeholder="{}" onchange="stCredProfileOnStructuredFieldChange()"></textarea>
     </details>
-    <p class="hint-micro text-dim mb6" id="st-cred-pf-scope-intro">Scope records where this profile is intended to be used. It does not change job targets — each job still selects assets or scopes for execution. Empty selections mean “no intent captured,” not a hard restriction.</p>
+    <p class="hint-micro text-dim mb6" id="st-cred-pf-scope-intro"><strong>Profile scope</strong> is an optional allowlist / usage boundary for operators (scopes, tags, assets). <strong>Job targets</strong> decide which assets are actually checked at run time. If you leave profile scope empty, <strong>no allowlist is configured — jobs may target any asset your job definition and inventory allow</strong> (SurveyTrace does not treat empty profile scope as “deny all”).</p>
     <label class="flbl" for="st-cred-pf-scope-scope-ms">Allowed scopes</label>
     <select class="finp w100 mb8" id="st-cred-pf-scope-scope-ms" multiple size="5" onchange="stCredProfileOnStructuredFieldChange()"></select>
     <label class="flbl" for="st-cred-pf-scope-tags">Tags (comma-separated)</label>
@@ -2903,24 +2903,25 @@ if (!headers_sent()) {
       <div id="st-cred-pf-secret-fields-ssh" class="hide">
         <p class="hint-micro text-dim mb4">Use <strong>either</strong> password <strong>or</strong> private key (not both). Values are never shown again after save.</p>
         <label class="flbl" for="st-cred-pf-ssh-password">SSH password</label>
-        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-password" autocomplete="new-password" value="">
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-password" autocomplete="new-password" value="" oninput="stCredProfileOnSecretInputsChanged()">
         <label class="flbl" for="st-cred-pf-ssh-private-key">SSH private key (PEM)</label>
-        <textarea class="finp w100 mb6" id="st-cred-pf-ssh-private-key" rows="4" style="font-family:monospace;font-size:11px" autocomplete="off"></textarea>
+        <textarea class="finp w100 mb6" id="st-cred-pf-ssh-private-key" rows="4" style="font-family:monospace;font-size:11px" autocomplete="off" oninput="stCredProfileOnSecretInputsChanged()"></textarea>
         <label class="flbl" for="st-cred-pf-ssh-passphrase">Key passphrase (optional)</label>
-        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-passphrase" autocomplete="new-password" value="">
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-passphrase" autocomplete="new-password" value="" oninput="stCredProfileOnSecretInputsChanged()">
       </div>
       <div id="st-cred-pf-secret-fields-snmp" class="hide">
         <label class="flbl" for="st-cred-pf-snmpv3-auth">SNMPv3 auth password</label>
-        <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-auth" autocomplete="new-password" value="">
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-auth" autocomplete="new-password" value="" oninput="stCredProfileOnSecretInputsChanged()">
         <div id="st-cred-pf-snmpv3-priv-secret-row">
           <label class="flbl" for="st-cred-pf-snmpv3-priv">SNMPv3 privacy password</label>
-          <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-priv" autocomplete="new-password" value="">
+          <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-priv" autocomplete="new-password" value="" oninput="stCredProfileOnSecretInputsChanged()">
         </div>
       </div>
       <div id="st-cred-pf-secret-fields-winrm" class="hide">
         <label class="flbl" for="st-cred-pf-winrm-password">WinRM password</label>
-        <input class="finp w100 mb6" type="password" id="st-cred-pf-winrm-password" autocomplete="new-password" value="">
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-winrm-password" autocomplete="new-password" value="" oninput="stCredProfileOnSecretInputsChanged()">
       </div>
+      <p class="hint-micro text-dim mb6 hide" id="st-cred-pf-secret-action-hint" aria-live="polite"></p>
       <div class="row-wrap gap6 mb6">
         <button type="button" class="btnp" id="st-cred-pf-btn-secret-save" onclick="stCredProfileSubmitSecret()">Set / replace secret</button>
         <button type="button" class="tbtn" id="st-cred-pf-btn-secret-clear" onclick="stCredProfileClearSecret()">Clear secret</button>
@@ -2930,15 +2931,18 @@ if (!headers_sent()) {
       <div class="flbl">Transport handshake test</div>
       <p class="hint-micro text-dim mb6">Enter a <strong>target host or IP</strong> for this run only (not saved with the profile). SSH runs <code class="code-accent">true</code> then <code class="code-accent">uname -s</code>; SNMPv3 performs a single GET of <code class="code-accent">sysDescr.0</code>. Requires a stored secret and server-side crypto + Python helpers (<code class="code-accent">paramiko</code>, <code class="code-accent">pysnmp</code>).</p>
       <label class="flbl" for="st-cred-pf-test-host">Target host / IP</label>
-      <input class="finp w100 mb6" id="st-cred-pf-test-host" autocomplete="off" placeholder="e.g. 10.0.0.12" oninput="stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload||null)">
+      <input class="finp w100 mb6" id="st-cred-pf-test-host" autocomplete="off" placeholder="e.g. 10.0.0.12" oninput="stCredProfileOnTestTargetInput()">
       <label class="flbl" for="st-cred-pf-test-port">Port (0 = default: 22 SSH / 161 SNMP)</label>
-      <input class="finp w100 mb6" id="st-cred-pf-test-port" type="number" min="0" max="65535" value="0" oninput="stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload||null)">
+      <input class="finp w100 mb6" id="st-cred-pf-test-port" type="number" min="0" max="65535" value="0" oninput="stCredProfileOnTestTargetInput()">
       <p class="hint-micro mb6" id="st-cred-pf-handshake-status" aria-live="polite"></p>
       <div class="row-wrap gap6 mb6">
         <button type="button" class="btnp" id="st-cred-pf-btn-transport-test" onclick="stCredProfileRunTransportTest()">Run handshake test</button>
-        <span class="hint-micro text-dim hide" id="st-cred-pf-test-progress">Running…</span>
+        <span class="hint-micro text-dim hide" id="st-cred-pf-test-progress">Testing…</span>
       </div>
-      <div class="hint-micro mb0 text-dim" id="st-cred-pf-test-result" style="min-height:1.25rem"></div>
+      <div id="st-cred-pf-handshake-panel" class="st-cred-pf-handshake-panel st-cred-pf-handshake-panel--idle" aria-live="polite">
+        <div class="st-cred-pf-handshake-panel-title">Handshake result</div>
+        <div id="st-cred-pf-handshake-panel-body" class="hint-micro text-dim mb0">Status: not run. Run a test to see outcome here (toasts are optional; this panel stays until you close the modal, change secret/profile, or run again).</div>
+      </div>
     </div>
     <div class="mb10 hide" id="st-cred-pf-next-steps" style="border-top:1px solid var(--border-subtle, #2a3340);padding-top:10px">
       <div class="flbl">What to do next</div>
@@ -10755,14 +10759,91 @@ window.__stCredPfAssetPick = window.__stCredPfAssetPick || [];
 window.__stCcJobAssetPick = window.__stCcJobAssetPick || [];
 
 function stCredEncryptionAvailable() {
-    const enc = window.__stCredEncryption && typeof window.__stCredEncryption === 'object' ? window.__stCredEncryption : {};
-    return enc.available === true || enc.available === 1;
+    const enc = window.__stCredEncryption && typeof window.__stCredEncryption === 'object' && !Array.isArray(window.__stCredEncryption)
+        ? window.__stCredEncryption
+        : {};
+    const v = enc.available;
+    if (v === true || v === 1) return true;
+    if (v === '1' || String(v).toLowerCase() === 'true') return true;
+    return false;
+}
+
+async function stCredRefreshEncryptionFromServer() {
+    let r = null;
+    try {
+        r = await api('/api/credential_profiles.php', { quiet: true });
+    } catch (e) {
+        r = null;
+    }
+    if (r && r.ok && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
+        window.__stCredEncryption = r.encryption;
+        return true;
+    }
+    if (!window.__stCredEncryption || typeof window.__stCredEncryption !== 'object' || Array.isArray(window.__stCredEncryption)) {
+        window.__stCredEncryption = {};
+    }
+    return false;
+}
+
+function stCredProfileSavedId() {
+    const hid = document.getElementById('st-cred-pf-id');
+    const n = hid && hid.value ? parseInt(String(hid.value), 10) : 0;
+    return !Number.isNaN(n) && n > 0 ? n : 0;
+}
+
+/** @returns {{ ok: boolean, reason: string }} */
+function stCredProfilePeekSecretMaterialOk() {
+    const got = stCredProfileCollectSecretMaterial();
+    if (got.error) return { ok: false, reason: String(got.error) };
+    if (got.material && typeof got.material === 'object' && Object.keys(got.material).length > 0) return { ok: true, reason: '' };
+    return { ok: false, reason: 'Enter a password or private key.' };
+}
+
+function stCredProfileOnSecretInputsChanged() {
+    stCredProfileSyncSecretPanel(window.__stCredProfileModalPayload || null);
+}
+
+async function stCredAssetsQuickSearch(qRaw, limit) {
+    const q = String(qRaw || '').trim();
+    if (!q) return { rows: [], err: 'empty' };
+    if (q.length < 2 && !/^\d+$/.test(q)) return { rows: [], err: 'short' };
+    const lim = Math.max(1, Math.min(50, parseInt(String(limit || 20), 10) || 20));
+    const url = '/api/assets.php?q=' + encodeURIComponent(q) + '&per_page=' + encodeURIComponent(String(lim)) + '&page=1';
+    let r = null;
+    try {
+        r = await api(url, { quiet: true });
+    } catch (e) {
+        r = null;
+    }
+    if (r === null) return { rows: [], err: 'network' };
+    const rows = Array.isArray(r.assets) ? r.assets : [];
+    return { rows, err: null };
+}
+
+function stCredAssetSearchResultRowHtml(a, onclickName) {
+    const id = Number(a.id);
+    const ip = esc(String(a.ip || ''));
+    const hn = esc(String(a.hostname || '').trim() || '—');
+    const cat = a.category ? esc(String(a.category)) : '';
+    const sc = a.scope_name ? esc(String(a.scope_name)) : '';
+    const dev = a.device_id != null && String(a.device_id) !== '' ? `<span class="text-dim mono-sm">dev ${esc(String(a.device_id))}</span>` : '';
+    const meta = [cat, sc].filter(Boolean).join(' · ');
+    const metaHtml = meta ? `<span class="text-dim hint-micro">${meta}</span>` : '';
+    return `<div class="st-cred-asset-hit row-wrap gap8 align-center mb6" style="flex-wrap:wrap">
+      <div style="flex:1;min-width:140px">
+        <div class="mono-sm">${hn}</div>
+        <div class="hint-micro text-dim">IP ${ip || '—'} · id ${esc(String(id))}</div>
+        ${metaHtml ? `<div class="mt2">${metaHtml}</div>` : ''}
+      </div>
+      <div class="row-wrap gap4 align-center">${dev}<button type="button" class="tbtn btn-xs" onclick="${onclickName}(${id})">Add</button></div>
+    </div>`;
 }
 
 function stCredProfileHasStoredSecret(p) {
     if (!p || typeof p !== 'object') return false;
     if (p.has_secret === true || p.has_secret === 1) return true;
     if (String(p.secret_status || '').toLowerCase() === 'stored') return true;
+    if (p.secret_envelope && typeof p.secret_envelope === 'object' && p.secret_envelope.stored === true) return true;
     return false;
 }
 
@@ -10980,30 +11061,25 @@ async function stCredPfScopeAssetSearch() {
     const res = document.getElementById('st-cred-pf-scope-asset-results');
     if (!qEl || !res) return;
     const q = String(qEl.value || '').trim();
-    if (q.length < 2) {
-        toast('Enter at least 2 characters to search', 'err');
-        return;
-    }
     res.innerHTML = '<span class="hint-micro text-dim">Searching…</span>';
-    let r = null;
-    try {
-        r = await api('/api/assets.php?q=' + encodeURIComponent(q) + '&per_page=15&page=1', { quiet: true });
-    } catch (e2) {
-        r = null;
-    }
-    const rows = r && Array.isArray(r.assets) ? r.assets : [];
-    if (!rows.length) {
-        res.innerHTML = '<span class="hint-micro text-dim">No matches.</span>';
+    const { rows, err } = await stCredAssetsQuickSearch(q, 20);
+    if (err === 'empty') {
+        res.innerHTML = '<span class="hint-micro text-dim">Enter hostname, IP, MAC, or device id.</span>';
         return;
     }
-    res.innerHTML = rows
-        .map((a) => {
-            const id = Number(a.id);
-            const ip = esc(String(a.ip || ''));
-            const hn = esc(String(a.hostname || ''));
-            return `<div class="row-wrap gap6 align-center mb4"><span class="mono-sm">${hn}</span><span class="text-dim">${ip}</span><button type="button" class="tbtn btn-xs" onclick="stCredPfAddAssetPick(${id})">Add</button></div>`;
-        })
-        .join('');
+    if (err === 'short') {
+        res.innerHTML = '<span class="hint-micro text-dim">Enter at least 2 characters (or digits only for a short id).</span>';
+        return;
+    }
+    if (err === 'network') {
+        res.innerHTML = '<span class="hint-micro text-dim">Could not reach inventory search (sign in or check network).</span>';
+        return;
+    }
+    if (!rows.length) {
+        res.innerHTML = '<span class="hint-micro text-dim">No matches — try another substring or use Advanced scope JSON.</span>';
+        return;
+    }
+    res.innerHTML = rows.map((a) => stCredAssetSearchResultRowHtml(a, 'stCredPfAddAssetPick')).join('');
 }
 
 function stCredPfAddAssetPick(assetId) {
@@ -11095,6 +11171,196 @@ function stCredProfileCreateJobFromModal() {
     void stCcJobOpenModal(null, raw);
 }
 
+window.__stCredHandshakeResult = null;
+
+function stCredHandshakeEffectivePort(transport, rawPort) {
+    const pr = rawPort !== '' && rawPort != null ? parseInt(String(rawPort), 10) : 0;
+    const p = !Number.isNaN(pr) && pr >= 0 ? pr : 0;
+    const t = String(transport || 'ssh');
+    if (p > 0) return p;
+    return t === 'snmpv3' ? 161 : 22;
+}
+
+function stCredHandshakeSanitizeMessage(msg) {
+    let s = String(msg || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (s.length > 220) s = s.slice(0, 217) + '…';
+    return s;
+}
+
+function stCredHandshakeCodeHint(code) {
+    const c = String(code || '').toLowerCase();
+    const map = {
+        auth_failed: 'Check username/password/private key.',
+        timeout: 'Host did not respond before timeout; verify network/firewall.',
+        network_unreachable: 'Verify address and routing.',
+        host_key_mismatch: 'Host key changed or policy rejected the host.',
+        dependency_missing: 'Worker is missing required Python/PHP dependency.',
+        encryption_unavailable: 'SURVEYTRACE_CRED_SECRET_KEY is not configured.',
+        decrypt_failed: 'Stored secret could not be decrypted; re-enter the secret.',
+        invalid_profile: 'Fix principal/secret/profile configuration, then retry.',
+        busy: 'Another test is already running on the server; wait a few seconds and retry.',
+        unsupported_transport: 'This transport is not supported for handshake in this release.',
+        protocol_error: 'Handshake failed at the protocol layer; check port, service, and server logs.',
+        runner_error: 'Test runner failed; see server logs.',
+        ok: '',
+    };
+    return map[c] || 'Review the error code and server/worker logs.';
+}
+
+function stCredHandshakeClearState() {
+    window.__stCredHandshakeResult = null;
+    stCredHandshakeRenderPanel();
+}
+
+function stCredHandshakeMarkStaleIfTargetChanged() {
+    const st = window.__stCredHandshakeResult;
+    if (!st || st.phase !== 'done') return;
+    const tr = document.getElementById('st-cred-pf-transport');
+    const t = tr ? String(tr.value || 'ssh') : 'ssh';
+    const hostEl = document.getElementById('st-cred-pf-test-host');
+    const portEl = document.getElementById('st-cred-pf-test-port');
+    const host = hostEl ? String(hostEl.value || '').trim() : '';
+    const pr = portEl && portEl.value !== '' ? parseInt(portEl.value, 10) : 0;
+    const eff = stCredHandshakeEffectivePort(t, pr);
+    const prevHost = String(st.targetHost || '').trim();
+    const prevPort = Number(st.port);
+    st.stale = host !== prevHost || eff !== prevPort;
+    stCredHandshakeRenderPanel();
+}
+
+function stCredProfileOnTestTargetInput() {
+    stCredHandshakeMarkStaleIfTargetChanged();
+    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
+}
+
+function stCredHandshakeRenderPanel() {
+    const wrapPanel = document.getElementById('st-cred-pf-handshake-panel');
+    const body = document.getElementById('st-cred-pf-handshake-panel-body');
+    if (!wrapPanel || !body) return;
+    const st = window.__stCredHandshakeResult;
+    if (!st) {
+        wrapPanel.className = 'st-cred-pf-handshake-panel st-cred-pf-handshake-panel--idle';
+        body.className = 'hint-micro text-dim mb0';
+        body.innerHTML =
+            'Status: <strong>not run</strong>. Save the profile, set the secret, enter target host/port, then <strong>Run handshake test</strong>. Results stay here until you close the modal, run again, or change profile/secret.';
+        return;
+    }
+    if (st.phase === 'testing') {
+        wrapPanel.className = 'st-cred-pf-handshake-panel st-cred-pf-handshake-panel--testing';
+        body.className = 'hint-micro mb0';
+        body.innerHTML =
+            '<p class="mb0"><strong>Testing…</strong> Contacting <span class="mono-sm">' +
+            esc(String(st.targetHost || '')) +
+            '</span> on port <span class="mono-sm">' +
+            esc(String(st.port)) +
+            '</span>.</p>';
+        return;
+    }
+    const ok = !!st.success;
+    wrapPanel.className =
+        'st-cred-pf-handshake-panel ' + (ok ? 'st-cred-pf-handshake-panel--ok' : 'st-cred-pf-handshake-panel--bad');
+    body.className = 'hint-micro mb0';
+    const statusWord = ok ? 'success' : 'failed';
+    const code = esc(String(st.code || '—'));
+    const host = esc(String(st.targetHost || '—'));
+    const port = esc(String(st.port != null ? st.port : '—'));
+    const ts = st.atIso ? esc(localTime(st.atIso)) : '—';
+    const dur = st.duration_ms != null && st.duration_ms !== '' ? esc(String(st.duration_ms)) + ' ms' : '—';
+    const safeMsg = st.message
+        ? `<div class="st-cred-pf-handshake-detail"><strong>Message:</strong> ${esc(stCredHandshakeSanitizeMessage(st.message))}</div>`
+        : '';
+    const detail =
+        st.detail && String(st.detail).trim()
+            ? `<div class="st-cred-pf-handshake-detail"><strong>${ok ? 'Result' : 'Detail'}:</strong> ${esc(stCredHandshakeSanitizeMessage(st.detail))}</div>`
+            : '';
+    const nextHint = !ok
+        ? `<div class="st-cred-pf-handshake-detail"><strong>Next step:</strong> ${esc(stCredHandshakeCodeHint(st.code))}</div>`
+        : '';
+    const stale = st.stale
+        ? '<div class="st-cred-pf-handshake-stale">Target host or port changed after this run — this snapshot may not match the fields above.</div>'
+        : '';
+    body.innerHTML =
+        stale +
+        '<dl class="st-cred-pf-handshake-dl">' +
+        '<dt>Status</dt><dd><strong>' +
+        esc(statusWord) +
+        '</strong></dd>' +
+        '<dt>Target</dt><dd><span class="mono-sm">' +
+        host +
+        '</span> · port <span class="mono-sm">' +
+        port +
+        '</span></dd>' +
+        '<dt>Time</dt><dd>' +
+        ts +
+        '</dd>' +
+        '<dt>Duration</dt><dd>' +
+        dur +
+        '</dd>' +
+        '<dt>Code</dt><dd class="mono-sm">' +
+        code +
+        '</dd></dl>' +
+        safeMsg +
+        detail +
+        nextHint;
+}
+
+function stCredHandshakeBeginTest(profileId, transport, targetHost, rawPort) {
+    const effPort = stCredHandshakeEffectivePort(transport, rawPort);
+    window.__stCredHandshakeResult = {
+        phase: 'testing',
+        profileId,
+        transport: String(transport || 'ssh'),
+        targetHost: String(targetHost || '').trim(),
+        port: effPort,
+    };
+    stCredHandshakeRenderPanel();
+}
+
+function stCredHandshakeFinishFromResponse(r, reqProfileId, reqTransport, targetHost, rawPort) {
+    const effPort = stCredHandshakeEffectivePort(reqTransport, rawPort);
+    const atIso = new Date().toISOString();
+    if (r && r.ok && r.test) {
+        const t = r.test;
+        const hint = t.hint != null ? String(t.hint) : '';
+        const portShown = t.port != null && t.port !== '' ? Number(t.port) : effPort;
+        window.__stCredHandshakeResult = {
+            phase: 'done',
+            ranAt: atIso,
+            atIso,
+            profileId: reqProfileId,
+            transport: String(t.transport || reqTransport || 'ssh'),
+            targetHost: String(t.target_host || targetHost || '').trim(),
+            port: portShown,
+            success: !!t.success,
+            code: String(t.code || '—'),
+            duration_ms: t.duration_ms,
+            message: '',
+            detail: hint,
+            stale: false,
+        };
+        stCredHandshakeRenderPanel();
+        return;
+    }
+    const code = r && r.code ? String(r.code) : 'protocol_error';
+    const msg = r && r.error ? stCredHandshakeSanitizeMessage(r.error) : 'Test failed';
+    window.__stCredHandshakeResult = {
+        phase: 'done',
+        ranAt: atIso,
+        atIso,
+        profileId: reqProfileId,
+        transport: String(reqTransport || 'ssh'),
+        targetHost: String(targetHost || '').trim(),
+        port: effPort,
+        success: false,
+        code,
+        duration_ms: null,
+        message: msg,
+        detail: '',
+        stale: false,
+    };
+    stCredHandshakeRenderPanel();
+}
+
 async function stCredProfileOpenModalForTest(id) {
     await stCredProfileOpenModalById(id);
     setTimeout(() => {
@@ -11122,30 +11388,25 @@ async function stCcJobAssetSearch() {
     const res = document.getElementById('st-cc-job-asset-results');
     if (!qEl || !res) return;
     const q = String(qEl.value || '').trim();
-    if (q.length < 2) {
-        toast('Enter at least 2 characters to search', 'err');
-        return;
-    }
     res.innerHTML = '<span class="hint-micro text-dim">Searching…</span>';
-    let r = null;
-    try {
-        r = await api('/api/assets.php?q=' + encodeURIComponent(q) + '&per_page=15&page=1', { quiet: true });
-    } catch (e) {
-        r = null;
-    }
-    const rows = r && Array.isArray(r.assets) ? r.assets : [];
-    if (!rows.length) {
-        res.innerHTML = '<span class="hint-micro text-dim">No matches.</span>';
+    const { rows, err } = await stCredAssetsQuickSearch(q, 20);
+    if (err === 'empty') {
+        res.innerHTML = '<span class="hint-micro text-dim">Enter hostname, IP, MAC, or device id.</span>';
         return;
     }
-    res.innerHTML = rows
-        .map((a) => {
-            const id = Number(a.id);
-            const ip = esc(String(a.ip || ''));
-            const hn = esc(String(a.hostname || ''));
-            return `<div class="row-wrap gap6 align-center mb4"><span class="mono-sm">${hn}</span><span class="text-dim">${ip}</span><button type="button" class="tbtn btn-xs" onclick="stCcJobAddAssetPick(${id})">Add</button></div>`;
-        })
-        .join('');
+    if (err === 'short') {
+        res.innerHTML = '<span class="hint-micro text-dim">Enter at least 2 characters (or digits only for a short id).</span>';
+        return;
+    }
+    if (err === 'network') {
+        res.innerHTML = '<span class="hint-micro text-dim">Could not reach inventory search (sign in or check network).</span>';
+        return;
+    }
+    if (!rows.length) {
+        res.innerHTML = '<span class="hint-micro text-dim">No matches — try another substring or paste asset IDs below.</span>';
+        return;
+    }
+    res.innerHTML = rows.map((a) => stCredAssetSearchResultRowHtml(a, 'stCcJobAddAssetPick')).join('');
 }
 
 function stCcJobAddAssetPick(assetId) {
@@ -11235,6 +11496,8 @@ async function loadCredentialProfiles() {
 }
 
 function stCredProfileCloseModal() {
+    stCredHandshakeClearState();
+    window.__stCredProfileModalLastOpenedId = null;
     const bg = document.getElementById('st-cred-profile-modal-bg');
     if (bg) bg.style.display = 'none';
 }
@@ -11249,10 +11512,14 @@ function stCredProfileClearSecretInputs() {
 function stCredProfileCardTestHint() {
     const el = document.getElementById('st-cred-profiles-card');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    toast('Edit a profile (or Test from the table), save metadata, set secret when encryption is configured, enter a target host/IP — Run handshake enables once host + secret + crypto are ready.', 'ok');
+    toast(
+        'Handshake: 1) Save the profile. 2) Set the secret. 3) Enter target host/IP (and port if needed). 4) Run handshake test. 5) Read the persistent result panel under the test controls in the modal (not only the toast).',
+        'ok'
+    );
 }
 
 function stCredProfileSecretTransportChanged() {
+    stCredHandshakeClearState();
     const trEl = document.getElementById('st-cred-pf-transport');
     const newT = trEl ? String(trEl.value || 'ssh') : 'ssh';
     const oldT = typeof window.__stCredPfLastTransport === 'string' ? window.__stCredPfLastTransport : newT;
@@ -11267,13 +11534,13 @@ function stCredProfileSecretTransportChanged() {
     stCredProfileUpdatePrincipalStructVisibility();
     stCredPfApplyPrincipalToUi(merged, newT);
     window.__stCredPfLastTransport = newT;
+    stCredProfileSyncSecretPanel(window.__stCredProfileModalPayload || null);
     stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
 }
 
 function stCredProfileSyncTransportTestPanel(p) {
     const panel = document.getElementById('st-cred-pf-transport-test-panel');
     const btn = document.getElementById('st-cred-pf-btn-transport-test');
-    const resEl = document.getElementById('st-cred-pf-test-result');
     const statEl = document.getElementById('st-cred-pf-handshake-status');
     const hostEl = document.getElementById('st-cred-pf-test-host');
     const tr = document.getElementById('st-cred-pf-transport');
@@ -11306,13 +11573,15 @@ function stCredProfileSyncTransportTestPanel(p) {
     } else if (!hostOk) {
         stat = 'Secret stored. Enter a target host to test.';
     } else {
-        stat = 'Ready — credentials and host present.';
+        stat = 'Ready to test.';
     }
     if (statEl) {
         statEl.textContent = stat;
         statEl.className = 'hint-micro mb6 ' + (encOk && secOk && hostOk ? 'text-secondary' : 'text-dim');
     }
-    const canClick = !!(encOk && secOk && hostOk);
+    const hs = window.__stCredHandshakeResult;
+    const testing = !!(hs && hs.phase === 'testing');
+    const canClick = !!(encOk && secOk && hostOk && !testing);
     btn.disabled = !canClick;
     if (!encOk) {
         btn.title = 'Credential encryption is not configured on the server.';
@@ -11321,16 +11590,7 @@ function stCredProfileSyncTransportTestPanel(p) {
     } else if (!hostOk) {
         btn.title = 'Target host required.';
     } else {
-        btn.title = '';
-    }
-    if (resEl && resEl.dataset && resEl.dataset.tested !== '1') {
-        if (!encOk) {
-            resEl.textContent = 'Handshake test requires credential encryption on the server.';
-            resEl.className = 'hint-micro mb0 text-dim';
-        } else if (!secOk) {
-            resEl.textContent = 'Store a secret before running a handshake test.';
-            resEl.className = 'hint-micro mb0 text-dim';
-        }
+        btn.title = 'Ready to test.';
     }
 }
 
@@ -11340,8 +11600,9 @@ async function stCredProfileRunTransportTest() {
     const portEl = document.getElementById('st-cred-pf-test-port');
     const btn = document.getElementById('st-cred-pf-btn-transport-test');
     const prog = document.getElementById('st-cred-pf-test-progress');
-    const resEl = document.getElementById('st-cred-pf-test-result');
     const hint = document.getElementById('st-cred-pf-modal-hint');
+    const tr = document.getElementById('st-cred-pf-transport');
+    const transport = tr ? String(tr.value || 'ssh') : 'ssh';
     const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
     const target = (hostEl && hostEl.value) ? hostEl.value.trim() : '';
     const port = portEl && portEl.value !== '' ? parseInt(portEl.value, 10) : 0;
@@ -11352,25 +11613,13 @@ async function stCredProfileRunTransportTest() {
     }
     if (btn) btn.disabled = true;
     if (prog) prog.classList.remove('hide');
-    if (resEl) {
-        resEl.textContent = '';
-        resEl.className = 'hint-micro mb0 text-dim';
-        try {
-            delete resEl.dataset.tested;
-        } catch (e1) {}
-    }
+    if (hint) hint.textContent = '';
+    stCredHandshakeBeginTest(id, transport, target, port);
     const r = await apiPost('/api/credential_profiles.php', { action: 'test', id, target_host: target, port });
     if (prog) prog.classList.add('hide');
     if (r && r.ok && r.test) {
-        const t = r.test;
-        const ok = !!t.success;
-        const line = (ok ? 'Success' : 'Failed') + ': ' + esc(String(t.code || '')) + (t.duration_ms != null ? ' · ' + esc(String(t.duration_ms)) + ' ms' : '');
-        const hintStr = t.hint ? ' · ' + esc(String(t.hint)) : '';
-        if (resEl) {
-            resEl.innerHTML = line + hintStr;
-            resEl.className = ok ? 'hint-micro mb0' : 'hint-micro mb0 text-dim';
-            resEl.dataset.tested = '1';
-        }
+        const ok = !!r.test.success;
+        stCredHandshakeFinishFromResponse(r, id, transport, target, port);
         toast(ok ? 'Handshake succeeded' : 'Handshake failed', ok ? 'ok' : 'err');
         if (r.profile) {
             window.__stCredProfileModalPayload = stCredProfileNormalizeProfilePayload(r.profile);
@@ -11385,11 +11634,12 @@ async function stCredProfileRunTransportTest() {
     } else {
         const err = (r && r.error) ? String(r.error) : 'Test failed';
         if (hint) hint.textContent = err;
-        if (resEl) {
-            resEl.textContent = esc(err);
-            resEl.className = 'hint-micro mb0 text-dim';
-        }
         toast(err, 'err');
+        const failCode = r && r.code ? String(r.code) : 'protocol_error';
+        stCredHandshakeFinishFromResponse(r || { ok: false, error: err, code: failCode }, id, transport, target, port);
+        if (r && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
+            window.__stCredEncryption = r.encryption;
+        }
     }
     stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
 }
@@ -11454,12 +11704,18 @@ function stCredProfileSyncSecretPanel(p) {
     const encHint = document.getElementById('st-cred-pf-secret-enc-hint');
     const saveHint = document.getElementById('st-cred-pf-secret-profile-save-hint');
     const statusEl = document.getElementById('st-cred-pf-secret-status');
+    const actHint = document.getElementById('st-cred-pf-secret-action-hint');
     const btnSave = document.getElementById('st-cred-pf-btn-secret-save');
     const btnClear = document.getElementById('st-cred-pf-btn-secret-clear');
     const avail = stCredEncryptionAvailable();
-    const editId = p && p.id ? Number(p.id) : 0;
+    const editId = (() => {
+        const fromH = stCredProfileSavedId();
+        const fromP = p && p.id ? Number(p.id) : 0;
+        return fromH > 0 ? fromH : (!Number.isNaN(fromP) && fromP > 0 ? fromP : 0);
+    })();
     p = stCredProfileNormalizeProfilePayload(p || null);
     const hasSec = stCredProfileHasStoredSecret(p);
+    const peek = stCredProfilePeekSecretMaterialOk();
     if (encHint) {
         encHint.textContent = avail
             ? 'Secrets are encrypted at rest. They are never returned by the API. Credentialed checks use the stored envelope server-side.'
@@ -11467,7 +11723,7 @@ function stCredProfileSyncSecretPanel(p) {
     }
     if (saveHint) {
         if (editId < 1) {
-            saveHint.textContent = 'Profile must be saved before storing a secret.';
+            saveHint.textContent = 'Save profile before storing a secret.';
             saveHint.classList.remove('hide');
         } else {
             saveHint.textContent = '';
@@ -11487,17 +11743,37 @@ function stCredProfileSyncSecretPanel(p) {
             statusEl.className = 'hint-micro text-dim mb6';
         }
     }
+    let saveReason = '';
+    if (editId < 1) saveReason = 'Save profile before storing a secret.';
+    else if (!avail) saveReason = 'Credential encryption is not configured.';
+    else if (!peek.ok) saveReason = peek.reason || 'Enter a password or private key.';
+    if (actHint) {
+        if (saveReason) {
+            actHint.textContent = saveReason;
+            actHint.classList.remove('hide');
+        } else {
+            actHint.textContent = '';
+            actHint.classList.add('hide');
+        }
+    }
     if (btnSave) {
-        btnSave.disabled = !avail || editId < 1;
-        btnSave.title = !avail ? 'Configure SURVEYTRACE_CRED_SECRET_KEY on the server' : (editId < 1 ? 'Save the profile first' : '');
+        const canSave = !!(avail && editId >= 1 && peek.ok);
+        btnSave.disabled = !canSave;
+        btnSave.title = saveReason || '';
     }
     if (btnClear) {
-        btnClear.disabled = editId < 1 || !hasSec;
-        btnClear.title = !hasSec ? 'Nothing to clear' : '';
+        let clrReason = '';
+        if (editId < 1) clrReason = 'Save profile before storing a secret.';
+        else if (!hasSec) clrReason = 'No stored secret.';
+        else if (!avail) clrReason = 'Credential encryption is not configured.';
+        const canClear = !!(avail && editId >= 1 && hasSec);
+        btnClear.disabled = !canClear;
+        btnClear.title = clrReason || '';
     }
 }
 
 async function stCredProfileOpenModal(p) {
+    await stCredRefreshEncryptionFromServer();
     await stCredEnsureScopesCatalog();
     const bg = document.getElementById('st-cred-profile-modal-bg');
     const title = document.getElementById('st-cred-profile-modal-title');
@@ -11510,7 +11786,11 @@ async function stCredProfileOpenModal(p) {
     stCredProfileClearSecretInputs();
     p = stCredProfileNormalizeProfilePayload(p || null);
     window.__stCredPfAssetPick = [];
+    const newPid = p && p.id ? Number(p.id) : 0;
+    const lastOpened = window.__stCredProfileModalLastOpenedId;
     if (!p || !p.id) {
+        stCredHandshakeClearState();
+        window.__stCredProfileModalLastOpenedId = null;
         title.textContent = 'New credential profile';
         hid.value = '';
         nm.value = '';
@@ -11522,7 +11802,18 @@ async function stCredProfileOpenModal(p) {
         }
         stCredPfApplyPrincipalToUi({}, 'ssh');
         stCredPfApplyScopeToUi({ scope_ids: [], asset_ids: [], tags: [] });
+        const th0 = document.getElementById('st-cred-pf-test-host');
+        const tp0 = document.getElementById('st-cred-pf-test-port');
+        if (th0) th0.value = '';
+        if (tp0) tp0.value = '0';
     } else {
+        if (lastOpened && lastOpened !== newPid) {
+            stCredHandshakeClearState();
+            const thSw = document.getElementById('st-cred-pf-test-host');
+            const tpSw = document.getElementById('st-cred-pf-test-port');
+            if (thSw) thSw.value = '';
+            if (tpSw) tpSw.value = '0';
+        }
         title.textContent = 'Edit credential profile';
         hid.value = String(p.id || '');
         nm.value = p.name || '';
@@ -11539,21 +11830,11 @@ async function stCredProfileOpenModal(p) {
     stCredProfileSyncSecretPanel(p);
     window.__stCredProfileModalPayload = p || null;
     window.__stCredPfLastTransport = String(tr.value || 'ssh');
-    const th = document.getElementById('st-cred-pf-test-host');
-    const tp = document.getElementById('st-cred-pf-test-port');
-    const trs = document.getElementById('st-cred-pf-test-result');
-    if (th) th.value = '';
-    if (tp) tp.value = '0';
-    if (trs) {
-        trs.textContent = '';
-        trs.innerHTML = '';
-        trs.className = 'hint-micro mb0 text-dim';
-        try {
-            delete trs.dataset.tested;
-        } catch (e0) {}
-    }
     stCredProfileSyncNextSteps(window.__stCredProfileModalPayload);
     stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload);
+    window.__stCredProfileModalLastOpenedId = newPid > 0 ? newPid : null;
+    stCredHandshakeMarkStaleIfTargetChanged();
+    stCredHandshakeRenderPanel();
     bg.style.display = 'flex';
 }
 
@@ -11595,6 +11876,7 @@ async function stCredProfileSubmitSecret() {
         if (r.encryption && typeof r.encryption === 'object') {
             window.__stCredEncryption = r.encryption;
         }
+        stCredHandshakeClearState();
         await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
         await loadCredentialProfiles();
     } else {
@@ -11623,6 +11905,7 @@ async function stCredProfileClearSecret() {
         if (r.encryption && typeof r.encryption === 'object') {
             window.__stCredEncryption = r.encryption;
         }
+        stCredHandshakeClearState();
         await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
         await loadCredentialProfiles();
     } else {
@@ -11668,6 +11951,7 @@ async function stCredProfileSave() {
             window.__stCredEncryption = r.encryption;
         }
         toast('Profile saved — set or confirm secret, then run a handshake test.', 'ok');
+        stCredHandshakeClearState();
         await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
         await loadCredentialProfiles();
     } else {
@@ -12293,13 +12577,14 @@ async function stCcLoadJobsAndRuns() {
     }
 }
 
-function stCcSummaryChip(label, value, tone, hint) {
+function stCcSummaryTile(label, value, subtext, tone, titleAttr) {
     const t = tone ? ' st-cc-summary-chip--' + tone : '';
-    const note = hint ? `<div class="st-cc-summary-chip-note">${esc(String(hint))}</div>` : '';
-    return `<div class="st-cc-summary-chip${t}" role="listitem" aria-label="${esc(String(label + ': ' + value))}" title="${hint ? esc(String(hint)) : ''}">
+    const sub = subtext ? `<div class="st-cc-summary-chip-note">${esc(String(subtext))}</div>` : '';
+    const title = titleAttr ? esc(String(titleAttr)) : '';
+    return `<div class="st-cc-summary-chip${t}" role="listitem" aria-label="${esc(String(label + ': ' + value))}"${title ? ` title="${title}"` : ''}>
       <div class="st-cc-summary-chip-label">${esc(String(label))}</div>
-      <div class="st-cc-summary-chip-value mono-sm">${esc(String(value))}</div>
-      ${note}
+      <div class="st-cc-summary-chip-value">${esc(String(value))}</div>
+      ${sub}
     </div>`;
 }
 
@@ -12314,7 +12599,8 @@ function stCcRenderOperationalSummary() {
     const maint = hh.maintenance && typeof hh.maintenance === 'object' ? hh.maintenance : {};
 
     const profilesTotal = profiles.length;
-    const profilesSecrets = profiles.filter((p) => !!p && !!p.has_secret).length;
+    const profilesSecrets = profiles.filter((p) => !!p && stCredProfileHasStoredSecret(p)).length;
+    const jobsTotal = jobs.length;
     const jobsEnabled = jobs.filter((j) => !!j && !!j.enabled).length;
     const completed24 = parseInt(String(cc.completed_recent_24h ?? 0), 10) || 0;
     const failed24 = parseInt(String(cc.failed_recent_24h ?? 0), 10) || 0;
@@ -12325,23 +12611,26 @@ function stCcRenderOperationalSummary() {
     const staleWorkerJobs = parseInt(String(maint.stale_worker_job_candidates ?? 0), 10) || 0;
     const lastOk = cc.last_successful_run_at ? stFmtUtcTs(cc.last_successful_run_at) : '—';
 
-    const empty = profilesTotal === 0 && jobsEnabled === 0 && completed24 === 0 && failed24 === 0 && queuedActive === 0;
+    const empty = profilesTotal === 0 && jobsTotal === 0 && completed24 === 0 && failed24 === 0 && queuedActive === 0;
     if (empty) {
         host.innerHTML = '<p class="hint-micro text-dim mb0">No credentialed-check activity yet. Add a profile, run a handshake test, then queue a job when ready.</p>';
         return;
     }
 
     const stuckQueued = queuedActive > 0 && oldestQueuedSec >= 10800;
+    const queueSub = oldestQueuedSec > 0 ? `oldest queued ${fmtDuration(oldestQueuedSec)}` : '—';
+    const runsTone = failed24 > 0 ? 'bad' : partial24 > 0 ? 'warn' : '';
+    const runsSub = `${failed24} failed · ${partial24} partial`;
+    const profTone = profilesTotal > 0 && profilesSecrets === 0 ? 'warn' : '';
+    const queueTone = stuckQueued ? 'bad' : queuedActive > 0 ? 'warn' : '';
+    const lastTone = lastOk === '—' ? 'warn' : '';
+
     const chips = [
-        stCcSummaryChip('Profiles configured', profilesTotal, ''),
-        stCcSummaryChip('Profiles with secrets', profilesSecrets, profilesTotal > 0 && profilesSecrets === 0 ? 'warn' : ''),
-        stCcSummaryChip('Enabled jobs', jobsEnabled, ''),
-        stCcSummaryChip('Runs completed (24h)', completed24, ''),
-        stCcSummaryChip('Failed runs (24h)', failed24, failed24 > 0 ? 'bad' : ''),
-        stCcSummaryChip('Partial results (24h)', partial24, partial24 > 0 ? 'warn' : ''),
-        stCcSummaryChip('Queued/active runs', queuedActive, stuckQueued ? 'warn' : ''),
-        stCcSummaryChip('Oldest queued worker age', oldestQueuedSec > 0 ? fmtDuration(oldestQueuedSec) : '—', stuckQueued ? 'bad' : '', 'Queue age warning triggers at 3h+; lower ages can be normal during active processing.'),
-        stCcSummaryChip('Last successful execution', lastOk, lastOk === '—' ? 'warn' : '')
+        stCcSummaryTile('Profiles', String(profilesTotal), `${profilesSecrets} with secrets`, profTone, ''),
+        stCcSummaryTile('Jobs', String(jobsEnabled), `${jobsTotal} total`, '', ''),
+        stCcSummaryTile('Runs 24h', String(completed24), runsSub, runsTone, ''),
+        stCcSummaryTile('Queue', String(queuedActive), queueSub, queueTone, stuckQueued ? 'Queue age warning at 3h+' : ''),
+        stCcSummaryTile('Last success', lastOk, 'credentialed check', lastTone, ''),
     ];
     const states = [];
     if (failed24 > 0) states.push('Failed runs in last 24h');

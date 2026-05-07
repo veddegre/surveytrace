@@ -462,6 +462,7 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
         }
         $profile = st_cred_profile_get_active($db, $id);
         $hint = isset($run['hint']) && is_string($run['hint']) ? substr($run['hint'], 0, 256) : null;
+        $effPort = $port > 0 ? $port : ($transport === 'snmpv3' ? 161 : 22);
         $payload = [
             'ok'          => true,
             'test'        => [
@@ -470,6 +471,7 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
                 'duration_ms' => $dur,
                 'transport'   => $transport,
                 'target_host' => $host,
+                'port'        => $effPort,
                 'hint'        => $hint,
             ],
             'profile'     => $profile,

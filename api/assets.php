@@ -796,9 +796,11 @@ if ($q !== '') {
     $params[':q'] = '%' . $q . '%';
     if ($stReconJoinSql !== '') {
         $where[] = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q
+            OR CAST(a.device_id AS TEXT) LIKE :q
             OR ah.asserted_value LIKE :q OR ao.asserted_value LIKE :q)";
     } else {
-        $where[] = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q)";
+        $where[] = "(a.ip LIKE :q OR a.hostname LIKE :q OR a.vendor LIKE :q OR a.model LIKE :q OR a.mac LIKE :q OR a.cpe LIKE :q
+            OR CAST(a.device_id AS TEXT) LIKE :q)";
     }
 }
 
