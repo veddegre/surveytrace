@@ -2572,8 +2572,7 @@ if (!headers_sent()) {
       </div>
         <p class="help-line text-dim mt6" style="font-size:12px">Shows the most recent run (whichever set of buttons you used). <strong>Sync all</strong> appends NVD, OUI, WebFP, and CVE intel sections in one file. The same log loads after a page reload.</p>
       </div>
-    </div>
-    <div>
+    
       <div class="st-settings-col-title" data-st-group="reference">Reference information</div>
       <div class="card st-settings-card st-settings-card--advanced" data-st-group="reference">
         <div class="ct">About</div>
@@ -2815,7 +2814,6 @@ if (!headers_sent()) {
           </div>
         </div>
       </div>
-    </div>
   </div>
   </section>
 </div>
