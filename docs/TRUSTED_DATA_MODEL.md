@@ -77,6 +77,7 @@ This slice **does not** auto-merge assets or devices, change collector behavior,
 |------|---------|
 | `os_version_observed` | Linux `/etc/os-release`-derived label (for example `PRETTY_NAME`); `normalized_value` uses the same slug family as scan-side OS text (`daemon/recon_observations.py` / `st_recon_normalize_os_text`). Recon source `credentialed_check`; `source_object_ref` ties to run, target row, and plugin version. |
 | `package_inventory_observed` | **Summarized** credentialed package inventory evidence: `normalized_value` holds a short deterministic digest (package manager, total count, hash prefix over a bounded prefix of stored package rows). `raw_value` is a small JSON summary (counts, flags, `result_id` / `run_id`). **Not** per-package `package_installed` rows — full bounded package list remains in **`credential_check_results`** / stdout artifact only. **No CVE matching**, no software assertions from this slice. **`source_object_ref` includes `run_id`** → **one observation row per completed package-inventory result**, not per package; long-term volume tracks **run cadence** (see retention note in [Credentialed checks engine](CREDENTIALED_CHECKS_ENGINE.md) slice 8). |
+| `software_observed` | **Bounded** per-package **identity preview** from **`ssh.linux.package_inventory@1.0.0`** only (`daemon/recon_observations.py` **`upsert_cred_software_observations`**). At most **128** deduped `(normalized_name, version, manager)` rows **per asset** for this plugin: each successful inventory **replaces** prior `software_observed` rows scoped to the same `plugin_key` (latest run wins). `raw_value` is small JSON (`name`, `normalized_name`, `version`, `manager`, `source`, `partial`). **No** semantic versioning, **no** CPE, **no** vendor inference, **no** assertions, **no** CVE correlation — reconciliation consumes this in a **later** slice. Aggregate counts remain on **`package_inventory_observed`** and **`credential_check_results`**. API/UI: **`evidence_summary.software_observation_count`** and up to **3** preview labels on host evidence — **no** full package dump in the UI. |
 | _(SNMP hostname reuse)_ | **`hostname_observed`** / **`fqdn_observed`** rows above — populated from SNMP **sysName** only when **`snmpv3.device_identity`** succeeds with a usable **sysName**; **`credentialed_check`** provenance distinguishes source (`slice 9`). |
 | `device_identity_observed` | **Summarized** SNMP device fingerprint: `normalized_value` is a short digest (`sha256` prefix + vendor enterprise hint); `raw_value` small JSON (bounded **sysObjectID** / **sysName**, flags, `result_id`). **Not** per-OID rows — **no** `snmp_sysobjectid_observed` explosion in MVP slice 9. |
 
@@ -85,6 +86,7 @@ The credentialed check **worker** writes these rows **additively**; it **does no
 - **Fresh** authenticated OS release (≤ **90 days** since `observed_at`) is generally **stronger than unauthenticated scan `os_guess` / Zabbix-only hints**: it drives the asserted slug when present, with **higher confidence when scan or Zabbix agrees**, and **medium confidence plus explicit explanation when they conflict** (both sides stay as observations).
 - **Stale** authenticated OS release (**> 90 days**, or **missing `observed_at`**) **does not override** newer scan/Zabbix fingerprints; if no other signal exists, belief may fall back to **low** confidence with a stale note.
 - **`package_inventory_observed`** remains **summary-only evidence** (shown in host OS evidence list); it does **not** assert software inventory, **CVE fusion**, or findings (deferred).
+- **`software_observed`** adds a **capped** identity preview for correlation **later**; it does **not** change **`os_platform`** or identity assertions in slice 1.
 
 **Identity (slice 10):** SNMP **`hostname_observed` / `fqdn_observed`** from **`sysName`** participate in existing **`canonical_hostname`** reconciliation. **SNMP-only** evidence is **scored lower** than corroborated DNS/scan/Zabbix hostname signals; **FQDN + hostname both from the same SNMP sysName parse** does **not** count as full “FQDN corroboration”. When SNMP agrees with other hostname sources, explanations mention it. **`device_identity_observed`** is linked as **supporting context only** (assertion source note); it is **not** a canonical hostname by itself.
 
@@ -113,14 +115,17 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 `reconciliation_runs` can grow without bound as assets are viewed and reconciled. Operators may trim via the admin diagnostics endpoint; adjust `keep` to retain more or fewer newest rows. This is intentionally simple—no background retention scheduler in this slice.
 
+**`software_observed`:** bounded by **design** (≤128 rows per asset per package-inventory plugin path). Rows are **replaced** when a new inventory succeeds; stale rows do **not** accumulate per package across runs. Historical truth for large inventories remains in **`credential_check_results`** (bounded `normalized_json`) and artifacts — prune those tables using operational retention guidance when disk grows.
+
 ---
 
 ## Related code
 
 - `api/lib_reconciliation.php` — reconciliation, health snapshot, evidence detail, trim helper
 - `api/assets.php` — lazy OS + identity reconcile; `recon_detail` + `identity_recon_detail` on single-asset GET; operator hostname `PUT` writes identity observations
-- `daemon/recon_observations.py` — scan-side identity observation writes; cred-check **`os_version_observed`**, **`package_inventory_observed`**, SNMP **`hostname_observed`** / **`fqdn_observed`**, **`device_identity_observed`** upserts + `credentialed_check` source seed
+- `daemon/recon_observations.py` — scan-side identity observation writes; cred-check **`os_version_observed`**, **`package_inventory_observed`**, **`software_observed`** (bounded package identities), SNMP **`hostname_observed`** / **`fqdn_observed`**, **`device_identity_observed`** upserts + `credentialed_check` source seed
 - `scripts/st_recon_slice10_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
+- `daemon/st_software_obs_slice1_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
 - `daemon/credential_check_worker.py` / `daemon/cred_check_run.py` — slice 7–9 observation writes (no assertion SQL)
 - `api/health.php` — `trusted_data`
 - `api/recon_diagnostics.php` — admin asset diagnostics and optional trim

@@ -382,18 +382,19 @@ Also includes **strict validation** on save/launch (profile transport vs plugin 
 
 ### Purpose
 
-**Second bounded SSH path** for **`ssh.linux.package_inventory@1.0.0`**: same decrypt + Paramiko session as slice 7, then **fixed** **`dpkg-query`** and **`rpm -qa`** strings only (detect manager by trying dpkg first, then rpm). **`get_pty=False`**, strict timeout, stdout/stderr caps; stdout **truncates** at cap with **`partial`/`truncated`** rather than dropping the whole result. **`normalized_json`** holds bounded **`packages[]`** (row cap + field length caps + control-char strip); run-detail API exposes a **preview** with **`packages_sample`** only (not the full list). **One** summarized **`package_inventory_observed`** per result — **no** mass **`package_installed`** rows. **No CVE matching, no findings, no assertions** from the executor.
+**Second bounded SSH path** for **`ssh.linux.package_inventory@1.0.0`**: same decrypt + Paramiko session as slice 7, then **fixed** **`dpkg-query`** and **`rpm -qa`** strings only (detect manager by trying dpkg first, then rpm). **`get_pty=False`**, strict timeout, stdout/stderr caps; stdout **truncates** at cap with **`partial`/`truncated`** rather than dropping the whole result. **`normalized_json`** holds bounded **`packages[]`** (row cap + field length caps + control-char strip); run-detail API exposes a **preview** with **`packages_sample`** only (not the full list). **One** summarized **`package_inventory_observed`** per result — **no** mass **`package_installed`** rows. **`software_observed` (software reconciliation slice 1):** additionally **≤128** deduped per-package identity observations per asset (**latest inventory replaces** prior rows for this plugin); **no** CVE/assertions/reconciliation consumption yet. **No CVE matching, no findings, no assertions** from the executor.
 
 ### Files involved
 
-- `daemon/cred_check_ssh_packages.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py` (shared `read_exec_stdout_bounded` with truncate mode), `daemon/recon_observations.py` (`upsert_cred_package_inventory_summary_observation`)
+- `daemon/cred_check_ssh_packages.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py` (shared `read_exec_stdout_bounded` with truncate mode), `daemon/recon_observations.py` (`upsert_cred_package_inventory_summary_observation`, **`upsert_cred_software_observations`**)
 - `api/lib_credential_check_ops.php` — `st_cc_normalized_preview_public`, extended metrics allowlist
 - `daemon/cred_check_slice8_pkg_selftest.py` — no-network parser tests
+- `daemon/st_software_obs_slice1_selftest.py` — **`software_observed`** normalization / dedupe / cap / replace
 - `deploy.sh`, `setup.sh` — ship + `py_compile`
 
 ### Validation steps
 
-- `python3 daemon/cred_check_slice8_pkg_selftest.py`; slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
+- `python3 daemon/cred_check_slice8_pkg_selftest.py`; `python3 daemon/st_software_obs_slice1_selftest.py`; slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
 - Manual: Debian/Ubuntu → `package_manager=dpkg`; RHEL-style → `rpm`; mixed job with **`os_release`** + **`package_inventory`** → per-plugin status isolation.
 
 ### Explicitly deferred

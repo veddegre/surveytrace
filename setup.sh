@@ -841,6 +841,7 @@ check_file "$INSTALL_DIR/daemon/cred_secret_decrypt.py" "cred_secret_decrypt.py 
 check_file "$INSTALL_DIR/daemon/cred_check_slice7_selftest.py" "cred_check_slice7_selftest.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_slice8_pkg_selftest.py" "cred_check_slice8_pkg_selftest.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_slice9_snmp_selftest.py" "cred_check_slice9_snmp_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/st_software_obs_slice1_selftest.py" "st_software_obs_slice1_selftest.py exists"
 check_file "$INSTALL_DIR/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php exists"
 check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
 
@@ -881,7 +882,7 @@ else
     check_warn "php not in PATH — skipped php -l (reconciliation / worker_jobs API)"
 fi
 if command -v python3 >/dev/null 2>&1; then
-    for _st_py in recon_observations.py worker_jobs.py collector_ingest_mirror.py cred_transport_cli.py cred_transport_ssh.py cred_transport_snmp.py credential_check_worker.py cred_check_run.py cred_check_ssh_os_release.py cred_check_ssh_packages.py cred_check_snmp_identity.py cred_secret_decrypt.py cred_check_slice7_selftest.py cred_check_slice8_pkg_selftest.py cred_check_slice9_snmp_selftest.py; do
+    for _st_py in recon_observations.py worker_jobs.py collector_ingest_mirror.py cred_transport_cli.py cred_transport_ssh.py cred_transport_snmp.py credential_check_worker.py cred_check_run.py cred_check_ssh_os_release.py cred_check_ssh_packages.py cred_check_snmp_identity.py cred_secret_decrypt.py cred_check_slice7_selftest.py cred_check_slice8_pkg_selftest.py cred_check_slice9_snmp_selftest.py st_software_obs_slice1_selftest.py; do
         python3 -m py_compile "$INSTALL_DIR/daemon/$_st_py" >/dev/null 2>&1 && \
             check_ok "python3 -m py_compile daemon/$_st_py" || \
             check_fail "python3 -m py_compile daemon/$_st_py"

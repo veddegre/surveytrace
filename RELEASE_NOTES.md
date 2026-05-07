@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 1.0.3 (2026-05-07)
+
+SurveyTrace **1.0.3** is a **stabilization and clarity** update on the 1.0 line. It tightens **deployment validation** for systemd-sandboxed daemons that touch SQLite, stabilizes the **Settings** workspace (tabs, reference separation, single-column layout), and aligns **credentialed checks** messaging with what is already shipped. **Operational lifecycle CLI tooling** shipped in **1.0.2** is unchanged; this release documents and verifies surrounding fixes.
+
+### What changed for operators
+
+- **systemd / SQLite** — `setup.sh` and `deploy.sh` can **fail fast** if installed master units omit **`ReadWritePaths`** for the data directory, reducing “ingest running but DB errors in journal” confusion when `ProtectSystem=strict` is in effect.
+- **Settings** — Clearer subtab grouping, **Reference** vs configuration separation, and a **full-width vertical stack** of cards for readability (no multi-column card masonry on Settings).
+- **Credentialed checks** — Help and Settings copy reflect **live** SSH/SNMPv3 checks, worker-backed runs, and bounded artifacts; less “planned future” wording where capability already exists.
+
+### What to verify after upgrade
+
+- `systemctl cat surveytrace-collector-ingest.service` (and other master daemons) show **`ReadWritePaths`** covering your install’s `data` path; re-run **`deploy.sh`** or refresh units from the repo if not.
+- Quick pass: **Settings** → each subtab (Platform → Reference) — cards align left and fill width; **Credentialed Checks** subtab content (profiles, jobs, operational readouts) renders correctly for admins.
+
 ## 1.0.2 (2026-05-07)
 
 SurveyTrace **1.0.2** completes the **Operational Lifecycle and Maintenance** milestone. This release is focused on long-term survivability and operator safety: explicit manual maintenance tooling, read-only maintenance visibility, and backup/restore validation guidance.

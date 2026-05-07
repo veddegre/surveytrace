@@ -97,6 +97,32 @@ Items may be active, planned, or deferred depending on external dependencies and
 - **Deferred:** TeamDynamix-style ownership and business context
 - **Deferred:** Microsoft Defender-style endpoint/device/CVE enrichment
 
+### Inventory ownership tracking (TODO — not implemented)
+
+Capture requirements only; **do not treat as scheduled work** until prioritized.
+
+**Future capability**
+
+- Track **asset/host owner** as a first-class concern (not buried in notes or informal tags).
+- Ingest **ownership evidence from Zabbix inventory** via **flexible field mapping** (which host inventory keys map to “owner” is operator-defined where possible).
+- **Host Details / Edit Host:** explicit **ownership override** workflow (RBAC as appropriate).
+- **Preserve provenance by source:**
+  - Zabbix-provided owner
+  - manually overridden owner
+  - future ITSM / **TeamDynamix** owner (when that connector ships)
+- **Precedence:** manual override should drive **operational** owner (UI, exports, downstream hooks) **without** erasing or replacing underlying source evidence rows.
+- **Trusted-data alignment (eventual):**
+  - observations such as **`owner_observed`** (per-source or normalized — TBD)
+  - assertion such as **`owner_assertion`** or **`canonical_owner`**
+  - **`assertion_sources`** wiring and **explanation / confidence** consistent with [docs/TRUSTED_DATA_MODEL.md](docs/TRUSTED_DATA_MODEL.md)
+
+**Design guardrails for adjacent work** (inventory reconciliation, software evidence, host edit API)
+
+- Prefer schema and APIs that do **not** make ownership hard to add later (avoid painting corners with single free-text “owner” columns without observation/assertion separation).
+- Keep **host edit** and asset PATCH-style flows **extensible** for additional reconciled fields.
+- Keep **Zabbix inventory → SurveyTrace** mapping **flexible** (configuration over hard-coded field names).
+- **Do not** overload **`notes`**, generic **tags**, or other catch-all fields for ownership — reserve them for their intended semantics.
+
 ### Constraints
 
 - TeamDynamix:

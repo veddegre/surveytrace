@@ -458,6 +458,7 @@ CREATE TABLE IF NOT EXISTS asset_observations (
     observation_type     TEXT NOT NULL,
         -- os_fingerprint_scan | os_fingerprint_cpe | os_inventory_zabbix | os_hint_enrichment
         -- | hostname_observed | fqdn_observed | ipv4_observed | mac_observed | monitoring_hostid | device_link | ...
+        -- | software_observed (bounded credentialed package identities; slice 1 — no assertions) | ...
     raw_value            TEXT,
     normalized_value     TEXT,
     source_id            INTEGER NOT NULL REFERENCES recon_sources(id),

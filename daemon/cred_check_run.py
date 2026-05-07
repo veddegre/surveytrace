@@ -800,6 +800,31 @@ def process_cred_check_run(
                             "credential_check.observation_written",
                             {"run_id": run_id, "target_row_id": tid, "asset_id": aid, "observation_type": "package_inventory_observed"},
                         )
+                    n_sw = recon.upsert_cred_software_observations(
+                        conn,
+                        asset_id=aid,
+                        packages=stored,
+                        package_manager=str(norm_doc["package_manager"]),
+                        run_id=run_id,
+                        target_row_id=tid,
+                        result_id=ridp,
+                        plugin_key=PKG_KEY,
+                        plugin_version=PKG_VER,
+                        run_partial=partial,
+                        package_count_total=int(total_ok),
+                    )
+                    if n_sw > 0:
+                        audit(
+                            conn,
+                            "credential_check.observation_written",
+                            {
+                                "run_id": run_id,
+                                "target_row_id": tid,
+                                "asset_id": aid,
+                                "observation_type": "software_observed",
+                                "rows_written": n_sw,
+                            },
+                        )
                     counts["package_inventory_ok"] += 1
 
         if cancel_requested():

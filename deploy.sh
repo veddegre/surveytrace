@@ -279,6 +279,7 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/cred_check_slice7_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice7_selftest.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/cred_check_slice8_pkg_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice8_pkg_selftest.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/cred_check_slice9_snmp_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice9_snmp_selftest.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/st_software_obs_slice1_selftest.py" ] && sudo cp "$SRC/daemon/st_software_obs_slice1_selftest.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/cred_decrypt_cli.php" ] && sudo cp "$SRC/daemon/cred_decrypt_cli.php" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
@@ -323,7 +324,8 @@ if command -v python3 >/dev/null 2>&1; then
     && st_sudo python3 -m py_compile "$DEST/daemon/cred_secret_decrypt.py" >/dev/null 2>&1 \
     && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice7_selftest.py" >/dev/null 2>&1 \
     && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice8_pkg_selftest.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice9_snmp_selftest.py" >/dev/null 2>&1; then
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice9_snmp_selftest.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/st_software_obs_slice1_selftest.py" >/dev/null 2>&1; then
     echo "  Python syntax OK (recon_observations.py, worker_jobs.py, collector_ingest_mirror.py, cred_transport_*.py, credential_check_worker.py, cred_check_*.py)"
   else
     echo "  [FAIL] python3 -m py_compile recon_observations.py / worker_jobs.py / collector_ingest_mirror.py"

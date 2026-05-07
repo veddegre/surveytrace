@@ -170,6 +170,8 @@ journalctl -u surveytrace-collector-ingest -n 80
 
 **What to do:** Wait briefly; if the state persists, inspect `journalctl -u surveytrace-collector-ingest` for repeated errors and check disk space and SQLite permissions on `/opt/surveytrace/data/`.
 
+**systemd sandbox:** If logs show `sqlite3.OperationalError: unable to open database file` (or similar) despite correct ownership on `data/`, the installed unit may be missing **`ReadWritePaths`** for the SurveyTrace data directory under **`ProtectSystem=strict`**. Compare `systemctl cat surveytrace-collector-ingest.service` to the repo unit template; re-run **`deploy.sh`** / refresh units from the current tree. **`setup.sh`** and **`deploy.sh`** post-checks assert this path when available.
+
 ### Ingest failed
 
 **What it means:** The master rejected or could not apply the submission (validation error, schema mismatch, or persistent I/O failure).

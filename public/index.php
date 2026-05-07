@@ -7597,7 +7597,10 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
     const runs = Array.isArray(rd.recent_runs) ? rd.recent_runs : [];
     const asrc = Array.isArray(rd.assertion_sources) ? rd.assertion_sources : [];
     const ast = rd.assertion && typeof rd.assertion === 'object' ? rd.assertion : null;
-    if (!obs.length && !runs.length && !asrc.length && !ast) return '';
+    const sw = rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
+    const swCount = sw ? (parseInt(String(sw.observation_count || 0), 10) || 0) : 0;
+    const swPrev = sw && Array.isArray(sw.preview) ? sw.preview : [];
+    if (!obs.length && !runs.length && !asrc.length && !ast && swCount === 0) return '';
     const astHead = ast
         ? `<div class="text-micro text-dim mb6 st-host-evidence-astmeta">Stored assertion <span class="mono-sm">${esc(String(ast.value_label || ast.value_slug || ''))}</span>${ast.reconciled_at ? ` · reconciled ${esc(localTime(ast.reconciled_at))}` : ''}${ast.version != null ? ` · v${esc(String(ast.version))}` : ''}</div>`
         : '';
@@ -7639,20 +7642,32 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         ? `<div class="text-micro text-dim mt8 mb4">Observations (what sources recorded)</div>
           <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
         : '';
+    const swPreviewLis = swPrev.map((p) => {
+        const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
+        return `<li class="text-micro mono-sm">${lb}</li>`;
+    }).join('');
+    const swBlock = swCount > 0
+        ? `<div class="text-micro text-dim mt8 mb4">Software observations (<span class="mono-sm">software_observed</span>)</div>
+          <p class="text-micro mb4">${esc(String(swCount))} bounded row(s) from credentialed package inventory (latest run replaces the stored sample set). Preview — latest identities, max 3:</p>
+          ${swPreviewLis ? `<ul class="st-host-sw-preview mb0">${swPreviewLis}</ul>` : '<p class="text-micro text-dim mb0">No preview rows returned.</p>'}`
+        : '';
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Recent reconciliation attempts (this host)</div>
           <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Slice</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
         : '';
-    return `${astHead}${asrcBlock}${obsBlock}${runBlock}`;
+    return `${astHead}${asrcBlock}${swBlock}${obsBlock}${runBlock}`;
 }
 
 function stHostReconciliationEvidenceHtml(assetData) {
     if (!assetData) return '';
     const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
     const obsCount = rd && Array.isArray(rd.observations) ? rd.observations.length : 0;
+    const swObs = rd && rd.software_observed && typeof rd.software_observed === 'object'
+        ? (parseInt(String(rd.software_observed.observation_count || 0), 10) || 0)
+        : 0;
     const asserted = assetData.os_platform_assertion != null ? String(assetData.os_platform_assertion).trim() : '';
     const hasAsserted = asserted.length > 0;
-    if (!hasAsserted && (!rd || rd.tables_ready !== true || obsCount === 0)) return '';
+    if (!hasAsserted && (!rd || rd.tables_ready !== true || (obsCount === 0 && swObs === 0))) return '';
     const confRaw = assetData.os_platform_confidence;
     const conf = (confRaw != null && String(confRaw).trim() !== '')
         ? String(confRaw).toLowerCase()
@@ -7672,6 +7687,9 @@ function stHostReconciliationEvidenceHtml(assetData) {
     const detailBlock = detailInner
         ? `<details class="st-host-evidence-details mt8"><summary class="text-micro st-host-evidence-sum">View evidence</summary>${detailInner}</details>`
         : '';
+    const swLine = swObs > 0
+        ? `<div class="text-micro text-dim mt4">Software inventory evidence: <span class="mono-sm">${esc(String(swObs))}</span> bounded <span class="mono-sm">software_observed</span> row(s) (sample preview in evidence).</div>`
+        : '';
     const assertRow = hasAsserted
         ? `<div class="st-host-evidence-row">
           <span class="text-dim text-micro">Asserted</span>
@@ -7685,6 +7703,7 @@ function stHostReconciliationEvidenceHtml(assetData) {
       <h3 class="host-section-heading">Evidence \u2014 OS / platform</h3>
       <div class="host-inner-surface st-host-evidence-inner">
         ${assertRow}
+        ${swLine}
         ${expl}
         ${detailBlock}
       </div>

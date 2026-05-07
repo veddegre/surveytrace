@@ -17,6 +17,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | PHP syntax | `php -l` on changed API files (or run deploy output which includes reconciliation API checks). |
 | Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). |
 | systemd | `surveytrace-daemon`, `surveytrace-scheduler`, `surveytrace-collector-ingest` **active** (master). |
+| systemd sandbox / SQLite | Installed units for master daemons that open the DB include **`ReadWritePaths`** for the SurveyTrace **`data`** directory (see `setup.sh` / `deploy.sh` post-checks); avoids `ProtectSystem=strict` blocking SQLite opens. |
 | Collector node | `collector/setup.sh` / `collector/deploy.sh` per [wiki setup-collector](wiki/setup-collector.md). |
 
 **Shell:** `bash -n setup.sh` and `bash -n deploy.sh` after any script edits.
@@ -44,7 +45,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 |------|--------|
 | Assets list | Load, sort, search; optional trusted hostname display when reconciliation enabled. |
 | Host details modal | Overview, tabs, evidence (OS + identity), **Identity & inventory** shows stored vs trusted where applicable. When cred checks are in use: **Credentialed checks** summary on overview (no raw package dump in-modal). |
-| Credentialed checks (admin) | **Settings → jobs & runs**: filters (status, transport, profile, plugin), run row badges (partial/err), duration/targets; **run detail** sections + optional admin worker debug; **System health** cred block stays quiet when healthy. |
+| Credentialed checks (admin) | **Settings → Credentialed Checks** subtab: operational summary strip, **profiles**, **jobs & runs**; filters (status, transport, profile, plugin), run row badges (partial/err), duration/targets; **run detail** sections + optional admin worker debug; **System health** cred block stays quiet when healthy. |
 | Devices | List and device panel; merge flows unchanged from expectations. |
 | Vulnerabilities | Filters, triage columns, host link. |
 | Findings actions | Resolve / accept risk (role-gated); audit expectation understood. |
@@ -116,6 +117,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Nav / tabs | Switching tabs; **scroll-to-top** behavior if implemented for your release. |
 | Host modal | Nested scroll regions usable; no trapped focus regressions (quick check). |
 | Narrow viewport | Primary flows usable without horizontal breakage on ~1280px and smaller. |
+| Settings (admin) | Subtabs **Platform → Reference**; cards **full-width, single column**, no horizontal page overflow; **Reference** holds About / category reference only. |
 | Executive dashboard mode | If enabled: charts/tables load; no JS errors in console for happy path. |
 
 ---
@@ -170,6 +172,13 @@ Document for operators **what is not in this release**:
 - [ ] Placeholder smoke passes
 - [ ] `bash -n setup.sh deploy.sh` passes
 - [ ] `php -l` / `python3 -m py_compile` passes on touched operational paths
+
+### Stabilization closure (1.0.3)
+
+- [ ] `bash -n setup.sh deploy.sh` passes; post-install/deploy **ReadWritePaths** checks pass on master
+- [ ] `php -l public/index.php` (Settings markup/JS) passes
+- [ ] `php scripts/st_collector_ingest_worker_hardening_selftest.php` passes (if collector ingest touched this line)
+- [ ] Manual: Settings subtabs and **Credentialed Checks** subtab (admin); collector ingest journal free of SQLite open failures on fresh unit install
 
 ---
 

@@ -15,7 +15,7 @@ function st_recon_empty_bundle(): array
 {
     return [
         'assertions'              => [],
-        'evidence_summary'        => ['observation_count' => 0, 'sources' => []],
+        'evidence_summary'        => ['observation_count' => 0, 'sources' => [], 'software_observation_count' => 0],
         'os_platform_assertion'   => null,
         'os_platform_confidence'  => null,
         'os_platform_sources'     => [],
@@ -2197,6 +2197,17 @@ function st_recon_build_os_bundle_from_db(PDO $pdo, int $assetId): array
     $obsSt->execute([$assetId]);
     $obsRows = $obsSt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+    $swCount = 0;
+    try {
+        $swSt = $pdo->prepare(
+            'SELECT COUNT(*) FROM asset_observations WHERE asset_id = ? AND observation_type = ?'
+        );
+        $swSt->execute([$assetId, 'software_observed']);
+        $swCount = (int) $swSt->fetchColumn();
+    } catch (Throwable $e) {
+        $swCount = 0;
+    }
+
     $srcLabels = [];
     foreach ($obsRows as $or) {
         $dn = trim((string) ($or['display_name'] ?? ''));
@@ -2215,8 +2226,9 @@ function st_recon_build_os_bundle_from_db(PDO $pdo, int $assetId): array
         'version'        => (int) ($assert['version'] ?? 1),
     ]];
     $empty['evidence_summary'] = [
-        'observation_count' => count($obsRows),
-        'sources'           => array_keys($srcLabels),
+        'observation_count'           => count($obsRows),
+        'sources'                     => array_keys($srcLabels),
+        'software_observation_count' => $swCount,
     ];
     $empty['os_platform_assertion'] = $label;
     $empty['os_platform_confidence'] = (string) ($assert['confidence_level'] ?? 'medium');
@@ -2596,6 +2608,10 @@ function st_recon_build_evidence_detail_for_asset(
         'observations'         => [],
         'recent_runs'          => [],
         'assertion_sources'    => [],
+        'software_observed'    => [
+            'observation_count' => 0,
+            'preview'           => [],
+        ],
     ];
     if ($assetId <= 0 || ! st_recon_tables_ready($pdo)) {
         return $empty;
@@ -2671,6 +2687,35 @@ function st_recon_build_evidence_detail_for_asset(
                 'observed_at'        => $r['observed_at'] ?? null,
                 'confidence_level'   => (string) ($r['confidence_level'] ?? 'medium'),
                 'contribution_hint'  => $contribByObsId[$oid] ?? '',
+            ];
+        }
+
+        $psw = $pdo->prepare(
+            "SELECT COUNT(*) FROM asset_observations WHERE asset_id = ? AND observation_type = 'software_observed'"
+        );
+        $psw->execute([$assetId]);
+        $empty['software_observed']['observation_count'] = (int) $psw->fetchColumn();
+
+        $pvw = $pdo->prepare(
+            "SELECT raw_value, normalized_value FROM asset_observations
+             WHERE asset_id = ? AND observation_type = 'software_observed'
+             ORDER BY id DESC LIMIT 3"
+        );
+        $pvw->execute([$assetId]);
+        $pvRows = $pvw->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($pvRows as $pr) {
+            $norm = st_recon_truncate_evidence_string((string) ($pr['normalized_value'] ?? ''), 160);
+            $lbl = $norm;
+            $rj = json_decode((string) ($pr['raw_value'] ?? ''), true);
+            if (is_array($rj) && isset($rj['name'])) {
+                $lbl = st_recon_truncate_evidence_string(
+                    trim((string) $rj['name'] . ' ' . (string) ($rj['version'] ?? '')),
+                    120
+                );
+            }
+            $empty['software_observed']['preview'][] = [
+                'label'            => $lbl,
+                'normalized_value' => $norm,
             ];
         }
         $rlim = max(1, min(40, $runLimit));

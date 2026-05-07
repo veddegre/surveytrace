@@ -258,6 +258,182 @@ def upsert_cred_package_inventory_summary_observation(
         return False
 
 
+# --- Software inventory observations (slice 1: bounded software_observed; no CVE / assertions) ---
+
+# Aligned with cred_check_run MAX_PKG_ROWS_STORE field caps; keep observation JSON small.
+_SOFTWARE_OBS_NAME_MAX = 200
+_SOFTWARE_OBS_VER_MAX = 200
+MAX_SOFTWARE_OBS_PER_RUN = 128
+
+_FIELD_SAFE_SW = re.compile(r"[^\x20-\x7E]+")
+_CTRL_SW = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def normalize_cred_software_manager(package_manager: str) -> str:
+    x = (package_manager or "").strip().lower()
+    return x if x in ("dpkg", "rpm") else "unknown"
+
+
+def normalize_cred_software_shape(
+    name: str,
+    version: str,
+    *,
+    manager: str,
+) -> dict[str, Any] | None:
+    """
+    Bounded JSON shape for software_observed raw_value (no semver / CPE / vendor inference).
+    Returns None when package name is empty after sanitization.
+    Caller adds ``partial`` when emitting storage JSON.
+    """
+    n = _CTRL_SW.sub("", (name or "").strip())
+    n = _FIELD_SAFE_SW.sub("", n)[:_SOFTWARE_OBS_NAME_MAX]
+    if not n:
+        return None
+    v = _CTRL_SW.sub("", (version or "").strip())
+    v = _FIELD_SAFE_SW.sub("", v)[:_SOFTWARE_OBS_VER_MAX]
+    mgr = normalize_cred_software_manager(manager)
+    nn = n.lower()[:_SOFTWARE_OBS_NAME_MAX]
+    return {
+        "name": n,
+        "normalized_name": nn,
+        "version": v,
+        "manager": mgr,
+        "source": "credentialed_check",
+    }
+
+
+def _cred_software_norm_fingerprint(shape: dict[str, Any]) -> str:
+    """Stable compact fingerprint for normalized_value column (≤500)."""
+    nn = str(shape.get("normalized_name") or "")
+    ver = str(shape.get("version") or "")
+    mgr = str(shape.get("manager") or "")
+    return f"{mgr}|{nn}|{ver}"[:500]
+
+
+def delete_cred_software_observations_for_asset_plugin(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    source_id: int,
+    plugin_key: str,
+) -> None:
+    """Remove prior bounded software slice rows for this asset + plugin (latest run replaces evidence set)."""
+    pk = (plugin_key or "").strip()
+    if asset_id < 1 or source_id < 1 or not pk:
+        return
+    conn.execute(
+        """DELETE FROM asset_observations
+            WHERE asset_id = ? AND observation_type = 'software_observed' AND source_id = ?
+              AND COALESCE(json_extract(provenance_json, '$.plugin_key'), '') = ?""",
+        (asset_id, source_id, pk),
+    )
+
+
+def upsert_cred_software_observations(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    packages: list[dict[str, Any]],
+    package_manager: str,
+    run_id: int,
+    target_row_id: int,
+    result_id: int,
+    plugin_key: str,
+    plugin_version: str,
+    run_partial: bool,
+    package_count_total: int,
+) -> int:
+    """
+    Insert up to MAX_SOFTWARE_OBS_PER_RUN software_observed rows for one package_inventory result.
+
+    Dedupes by (normalized_name, version, manager) within this run. Deletes prior rows for the same
+    asset + credentialed_check source + plugin_key so per-host storage stays bounded by the cap
+    (latest successful inventory replaces the bounded preview set).
+
+    Does not write asset_assertions. Returns rows inserted.
+    """
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return 0
+    mgr_in = normalize_cred_software_manager(package_manager)
+    if mgr_in == "unknown":
+        return 0
+    pk = (plugin_key or "").strip()
+    pv = (plugin_version or "").strip()
+    if not pk or not pv:
+        return 0
+
+    unique_ordered: list[dict[str, Any]] = []
+    dedupe_seen: set[str] = set()
+    for row in packages:
+        if not isinstance(row, dict):
+            continue
+        nm_raw = row.get("name")
+        ver_raw = row.get("version")
+        nm = nm_raw if isinstance(nm_raw, str) else str(nm_raw or "")
+        ver = ver_raw if isinstance(ver_raw, str) else str(ver_raw or "")
+        shape = normalize_cred_software_shape(nm, ver, manager=mgr_in)
+        if shape is None:
+            continue
+        dk = f"{shape['manager']}\x00{shape['normalized_name']}\x00{shape['version']}"
+        if dk in dedupe_seen:
+            continue
+        dedupe_seen.add(dk)
+        unique_ordered.append(shape)
+
+    ordered_unique = unique_ordered[:MAX_SOFTWARE_OBS_PER_RUN]
+    bounded_trunc = len(unique_ordered) > MAX_SOFTWARE_OBS_PER_RUN
+    batch_partial = bool(run_partial or bounded_trunc)
+
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return 0
+
+        delete_cred_software_observations_for_asset_plugin(conn, asset_id=asset_id, source_id=sid, plugin_key=pk)
+
+        if not ordered_unique:
+            return 0
+
+        written = 0
+        base_ref = f"run:{run_id}:target:{target_row_id}:{pk}@{pv}"
+        for i, shape in enumerate(ordered_unique):
+            raw_doc = {**shape, "partial": batch_partial}
+            raw_json = json.dumps(raw_doc, separators=(",", ":"), ensure_ascii=False)
+            raw_safe = raw_json[:4000]
+            norm_safe = _cred_software_norm_fingerprint(shape)
+            ref = f"{base_ref}:sw:{i}"[:500]
+            base_prov: dict[str, Any] = {
+                "plugin_key": pk,
+                "plugin_version": pv,
+                "run_id": run_id,
+                "target_row_id": target_row_id,
+                "result_id": result_id,
+            }
+            if i == 0:
+                base_prov["aggregate_package_count"] = int(package_count_total)
+                base_prov["software_obs_cap"] = MAX_SOFTWARE_OBS_PER_RUN
+                base_prov["dedupe_unique_packages"] = len(unique_ordered)
+                base_prov["rows_written_planned"] = len(ordered_unique)
+                base_prov["bounded_truncation"] = bool(bounded_trunc)
+            prov = json.dumps(base_prov, separators=(",", ":"), ensure_ascii=False)
+            _upsert_observation(
+                conn,
+                asset_id,
+                "software_observed",
+                raw_safe,
+                norm_safe,
+                sid,
+                ref,
+                "medium",
+                prov if prov else "{}",
+            )
+            written += 1
+        return written
+    except sqlite3.Error:
+        return 0
+
+
 def upsert_cred_snmp_sysname_observations(
     conn: sqlite3.Connection,
     *,

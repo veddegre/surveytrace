@@ -15,6 +15,27 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Removed
 
+## [1.0.3] - 2026-05-07
+
+Stabilization and operator-clarity release: deployment checks for systemd SQLite access, Settings information architecture and single-column layout, credentialed-checks messaging alignment, and release bookkeeping. **No new product features.**
+
+### Added
+
+- `setup.sh` / `deploy.sh` post-install validation that master daemon units include **`ReadWritePaths` for the SurveyTrace data directory** (avoids `ProtectSystem=strict` blocking SQLite when unit files drift).
+
+### Changed
+
+- **Settings (admin)** — Subtabs (**Platform**, **Integrations**, **Credentialed Checks**, **Maintenance**, **Advanced**, **Reference**); per-group DOM normalization; **single-column, full-width card stack** (removed legacy `scgrid` on the settings root and multi-column card grids).
+- **Credentialed checks (copy)** — UI and docs wording aligned with shipped SSH/SNMPv3 execution, worker queueing, and trusted-data observations; removed misleading “future slice” / “secrets not used” phrasing where behavior is already live.
+
+### Fixed
+
+- **Collector ingest on Linux** — Operator guidance and install/deploy checks reinforce that **`surveytrace-collector-ingest`** (and related master units) must allow writes under the configured data path; stale units missing `ReadWritePaths` can surface as `sqlite3.OperationalError: unable to open database file` despite correct filesystem permissions.
+
+### Removed
+
+- None.
+
 ## [1.0.2] - 2026-05-07
 
 Operational lifecycle and maintenance milestone completion release: manual maintenance tooling, admin read-only visibility, backup/restore readiness validation, and runbook hardening. No new execution transports or automated maintenance schedulers.
