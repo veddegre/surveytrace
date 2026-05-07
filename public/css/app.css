@@ -2616,6 +2616,12 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   width:100%;
   min-width:0;
 }
+#t-settings.on .st-settings-grid{
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  align-items:stretch;
+}
 #t-settings.on .st-settings-group[hidden]{
   display:none!important;
 }
@@ -2624,18 +2630,18 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   min-width:0;
 }
 #t-settings.on .st-settings-group-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));
+  display:flex;
+  flex-direction:column;
   gap:14px;
-  align-items:start;
-  justify-items:stretch;
+  align-items:stretch;
   width:100%;
   min-width:0;
 }
 #t-settings.on .st-settings-group-grid > *{
   width:100%;
-  min-width:0;
   max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
 }
 .st-settings-subnav{
   display:flex;
@@ -2669,19 +2675,14 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   outline:2px solid var(--primary);
   outline-offset:2px;
 }
-.st-settings-tab-intro{max-width:min(100%,56rem)}
-#t-settings.on #st-cc-summary-wrap{grid-column:1 / -1}
-#t-settings.on .st-settings-card--ai[data-st-group="advanced"]{
-  grid-column:1 / -1;
-  max-width:980px;
-  justify-self:start;
-}
+.st-settings-tab-intro{max-width:100%;width:100%}
 #t-settings.on .st-cc-summary-strip{min-width:0;max-width:100%}
-.st-cc-summary-chips{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+#t-settings.on .st-cc-summary-chips{
+  display:flex;
+  flex-direction:column;
   gap:8px;
   min-width:0;
+  width:100%;
 }
 .st-cc-summary-chip{
   border:1px solid var(--bd2);
@@ -2738,13 +2739,22 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   color:var(--text-muted);
   margin:2px 0 8px;
 }
+#t-settings.on .st-settings-card,
+#t-settings.on .card,
+#t-settings.on .report-manual-tools,
+#t-settings.on .help-box{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+}
 #t-settings.on .st-settings-card{
-  margin-bottom:12px;
+  margin-bottom:0;
   min-width:0;
   max-width:100%;
   box-sizing:border-box;
 }
-#t-settings.on .st-settings-card:last-child{margin-bottom:0}
+#t-settings.on .st-settings-group-grid .st-settings-card:last-child{margin-bottom:0}
 #t-settings.on .st-settings-card--security{
   border-left:3px solid color-mix(in srgb,var(--amber) 55%,var(--border));
 }

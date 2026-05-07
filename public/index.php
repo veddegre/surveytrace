@@ -2359,7 +2359,7 @@ if (!headers_sent()) {
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="maintenance">Operational lifecycle tools for retention, backup/restore validation, secret rewrap, and stuck-worker recovery.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="advanced">Low-frequency controls, AI behavior, and experimental or diagnostic configuration.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="reference">Reference material, build information, category definitions, and operational documentation links.</p>
-  <div class="scgrid st-settings-grid" id="st-settings-grid">
+  <div class="st-settings-grid" id="st-settings-grid">
     <div>
       <div class="st-settings-col-title" data-st-group="platform">Security &amp; session</div>
       <div class="card st-settings-card st-settings-card--security" data-st-group="platform">
