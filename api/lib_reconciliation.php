@@ -3318,11 +3318,11 @@ function st_recon_software_inventory_diag_for_asset(PDO $pdo, int $assetId): arr
 }
 
 /**
- * Single-asset GET: expected top-level JSON keys for software inventory (slice 3 contract tests).
+ * Single-asset GET: expected top-level JSON keys for software inventory (contract tests).
  *
  * @return list<string>
  */
-function st_recon_slice3_expected_asset_top_level_software_keys(): array
+function st_recon_software_inventory_expected_top_level_keys(): array
 {
     return [
         'software_inventory_summary',
@@ -3341,13 +3341,13 @@ function st_recon_slice3_expected_asset_top_level_software_keys(): array
 }
 
 /**
- * Health `trusted_data` must stay count-oriented — no raw package dumps (slice 4 contract tests).
+ * Health `trusted_data` must stay count-oriented — no raw package dumps (contract tests).
  *
  * @param array<string, mixed>|null $trusted
  *
  * @return list<string>
  */
-function st_recon_slice4_assert_health_trusted_software_diag_bounded(?array $trusted): array
+function st_recon_software_inventory_assert_health_trusted_bounded(?array $trusted): array
 {
     $violations = [];
     if ($trusted === null) {
@@ -3363,13 +3363,13 @@ function st_recon_slice4_assert_health_trusted_software_diag_bounded(?array $tru
 }
 
 /**
- * Ensures recon_detail does not expose unbounded package dumps (slice 3).
+ * Ensures recon_detail does not expose unbounded package dumps.
  *
  * @param array<string, mixed>|null $reconDetail
  *
  * @return list<string> violation messages (empty if OK)
  */
-function st_recon_slice3_assert_bounded_software_payload(?array $reconDetail): array
+function st_recon_software_inventory_assert_bounded_payload(?array $reconDetail): array
 {
     $violations = [];
     if ($reconDetail === null) {

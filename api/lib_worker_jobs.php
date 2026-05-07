@@ -1,9 +1,9 @@
 <?php
 /**
- * SurveyTrace — worker execution substrate helpers (MVP slice 2).
+ * SurveyTrace — worker execution substrate helpers.
  *
  * Small explicit PDO helpers for worker_nodes, worker_jobs, attempts, events, heartbeats.
- * No production workflow calls these yet; safe to load without side effects until wired (slice 4+).
+ * Helpers stay safe to load without side effects until production callers adopt the substrate.
  *
  * Structured error_code values align with docs/WORKER_EXECUTION_SUBSTRATE.md §6.
  *
@@ -561,7 +561,7 @@ function st_worker_log_event(PDO $pdo, array $event): void
 }
 
 /**
- * Read-only snapshot for System Health (MVP slice 3). Cheap COUNT/MIN queries only.
+ * Read-only snapshot for System Health. Cheap COUNT/MIN queries only.
  *
  * @return array{
  *   tables_ready: bool,
@@ -798,7 +798,7 @@ function st_worker_substrate_health_snapshot(PDO $pdo): array
 }
 
 // ---------------------------------------------------------------------------
-// Collector ingest → worker_jobs mirror (MVP slice 4, observability only)
+// Collector ingest → worker_jobs mirror (observability only)
 // ---------------------------------------------------------------------------
 
 /**

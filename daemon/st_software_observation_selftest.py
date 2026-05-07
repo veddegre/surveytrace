@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Slice 1 — software_observed normalization, dedupe, per-run cap, replace semantics (no network).
+software_observed normalization, dedupe, per-run cap, replace semantics (no network).
 
 Run from repo root:
-  python3 daemon/st_software_obs_slice1_selftest.py
+  python3 daemon/st_software_observation_selftest.py
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ def main() -> None:
     if doc2.get("partial") is True:
         _fail("partial flag expected False for full single-package snapshot")
 
-    print("OK st_software_obs_slice1_selftest")
+    print("OK st_software_observation_selftest")
 
 
 if __name__ == "__main__":

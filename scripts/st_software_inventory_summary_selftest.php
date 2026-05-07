@@ -1,8 +1,8 @@
 <?php
 /**
- * Slice 2 — software inventory summary resolver (no DB).
+ * Software inventory summary resolver (no DB).
  *
- *   php scripts/st_software_inventory_slice2_selftest.php
+ *   php scripts/st_software_inventory_summary_selftest.php
  */
 
 declare(strict_types=1);
@@ -153,4 +153,4 @@ foreach ([$r1, $r2, $r3, $r4, $r5] as $rx) {
     }
 }
 
-echo "OK st_software_inventory_slice2_selftest\n";
+echo "OK st_software_inventory_summary_selftest\n";

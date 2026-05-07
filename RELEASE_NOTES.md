@@ -12,7 +12,7 @@ SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (sli
 - **Reconciled inventory summary** — One **`software_inventory_summary`** belief per asset (**`medium`**/**`low`** from freshness and completeness only — **not** CVE exposure); explanations state **no CVE matching** and **no findings** from this path.
 - **Host modal** — **Evidence — Software evidence (bounded inventory)**: source line, confidence chip, stale/partial/**observation-gap** badges where applicable, **`View software evidence`** disclosure (≤**3** sample rows).
 - **Health diagnostics** — Quiet when healthy; non-zero **`trusted_data`** signals for software summaries (stale bands, partial repeats, drift hints, summaries without **`software_observed`**, etc.).
-- **Install/deploy validation** — **`setup.sh`** / **`deploy.sh`** verify and **`php -l`** the software inventory selftests (`slice2`–`slice4`, **`st_recon_slice10_selftest.php`**) alongside existing reconciliation/cred-check validation.
+- **Install/deploy validation** — **`setup.sh`** / **`deploy.sh`** verify and **`php -l`** the software inventory selftests (`slice2`–`slice4`, **`st_recon_trusted_data_selftest.php`**) alongside existing reconciliation/cred-check validation.
 
 ### Deferred by design
 
@@ -23,11 +23,11 @@ SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (sli
 ### What to verify after upgrade
 
 - From repo clone:  
-  `python3 daemon/st_software_obs_slice1_selftest.py`  
-  `php scripts/st_software_inventory_slice2_selftest.php`  
-  `php scripts/st_software_inventory_slice3_selftest.php`  
-  `php scripts/st_software_inventory_slice4_selftest.php`  
-  plus existing slice **7/8/9**, **`php scripts/st_recon_slice10_selftest.php`**, and **`bash scripts/smoke_credential_checks_placeholder.sh`** (optional CI parity).
+  `python3 daemon/st_software_observation_selftest.py`  
+  `php scripts/st_software_inventory_summary_selftest.php`  
+  `php scripts/st_software_inventory_evidence_selftest.php`  
+  `php scripts/st_software_inventory_diagnostics_selftest.php`  
+  plus existing slice **7/8/9**, **`php scripts/st_recon_trusted_data_selftest.php`**, and **`bash scripts/smoke_credential_checks_placeholder.sh`** (optional CI parity).
 - **`bash -n setup.sh`** and **`bash -n deploy.sh`** after script edits.
 - UI: open a host with cred package inventory — software evidence block renders; **System Health** trusted-data line stays readable when software counters are zero.
 

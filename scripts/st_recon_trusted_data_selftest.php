@@ -1,8 +1,8 @@
 <?php
 /**
- * Slice 10 — credentialed trusted-data reconciliation (no network).
+ * Credentialed trusted-data reconciliation (no network).
  *
- *   php scripts/st_recon_slice10_selftest.php
+ *   php scripts/st_recon_trusted_data_selftest.php
  */
 
 declare(strict_types=1);
@@ -264,4 +264,4 @@ assert_true(
     'device_identity_observed without hostname/FQDN does not participate in canonical_hostname grouping'
 );
 
-echo "OK st_recon_slice10_selftest\n";
+echo "OK st_recon_trusted_data_selftest\n";

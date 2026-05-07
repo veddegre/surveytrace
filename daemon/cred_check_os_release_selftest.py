@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-No-network self-test: os-release parse, sanitization caps, normalizer (slice 7).
+No-network self-test: os-release parse, sanitization caps, normalizer.
 
 Run from repo root:
-  python3 daemon/cred_check_slice7_selftest.py
+  python3 daemon/cred_check_os_release_selftest.py
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def main() -> None:
     if e3 != "normalize_error":
         _fail("empty parse error code")
 
-    print("OK cred_check_slice7_selftest")
+    print("OK cred_check_os_release_selftest")
 
 
 if __name__ == "__main__":

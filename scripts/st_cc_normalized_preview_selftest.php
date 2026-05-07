@@ -2,7 +2,7 @@
 /**
  * CLI-only: assert run-detail preview never exposes full ssh.linux.package_inventory packages[].
  *
- *   php scripts/st_cc_normalized_preview_slice8_selftest.php
+ *   php scripts/st_cc_normalized_preview_selftest.php
  */
 
 declare(strict_types=1);
@@ -61,4 +61,4 @@ if (! is_array($d2) || array_key_exists('packages', $d2)) {
     exit(1);
 }
 
-echo "OK st_cc_normalized_preview_slice8_selftest\n";
+echo "OK st_cc_normalized_preview_selftest\n";

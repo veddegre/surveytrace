@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-No-network self-test: package inventory parse/sanitize caps (slice 8).
+No-network self-test: package inventory parse/sanitize caps.
 
 Run from repo root:
-  python3 daemon/cred_check_slice8_pkg_selftest.py
+  python3 daemon/cred_check_package_inventory_selftest.py
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def main() -> None:
         _fail("storage truncation vs total")
     _assert_len_cap(s8, 50, "trunc_body")
 
-    print("OK cred_check_slice8_pkg_selftest")
+    print("OK cred_check_package_inventory_selftest")
 
 
 if __name__ == "__main__":

@@ -37,13 +37,52 @@ This must be run from the **repository root directory**.
 
 The deploy script will:
 
-- copy updated files to `/opt/surveytrace` (including explicit `api/*.php`, `daemon/` modules, `public/`, `sql/schema.sql`, and **`docs/`** operator reference)
+- copy updated files to `/opt/surveytrace` using **`scripts/deploy_file_manifest.php`** as the single source of truth for **`api/*.php`**, shipped **`daemon/`** modules, **`scripts/*.php`** (maintenance CLIs + production selftests), **`public/`**, **`sql/`**, and **`docs/`** (full tree)
+- run **`php scripts/check_deploy_coverage.php`** from the repo **before** copying (flags missing/extra files versus the manifest — avoids silent drift)
 - normalize ownership and permissions
 - validate required files exist (including trusted-data / reconciliation PHP and `recon_observations.py` where shipped)
-- run targeted `php -l` / `python3 -m py_compile` checks when configured in the script
+- run **`php -l`** on every shipped **`api/*.php`**, **`daemon/cred_decrypt_cli.php`**, and **`scripts/*.php`** from the manifest; run **`python3 -m py_compile`** on shipped **`daemon/*.py`**
 - check worker readability
 - verify systemd units
 - restart services as needed
+
+**Maintenance tooling path:** operator CLIs and bundled selftests live under **`/opt/surveytrace/scripts`** after **`setup.sh`** or **`deploy.sh`**. Prefer **`--dry-run`** on maintenance scripts before **`--apply`**. Dev-only helpers (**`scripts/smoke_credential_checks_placeholder.*`**, **`scripts/verify_schedule_cron_parity.py`**) stay in the repo for CI/local use only — they are intentionally omitted from the manifest.
+
+Do **not** deploy by blind **`cp -a *`** from a workstation tree; use **`deploy.sh`** / **`setup.sh`** so excludes and manifests stay aligned.
+
+---
+
+### Optional: stale application file cleanup
+
+Renamed or retired **`api/`**, **`daemon/`**, **`scripts/`**, **`sql/`**, root **`*.service`**, or (when compared to your checkout) **`docs/`** files can linger under **`/opt/surveytrace`** because **`deploy.sh`** only overwrites — it does not erase old names. That leftover code is confusing and can be a security concern.
+
+**This cleanup removes shipped tree cruft only.** It does **not** replace **`prune_operational_history.php`** (SQLite row pruning), **`recover_stale_worker_jobs.php`**, backup tooling, or data retention policy. Always **dry-run first**, keep backups, and treat **`--apply`** as destructive to listed paths.
+
+From the **repo root** on the server (after `git pull`):
+
+```bash
+sudo bash deploy.sh --cleanup-stale
+```
+
+That invokes **`scripts/cleanup_deployed_stale_files.php`** with the **current repo manifest** and **`--repo-src`** set to your checkout so **`docs/`** can be compared safely. Default is **dry-run** (prints candidates only). To delete the listed files:
+
+```bash
+sudo bash deploy.sh --cleanup-stale --apply
+```
+
+Review the table carefully before **`--apply`**. Unexpected files under **`public/`** are listed separately and are **not** deleted unless you also pass **`--apply-public-extras`** (operators sometimes add static assets — default is conservative).
+
+You can run the PHP entrypoint directly (e.g. custom **`--audit-log=`**):
+
+```bash
+sudo php /opt/surveytrace/scripts/cleanup_deployed_stale_files.php \
+  --install-root=/opt/surveytrace \
+  --manifest-path=/path/to/current/repo/scripts/deploy_file_manifest.php \
+  --repo-src=/path/to/current/repo \
+  --apply
+```
+
+Deletes are refused under **`data/`**, **`backups/`**, **`venv/`**, **`.git/`**, for **`.env`** / **`surveytrace.env`**, SQLite/WAL/SHM, and **`*.log`** basenames. **`integrations-starter/`** is not scanned. Successful **`--apply`** runs append JSON lines to **`data/deploy_stale_cleanup_audit.log`** by default (append-only).
 
 ---
 
@@ -120,8 +159,8 @@ To allow admins to **store encrypted SSH / SNMPv3 credential secrets** on creden
 - **If unset:** profile metadata CRUD still works; `set_secret` fails with **Credential encryption is not configured.**
 - **Multi-node requirement:** every process that decrypts profile secrets (web/PHP path and `surveytrace-credential-check-worker`) must have the **same** `SURVEYTRACE_CRED_SECRET_KEY` value.
 - **Backups / restore:** back up SQLite and key material together. Restoring DB data on a host **without the same key** makes existing profile secrets **unusable** until operators set a new key and re-enter secrets.
-- **Key rotation:** bulk re-wrap/rotation is **not** automated in the current product slice.
-- **Execution:** credentialed check **worker** runs (slices 7–9) decrypt profile secrets on the worker for **`ssh.linux.os_release`**, **`ssh.linux.package_inventory`**, and **`snmpv3.device_identity`** when the profile transport matches (SNMP uses **`pysnmp`**; SSH uses **`paramiko`**). Other plugins remain placeholders. **Slice 5** still uses stored secrets for the **handshake test** subprocess from the API path.
+- **Key rotation:** bulk re-wrap/rotation is **not** automated in the current release.
+- **Execution:** credentialed check **worker** runs decrypt profile secrets on the worker for **`ssh.linux.os_release`**, **`ssh.linux.package_inventory`**, and **`snmpv3.device_identity`** when the profile transport matches (SNMP uses **`pysnmp`**; SSH uses **`paramiko`**). Other plugins remain placeholders. The **handshake test** path still uses stored secrets for its subprocess from the API layer.
 
 ### Manual secret rewrap utility (slice 1)
 

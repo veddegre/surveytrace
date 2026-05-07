@@ -1,5 +1,5 @@
 """
-SurveyTrace — worker execution substrate helpers (MVP slice 2).
+SurveyTrace — worker execution substrate helpers.
 
 Lightweight sqlite3 primitives for daemon-side use. No polling loops; callers
 open the DB connection and pass it in. Production daemons do not import this yet.

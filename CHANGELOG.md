@@ -9,7 +9,14 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Added
 
+- **`scripts/deploy_file_manifest.php`** — canonical file lists shared by **`deploy.sh`** / **`setup.sh`**; **`scripts/deploy_manifest_export.php`** emits manifest sections for bash; **`scripts/check_deploy_coverage.php`** fails when `api/`, `daemon/`, or `scripts/` drift from the manifest.
+- **`scripts/cleanup_deployed_stale_files.php`** — dry-run-by-default removal of obsolete **`api/`**, **`daemon/`**, **`scripts/`**, **`sql/`**, **`docs/`** (vs **`--repo-src`**), and root **`*.service`** paths no longer in the manifest; **`deploy.sh --cleanup-stale`** wraps it with repo manifest + **`--repo-src`**.
+
 ### Changed
+
+- Master **`deploy.sh`** loads shipped **`api/`**, **`daemon/`**, **`scripts/`**, **`public/`**, and **`sql/`** paths from the manifest, runs **`check_deploy_coverage.php`** before copying, **`php -l`** over every shipped **`scripts/*.php`**, and post-deploy **`check_file`** presence checks for the scripts tree.
+- **`setup.sh`** **`rsync`** uses conservative **`--exclude`** patterns (**.git**, **data/**, **`venv/`**, local SQLite files, **`.env`**, **`config.local.php`**, IDE dirs); non-rsync fallback now copies **`scripts/`**; post-copy manifest coverage validation; **`php -l`** / **`py_compile`** loops track **`deploy_file_manifest.php`**.
+- Renamed production selftests / reconciliation helpers to neutral terminology (**same behavior**): e.g. **`st_recon_trusted_data_selftest.php`**, **`st_software_inventory_{summary,evidence,diagnostics}_selftest.php`**, **`daemon/cred_check_{os_release,package_inventory,snmp_identity}_selftest.py`**, **`daemon/st_software_observation_selftest.py`**, **`st_cc_normalized_preview_selftest.php`**; **`st_recon_software_inventory_*`** replaces **`st_recon_slice3_*`** / **`st_recon_slice4_*`** contract helpers.
 
 ### Fixed
 
@@ -25,7 +32,7 @@ Software Inventory Reconciliation **Foundations (slices 1–4)** on the trusted-
 - **Slice 2 — `software_inventory_summary`** — Single **`asset_assertions`** row per asset (fresh/partial/stale semantics); **`assertion_sources`** link inventory observations only (**never** per-package assertions).
 - **Slice 3 — UX / bounded diagnostics** — Host modal **software evidence** block (`software_inventory_*` fields, **View software evidence** preview ≤3 rows); **`trusted_data`** counts for stale/partial summaries and orphan **`software_observed`**; admin **`recon_diagnostics.software_inventory`** read-only block.
 - **Slice 4 — Weighting / explainability / readiness** — Explicit **`medium`**/**`low`** rationale, **`software_inventory_stale_band`**, **`software_inventory_observation_gap`**, additional **`trusted_data`** counters (stale age splits **90–180d** vs **>180d**, repeat partial inventories, reconciliation drift hints); **`st_recon_slice4_assert_health_trusted_software_diag_bounded`** contract helper for health payloads (no raw package dumps on **`trusted_data`**).
-- **Selftests & deploy parity** — `daemon/st_software_obs_slice1_selftest.py`, `scripts/st_software_inventory_slice2_selftest.php`, `slice3`, `slice4`; **`setup.sh`** (`check_file` + **`php -l`**) and **`deploy.sh`** (copy + **`php -l`**) cover those scripts alongside **`st_recon_slice10_selftest.php`**.
+- **Selftests & deploy parity** — `daemon/st_software_obs_slice1_selftest.py`, `scripts/st_software_inventory_slice2_selftest.php`, `slice3`, `slice4`; **`setup.sh`** (`check_file` + **`php -l`**) and **`deploy.sh`** (copy + **`php -l`**) cover those scripts alongside **`st_recon_slice10_selftest.php`**. *(Legacy paths at the **1.0.4** tag; filenames were neutralized later without behavior changes — see **Unreleased**.)*
 
 ### Changed
 

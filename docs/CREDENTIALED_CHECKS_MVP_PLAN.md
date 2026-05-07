@@ -1,6 +1,8 @@
 # Credentialed Checks Engine — MVP implementation plan
 
-This document is a **staged implementation plan** for the MVP described in [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md). It breaks work into **small slices** with **validation gates**. It does not prescribe calendar sequencing beyond slice order dependencies.
+> **Note:** Labels like “slice” / “phase” below are **historical planning vocabulary** only. Shipped paths use neutral filenames; see [`scripts/deploy_file_manifest.php`](../scripts/deploy_file_manifest.php) for what **`deploy.sh`** / **`setup.sh`** install.
+
+This document is a **staged implementation plan** for the MVP described in [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md). It breaks work into **milestones** with **validation gates**. It does not prescribe calendar sequencing beyond the dependency order captured below.
 
 **Capability anchors**
 
@@ -365,7 +367,7 @@ Also includes **strict validation** on save/launch (profile transport vs plugin 
 
 ### Validation steps
 
-- `php -l` / `python3 -m py_compile` on touched paths; **`./scripts/smoke_credential_checks_placeholder.sh`** (placeholder-only worker); **`python3 daemon/cred_check_slice7_selftest.py`**.
+- `php -l` / `python3 -m py_compile` on touched paths; **`./scripts/smoke_credential_checks_placeholder.sh`** (placeholder-only worker); **`python3 daemon/cred_check_os_release_selftest.py`**.
 - Manual: wrong password → `auth_failed`; tiny **`timeout_ms`** → `timeout`; disabled profile/job → safe skip/fail; output cap → `output_too_large`; repeat run → observation upsert idempotent.
 
 ### Rollback considerations
@@ -388,13 +390,13 @@ Also includes **strict validation** on save/launch (profile transport vs plugin 
 
 - `daemon/cred_check_ssh_packages.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py` (shared `read_exec_stdout_bounded` with truncate mode), `daemon/recon_observations.py` (`upsert_cred_package_inventory_summary_observation`, **`upsert_cred_software_observations`**)
 - `api/lib_credential_check_ops.php` — `st_cc_normalized_preview_public`, extended metrics allowlist
-- `daemon/cred_check_slice8_pkg_selftest.py` — no-network parser tests
-- `daemon/st_software_obs_slice1_selftest.py` — **`software_observed`** normalization / dedupe / cap / replace
+- `daemon/cred_check_package_inventory_selftest.py` — no-network parser tests
+- `daemon/st_software_observation_selftest.py` — **`software_observed`** normalization / dedupe / cap / replace
 - `deploy.sh`, `setup.sh` — ship + `py_compile`
 
 ### Validation steps
 
-- `python3 daemon/cred_check_slice8_pkg_selftest.py`; `python3 daemon/st_software_obs_slice1_selftest.py`; `php scripts/st_software_inventory_slice2_selftest.php` (slice 2 summary resolver); `php scripts/st_software_inventory_slice3_selftest.php` (slice 3 UX/API bounds); `php scripts/st_software_inventory_slice4_selftest.php` (slice 4 bands + health contracts); slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
+- `python3 daemon/cred_check_package_inventory_selftest.py`; `python3 daemon/st_software_observation_selftest.py`; `php scripts/st_software_inventory_summary_selftest.php` (slice 2 summary resolver); `php scripts/st_software_inventory_evidence_selftest.php` (slice 3 UX/API bounds); `php scripts/st_software_inventory_diagnostics_selftest.php` (slice 4 bands + health contracts); slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
 - Manual: Debian/Ubuntu → `package_manager=dpkg`; RHEL-style → `rpm`; mixed job with **`os_release`** + **`package_inventory`** → per-plugin status isolation.
 
 ### Explicitly deferred
@@ -415,12 +417,12 @@ Summarized observations only: **`hostname_observed`** / **`fqdn_observed`** from
 
 - `daemon/cred_check_snmp_identity.py`, `daemon/cred_check_run.py`, `daemon/recon_observations.py` (`upsert_cred_snmp_sysname_observations`, `upsert_cred_device_identity_summary_observation`)
 - `api/lib_credential_check_ops.php` — SNMP **`normalized_preview`**, **`oids_present`** in metrics allowlist
-- `daemon/cred_check_slice9_snmp_selftest.py`
+- `daemon/cred_check_snmp_identity_selftest.py`
 - `deploy.sh`, `setup.sh`
 
 ### Validation
 
-- `python3 daemon/cred_check_slice9_snmp_selftest.py`; existing slice 7/8 selftests + placeholder smoke; **`pysnmp`** in app venv (same as handshake **`cred_transport_snmp.py`**).
+- `python3 daemon/cred_check_snmp_identity_selftest.py`; existing slice 7/8 selftests + placeholder smoke; **`pysnmp`** in app venv (same as handshake **`cred_transport_snmp.py`**).
 
 ### Explicitly deferred
 
@@ -440,7 +442,7 @@ Extend **`os_platform`** / identity reconciliation to weight **`os_version_obser
 - `public/index.php` — host evidence tables (compact **To belief** / plugin ref columns on observations + assertion sources).
 - `api/health.php` — richer **`trusted_data`** error fallback keys.
 - `docs/TRUSTED_DATA_MODEL.md`, `docs/CREDENTIALED_CHECKS_ENGINE.md` — confidence / deferral notes.
-- `scripts/st_recon_slice10_selftest.php` — no-network reconciliation assertions.
+- `scripts/st_recon_trusted_data_selftest.php` — no-network reconciliation assertions.
 
 ### Schema / API changes
 
@@ -452,7 +454,7 @@ Extend **`os_platform`** / identity reconciliation to weight **`os_version_obser
 
 ### Validation steps
 
-- `php scripts/st_recon_slice10_selftest.php`; existing slice 7/8/9 selftests + placeholder smoke; open host detail and confirm cred-sourced rows show source + ref + **To belief** hints.
+- `php scripts/st_recon_trusted_data_selftest.php`; existing slice 7/8/9 selftests + placeholder smoke; open host detail and confirm cred-sourced rows show source + ref + **To belief** hints.
 
 ### Rollback considerations
 
@@ -681,7 +683,7 @@ These are **illustrative JSON** fragments for `credential_check_plugins.manifest
 2. **Slice 3–5:** Create `credential_profiles` entry `transport=ssh`, scope bound to that asset only; **Test** → expect `ok` and pinned host key (if policy stores pin).
 3. **Slice 7–8:** Create job with plugins `ssh.linux.os_release@1.0.0` and `ssh.linux.package_inventory@1.0.0`; **Run**; expect `completed`, per-target `succeeded`.
 4. **Slice 9:** SNMP **`snmpv3`** profile + **`snmpv3.device_identity@1.0.0`** job on a reachable SNMP agent; expect **`credential_check_results`** with **sysName/sysDescr/sysObjectID** previews (bounded).
-5. **Slice 10:** Open host detail; confirm **`os_version_observed`** / SNMP **`hostname_observed`** / **`device_identity_observed`** evidence with source **`credentialed_check`** where applicable; assertions change **only** via lazy reconciliation; optional **`php scripts/st_recon_slice10_selftest.php`** in CI.
+5. **Slice 10:** Open host detail; confirm **`os_version_observed`** / SNMP **`hostname_observed`** / **`device_identity_observed`** evidence with source **`credentialed_check`** where applicable; assertions change **only** via lazy reconciliation; optional **`php scripts/st_recon_trusted_data_selftest.php`** in CI.
 6. **Slice 12:** Start a second run, click **Cancel** mid-flight; verify run `cancelled` or partial with no partial secrets in `credential_check_artifacts` / logs.
 7. **Negative:** Wrong key → `auth_failed`, ciphertext unchanged, audit `credential.test` failure.
 

@@ -292,28 +292,46 @@ info "Installing application to $INSTALL_DIR…"
 
 if [[ "$SRC_DIR" != "$INSTALL_DIR" ]]; then
     # Ensure destination exists then copy contents (not the dir itself)
-    # rsync preserves subdirectories reliably; fall back to explicit cp
+    # rsync preserves subdirectories reliably; fall back to explicit cp.
+    # Excludes avoid overwriting runtime dirs (.venv/data), secrets, local DBs, and SCM junk — mirrors deploy.sh manifest discipline (do not rsync blind "*" without guards).
     mkdir -p "$INSTALL_DIR"
     if command -v rsync &>/dev/null; then
-        # Whole-tree sync (respect .rsyncignore if you add one later). Includes api/, daemon/,
-        # public/, sql/, docs/, and root files — same content as the explicit cp fallback below.
-        rsync -a --delete "$SRC_DIR/" "$INSTALL_DIR/"
+        RSYNC_EXCLUDES=(
+            '--exclude=.git/'
+            '--exclude=.cursor/'
+            '--exclude=.vscode/'
+            '--exclude=data/'
+            '--exclude=venv/'
+            '--exclude=.env'
+            '--exclude=*.db'
+            '--exclude=*.db-shm'
+            '--exclude=*.db-wal'
+            '--exclude=__pycache__/'
+            '--exclude=*.pyc'
+            '--exclude=config.local.php'
+        )
+        rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SRC_DIR/" "$INSTALL_DIR/"
     else
         # Explicit subdirectory copy — avoids scp/cp flattening issues.
         # Keep in sync with repo layout (api/ holds every PHP endpoint, including devices.php).
         # docs/ includes operator reference (e.g. TRUSTED_DATA_MODEL.md, CREDENTIALED_CHECKS_*.md).
-        for subdir in api daemon public sql docs; do
+        # scripts/ ships maintenance CLIs + production selftests (see scripts/deploy_file_manifest.php).
+        for subdir in api daemon public sql docs scripts; do
             if [[ -d "$SRC_DIR/$subdir" ]]; then
                 mkdir -p "$INSTALL_DIR/$subdir"
                 cp -r "$SRC_DIR/$subdir/." "$INSTALL_DIR/$subdir/"
             fi
         done
-        # Copy root-level files
+        # Copy root-level files (VERSION, *.service, etc.)
         find "$SRC_DIR" -maxdepth 1 -type f -exec cp {} "$INSTALL_DIR/" \;
     fi
     ok "Files copied to $INSTALL_DIR"
 else
     ok "Already running from $INSTALL_DIR"
+fi
+
+if command -v php >/dev/null 2>&1 && [[ -f "$INSTALL_DIR/scripts/check_deploy_coverage.php" ]]; then
+    php "$INSTALL_DIR/scripts/check_deploy_coverage.php" "$INSTALL_DIR" || die "Deploy/manifest coverage check failed — fix scripts/deploy_file_manifest.php or repo layout"
 fi
 
 # Create data dir (outside webroot)
@@ -838,14 +856,15 @@ check_file "$INSTALL_DIR/daemon/cred_check_ssh_os_release.py" "cred_check_ssh_os
 check_file "$INSTALL_DIR/daemon/cred_check_ssh_packages.py" "cred_check_ssh_packages.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_snmp_identity.py" "cred_check_snmp_identity.py exists"
 check_file "$INSTALL_DIR/daemon/cred_secret_decrypt.py" "cred_secret_decrypt.py exists"
-check_file "$INSTALL_DIR/daemon/cred_check_slice7_selftest.py" "cred_check_slice7_selftest.py exists"
-check_file "$INSTALL_DIR/daemon/cred_check_slice8_pkg_selftest.py" "cred_check_slice8_pkg_selftest.py exists"
-check_file "$INSTALL_DIR/daemon/cred_check_slice9_snmp_selftest.py" "cred_check_slice9_snmp_selftest.py exists"
-check_file "$INSTALL_DIR/daemon/st_software_obs_slice1_selftest.py" "st_software_obs_slice1_selftest.py exists"
-check_file "$INSTALL_DIR/scripts/st_software_inventory_slice2_selftest.php" "scripts/st_software_inventory_slice2_selftest.php exists"
-check_file "$INSTALL_DIR/scripts/st_software_inventory_slice3_selftest.php" "scripts/st_software_inventory_slice3_selftest.php exists"
-check_file "$INSTALL_DIR/scripts/st_software_inventory_slice4_selftest.php" "scripts/st_software_inventory_slice4_selftest.php exists"
-check_file "$INSTALL_DIR/scripts/st_recon_slice10_selftest.php" "scripts/st_recon_slice10_selftest.php exists"
+check_file "$INSTALL_DIR/daemon/cred_check_os_release_selftest.py" "cred_check_os_release_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_package_inventory_selftest.py" "cred_check_package_inventory_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_snmp_identity_selftest.py" "cred_check_snmp_identity_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/st_software_observation_selftest.py" "st_software_observation_selftest.py exists"
+check_dir "$INSTALL_DIR/scripts" "scripts/ directory exists"
+while IFS= read -r _st_manifest_script; do
+    [[ -z "$_st_manifest_script" ]] && continue
+    check_file "$INSTALL_DIR/scripts/$_st_manifest_script" "scripts/$_st_manifest_script exists"
+done < <(php "$INSTALL_DIR/scripts/deploy_manifest_export.php" scripts_php)
 check_file "$INSTALL_DIR/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php exists"
 check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
 
@@ -878,24 +897,30 @@ else
 fi
 
 if command -v php >/dev/null 2>&1; then
-    for _st_php in lib_reconciliation.php lib_worker_jobs.php lib_credentialed_checks.php lib_secrets.php lib_credential_profiles.php lib_credential_check_ops.php lib_credential_profile_transport_test.php credentialed_checks.php credential_profiles.php credential_check_jobs.php credential_check_runs.php recon_diagnostics.php; do
+    while IFS= read -r _st_php; do
+        [[ -z "$_st_php" ]] && continue
         php -l "$INSTALL_DIR/api/$_st_php" >/dev/null 2>&1 && check_ok "php -l api/$_st_php" || check_fail "php -l api/$_st_php"
-    done
+    done < <(php "$INSTALL_DIR/scripts/deploy_manifest_export.php" api_files)
     php -l "$INSTALL_DIR/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 && check_ok "php -l daemon/cred_decrypt_cli.php" || check_fail "php -l daemon/cred_decrypt_cli.php"
-    for _st_scr in st_software_inventory_slice2_selftest.php st_software_inventory_slice3_selftest.php st_software_inventory_slice4_selftest.php st_recon_slice10_selftest.php; do
+    while IFS= read -r _st_scr; do
+        [[ -z "$_st_scr" ]] && continue
         php -l "$INSTALL_DIR/scripts/$_st_scr" >/dev/null 2>&1 && check_ok "php -l scripts/$_st_scr" || check_fail "php -l scripts/$_st_scr"
-    done
+    done < <(php "$INSTALL_DIR/scripts/deploy_manifest_export.php" scripts_php)
 else
-    check_warn "php not in PATH — skipped php -l (reconciliation / worker_jobs API)"
+    check_warn "php not in PATH — skipped php -l (API / scripts manifest)"
 fi
 if command -v python3 >/dev/null 2>&1; then
-    for _st_py in recon_observations.py worker_jobs.py collector_ingest_mirror.py cred_transport_cli.py cred_transport_ssh.py cred_transport_snmp.py credential_check_worker.py cred_check_run.py cred_check_ssh_os_release.py cred_check_ssh_packages.py cred_check_snmp_identity.py cred_secret_decrypt.py cred_check_slice7_selftest.py cred_check_slice8_pkg_selftest.py cred_check_slice9_snmp_selftest.py st_software_obs_slice1_selftest.py; do
-        python3 -m py_compile "$INSTALL_DIR/daemon/$_st_py" >/dev/null 2>&1 && \
-            check_ok "python3 -m py_compile daemon/$_st_py" || \
-            check_fail "python3 -m py_compile daemon/$_st_py"
+    for _manifest_py_key in daemon_core_py daemon_optional_py daemon_other_files; do
+        while IFS= read -r _st_py; do
+            [[ -z "$_st_py" ]] && continue
+            [[ "$_st_py" == *.py ]] || continue
+            python3 -m py_compile "$INSTALL_DIR/daemon/$_st_py" >/dev/null 2>&1 && \
+                check_ok "python3 -m py_compile daemon/$_st_py" || \
+                check_fail "python3 -m py_compile daemon/$_st_py"
+        done < <(php "$INSTALL_DIR/scripts/deploy_manifest_export.php" "$_manifest_py_key")
     done
 else
-    check_warn "python3 not in PATH — skipped py_compile recon_observations.py / worker_jobs.py"
+    check_warn "python3 not in PATH — skipped py_compile daemon/*.py"
 fi
 
 if [[ "$CHECK_FAIL" -gt 0 ]]; then

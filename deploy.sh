@@ -1,9 +1,11 @@
 #!/bin/bash
 # SurveyTrace deploy script
 # Copies source from the repo to /opt/surveytrace and restarts the right services.
+# Requires `php` on PATH — shipped paths load from scripts/deploy_file_manifest.php (+ deploy_manifest_export.php).
 # After setup.sh, the same script is used everywhere: it detects master vs collector
 # and either syncs the full app or runs collector/deploy.sh.
 # Run from the repo:  bash deploy.sh
+# Optional: bash deploy.sh --cleanup-stale [--apply ...] — manifest-driven removal of obsolete paths under /opt/surveytrace (dry-run by default; pass flags through to scripts/cleanup_deployed_stale_files.php).
 # Non-interactive / automation: SURVEYTRACE_DEPLOY=master|collector forces the mode
 # when the host could be ambiguous (rare). SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1
 # ignores .install_role vs chosen mode mismatches (emergency only).
@@ -106,6 +108,20 @@ if [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" != 1 ]]; then
   fi
 fi
 
+if [[ "${1:-}" == "--cleanup-stale" ]]; then
+  if [[ "$MODE" != "master" ]]; then
+    die_deploy "--cleanup-stale is only supported on master installs (detected mode: ${MODE:-unknown})"
+  fi
+  shift
+  command -v php >/dev/null 2>&1 || die_deploy "php required for --cleanup-stale"
+  php "$SRC/scripts/cleanup_deployed_stale_files.php" \
+    --install-root="$DEST" \
+    --manifest-path="$SRC/scripts/deploy_file_manifest.php" \
+    --repo-src="$SRC" \
+    "$@"
+  exit $?
+fi
+
 if [[ "$MODE" == "collector" ]]; then
   echo "Detected collector install — syncing collector files..."
   exec bash "$SRC/collector/deploy.sh"
@@ -113,78 +129,18 @@ fi
 
 echo "Deploying SurveyTrace (master) from $SRC to $DEST..."
 
+if command -v php >/dev/null 2>&1; then
+  php "$SRC/scripts/check_deploy_coverage.php" "$SRC" || die_deploy "Deploy coverage check failed — fix scripts/deploy_file_manifest.php or add missing repo files"
+else
+  echo "  [WARN] php not in PATH — skipped scripts/check_deploy_coverage.php"
+fi
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
-# When adding api/*.php endpoints or libraries, append here (deploy does not
-# mirror the whole api/ tree — explicit list avoids shipping dev-only files).
-API_FILES=(
-  st_version.php
-  db.php
-  lib_ai_cloud.php
-  ai_actions.php
-  assets.php
-  change_alerts.php
-  findings.php
-  findings_export.php
-  scan_start.php
-  scan_status.php
-  scan_abort.php
-  scan_delete.php
-  auth.php
-  auth_oidc.php
-  auth_qr.php
-  schedules.php
-  schedule_cron.php
-  enrichment.php
-  dashboard.php
-  feeds.php
-  feed_sync_lib.php
-  lib_collectors.php
-  lib_credentialed_checks.php
-  lib_secrets.php
-  lib_credential_profiles.php
-  lib_credential_check_ops.php
-  lib_credential_profile_transport_test.php
-  collector_checkin.php
-  credential_profiles.php
-  credential_check_jobs.php
-  credential_check_runs.php
-  collector_jobs.php
-  collector_submit.php
-  collectors.php
-  credentialed_checks.php
-  scan_history.php
-  scan_priority.php
-  logout.php
-  settings.php
-  health.php
-  export.php
-  devices.php
-  lib_reporting_event_model.php
-  lib_integrations_outbound.php
-  lib_integrations.php
-  lib_rate_limit.php
-  lib_reconciliation.php
-  lib_worker_jobs.php
-  integrations.php
-  integrations_metrics.php
-  integrations_events.php
-  integrations_report_summary.php
-  integrations_dashboard.php
-  lib_integrations_dashboard.php
-  lib_reporting.php
-  lib_scan_scopes.php
-  lib_zabbix.php
-  zabbix.php
-  zabbix_sync_worker.php
-  zabbix_output_worker.php
-  scan_scopes.php
-  scopes.php
-  reporting.php
-  reporting_cli.php
-  recon_diagnostics.php
-)
+# Explicit api/*.php list lives in scripts/deploy_file_manifest.php (single source).
+mapfile -t API_FILES < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" api_files)
+[[ "${#API_FILES[@]}" -gt 0 ]] || die_deploy "Manifest api_files empty — fix scripts/deploy_file_manifest.php"
 for f in "${API_FILES[@]}"; do
   sudo cp "$SRC/api/$f" "$DEST/api/"
 done
@@ -216,132 +172,92 @@ fi
 # ---------------------------------------------------------------------------
 # Public (web UI)
 # ---------------------------------------------------------------------------
-sudo mkdir -p "$DEST/public/css"
-sudo cp "$SRC/public/css/app.css" "$DEST/public/css/"
-sudo cp "$SRC/public/index.php" "$DEST/public/"
+mapfile -t PUBLIC_REL < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" public_files)
+for rel in "${PUBLIC_REL[@]}"; do
+  sudo mkdir -p "$DEST/$(dirname "$rel")"
+  sudo cp "$SRC/$rel" "$DEST/$rel"
+done
 echo "  Web UI deployed"
 
 # ---------------------------------------------------------------------------
 # Daemon
 # ---------------------------------------------------------------------------
-DAEMON_CORE=(
-  sqlite_pragmas.py
-  surveytrace_paths.py
-  surveytrace_version.py
-  scanner_daemon.py
-  recon_observations.py
-  worker_jobs.py
-  change_detection.py
-  asset_lifecycle.py
-  finding_triage.py
-  scheduler_daemon.py
-  ai_cloud_client.py
-  fingerprint.py
-  profiles.py
-  cred_transport_cli.py
-  cred_transport_ssh.py
-  cred_transport_snmp.py
-)
+mapfile -t DAEMON_CORE < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_core_py)
+[[ "${#DAEMON_CORE[@]}" -gt 0 ]] || die_deploy "Manifest daemon_core_py empty"
 for f in "${DAEMON_CORE[@]}"; do
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 
-SOURCE_FILES=(
-  __init__.py
-  unifi.py
-  snmp.py
-  dhcp.py
-  dns_logs.py
-  firewall_logs.py
-  stubs.py
-)
+sudo mkdir -p "$DEST/daemon/sources"
+mapfile -t SOURCE_FILES < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_sources_py)
 for f in "${SOURCE_FILES[@]}"; do
   sudo cp "$SRC/daemon/sources/$f" "$DEST/daemon/sources/" 2>/dev/null || true
 done
 
-sudo cp "$SRC/daemon/feed_sync_worker.php" "$DEST/daemon/"
-sudo cp "$SRC/daemon/feed_sync_cancel.py" "$DEST/daemon/"
-sudo cp "$SRC/daemon/backup_db.sh" "$DEST/daemon/"
-sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
+mapfile -t DAEMON_OTHER < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_other_files)
+for f in "${DAEMON_OTHER[@]}"; do
+  if [[ ! -f "$SRC/daemon/$f" ]]; then
+    echo "  [FAIL] missing daemon/$f (required by manifest)"
+    exit 1
+  fi
+  sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
+done
 
-[ -f "$SRC/daemon/sync_nvd.py" ] && sudo cp "$SRC/daemon/sync_nvd.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/sync_oui.py" ] && sudo cp "$SRC/daemon/sync_oui.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/sync_cve_intel.py" ] && sudo cp "$SRC/daemon/sync_cve_intel.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/collector_ingest_worker.py" ] && sudo cp "$SRC/daemon/collector_ingest_worker.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/collector_ingest_mirror.py" ] && sudo cp "$SRC/daemon/collector_ingest_mirror.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/credential_check_worker.py" ] && sudo cp "$SRC/daemon/credential_check_worker.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_run.py" ] && sudo cp "$SRC/daemon/cred_check_run.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_ssh_os_release.py" ] && sudo cp "$SRC/daemon/cred_check_ssh_os_release.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_ssh_packages.py" ] && sudo cp "$SRC/daemon/cred_check_ssh_packages.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_snmp_identity.py" ] && sudo cp "$SRC/daemon/cred_check_snmp_identity.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_secret_decrypt.py" ] && sudo cp "$SRC/daemon/cred_secret_decrypt.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_slice7_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice7_selftest.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_slice8_pkg_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice8_pkg_selftest.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_check_slice9_snmp_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice9_snmp_selftest.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/st_software_obs_slice1_selftest.py" ] && sudo cp "$SRC/daemon/st_software_obs_slice1_selftest.py" "$DEST/daemon/"
-[ -f "$SRC/daemon/cred_decrypt_cli.php" ] && sudo cp "$SRC/daemon/cred_decrypt_cli.php" "$DEST/daemon/"
+mapfile -t DAEMON_OPTIONAL_PY < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_optional_py)
+for f in "${DAEMON_OPTIONAL_PY[@]}"; do
+  [ -f "$SRC/daemon/$f" ] && sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
+done
 
 sudo mkdir -p "$DEST/scripts"
-for _st_recon_scr in st_software_inventory_slice2_selftest.php st_software_inventory_slice3_selftest.php st_software_inventory_slice4_selftest.php st_recon_slice10_selftest.php; do
-  [ -f "$SRC/scripts/$_st_recon_scr" ] && sudo cp "$SRC/scripts/$_st_recon_scr" "$DEST/scripts/"
+mapfile -t SCRIPTS_PHP < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" scripts_php)
+[[ "${#SCRIPTS_PHP[@]}" -gt 0 ]] || die_deploy "Manifest scripts_php empty"
+for f in "${SCRIPTS_PHP[@]}"; do
+  if [[ ! -f "$SRC/scripts/$f" ]]; then
+    echo "  [FAIL] missing scripts/$f (manifest lists it — fix checkout or manifest)"
+    exit 1
+  fi
+  sudo cp "$SRC/scripts/$f" "$DEST/scripts/"
 done
 
 echo "  Daemon files deployed"
 
 # ---------------------------------------------------------------------------
-# Syntax validation (trusted-data / scan observation helpers)
+# Syntax validation (API + daemon + scripts shipped above)
 # ---------------------------------------------------------------------------
 if command -v php >/dev/null 2>&1; then
-  if st_sudo php -l "$DEST/api/lib_reconciliation.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/recon_diagnostics.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_worker_jobs.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_credentialed_checks.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/credentialed_checks.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_secrets.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_credential_profiles.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_credential_check_ops.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/credential_profiles.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/credential_check_jobs.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/credential_check_runs.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/lib_credential_profile_transport_test.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice2_selftest.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice3_selftest.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice4_selftest.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/scripts/st_recon_slice10_selftest.php" >/dev/null 2>&1; then
-    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php, lib_worker_jobs.php, lib_credentialed_checks.php, credentialed_checks.php, lib_secrets.php, lib_credential_profiles.php, lib_credential_check_ops.php, lib_credential_profile_transport_test.php, credential_profiles.php, credential_check_jobs.php, credential_check_runs.php, scripts/st_*_selftest.php)"
+  _php_fail=0
+  for f in "${API_FILES[@]}"; do
+    st_sudo php -l "$DEST/api/$f" >/dev/null 2>&1 || _php_fail=1
+  done
+  st_sudo php -l "$DEST/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 || _php_fail=1
+  for f in "${SCRIPTS_PHP[@]}"; do
+    st_sudo php -l "$DEST/scripts/$f" >/dev/null 2>&1 || _php_fail=1
+  done
+  if [[ "$_php_fail" -eq 0 ]]; then
+    echo "  PHP syntax OK (api/*.php manifest, daemon/cred_decrypt_cli.php, scripts/*.php manifest)"
   else
-    echo "  [FAIL] php -l reconciliation / worker_jobs / cred checks API — fix syntax before relying on deploy"
+    echo "  [FAIL] php -l — fix syntax before relying on deploy"
     exit 1
   fi
 else
-  echo "  [WARN] php not in PATH — skipped php -l for reconciliation / worker_jobs API files"
+  echo "  [WARN] php not in PATH — skipped php -l for deployed PHP trees"
 fi
 if command -v python3 >/dev/null 2>&1; then
-  if st_sudo python3 -m py_compile "$DEST/daemon/recon_observations.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/worker_jobs.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/collector_ingest_mirror.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_cli.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_ssh.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_snmp.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/credential_check_worker.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_run.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_ssh_os_release.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_ssh_packages.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_snmp_identity.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_secret_decrypt.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice7_selftest.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice8_pkg_selftest.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice9_snmp_selftest.py" >/dev/null 2>&1 \
-    && st_sudo python3 -m py_compile "$DEST/daemon/st_software_obs_slice1_selftest.py" >/dev/null 2>&1; then
-    echo "  Python syntax OK (recon_observations.py, worker_jobs.py, collector_ingest_mirror.py, cred_transport_*.py, credential_check_worker.py, cred_check_*.py)"
+  _py_fail=0
+  for f in "${DAEMON_CORE[@]}" "${DAEMON_OPTIONAL_PY[@]}" "${DAEMON_OTHER[@]}"; do
+    [[ "$f" == *.py ]] || continue
+    if st_sudo test -f "$DEST/daemon/$f"; then
+      st_sudo python3 -m py_compile "$DEST/daemon/$f" >/dev/null 2>&1 || _py_fail=1
+    fi
+  done
+  if [[ "$_py_fail" -eq 0 ]]; then
+    echo "  Python syntax OK (daemon/*.py shipped via manifest)"
   else
-    echo "  [FAIL] python3 -m py_compile recon_observations.py / worker_jobs.py / collector_ingest_mirror.py"
+    echo "  [FAIL] python3 -m py_compile on shipped daemon/*.py"
     exit 1
   fi
 else
-  echo "  [WARN] python3 not in PATH — skipped py_compile recon_observations.py / worker_jobs.py"
+  echo "  [WARN] python3 not in PATH — skipped py_compile for daemon/*.py"
 fi
 
 # ---------------------------------------------------------------------------
@@ -394,8 +310,13 @@ fi
 # ---------------------------------------------------------------------------
 # SQL schema (reference only — don't re-apply to existing DB)
 # ---------------------------------------------------------------------------
-sudo cp "$SRC/sql/schema.sql" "$DEST/sql/"
-echo "  Schema file updated"
+sudo mkdir -p "$DEST/sql"
+mapfile -t SQL_REL < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" sql_files)
+for rel in "${SQL_REL[@]}"; do
+  sudo mkdir -p "$DEST/$(dirname "$rel")"
+  sudo cp "$SRC/$rel" "$DEST/$rel"
+done
+echo "  SQL reference files updated"
 
 # ---------------------------------------------------------------------------
 # Master: collector ingest worker (systemd unit)
@@ -609,10 +530,15 @@ check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
 check_file "$DEST/daemon/collector_ingest_mirror.py" "collector_ingest_mirror.py (worker mirror)"
-check_file "$DEST/daemon/credential_check_worker.py" "credential_check_worker.py (cred checks placeholder)"
+check_file "$DEST/daemon/credential_check_worker.py" "credential_check_worker.py (credentialed check worker)"
 check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py"
 check_file "$DEST/daemon/recon_observations.py" "recon_observations.py (scan → observations)"
 check_file "$DEST/daemon/worker_jobs.py" "worker_jobs.py (worker execution substrate helpers)"
+check_file "$DEST/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php"
+check_dir "$DEST/scripts" "scripts dir (maintenance + selftests)"
+for _st_scr in "${SCRIPTS_PHP[@]}"; do
+  check_file "$DEST/scripts/$_st_scr" "scripts/$_st_scr"
+done
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "$DEST/docs/TRUSTED_DATA_MODEL.md" "docs/TRUSTED_DATA_MODEL.md"
 check_file "$DEST/docs/CREDENTIALED_CHECKS_ENGINE.md" "docs/CREDENTIALED_CHECKS_ENGINE.md"

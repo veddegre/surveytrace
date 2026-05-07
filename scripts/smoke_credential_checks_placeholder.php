@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Smoke: Credentialed Checks slice 6 — placeholder run (no production DB).
+ * Smoke: Credentialed Checks placeholder-mode run (no production DB).
  *
  * Usage:
  *   php scripts/smoke_credential_checks_placeholder.php /path/to/temp.db

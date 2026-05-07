@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Credentialed Checks slice 6 — placeholder E2E smoke (isolated SQLite).
+# Credentialed Checks — placeholder-mode E2E smoke (isolated SQLite).
 #
 # Creates a temporary database from sql/schema.sql, runs the PHP fixture driver
 # (seed + st_cc_run_launch + credential_check_worker.py --once + assertions),

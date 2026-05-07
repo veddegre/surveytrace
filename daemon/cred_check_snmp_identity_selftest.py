@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-No-network self-test: SNMPv3 device identity validation + parse helpers (slice 9).
+No-network self-test: SNMPv3 device identity validation + parse helpers.
 
 Run from repo root:
-  python3 daemon/cred_check_slice9_snmp_selftest.py
+  python3 daemon/cred_check_snmp_identity_selftest.py
 """
 
 from __future__ import annotations
@@ -116,7 +116,7 @@ def main() -> None:
     if ni.get("name") != "my.host":
         _fail("normalized name prefers sysName")
 
-    print("OK cred_check_slice9_snmp_selftest")
+    print("OK cred_check_snmp_identity_selftest")
 
 
 if __name__ == "__main__":

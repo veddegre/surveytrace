@@ -11,18 +11,20 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Step | Verify |
 |------|--------|
 | Fresh **master** install | `sudo bash setup.sh` (or `SURVEYTRACE_SETUP=master`) completes; post-install validation passes. |
-| **deploy.sh** on existing master | Completes; post-deploy checks **PASS**; no missing `api/*.php` from explicit list. |
-| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_obs_slice1_selftest.py`, `scripts/st_software_inventory_slice2_selftest.php`, `scripts/st_software_inventory_slice3_selftest.php`, `scripts/st_software_inventory_slice4_selftest.php`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
+| **deploy.sh** on existing master | Completes; post-deploy checks **PASS**; **`check_deploy_coverage.php`** ran clean from the repo before copy; shipped trees match **`scripts/deploy_file_manifest.php`**. |
+| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_observation_selftest.py`, maintenance CLIs + selftests under **`/opt/surveytrace/scripts/`** (see manifest), `scripts/st_software_inventory_summary_selftest.php`, `scripts/st_software_inventory_evidence_selftest.php`, `scripts/st_software_inventory_diagnostics_selftest.php`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
+| Manifest drift guard | From a checkout: `php scripts/check_deploy_coverage.php` exits **0** after edits that add `api/*.php`, `daemon/*.py`, or `scripts/*.php`. |
+| Stale deploy tree (optional) | After upgrades that rename/remove shipped files: `sudo bash deploy.sh --cleanup-stale` (dry-run); review output, backup, then `sudo bash deploy.sh --cleanup-stale --apply`. Not a substitute for DB/history pruning (`prune_operational_history.php`). |
 | Permissions | `api/`: `surveytrace:www-data`, dirs `2750`, files `640`; `data/`: `2770` / `660` on DB; `daemon/`: `surveytrace:surveytrace`. |
 | PHP syntax | `php -l` on changed API files (or run deploy output which includes reconciliation API checks). |
-| Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). Include **`daemon/st_software_obs_slice1_selftest.py`** when present (`setup.sh` / `deploy.sh` **`py_compile`** loops). |
+| Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). Include **`daemon/st_software_observation_selftest.py`** when present (`setup.sh` / `deploy.sh` **`py_compile`** loops). |
 | systemd | `surveytrace-daemon`, `surveytrace-scheduler`, `surveytrace-collector-ingest` **active** (master). |
 | systemd sandbox / SQLite | Installed units for master daemons that open the DB include **`ReadWritePaths`** for the SurveyTrace **`data`** directory (see `setup.sh` / `deploy.sh` post-checks); avoids `ProtectSystem=strict` blocking SQLite opens. |
 | Collector node | `collector/setup.sh` / `collector/deploy.sh` per [wiki setup-collector](wiki/setup-collector.md). |
 
 **Shell:** `bash -n setup.sh` and `bash -n deploy.sh` after any script edits.
 
-| Credentialed checks — slice 6 placeholder (optional) | From a **clone** of the repo (not on production): `./scripts/smoke_credential_checks_placeholder.sh` — isolated temp SQLite + `st_cc_run_launch` + one worker `--once` pass. Requires `sqlite3`, `php`, `python3`. **Not** shipped by `deploy.sh` (fixture only; see script header). |
+| Credentialed checks — placeholder smoke (optional) | From a **clone** of the repo (not on production): `./scripts/smoke_credential_checks_placeholder.sh` — isolated temp SQLite + `st_cc_run_launch` + one worker `--once` pass. Requires `sqlite3`, `php`, `python3`. **Not** shipped by `deploy.sh` (fixture only; see script header). |
 
 ---
 
@@ -182,12 +184,12 @@ Document for operators **what is not in this release**:
 
 ### Software inventory reconciliation foundations (1.0.4)
 
-- [ ] `python3 daemon/st_software_obs_slice1_selftest.py` passes
-- [ ] `php scripts/st_software_inventory_slice2_selftest.php` passes
-- [ ] `php scripts/st_software_inventory_slice3_selftest.php` passes
-- [ ] `php scripts/st_software_inventory_slice4_selftest.php` passes
-- [ ] `python3 daemon/cred_check_slice7_selftest.py`, `cred_check_slice8_pkg_selftest.py`, `cred_check_slice9_snmp_selftest.py` pass
-- [ ] `php scripts/st_recon_slice10_selftest.php` passes
+- [ ] `python3 daemon/st_software_observation_selftest.py` passes
+- [ ] `php scripts/st_software_inventory_summary_selftest.php` passes
+- [ ] `php scripts/st_software_inventory_evidence_selftest.php` passes
+- [ ] `php scripts/st_software_inventory_diagnostics_selftest.php` passes
+- [ ] `python3 daemon/cred_check_os_release_selftest.py`, `cred_check_package_inventory_selftest.py`, `cred_check_snmp_identity_selftest.py` pass
+- [ ] `php scripts/st_recon_trusted_data_selftest.php` passes
 - [ ] `bash scripts/smoke_credential_checks_placeholder.sh` passes (optional / CI clone)
 - [ ] `bash -n setup.sh` and `bash -n deploy.sh` pass
 - [ ] Manual: Host modal **Software evidence** block + **System Health** trusted-data line when non-zero software diagnostics

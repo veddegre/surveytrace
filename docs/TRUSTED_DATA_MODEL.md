@@ -132,11 +132,11 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 - `api/lib_reconciliation.php` — reconciliation, health snapshot, evidence detail, trim helper
 - `api/assets.php` — lazy OS + identity reconcile; `recon_detail` + `identity_recon_detail` on single-asset GET; operator hostname `PUT` writes identity observations
 - `daemon/recon_observations.py` — scan-side identity observation writes; cred-check **`os_version_observed`**, **`package_inventory_observed`**, **`software_observed`** (bounded package identities), SNMP **`hostname_observed`** / **`fqdn_observed`**, **`device_identity_observed`** upserts + `credentialed_check` source seed
-- `scripts/st_recon_slice10_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
-- `daemon/st_software_obs_slice1_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
-- `scripts/st_software_inventory_slice2_selftest.php` — resolver rules for **`software_inventory_summary`** (fresh/partial/stale, CVE disclaimer text)
-- `scripts/st_software_inventory_slice3_selftest.php` — single-asset software field contract + bounded `recon_detail` shape (no full package list)
-- `scripts/st_software_inventory_slice4_selftest.php` — stale bands + health `trusted_data` leak guards
+- `scripts/st_recon_trusted_data_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
+- `daemon/st_software_observation_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
+- `scripts/st_software_inventory_summary_selftest.php` — resolver rules for **`software_inventory_summary`** (fresh/partial/stale, CVE disclaimer text)
+- `scripts/st_software_inventory_evidence_selftest.php` — single-asset software field contract + bounded `recon_detail` shape (no full package list)
+- `scripts/st_software_inventory_diagnostics_selftest.php` — stale bands + health `trusted_data` leak guards
 - `daemon/credential_check_worker.py` / `daemon/cred_check_run.py` — slice 7–9 observation writes (no assertion SQL)
 - `api/health.php` — `trusted_data`
 - `api/recon_diagnostics.php` — admin asset diagnostics and optional trim

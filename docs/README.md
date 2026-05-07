@@ -47,7 +47,7 @@ Covers observations, assertions, assertion sources, and reconciliation runs (OS/
 ### Credentialed checks (design — not shipped product yet)
 
 - [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md) — execution model, transports, credential safety, plugin framework.
-- [Credentialed Checks — MVP implementation plan](CREDENTIALED_CHECKS_MVP_PLAN.md) — staged slices before coding.
+- [Credentialed Checks — MVP implementation plan](CREDENTIALED_CHECKS_MVP_PLAN.md) — staged milestones before coding (planning doc; internal numbering is historical).
 
 These documents support planning only until the engine is implemented.
 
@@ -59,7 +59,7 @@ These documents support planning only until the engine is implemented.
 ### Release process
 
 - [Release readiness checklist](RELEASE_READINESS_CHECKLIST.md) — pre-tag verification for installs, workflows, trusted data, reporting, auth, and UI smoke.
-- [Operational lifecycle and maintenance](OPERATIONAL_LIFECYCLE_MAINTENANCE.md) — manual maintenance slices, backup/restore expectations, and admin runbooks.
+- [Operational lifecycle and maintenance](OPERATIONAL_LIFECYCLE_MAINTENANCE.md) — manual maintenance workflows, backup/restore expectations, and admin runbooks.
 
 ### Device identity
 

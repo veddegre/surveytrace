@@ -1,8 +1,8 @@
 <?php
 /**
- * Slice 3 — bounded software evidence contract (no DB): API shape, stale/partial markers, payload bounds.
+ * Bounded software evidence contract (no DB): API shape, stale/partial markers, payload bounds.
  *
- *   php scripts/st_software_inventory_slice3_selftest.php
+ *   php scripts/st_software_inventory_evidence_selftest.php
  */
 
 declare(strict_types=1);
@@ -30,9 +30,9 @@ function mk_ev(array $overrides): array
     ], $overrides);
 }
 
-$keys = st_recon_slice3_expected_asset_top_level_software_keys();
+$keys = st_recon_software_inventory_expected_top_level_keys();
 if ($keys !== array_values(array_unique($keys))) {
-    st_sw3_fail('duplicate keys in st_recon_slice3_expected_asset_top_level_software_keys');
+    st_sw3_fail('duplicate keys in st_recon_software_inventory_expected_top_level_keys');
 }
 $wantKeys = [
     'software_inventory_summary',
@@ -120,26 +120,26 @@ $okDetail = [
         ],
     ],
 ];
-$viol = st_recon_slice3_assert_bounded_software_payload($okDetail);
+$viol = st_recon_software_inventory_assert_bounded_payload($okDetail);
 if ($viol !== []) {
     st_sw3_fail('bounded preview shape should pass: ' . implode('; ', $viol));
 }
 
 $badDetail = array_merge($okDetail, ['packages' => []]);
-if (st_recon_slice3_assert_bounded_software_payload($badDetail) === []) {
+if (st_recon_software_inventory_assert_bounded_payload($badDetail) === []) {
     st_sw3_fail('must reject recon_detail.packages');
 }
 
 $badSw = $okDetail;
 $badSw['software_observed']['packages'] = [];
-if (st_recon_slice3_assert_bounded_software_payload($badSw) === []) {
+if (st_recon_software_inventory_assert_bounded_payload($badSw) === []) {
     st_sw3_fail('must reject software_observed.packages');
 }
 
 $tooMany = $okDetail;
 $tooMany['software_observed']['preview'][] = ['label' => 'd', 'normalized_value' => 'd'];
-if (st_recon_slice3_assert_bounded_software_payload($tooMany) === []) {
+if (st_recon_software_inventory_assert_bounded_payload($tooMany) === []) {
     st_sw3_fail('must reject >3 preview rows');
 }
 
-echo "OK st_software_inventory_slice3_selftest\n";
+echo "OK st_software_inventory_evidence_selftest\n";

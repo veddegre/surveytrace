@@ -1,9 +1,9 @@
 """
-SurveyTrace — credentialed check worker (slice 9: SSH os_release + package_inventory + SNMPv3 device identity).
+SurveyTrace — credentialed check worker (SSH os_release + package_inventory + SNMPv3 device identity).
 
 Leases worker_jobs with job_type credentialed_check, executes ssh.linux.os_release@1.0.0 over SSH when
 the job selects that plugin (bounded SFTP/exec read of /etc/os-release only). Other plugins stay
-skipped/not_implemented. Optional SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1 forces slice-6-style skips
+skipped/not_implemented. Optional SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1 forces placeholder-mode skips
 (smoke tests). Writes credential_check_results, small stdout artifacts, and os_version_observations.
 """
 

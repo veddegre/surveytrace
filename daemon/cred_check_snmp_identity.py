@@ -1,5 +1,5 @@
 """
-SNMPv3 device identity for snmpv3.device_identity@1.0.0 (slice 9).
+SNMPv3 device identity for snmpv3.device_identity@1.0.0.
 
 Fixed GET allowlist only — sysDescr.0, sysObjectID.0, sysName.0.
 No walk, no SET, no operator OIDs.

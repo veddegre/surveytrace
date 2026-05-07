@@ -202,18 +202,18 @@ First-class API-backed enrichment for systems such as:
   - **`software_inventory_summary`** assertion (**one** summary assertion per asset — not per package)
   - confidence rules for fresh vs partial/truncated/bounded vs stale inventory signals
   - host modal **Software inventory** evidence block and optional **System Health** counts for software summaries
-  - validation: `daemon/st_software_obs_slice1_selftest.py`, `scripts/st_software_inventory_slice2_selftest.php`
+  - validation: `daemon/st_software_observation_selftest.py`, `scripts/st_software_inventory_summary_selftest.php`
 - **Software Inventory Reconciliation Foundations — Slice 3 (complete):**
   - host modal polish: explicit **source**, **stale/partial** wording, **View software evidence** disclosure (bounded preview only — **no** full package list in default API/UI)
   - **`trusted_data`** diagnostics: stale summaries, partial summaries, **`software_observed`** without summary assertion (quiet when counts are zero)
   - admin **`recon_diagnostics`** read-only **`software_inventory`** block (no new execution paths)
-  - validation: `scripts/st_software_inventory_slice3_selftest.php` (plus slice 1–2 tests above)
+  - validation: `scripts/st_software_inventory_evidence_selftest.php` (plus slice 1–2 tests above)
 - **Software Inventory Reconciliation Foundations — Slice 4 (complete):**
   - resolver **explainability**: explicit **`medium`**/**`low`** rationale tied to freshness, partial/truncated/bounded inventory, stale bands (**≤180d vs >180d reporting**), and **`software_inventory_observation_gap`** when summaries rely on **`package_inventory_observed`** without **`software_observed`** corroboration (evidence-only — **no** CVE authority)
   - single-asset JSON: **`software_inventory_stale_band`**, **`software_inventory_has_bounded_observations`**, **`software_inventory_observation_gap`**
   - **`trusted_data`** readiness counts (stale age splits, repeat partial package inventories, reconciliation drift hints, summaries lacking bounded rows) — **scalar diagnostics only**
   - fusion posture documented for future **scanner / API / SBOM / agent** inventory — **no new ingestion paths** in slice 4
-  - validation: `scripts/st_software_inventory_slice4_selftest.php` (plus slices 1–3 tests above)
+  - validation: `scripts/st_software_inventory_diagnostics_selftest.php` (plus slices 1–3 tests above)
 - **Future (not started here):** stronger software identity normalization, cross-source weighting, retention/scaling policy review, eventual CVE/advisory correlation, eventual finding generation **after** reconciliation foundations mature (see [docs/TRUSTED_DATA_MODEL.md](docs/TRUSTED_DATA_MODEL.md), [docs/CREDENTIALED_CHECKS_ENGINE.md](docs/CREDENTIALED_CHECKS_ENGINE.md))
 - **MVP slice 1 (schema):** additive SQLite tables `credential_profiles`, `credential_check_plugins`, `credential_check_jobs`, `credential_check_runs`, `credential_check_run_targets`, `credential_check_results`, `credential_check_artifacts` plus migration marker `migration_credentialed_checks_v1` ([docs/CREDENTIALED_CHECKS_MVP_PLAN.md](docs/CREDENTIALED_CHECKS_MVP_PLAN.md))
 - **MVP slice 2 (plugin registry):** built-in manifest definitions, `st_cred_seed_builtin_plugins` on `st_db()` bootstrap, `api/lib_credentialed_checks.php`, admin-only read-only `api/credentialed_checks.php` — **no execution**

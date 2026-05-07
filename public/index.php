@@ -873,7 +873,7 @@ if (!headers_sent()) {
       <div class="st-scan-kicker">Behavior</div>
       <div class="st-scan-band-main">
         <h2 class="st-scan-block-title" id="st-scan-behavior-title">Scan steps &amp; enrichment</h2>
-        <p class="hint-micro text-dim st-scan-band-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Turn phases on or off for this run. Enrichment uses sources from the Enrichment tab; override inclusions here without changing saved defaults.</p>
+        <p class="hint-micro text-dim st-scan-band-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">Turn scan steps on or off for this run. Enrichment uses sources from the Enrichment tab; override inclusions here without changing saved defaults.</p>
       </div>
     </header>
     <div class="st-scan-split">
@@ -7330,7 +7330,7 @@ function stAssetsFillScopeFilter(d) {
     stAssetsUpdateScopeDisclosureButtonLabel();
 }
 
-/** Trusted assertion display threshold (medium+); matches api/lib_reconciliation.php slice 5. */
+/** Trusted assertion display threshold (medium+); matches api/lib_reconciliation.php trusted operational preference. */
 function stTrustedMeetsOperationalUiPref(conf) {
     const c = String(conf || '').toLowerCase();
     return c === 'medium' || c === 'high' || c === 'authoritative';
@@ -7695,7 +7695,7 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         : '';
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Recent reconciliation attempts (this host)</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Slice</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Run key</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
         : '';
     return `${astHead}${asrcBlock}${swBlock}${obsBlock}${runBlock}`;
 }
@@ -7752,7 +7752,7 @@ function stHostReconciliationEvidenceHtml(assetData) {
     </section>`;
 }
 
-/** Slice 2–3 — reconciled software_inventory_summary (no CVE signal). Bounded preview via recon_detail.software_observed only. */
+/** Reconciled software_inventory_summary (no CVE signal). Bounded preview via recon_detail.software_observed only. */
 function stHostSoftwareInventoryHtml(assetData) {
     if (!assetData) return '';
     const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
@@ -7919,7 +7919,7 @@ function stHostIdentityEvidenceDetailHtml(ird) {
     }).join('');
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Reconciliation attempts (identity)</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Slice</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Run key</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
         : '';
     return `${astHead}${asrcBlock}${obsBlock}${runBlock}`;
 }
