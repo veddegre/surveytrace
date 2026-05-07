@@ -798,8 +798,20 @@ body.light-mode .finp:focus{box-shadow:0 0 0 2px rgba(0,111,255,.18)}
 .finp.wide{flex:1;min-width:160px}
 .finp.narrow{width:120px}
 
-/* Scan control layout */
-.scgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* Settings two-column layout (sole use of .scgrid): allow columns to shrink so wide tables scroll inside cards */
+.scgrid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:12px;
+  min-width:0;
+}
+.scgrid > *{
+  min-width:0;
+  max-width:100%;
+}
+@media (max-width:1100px){
+  .scgrid{grid-template-columns:1fr}
+}
 
 /* Scan control tab — guided launch bands (#t-scan); st-scan-* scoped */
 #t-scan.on{
@@ -2549,11 +2561,20 @@ body.light-mode #t-alerts.on .st-alerts-tbl tbody tr.st-alerts-row--needs-review
   display:flex;
   flex-direction:column;
   gap:12px;
+  min-width:0;
 }
-#t-settings.on > .st-band{margin-bottom:0}
+#t-settings.on > .st-band{
+  margin-bottom:0;
+  min-width:0;
+  max-width:100%;
+}
+.st-settings-band-main{
+  min-width:0;
+  max-width:100%;
+}
 .st-settings-band-head{
   display:grid;
-  grid-template-columns:minmax(88px,120px) 1fr;
+  grid-template-columns:minmax(88px,120px) minmax(0,1fr);
   gap:12px 20px;
   align-items:start;
 }
@@ -2591,6 +2612,30 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
 }
 .st-settings-section-lede{max-width:min(100%,52rem);line-height:1.45}
 .st-settings-grid{margin-top:4px}
+#t-settings.on .table-wrap{
+  min-width:0;
+  max-width:100%;
+}
+#t-settings.on .st-cc-runs-filters{
+  min-width:0;
+  max-width:100%;
+}
+#t-settings.on .st-cc-runs-filters > label{
+  min-width:0;
+}
+.st-cc-runs-filter-plugin{
+  flex:1 1 12rem;
+  min-width:0;
+}
+#t-settings.on .st-settings-card .help-line,
+#t-settings.on .st-settings-card .hint-micro{
+  overflow-wrap:anywhere;
+}
+#t-settings.on .sync-status,
+#t-settings.on .help-mono{
+  max-width:100%;
+  overflow-x:auto;
+}
 .st-settings-col-title{
   font-family:var(--sf);
   font-size:11px;
@@ -2600,7 +2645,12 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
   color:var(--text-muted);
   margin:2px 0 8px;
 }
-#t-settings.on .st-settings-card{margin-bottom:12px}
+#t-settings.on .st-settings-card{
+  margin-bottom:12px;
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
 #t-settings.on .st-settings-card:last-child{margin-bottom:0}
 #t-settings.on .st-settings-card--security{
   border-left:3px solid color-mix(in srgb,var(--amber) 55%,var(--border));

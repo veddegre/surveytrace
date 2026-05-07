@@ -2452,8 +2452,8 @@ if (!headers_sent()) {
               <option value="0">All profiles</option>
             </select>
           </label>
-          <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px;flex:1;min-width:180px">Plugin contains
-            <input class="finp" id="st-cc-runs-filter-plugin" type="text" placeholder="e.g. package_inventory" style="flex:1;min-width:140px" onchange="stCcLoadJobsAndRuns()">
+          <label class="text-micro text-dim st-cc-runs-filter-plugin" style="display:flex;align-items:center;gap:6px">Plugin contains
+            <input class="finp" id="st-cc-runs-filter-plugin" type="text" placeholder="e.g. package_inventory" style="flex:1;min-width:0" onchange="stCcLoadJobsAndRuns()">
           </label>
           <button type="button" class="tbtn btn-xs" onclick="stCcRunsClearFilters()">Clear filters</button>
         </div>
