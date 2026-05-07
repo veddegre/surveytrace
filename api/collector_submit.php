@@ -137,6 +137,21 @@ try {
 }
 
 try {
+    require_once __DIR__ . '/lib_worker_jobs.php';
+    st_worker_mirror_collector_after_submit(
+        $db,
+        $collectorId,
+        $jobId,
+        $submissionId,
+        $chunkIndex,
+        $chunkCount,
+        $submissionComplete
+    );
+} catch (Throwable $e) {
+    @error_log('collector_submit worker mirror: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string)$e->getMessage()));
+}
+
+try {
     $db->prepare("INSERT INTO scan_log (job_id, level, message) VALUES (?, 'INFO', ?)")->execute([
         $jobId,
         sprintf(

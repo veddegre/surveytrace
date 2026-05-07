@@ -39,6 +39,11 @@ import finding_triage  # type: ignore
 import scanner_daemon  # type: ignore
 from sqlite_pragmas import apply_surveytrace_pragmas
 
+try:
+    import collector_ingest_mirror as coll_mirror
+except ImportError:
+    coll_mirror = None  # type: ignore[misc, assignment]
+
 _INGEST_ROW_COMMIT_INTERVAL = 100
 _EXEC_AI_FOLLOWUP_MAX_ATTEMPTS = 12
 _EXEC_AI_POLL_SEC = 2
@@ -700,7 +705,9 @@ def _apply_master_enrichment(conn: sqlite3.Connection, job_id: int) -> tuple[int
     return ai_attempts, ai_applied, len(cve_rows), ai_reason_counts
 
 
-def process_one(qrow: dict) -> None:
+def process_one(qrow: dict, mirror_out: dict | None = None) -> None:
+    if mirror_out is None:
+        mirror_out = {}
     qid = int(qrow["id"])
     job_id = int(qrow["job_id"])
     collector_id = int(qrow["collector_id"])
@@ -733,6 +740,11 @@ def process_one(qrow: dict) -> None:
     # writer transaction across very large payloads (same spirit as scanner bulk commits).
     asset_map: dict[str, int] = {}
     with db_conn() as conn:
+        if coll_mirror is not None:
+            try:
+                coll_mirror.ingest_chunk_begin(conn, qrow, mirror_out)
+            except Exception:
+                log.debug("collector ingest mirror begin skipped", exc_info=True)
         _a_idx = 0
         for a in payload.get("assets", []) or []:
             if isinstance(a, dict):
@@ -914,6 +926,18 @@ def process_one(qrow: dict) -> None:
                     f"Collector ingest applied chunk {chunk_index + 1}/{chunk_count}; waiting for all chunks ({pc}/{cc}).",
                 ),
             )
+            if coll_mirror is not None:
+                try:
+                    coll_mirror.on_chunk_applied_partial(
+                        conn,
+                        mirror_out.get("wj_id"),
+                        mirror_out.get("attempt_id"),
+                        qrow,
+                        pc,
+                        int(row["chunk_count"]) if row else chunk_count,
+                    )
+                except Exception:
+                    log.debug("collector ingest mirror partial skipped", exc_info=True)
             conn.commit()
             return
 
@@ -965,6 +989,14 @@ def process_one(qrow: dict) -> None:
                 (job_id, warn),
             )
             log.warning("[job %d] %s", job_id, warn)
+        if coll_mirror is not None:
+            try:
+                if cur.rowcount:
+                    coll_mirror.on_scan_job_transitioned(
+                        conn, mirror_out.get("wj_id"), mirror_out.get("attempt_id"), job_status
+                    )
+            except Exception:
+                log.debug("collector ingest mirror scan transition skipped", exc_info=True)
         conn.execute(
             "UPDATE collector_submissions SET status='applied', updated_at=datetime('now') WHERE collector_id=? AND job_id=? AND submission_id=?",
             (collector_id, job_id, submission_id),
@@ -1020,6 +1052,20 @@ def process_one(qrow: dict) -> None:
             ),
         )
         _enqueue_executive_ai_followup(conn, job_id)
+        if coll_mirror is not None:
+            try:
+                coll_mirror.on_pipeline_success(
+                    conn,
+                    mirror_out.get("wj_id"),
+                    mirror_out.get("attempt_id"),
+                    qrow,
+                    job_status,
+                    int(cve_count),
+                    int(ai_attempts),
+                    int(ai_applied),
+                )
+            except Exception:
+                log.debug("collector ingest mirror pipeline success skipped", exc_info=True)
         conn.commit()
 
 
@@ -1062,8 +1108,9 @@ def main() -> None:
                         row_dict = dict(row)
                 if row_dict is None:
                     break
+                mirror_ctx: dict = {}
                 try:
-                    process_one(row_dict)
+                    process_one(row_dict, mirror_ctx)
                 except Exception as exc:
                     attempts_before = int(row_dict.get("attempts") or 0)
                     attempts_after = attempts_before + 1
@@ -1121,6 +1168,36 @@ def main() -> None:
                                     ),
                                 ),
                             )
+                        if coll_mirror is not None:
+                            try:
+                                if mirror_ctx.get("wj_id"):
+                                    if attempts_after >= _INGEST_CHUNK_MAX_ATTEMPTS:
+                                        coll_mirror.on_terminal_failure(
+                                            conn,
+                                            mirror_ctx.get("wj_id"),
+                                            mirror_ctx.get("attempt_id"),
+                                            str(exc)[:400],
+                                        )
+                                    else:
+                                        coll_mirror.on_retry_scheduled(
+                                            conn,
+                                            mirror_ctx.get("wj_id"),
+                                            mirror_ctx.get("attempt_id"),
+                                            row_dict,
+                                            attempts_after,
+                                            delay,
+                                            str(exc)[:400],
+                                        )
+                                else:
+                                    coll_mirror.on_pre_stage_failure(
+                                        conn,
+                                        row_dict,
+                                        str(exc)[:400],
+                                        attempts_after,
+                                        attempts_after >= _INGEST_CHUNK_MAX_ATTEMPTS,
+                                    )
+                            except Exception:
+                                log.debug("collector ingest mirror failure path skipped", exc_info=True)
                         conn.commit()
                     log.warning("queue item %s failed: %s", int(row_dict["id"]), exc)
         except Exception as outer:

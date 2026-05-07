@@ -326,6 +326,7 @@ PYTHON_PKGS=(
     "python-nmap>=0.7"
     "requests>=2.28"
     "pysnmp>=4.4"
+    "paramiko>=3.0"
 )
 
 for pkg in "${PYTHON_PKGS[@]}"; do
@@ -335,7 +336,7 @@ done
 ok "Python packages installed"
 
 # Verify critical imports
-"$VENV_DIR/bin/python3" -c "import nmap; import scapy; import requests; import pysnmp" 2>/dev/null && \
+"$VENV_DIR/bin/python3" -c "import nmap; import scapy; import requests; import pysnmp; import paramiko" 2>/dev/null && \
     ok "Python imports verified" || \
     warn "One or more Python imports failed — check $VENV_DIR/bin/pip list"
 
@@ -464,6 +465,7 @@ install_service() {
 install_service "surveytrace-daemon"
 install_service "surveytrace-scheduler"
 install_service "surveytrace-collector-ingest"
+install_service "surveytrace-credential-check-worker"
 
 # =============================================================================
 # STEP 8 — Web server config
@@ -779,8 +781,34 @@ check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/public/index.php" "www-data re
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/health.php" "www-data readable: api/health.php"
 
 check_file "$INSTALL_DIR/api/lib_reconciliation.php" "api/lib_reconciliation.php exists"
+check_file "$INSTALL_DIR/api/lib_worker_jobs.php" "api/lib_worker_jobs.php exists"
+check_file "$INSTALL_DIR/api/lib_credentialed_checks.php" "api/lib_credentialed_checks.php exists"
+check_file "$INSTALL_DIR/api/credentialed_checks.php" "api/credentialed_checks.php exists"
+check_file "$INSTALL_DIR/api/lib_secrets.php" "api/lib_secrets.php exists"
+check_file "$INSTALL_DIR/api/lib_credential_profiles.php" "api/lib_credential_profiles.php exists"
+check_file "$INSTALL_DIR/api/lib_credential_check_ops.php" "api/lib_credential_check_ops.php exists"
+check_file "$INSTALL_DIR/api/credential_profiles.php" "api/credential_profiles.php exists"
+check_file "$INSTALL_DIR/api/credential_check_jobs.php" "api/credential_check_jobs.php exists"
+check_file "$INSTALL_DIR/api/credential_check_runs.php" "api/credential_check_runs.php exists"
+check_file "$INSTALL_DIR/api/lib_credential_profile_transport_test.php" "api/lib_credential_profile_transport_test.php exists"
+check_file "$INSTALL_DIR/daemon/cred_transport_cli.py" "daemon/cred_transport_cli.py exists"
+check_file "$INSTALL_DIR/daemon/cred_transport_ssh.py" "daemon/cred_transport_ssh.py exists"
+check_file "$INSTALL_DIR/daemon/cred_transport_snmp.py" "daemon/cred_transport_snmp.py exists"
 check_file "$INSTALL_DIR/api/recon_diagnostics.php" "api/recon_diagnostics.php exists"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_reconciliation.php" "www-data readable: lib_reconciliation.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_worker_jobs.php" "www-data readable: lib_worker_jobs.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_credentialed_checks.php" "www-data readable: lib_credentialed_checks.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/credentialed_checks.php" "www-data readable: credentialed_checks.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_secrets.php" "www-data readable: lib_secrets.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_credential_profiles.php" "www-data readable: lib_credential_profiles.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_credential_check_ops.php" "www-data readable: lib_credential_check_ops.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/credential_profiles.php" "www-data readable: credential_profiles.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/credential_check_jobs.php" "www-data readable: credential_check_jobs.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/credential_check_runs.php" "www-data readable: credential_check_runs.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_credential_profile_transport_test.php" "www-data readable: lib_credential_profile_transport_test.php"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/daemon/cred_transport_cli.py" "www-data readable: cred_transport_cli.py"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/daemon/cred_transport_ssh.py" "www-data readable: cred_transport_ssh.py"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/daemon/cred_transport_snmp.py" "www-data readable: cred_transport_snmp.py"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/recon_diagnostics.php" "www-data readable: recon_diagnostics.php"
 
 check_file "$INSTALL_DIR/api/zabbix_sync_worker.php" "api/zabbix_sync_worker.php exists"
@@ -792,8 +820,20 @@ check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/zabbix_output_worker.php" 
 
 check_file "$INSTALL_DIR/daemon/scanner_daemon.py" "scanner_daemon.py exists"
 check_file "$INSTALL_DIR/daemon/recon_observations.py" "recon_observations.py exists"
+check_file "$INSTALL_DIR/daemon/worker_jobs.py" "worker_jobs.py exists"
 check_file "$INSTALL_DIR/daemon/scheduler_daemon.py" "scheduler_daemon.py exists"
 check_file "$INSTALL_DIR/daemon/collector_ingest_worker.py" "collector_ingest_worker.py exists"
+check_file "$INSTALL_DIR/daemon/collector_ingest_mirror.py" "collector_ingest_mirror.py exists"
+check_file "$INSTALL_DIR/daemon/credential_check_worker.py" "credential_check_worker.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_run.py" "cred_check_run.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_ssh_os_release.py" "cred_check_ssh_os_release.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_ssh_packages.py" "cred_check_ssh_packages.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_snmp_identity.py" "cred_check_snmp_identity.py exists"
+check_file "$INSTALL_DIR/daemon/cred_secret_decrypt.py" "cred_secret_decrypt.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_slice7_selftest.py" "cred_check_slice7_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_slice8_pkg_selftest.py" "cred_check_slice8_pkg_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/cred_check_slice9_snmp_selftest.py" "cred_check_slice9_snmp_selftest.py exists"
+check_file "$INSTALL_DIR/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php exists"
 check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
 
 check_file "$DB_FILE" "surveytrace.db exists"
@@ -808,9 +848,11 @@ fi
 check_systemd_unit_present "surveytrace-daemon.service"
 check_systemd_unit_present "surveytrace-scheduler.service"
 check_systemd_unit_present "surveytrace-collector-ingest.service"
+check_systemd_unit_present "surveytrace-credential-check-worker.service"
 check_systemd_unit_enabled "surveytrace-daemon.service"
 check_systemd_unit_enabled "surveytrace-scheduler.service"
 check_systemd_unit_enabled "surveytrace-collector-ingest.service"
+check_systemd_unit_enabled "surveytrace-credential-check-worker.service"
 
 if command -v zabbix_sender >/dev/null 2>&1; then
     check_ok "zabbix_sender available"
@@ -819,18 +861,21 @@ else
 fi
 
 if command -v php >/dev/null 2>&1; then
-    for _st_php in lib_reconciliation.php recon_diagnostics.php; do
+    for _st_php in lib_reconciliation.php lib_worker_jobs.php lib_credentialed_checks.php lib_secrets.php lib_credential_profiles.php lib_credential_check_ops.php lib_credential_profile_transport_test.php credentialed_checks.php credential_profiles.php credential_check_jobs.php credential_check_runs.php recon_diagnostics.php; do
         php -l "$INSTALL_DIR/api/$_st_php" >/dev/null 2>&1 && check_ok "php -l api/$_st_php" || check_fail "php -l api/$_st_php"
     done
+    php -l "$INSTALL_DIR/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 && check_ok "php -l daemon/cred_decrypt_cli.php" || check_fail "php -l daemon/cred_decrypt_cli.php"
 else
-    check_warn "php not in PATH — skipped php -l (reconciliation API)"
+    check_warn "php not in PATH — skipped php -l (reconciliation / worker_jobs API)"
 fi
 if command -v python3 >/dev/null 2>&1; then
-    python3 -m py_compile "$INSTALL_DIR/daemon/recon_observations.py" >/dev/null 2>&1 && \
-        check_ok "python3 -m py_compile daemon/recon_observations.py" || \
-        check_fail "python3 -m py_compile daemon/recon_observations.py"
+    for _st_py in recon_observations.py worker_jobs.py collector_ingest_mirror.py cred_transport_cli.py cred_transport_ssh.py cred_transport_snmp.py credential_check_worker.py cred_check_run.py cred_check_ssh_os_release.py cred_check_ssh_packages.py cred_check_snmp_identity.py cred_secret_decrypt.py cred_check_slice7_selftest.py cred_check_slice8_pkg_selftest.py cred_check_slice9_snmp_selftest.py; do
+        python3 -m py_compile "$INSTALL_DIR/daemon/$_st_py" >/dev/null 2>&1 && \
+            check_ok "python3 -m py_compile daemon/$_st_py" || \
+            check_fail "python3 -m py_compile daemon/$_st_py"
+    done
 else
-    check_warn "python3 not in PATH — skipped py_compile recon_observations.py"
+    check_warn "python3 not in PATH — skipped py_compile recon_observations.py / worker_jobs.py"
 fi
 
 if [[ "$CHECK_FAIL" -gt 0 ]]; then
@@ -850,6 +895,7 @@ echo -e "${GRN}║${NC}  Daemon log:  $DATA_DIR/daemon.log              "
 echo -e "${GRN}║${NC}  Daemon svc:  systemctl status surveytrace-daemon    "
 echo -e "${GRN}║${NC}  Scheduler:   systemctl status surveytrace-scheduler  "
 echo -e "${GRN}║${NC}  Col.ingest:  systemctl status surveytrace-collector-ingest  "
+echo -e "${GRN}║${NC}  Cred checks: systemctl status surveytrace-credential-check-worker  "
 echo -e "${GRN}║${NC}  Firewall:    ufw status numbered                     "
 echo -e "${GRN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""

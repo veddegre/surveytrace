@@ -15,6 +15,29 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Removed
 
+## [1.0.1] - 2026-05-06
+
+Stabilization and maintenance release: polish, trusted-data foundations, collector ingest clarity, deployment parity, and documentation. **No new credentialed-check execution product** — design docs only.
+
+### Added
+
+- **Trusted data (documentation)** — [docs/TRUSTED_DATA_MODEL.md](docs/TRUSTED_DATA_MODEL.md): observations, assertions, operational display, diagnostics.
+- **Credentialed checks (design only)** — [docs/CREDENTIALED_CHECKS_ENGINE.md](docs/CREDENTIALED_CHECKS_ENGINE.md), [docs/CREDENTIALED_CHECKS_MVP_PLAN.md](docs/CREDENTIALED_CHECKS_MVP_PLAN.md): execution model, MVP slices, deferred scope.
+- **Release process** — [docs/RELEASE_READINESS_CHECKLIST.md](docs/RELEASE_READINESS_CHECKLIST.md) for pre-tag verification.
+- **Runtime (trusted data)** — `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py` (scan-side observation writes); reconciliation-aware list/export/reporting paths as shipped in this line.
+
+### Changed
+
+- **UI / workspace** — Continued visual evolution, host details modal polish, scroll and layout refinements.
+- **Light mode** — Tonal refinement for readability on tables, cards, and modals.
+- **Collector ingest** — Hardened transitions and clearer **master UI** visibility when collector results are submitted, retried, or failed (operator diagnostics).
+- **Trusted operational display** — Prefer reconciled hostname/OS in low-risk read paths where confidence is sufficient; raw fields and evidence remain visible ([TRUSTED_DATA_MODEL.md](docs/TRUSTED_DATA_MODEL.md)).
+- **Wiki / operator docs** — Cross-links for trusted data, release readiness, and collector ingest troubleshooting.
+
+### Fixed
+
+- **Deploy / setup** — `deploy.sh` explicit `API_FILES` and daemon lists now include `lib_reconciliation.php`, `recon_diagnostics.php`, `recon_observations.py`; **`docs/`** tree copied on deploy; post-install and post-deploy checks and `php -l` / `py_compile` validation for those paths (`setup.sh`, `deploy.sh`).
+
 ## [1.0.0] - 2026-05-05
 
 ### Added

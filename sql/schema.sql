@@ -520,6 +520,222 @@ CREATE TABLE IF NOT EXISTS reconciliation_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_recon_runs_entity ON reconciliation_runs(entity_type, entity_id, slice_key, finished_at DESC);
 
+-- -------------------------------------------------------
+-- Worker execution substrate (MVP slice 1 — schema only; no runtime wiring yet)
+-- See docs/WORKER_EXECUTION_SUBSTRATE.md and docs/WORKER_EXECUTION_MVP_PLAN.md
+-- Logical refs: lease_node_id / node_id → worker_nodes.id (not enforced as FK)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS worker_nodes (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_key             TEXT NOT NULL,
+    hostname             TEXT,
+    role                 TEXT,
+    status               TEXT NOT NULL DEFAULT 'starting',
+        -- starting | healthy | stale | degraded | error | stopped
+    meta_json            TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(node_key)
+);
+CREATE INDEX IF NOT EXISTS idx_worker_nodes_status ON worker_nodes(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_worker_nodes_role ON worker_nodes(role, status);
+
+CREATE TABLE IF NOT EXISTS worker_jobs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_type             TEXT NOT NULL,
+    entity_type          TEXT,
+    entity_id            INTEGER,
+    status               TEXT NOT NULL DEFAULT 'queued',
+        -- queued | leased | running | retrying | completed | failed | cancelled | expired
+    priority             INTEGER NOT NULL DEFAULT 0,
+    lease_node_id        INTEGER,
+    lease_token          TEXT,
+    leased_at            DATETIME,
+    lease_expires_at     DATETIME,
+    attempts             INTEGER NOT NULL DEFAULT 0,
+    max_attempts         INTEGER NOT NULL DEFAULT 3,
+    next_attempt_at      DATETIME,
+    cancel_requested_at  DATETIME,
+    error_code           TEXT,
+    error_message        TEXT,
+    payload_json         TEXT,
+    result_summary_json  TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at          DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_worker_jobs_status_next ON worker_jobs(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_worker_jobs_type_status ON worker_jobs(job_type, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_worker_jobs_lease_exp ON worker_jobs(lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_worker_jobs_created ON worker_jobs(created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_jobs_collector_mirror_entity ON worker_jobs(job_type, entity_type, entity_id)
+    WHERE job_type = 'collector_ingest' AND entity_type = 'collector_submission';
+
+CREATE TABLE IF NOT EXISTS worker_job_attempts (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id               INTEGER NOT NULL,
+    attempt_no           INTEGER NOT NULL,
+    node_id              INTEGER,
+    status               TEXT NOT NULL,
+    started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at          DATETIME,
+    error_code           TEXT,
+    error_message        TEXT,
+    metrics_json         TEXT,
+    UNIQUE(job_id, attempt_no)
+);
+CREATE INDEX IF NOT EXISTS idx_worker_job_attempts_job ON worker_job_attempts(job_id, attempt_no DESC);
+CREATE INDEX IF NOT EXISTS idx_worker_job_attempts_node ON worker_job_attempts(node_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS worker_job_events (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id               INTEGER NOT NULL,
+    attempt_id           INTEGER,
+    event_type           TEXT NOT NULL,
+    level                TEXT NOT NULL DEFAULT 'info',
+    message              TEXT,
+    details_json         TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_worker_job_events_job ON worker_job_events(job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_worker_job_events_type ON worker_job_events(event_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS worker_heartbeats (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id              INTEGER NOT NULL,
+    worker_key           TEXT,
+    worker_type          TEXT NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'healthy',
+    heartbeat_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+    details_json         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_node ON worker_heartbeats(node_id, heartbeat_at DESC);
+CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_type ON worker_heartbeats(worker_type, heartbeat_at DESC);
+
+-- -------------------------------------------------------
+-- Credentialed checks engine (MVP slice 1 — schema only; no execution yet)
+-- See docs/CREDENTIALED_CHECKS_ENGINE.md and docs/CREDENTIALED_CHECKS_MVP_PLAN.md
+-- Migration marker: migration_credentialed_checks_v1 (api/db.php)
+-- Logical refs to users.id / worker_jobs.id / assets.id — not enforced as FK
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS credential_profiles (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                 TEXT NOT NULL,
+    transport            TEXT NOT NULL,
+        -- ssh | winrm | snmpv3 (app-level)
+    principal_json       TEXT,
+    secret_ciphertext    TEXT,
+    scope_json           TEXT,
+    enabled              INTEGER NOT NULL DEFAULT 1,
+    created_by           INTEGER,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    last_test_at             DATETIME,
+    last_test_status         TEXT,
+        -- ok | failed (app-level)
+    last_test_error_code     TEXT,
+    last_test_duration_ms    INTEGER,
+    deleted_at               DATETIME
+        -- soft-archive; NULL = active
+);
+CREATE INDEX IF NOT EXISTS idx_credential_profiles_transport ON credential_profiles(transport, enabled);
+CREATE INDEX IF NOT EXISTS idx_credential_profiles_created ON credential_profiles(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_credential_profiles_deleted ON credential_profiles(deleted_at);
+
+CREATE TABLE IF NOT EXISTS credential_check_plugins (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    plugin_key           TEXT NOT NULL,
+    version              TEXT NOT NULL,
+    transport            TEXT NOT NULL,
+    manifest_json        TEXT NOT NULL,
+    state                TEXT NOT NULL DEFAULT 'stable',
+        -- disabled | stable | experimental
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(plugin_key, version)
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_plugins_key ON credential_check_plugins(plugin_key);
+CREATE INDEX IF NOT EXISTS idx_cred_check_plugins_transport_state ON credential_check_plugins(transport, state);
+
+CREATE TABLE IF NOT EXISTS credential_check_jobs (
+    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                       TEXT NOT NULL,
+    description                TEXT,
+    credential_profile_id      INTEGER NOT NULL,
+    target_mode                TEXT NOT NULL,
+        -- assets | scope | device
+    target_json                TEXT,
+    plugin_selection_json      TEXT,
+    policy_json                TEXT,
+    schedule_cron              TEXT,
+    enabled                    INTEGER NOT NULL DEFAULT 1,
+    created_by                 INTEGER,
+    created_at                 DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at                 DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_profile ON credential_check_jobs(credential_profile_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_enabled ON credential_check_jobs(enabled, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS credential_check_runs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id               INTEGER,
+    worker_job_id        INTEGER,
+    started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at          DATETIME,
+    status               TEXT NOT NULL DEFAULT 'queued',
+        -- queued | resolving_targets | ready | running | completed | failed | cancelled
+    initiated_by         TEXT,
+    summary_json         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_runs_job ON credential_check_runs(job_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cred_check_runs_status ON credential_check_runs(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cred_check_runs_worker_job ON credential_check_runs(worker_job_id);
+
+CREATE TABLE IF NOT EXISTS credential_check_run_targets (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id               INTEGER NOT NULL,
+    asset_id             INTEGER NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'pending',
+        -- pending | skipped | completed | failed (slice 6 placeholder uses skipped + error_code)
+    error_code           TEXT,
+    error_message_safe   TEXT,
+    started_at           DATETIME,
+    finished_at          DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_run_targets_run ON credential_check_run_targets(run_id, status);
+CREATE INDEX IF NOT EXISTS idx_cred_check_run_targets_asset_started ON credential_check_run_targets(asset_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS credential_check_results (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id               INTEGER NOT NULL,
+    target_id            INTEGER,
+    asset_id             INTEGER NOT NULL,
+    plugin_key           TEXT NOT NULL,
+    plugin_version       TEXT NOT NULL,
+    status               TEXT NOT NULL,
+        -- success | partial | failed
+    normalized_json      TEXT,
+    metrics_json         TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_results_run ON credential_check_results(run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cred_check_results_target ON credential_check_results(target_id);
+CREATE INDEX IF NOT EXISTS idx_cred_check_results_asset_plugin ON credential_check_results(asset_id, plugin_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS credential_check_artifacts (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    result_id            INTEGER NOT NULL,
+    kind                 TEXT NOT NULL,
+        -- stdout | stderr | snmp_capture | file_excerpt (app-level)
+    storage_path         TEXT,
+    "blob"               BLOB,
+    sha256               TEXT,
+    size_bytes           INTEGER,
+    redaction_version    INTEGER NOT NULL DEFAULT 1,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cred_check_artifacts_result ON credential_check_artifacts(result_id, created_at DESC);
+
 INSERT OR IGNORE INTO config VALUES
     ('nvd_last_sync',   ''),
     ('snmp_community',  'public'),

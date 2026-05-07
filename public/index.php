@@ -2386,6 +2386,54 @@ if (!headers_sent()) {
         </div>
         <button class="tbtn" type="button" onclick="saveSecurityControlsSettings()">Save security controls</button>
       </div>
+      <div id="st-cred-profiles-card-wrap">
+      <div class="st-settings-col-title">Credentialed checks — profiles</div>
+      <div class="card st-settings-card" id="st-cred-profiles-card">
+        <div class="ct">Credential profiles</div>
+        <p class="help-line mb10 text-dim">Bind a <strong>transport</strong> and <strong>scope intent</strong> for future credentialed checks. Principal JSON stays <strong>metadata only</strong> (no passwords in principal). Optional <strong>encrypted secrets</strong> use <code class="code-accent">SURVEYTRACE_CRED_SECRET_KEY</code> on the server; without it, metadata still works but you cannot store secrets. Stored secrets are <strong>not used</strong> for transport tests or check execution until a later MVP slice.</p>
+        <p class="hint-micro text-dim mb10" id="st-cred-profiles-encryption-line">Encryption status: —</p>
+        <div class="row-wrap gap6 mb10">
+          <button type="button" class="btnp" onclick="stCredProfileOpenModal(null)">Add profile</button>
+          <button type="button" class="tbtn" onclick="loadCredentialProfiles()">Refresh</button>
+          <span class="hint-micro text-dim" id="st-cred-profiles-status"></span>
+        </div>
+        <div class="table-wrap" style="overflow:auto;max-width:100%">
+          <table class="data-table" style="min-width:720px">
+            <thead><tr><th>Name</th><th>Transport</th><th>Principal</th><th>Scope</th><th>On</th><th>Secret</th><th>Last test</th><th></th></tr></thead>
+            <tbody id="st-cred-profiles-tbody"><tr><td colspan="8" class="text-dim">—</td></tr></tbody>
+          </table>
+        </div>
+        <div class="mt8">
+          <button type="button" class="tbtn" onclick="stCredProfileCardTestHint()" title="Handshake test runs from the profile editor modal">How to run handshake test</button>
+        </div>
+      </div>
+      </div>
+      <div id="st-cred-jobs-card-wrap">
+      <div class="st-settings-col-title">Credentialed checks — jobs &amp; runs</div>
+      <div class="card st-settings-card" id="st-cred-jobs-card">
+        <div class="ct">Check jobs (queue / worker)</div>
+        <p class="help-line mb10 text-dim">Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue a <code class="code-accent">worker_jobs</code> row (<code class="code-accent">job_type=credentialed_check</code>). The <code class="code-accent">credential_check_worker.py</code> daemon runs <strong>ssh.linux.os_release@1.0.0</strong> (bounded <code class="code-accent">/etc/os-release</code>) and <strong>ssh.linux.package_inventory@1.0.0</strong> (fixed <code class="code-accent">dpkg-query</code> / <code class="code-accent">rpm</code>) on <strong>SSH</strong> profiles, and <strong>snmpv3.device_identity@1.0.0</strong> (three fixed SNMP GETs only — no walk/SET) on <strong>SNMPv3</strong> profiles. Other plugins stay placeholders. Writes <code class="code-accent">credential_check_results</code>, bounded artifacts, <code class="code-accent">os_version_observed</code>, summarized <code class="code-accent">package_inventory_observed</code>, and SNMP-driven <code class="code-accent">hostname_observed</code> / <code class="code-accent">fqdn_observed</code> / <code class="code-accent">device_identity_observed</code> (no CVE matching, no findings, no direct assertion changes).</p>
+        <div class="row-wrap gap6 mb10">
+          <button type="button" class="btnp" onclick="stCcJobOpenModal(null)">New job</button>
+          <button type="button" class="tbtn" onclick="stCcLoadJobsAndRuns()">Refresh</button>
+          <span class="hint-micro text-dim" id="st-cc-jobs-status"></span>
+        </div>
+        <div class="flbl mb4">Jobs</div>
+        <div class="table-wrap mb10" style="overflow:auto;max-width:100%">
+          <table class="data-table" style="min-width:680px">
+            <thead><tr><th>Name</th><th>Profile</th><th>Mode</th><th>On</th><th></th></tr></thead>
+            <tbody id="st-cc-jobs-tbody"><tr><td colspan="5" class="text-dim">—</td></tr></tbody>
+          </table>
+        </div>
+        <div class="flbl mb4">Recent runs</div>
+        <div class="table-wrap" style="overflow:auto;max-width:100%">
+          <table class="data-table" style="min-width:760px">
+            <thead><tr><th>Run</th><th>Job</th><th>Status</th><th>Worker job</th><th>Started</th><th></th></tr></thead>
+            <tbody id="st-cc-runs-tbody"><tr><td colspan="6" class="text-dim">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
       <div class="st-settings-col-title">API keys, feeds &amp; external data</div>
       <div class="card st-settings-card st-settings-card--feeds">
         <div class="ct">NVD, CVE intelligence &amp; offline fingerprint feeds</div>
@@ -2705,6 +2753,131 @@ if (!headers_sent()) {
 </div><!-- .shell -->
 
 <div class="toast-wrap" id="toasts"></div>
+
+<div id="st-cred-profile-modal-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" aria-labelledby="st-cred-profile-modal-title" onclick="if(event.target===this)stCredProfileCloseModal()">
+  <div class="modal-card modal-w640" onclick="event.stopPropagation()">
+    <div class="modal-title" style="margin-bottom:0" id="st-cred-profile-modal-title">Credential profile</div>
+    <button type="button" class="modal-close-x" onclick="stCredProfileCloseModal()" title="Close" aria-label="Close">×</button>
+    <input type="hidden" id="st-cred-pf-id" value="">
+    <label class="flbl" for="st-cred-pf-name">Display name</label>
+    <input class="finp w100 mb10" id="st-cred-pf-name" maxlength="200" autocomplete="off">
+    <label class="flbl" for="st-cred-pf-transport">Transport</label>
+    <select class="finp w100 mb10" id="st-cred-pf-transport" onchange="stCredProfileSecretTransportChanged()">
+      <option value="ssh">ssh</option>
+      <option value="snmpv3">snmpv3</option>
+      <option value="winrm">winrm</option>
+    </select>
+    <label class="flbl" for="st-cred-pf-principal">Principal (JSON — no passwords or keys)</label>
+    <textarea class="finp w100 mb6" id="st-cred-pf-principal" rows="5" style="font-family:monospace;font-size:12px" placeholder="{&quot;username&quot;:&quot;ops-readonly&quot;}"></textarea>
+    <label class="flbl" for="st-cred-pf-scope">Scope (JSON)</label>
+    <textarea class="finp w100 mb10" id="st-cred-pf-scope" rows="4" style="font-family:monospace;font-size:12px" placeholder="{&quot;scope_ids&quot;:[],&quot;asset_ids&quot;:[],&quot;tags&quot;:[]}"></textarea>
+    <div class="mb10" id="st-cred-pf-secret-panel" style="border-top:1px solid var(--border-subtle, #2a3340);padding-top:10px">
+      <div class="flbl">Secret material (server-side encrypted)</div>
+      <p class="hint-micro text-dim mb6" id="st-cred-pf-secret-enc-hint"></p>
+      <p class="hint-micro mb6" id="st-cred-pf-secret-status"></p>
+      <div id="st-cred-pf-secret-fields-ssh" class="hide">
+        <p class="hint-micro text-dim mb4">Use <strong>either</strong> password <strong>or</strong> private key (not both). Values are never shown again after save.</p>
+        <label class="flbl" for="st-cred-pf-ssh-password">SSH password</label>
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-password" autocomplete="new-password" value="">
+        <label class="flbl" for="st-cred-pf-ssh-private-key">SSH private key (PEM)</label>
+        <textarea class="finp w100 mb6" id="st-cred-pf-ssh-private-key" rows="4" style="font-family:monospace;font-size:11px" autocomplete="off"></textarea>
+        <label class="flbl" for="st-cred-pf-ssh-passphrase">Key passphrase (optional)</label>
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-ssh-passphrase" autocomplete="new-password" value="">
+      </div>
+      <div id="st-cred-pf-secret-fields-snmp" class="hide">
+        <label class="flbl" for="st-cred-pf-snmpv3-auth">SNMPv3 auth password</label>
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-auth" autocomplete="new-password" value="">
+        <label class="flbl" for="st-cred-pf-snmpv3-priv">SNMPv3 privacy password</label>
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-snmpv3-priv" autocomplete="new-password" value="">
+      </div>
+      <div id="st-cred-pf-secret-fields-winrm" class="hide">
+        <label class="flbl" for="st-cred-pf-winrm-password">WinRM password</label>
+        <input class="finp w100 mb6" type="password" id="st-cred-pf-winrm-password" autocomplete="new-password" value="">
+      </div>
+      <div class="row-wrap gap6 mb6">
+        <button type="button" class="btnp" id="st-cred-pf-btn-secret-save" onclick="stCredProfileSubmitSecret()">Set / replace secret</button>
+        <button type="button" class="tbtn" id="st-cred-pf-btn-secret-clear" onclick="stCredProfileClearSecret()">Clear secret</button>
+      </div>
+    </div>
+    <div class="mb10 hide" id="st-cred-pf-transport-test-panel" style="border-top:1px solid var(--border-subtle, #2a3340);padding-top:10px">
+      <div class="flbl">Transport handshake test</div>
+      <p class="hint-micro text-dim mb6">Enter a <strong>target host or IP</strong> for this run only (not saved with the profile). SSH runs <code class="code-accent">true</code> then <code class="code-accent">uname -s</code>; SNMPv3 performs a single GET of <code class="code-accent">sysDescr.0</code>. Requires a stored secret and server-side crypto + Python helpers (<code class="code-accent">paramiko</code>, <code class="code-accent">pysnmp</code>).</p>
+      <label class="flbl" for="st-cred-pf-test-host">Target host / IP</label>
+      <input class="finp w100 mb6" id="st-cred-pf-test-host" autocomplete="off" placeholder="e.g. 10.0.0.12">
+      <label class="flbl" for="st-cred-pf-test-port">Port (0 = default: 22 SSH / 161 SNMP)</label>
+      <input class="finp w100 mb6" id="st-cred-pf-test-port" type="number" min="0" max="65535" value="0">
+      <div class="row-wrap gap6 mb6">
+        <button type="button" class="btnp" id="st-cred-pf-btn-transport-test" onclick="stCredProfileRunTransportTest()">Run handshake test</button>
+        <span class="hint-micro text-dim hide" id="st-cred-pf-test-progress">Running…</span>
+      </div>
+      <div class="hint-micro mb0 text-dim" id="st-cred-pf-test-result" style="min-height:1.25rem"></div>
+    </div>
+    <label class="switch-field mb10">
+      <span class="tog"><input type="checkbox" id="st-cred-pf-enabled" checked><div class="trk"></div><div class="tth"></div></span>
+      <span class="text-secondary">Profile enabled</span>
+    </label>
+    <div class="row-wrap gap6">
+      <button type="button" class="btnp" onclick="stCredProfileSave()">Save</button>
+      <button type="button" class="tbtn" onclick="stCredProfileCloseModal()">Cancel</button>
+    </div>
+    <p class="hint-micro text-dim mt8 mb0" id="st-cred-pf-modal-hint"></p>
+  </div>
+</div>
+
+<div id="st-cc-job-modal-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" onclick="if(event.target===this)stCcJobCloseModal()">
+  <div class="modal-card modal-w640" onclick="event.stopPropagation()">
+    <div class="modal-title">Credentialed check job</div>
+    <button type="button" class="modal-close-x" onclick="stCcJobCloseModal()" title="Close" aria-label="Close">×</button>
+    <input type="hidden" id="st-cc-job-id" value="">
+    <label class="flbl" for="st-cc-job-name">Name</label>
+    <input class="finp w100 mb8" id="st-cc-job-name" maxlength="200" autocomplete="off">
+    <label class="flbl" for="st-cc-job-desc">Description</label>
+    <textarea class="finp w100 mb8" id="st-cc-job-desc" rows="2" maxlength="8000"></textarea>
+    <label class="flbl" for="st-cc-job-profile">Credential profile</label>
+    <select class="finp w100 mb8" id="st-cc-job-profile" onchange="stCcJobOnProfileChange()"></select>
+    <label class="flbl" for="st-cc-job-target-mode">Target mode</label>
+    <select class="finp w100 mb8" id="st-cc-job-target-mode" onchange="stCcJobSyncTargetHints()">
+      <option value="assets">Explicit asset IDs</option>
+      <option value="scope">Scope(s) → assets with scope_id</option>
+    </select>
+    <p class="hint-micro text-dim mb4" id="st-cc-job-target-hint"></p>
+    <label class="flbl" for="st-cc-job-target-ids">Target IDs (comma-separated integers)</label>
+    <input class="finp w100 mb8" id="st-cc-job-target-ids" autocomplete="off" placeholder="e.g. 12, 34, 56">
+    <div class="flbl mb4">Plugins (must match profile transport)</div>
+    <div id="st-cc-job-plugins" class="mb8 text-dim hint-micro" style="max-height:140px;overflow:auto;border:1px solid var(--border-subtle,#2a3340);padding:8px;border-radius:6px">Select a profile first.</div>
+    <div class="row-wrap gap8 mb8">
+      <div style="flex:1">
+        <label class="flbl" for="st-cc-job-max-conc">Max concurrency</label>
+        <input class="finp w100" id="st-cc-job-max-conc" type="number" min="1" max="50" value="4">
+      </div>
+      <div style="flex:1">
+        <label class="flbl" for="st-cc-job-timeout">Timeout (ms)</label>
+        <input class="finp w100" id="st-cc-job-timeout" type="number" min="5000" max="3600000" value="600000">
+      </div>
+    </div>
+    <label class="switch-field mb10">
+      <span class="tog"><input type="checkbox" id="st-cc-job-enabled" checked><div class="trk"></div><div class="tth"></div></span>
+      <span class="text-secondary">Job enabled</span>
+    </label>
+    <div class="row-wrap gap6">
+      <button type="button" class="btnp" onclick="stCcJobSave()">Save</button>
+      <button type="button" class="tbtn" onclick="stCcJobCloseModal()">Cancel</button>
+    </div>
+    <p class="hint-micro text-dim mt8 mb0" id="st-cc-job-modal-hint"></p>
+  </div>
+</div>
+
+<div id="st-cc-run-modal-bg" class="modal-bg z100" style="display:none" role="dialog" aria-modal="true" onclick="if(event.target===this)stCcRunCloseModal()">
+  <div class="modal-card modal-w720" onclick="event.stopPropagation()">
+    <div class="modal-title">Credentialed check run</div>
+    <button type="button" class="modal-close-x" onclick="stCcRunCloseModal()" title="Close" aria-label="Close">×</button>
+    <pre id="st-cc-run-detail" class="hint-micro text-dim" style="white-space:pre-wrap;max-height:420px;overflow:auto;font-size:11px;margin:0"></pre>
+    <div class="row-wrap gap6 mt10">
+      <button type="button" class="tbtn" id="st-cc-run-btn-cancel" onclick="stCcRunCancelCurrent()">Cancel run</button>
+      <button type="button" class="tbtn" onclick="stCcRunCloseModal()">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Session login modal -->
 <div id="login-bg" class="modal-bg z260">
@@ -3436,6 +3609,8 @@ function applyRoleAwareUi() {
     setHidden('nsettings', !isAdmin);
     setHidden('naccess', !isAdmin);
     setHidden('st-security-controls-card', !isAdmin);
+    setHidden('st-cred-profiles-card-wrap', !isAdmin);
+    setHidden('st-cred-jobs-card-wrap', !isAdmin);
 
     const barNewScan = document.getElementById('bar-btn-new-scan');
     if (barNewScan) barNewScan.style.display = canScanManage ? '' : 'none';
@@ -4063,6 +4238,10 @@ function goTab(name) {
     if (name === 'settings') {
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
+        if (stRoleIsAdmin()) {
+            void loadCredentialProfiles();
+            void stCcLoadJobsAndRuns();
+        }
         loadDashboard();
         void (async () => {
             await hydrateFeedSyncFromServer();
@@ -5047,7 +5226,11 @@ function renderHealthHtml(h, zbxResp) {
         }
     }
     if (td && tdReady) {
+        const tdCred = parseInt(String(td.credentialed_observation_count || 0), 10) || 0;
         tdDetail += ` · identity obs ${esc(String(tdIdObs))} · hostname beliefs ${esc(String(tdIdAst))}`;
+        if (tdCred > 0) {
+            tdDetail += ` · cred obs ${esc(String(tdCred))}`;
+        }
     }
     integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
 
@@ -5069,6 +5252,94 @@ function renderHealthHtml(h, zbxResp) {
             warnings.push(s);
         }
     });
+
+    const ws = h.worker_substrate && typeof h.worker_substrate === 'object' ? h.worker_substrate : null;
+    const wsStatusRaw = ws ? String(ws.status || 'unavailable').toLowerCase() : 'unavailable';
+    const wsTablesReady = !!(ws && ws.tables_ready);
+    const wq = ws ? (parseInt(String(ws.queued_jobs || 0), 10) || 0) : 0;
+    const wleased = ws ? (parseInt(String(ws.leased_jobs || 0), 10) || 0) : 0;
+    const wrun = ws ? (parseInt(String(ws.running_jobs || 0), 10) || 0) : 0;
+    const wretry = ws ? (parseInt(String(ws.retrying_jobs || 0), 10) || 0) : 0;
+    const wfail = ws ? (parseInt(String(ws.failed_jobs || 0), 10) || 0) : 0;
+    const wcancel = ws ? (parseInt(String(ws.cancelled_jobs || 0), 10) || 0) : 0;
+    const wnodes = ws ? (parseInt(String(ws.node_count || 0), 10) || 0) : 0;
+    const whb = ws ? (parseInt(String(ws.heartbeat_count || 0), 10) || 0) : 0;
+    const wstale = ws ? (parseInt(String(ws.stale_heartbeat_count || 0), 10) || 0) : 0;
+    const wfail24 = ws ? (parseInt(String(ws.recent_failed_jobs_24h || 0), 10) || 0) : 0;
+    const werrEv24 = ws ? (parseInt(String(ws.recent_error_events_24h || 0), 10) || 0) : 0;
+    const wsum = ws && ws.summary ? String(ws.summary) : 'Worker substrate was not included in this health response.';
+    const wsActivity = wq + wleased + wrun + wretry + wfail + wcancel + wnodes + whb + wstale;
+    const wsIdleQuiet = wsTablesReady && wsStatusRaw === 'ok' && wsActivity === 0;
+    let wsStateCls = 'hstate-unk';
+    let wsStateLabel = 'Unavailable';
+    if (wsStatusRaw === 'ok') {
+        wsStateCls = 'hstate-ok';
+        wsStateLabel = 'OK';
+    } else if (wsStatusRaw === 'warn') {
+        wsStateCls = 'hstate-warn';
+        wsStateLabel = 'Warning';
+    } else if (wsStatusRaw === 'error') {
+        wsStateCls = 'hstate-err';
+        wsStateLabel = 'Error';
+    } else {
+        wsStateLabel = 'Unavailable';
+    }
+    const wsAttention = wsStatusRaw === 'warn' || wsStatusRaw === 'error';
+    const wsOldestQ = ws && ws.oldest_queued_age_sec != null ? (parseInt(String(ws.oldest_queued_age_sec), 10) || 0) : null;
+    const wsOldestR = ws && ws.oldest_running_age_sec != null ? (parseInt(String(ws.oldest_running_age_sec), 10) || 0) : null;
+    const wsLastErr = ws && ws.last_error_message ? String(ws.last_error_message) : '';
+
+    const workerRows = [];
+    if (ws && wsTablesReady && !wsIdleQuiet) {
+        workerRows.push(`<tr><td class="tbl-cell-primary">Status</td><td class="tbl-cell-muted"><span class="${esc(wsStateCls)}">${esc(wsStateLabel)}</span></td><td class="tbl-cell-muted">${esc(wsum)}</td></tr>`);
+        workerRows.push(`<tr><td class="tbl-cell-primary">Jobs</td><td class="tbl-cell-mono tbl-cell-muted">q ${esc(String(wq))} · leased ${esc(String(wleased))} · run ${esc(String(wrun))} · retry ${esc(String(wretry))} · fail ${esc(String(wfail))} · cancelled ${esc(String(wcancel))}</td><td class="tbl-cell-muted">failed (24h): ${esc(String(wfail24))}</td></tr>`);
+        workerRows.push(`<tr><td class="tbl-cell-primary">Workers</td><td class="tbl-cell-mono tbl-cell-muted">nodes ${esc(String(wnodes))} · heartbeat rows ${esc(String(whb))}</td><td class="tbl-cell-muted">stale nodes (no recent HB): ${esc(String(wstale))}</td></tr>`);
+        workerRows.push(`<tr><td class="tbl-cell-primary">Oldest queued / running</td><td class="tbl-cell-mono tbl-cell-muted">${wsOldestQ != null ? esc(fmtDuration(wsOldestQ)) : '—'} · ${wsOldestR != null ? esc(fmtDuration(wsOldestR)) : '—'}</td><td class="tbl-cell-muted">Ages from job row timestamps</td></tr>`);
+        workerRows.push(`<tr><td class="tbl-cell-primary">Events (24h)</td><td class="tbl-cell-mono tbl-cell-muted">warn/error ${esc(String(werrEv24))}</td><td class="tbl-cell-muted">From worker_job_events</td></tr>`);
+        workerRows.push(`<tr><td class="tbl-cell-primary">Last job error message</td><td class="tbl-cell-muted" colspan="2">${wsLastErr ? esc(wsLastErr) : '<span class="text-dim">—</span>'}</td></tr>`);
+    }
+    let workerInner = '';
+    if (!ws) {
+        workerInner = '<p class="hint-micro text-dim st-health-worker-summary mb0">Worker substrate snapshot is not available in this response.</p>';
+    } else if (!wsTablesReady) {
+        workerInner = `<p class="hint-micro text-dim st-health-worker-summary mb0"><span class="${esc(wsStateCls)}">${esc(wsStateLabel)}</span> — ${esc(wsum)}</p>`;
+    } else if (wsIdleQuiet) {
+        workerInner = `<p class="hint-micro text-dim st-health-worker-summary mb0"><span class="${esc(wsStateCls)}">${esc(wsStateLabel)}</span> — ${esc(wsum)}</p>`;
+    } else {
+        workerInner = mkTable(['Item', 'Value', 'Detail'], workerRows, 'No worker substrate rows to show.');
+    }
+
+    const ccRuns = h.credential_check_runs && typeof h.credential_check_runs === 'object' ? h.credential_check_runs : null;
+    const ccSnapHtml =
+        ccRuns && ccRuns.tables_ready
+            ? `<p class="hint-micro text-dim st-health-cc-runs-summary mb0">Credentialed check runs: <span class="mono-sm">${esc(
+                  String(ccRuns.queued_or_active ?? 0)
+              )}</span> queued/active · <span class="mono-sm">${esc(String(ccRuns.running ?? 0))}</span> running · <span class="mono-sm">${esc(
+                  String(ccRuns.completed_recent_24h ?? 0)
+              )}</span> completed (24h) · <span class="mono-sm">${esc(String(ccRuns.failed_recent_24h ?? 0))}</span> failed (24h). ${esc(
+                  String(ccRuns.summary || '')
+              )}</p>`
+            : '';
+
+    const workerSectionHtml = `
+      <section class="st-band st-health-band st-health-band--worker health-section${wsAttention ? ' st-health-band--attention' : ''}" aria-labelledby="st-health-sec-worker">
+        <header class="st-health-section-head">
+          <h3 class="health-sec-title" id="st-health-sec-worker">Background jobs (preview)</h3>
+          <p class="hint-micro text-dim st-health-worker-lede mb0">Read-only worker execution substrate (SQLite). Legacy scanner, scheduler, and collector ingest paths are unchanged.</p>
+        </header>
+        ${workerInner}
+        ${ccSnapHtml}
+      </section>`;
+
+    if (ws && Array.isArray(ws.warning_hints)) {
+        ws.warning_hints.forEach((hint) => {
+            const s = String(hint || '').trim();
+            const prefixed = s ? ('Worker substrate: ' + s) : '';
+            if (prefixed && warnings.indexOf(prefixed) === -1) {
+                warnings.push(prefixed);
+            }
+        });
+    }
 
     const advancedRows = [];
     advancedRows.push(`<tr><td class="tbl-cell-primary">Server time</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(h.server_time || '—'))}</td></tr>`);
@@ -5109,6 +5380,8 @@ function renderHealthHtml(h, zbxResp) {
         </header>
         ${mkTable(['Service', 'State', 'Detail'], serviceRows, 'Service status has not been reported yet.')}
       </section>
+
+      ${workerSectionHtml}
 
       <section class="st-band st-health-band st-health-band--storage health-section" aria-labelledby="st-health-sec-storage">
         <header class="st-health-section-head">
@@ -6965,11 +7238,13 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         const ot = esc(String(a.observation_type || ''));
         const c = esc(String(a.contribution || ''));
         const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
-        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+        const oref = a.observation_source_ref ? `<span class="mono-sm">${esc(String(a.observation_source_ref))}</span>` : '\u2014';
+        const oat = a.observation_observed_at ? esc(localTime(String(a.observation_observed_at))) : '\u2014';
+        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
     }).join('');
     const asrcBlock = asrc.length
         ? `<div class="text-micro text-dim mt8 mb4">How the belief was built (assertion sources)</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Observation type</th><th>Normalized</th><th>Contribution</th><th>Weight note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Type</th><th>Plugin / ref</th><th>Observed</th><th>Normalized</th><th>Role</th><th>Note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
         : '';
     const obsRows = obs.map((o) => {
         const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
@@ -6977,7 +7252,10 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
         const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
         const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
-        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        const hint = o.contribution_hint && String(o.contribution_hint).trim()
+            ? esc(String(o.contribution_hint))
+            : '\u2014';
+        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     }).join('');
     const runRows = runs.map((r) => {
         const rawErr = r.error && String(r.error).trim() ? String(r.error) : '';
@@ -6988,7 +7266,7 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
     }).join('');
     const obsBlock = obs.length
         ? `<div class="text-micro text-dim mt8 mb4">Observations (what sources recorded)</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
         : '';
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Recent reconciliation attempts (this host)</div>
@@ -7060,11 +7338,13 @@ function stHostIdentityEvidenceDetailHtml(ird) {
         const ot = esc(String(a.observation_type || ''));
         const c = esc(String(a.contribution || ''));
         const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
-        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+        const oref = a.observation_source_ref ? `<span class="mono-sm">${esc(String(a.observation_source_ref))}</span>` : '\u2014';
+        const oat = a.observation_observed_at ? esc(localTime(String(a.observation_observed_at))) : '\u2014';
+        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
     }).join('');
     const asrcBlock = asrc.length
         ? `<div class="text-micro text-dim mt8 mb4">Assertion sources</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Type</th><th>Normalized</th><th>Role</th><th>Note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Source</th><th>Type</th><th>Plugin / ref</th><th>Observed</th><th>Normalized</th><th>Role</th><th>Note</th></tr></thead><tbody>${asrcRows}</tbody></table></div>`
         : '';
     const obsRowHtml = (o, rowCls) => {
         const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
@@ -7072,8 +7352,11 @@ function stHostIdentityEvidenceDetailHtml(ird) {
         const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
         const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
         const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
+        const hint = o.contribution_hint && String(o.contribution_hint).trim()
+            ? esc(String(o.contribution_hint))
+            : '\u2014';
         const cls = rowCls ? ` class="${rowCls}"` : '';
-        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     };
     const supRows = obs.filter((o) => sup.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
     const neuRows = obs.filter((o) => !sup.has(parseInt(String(o.id), 10) || 0) && !con.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
@@ -7082,7 +7365,7 @@ function stHostIdentityEvidenceDetailHtml(ird) {
     const obsBody = [supRows, neuRows, conRows].filter(Boolean).join('');
     const obsBlock = obsBody
         ? `<div class="text-micro text-dim mt8 mb4">Identity observations</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>Conf.</th></tr></thead><tbody>${obsBody}</tbody></table></div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsBody}</tbody></table></div>
           ${hasConflictRows ? '<p class="text-micro text-dim mt4 mb0">Rows highlighted for hostname/FQDN disagree with the reconciled short name; they are kept as evidence.</p>' : ''}`
         : '';
     const runRows = runs.map((r) => {
@@ -9818,6 +10101,812 @@ async function copyAiInstallHelp() {
     const txt = el.textContent || '';
     if (await stCopyTextToClipboard(txt)) toast('Commands copied', 'ok');
     else toast('Could not copy commands', 'err');
+}
+
+async function loadCredentialProfiles() {
+    const tbody = document.getElementById('st-cred-profiles-tbody');
+    const st = document.getElementById('st-cred-profiles-status');
+    if (!tbody || !stRoleIsAdmin()) return;
+    st.textContent = '';
+    const r = await api('/api/credential_profiles.php');
+    if (!r || !r.ok) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-dim">Could not load profiles (admin only).</td></tr>';
+        return;
+    }
+    window.__stCredEncryption = r.encryption && typeof r.encryption === 'object' ? r.encryption : {};
+    const encLine = document.getElementById('st-cred-profiles-encryption-line');
+    if (encLine) {
+        const e = window.__stCredEncryption;
+        if (e && e.available) {
+            encLine.textContent = 'Credential encryption: configured (preferred ' + String(e.preferred_alg || 'n/a') + ').';
+        } else {
+            encLine.textContent = 'Credential encryption: not configured — set SURVEYTRACE_CRED_SECRET_KEY on the server to store profile secrets.';
+        }
+    }
+    const rows = r.profiles || [];
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-dim">No profiles yet. Add one to record transport and scope intent.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((p) => {
+        const id = Number(p.id);
+        const lt = p.last_test_at ? esc(String(p.last_test_at)) : '—';
+        const lts = p.last_test_status ? esc(String(p.last_test_status)) : '—';
+        const lte = p.last_test_error_code ? esc(String(p.last_test_error_code)) : '';
+        const ldm = p.last_test_duration_ms != null ? esc(String(p.last_test_duration_ms)) : '';
+        const ltExtra = lte ? `${lts} <span class="mono-sm text-dim">(${lte})</span>` : lts;
+        const ltTiming = ldm ? ` <span class="text-dim">· ${ldm} ms</span>` : '';
+        const sec = p.has_secret ? esc(String(p.secret_status)) : 'none';
+        const on = p.enabled ? 'yes' : 'no';
+        return `<tr data-cred-pf-id="${id}">
+          <td>${esc(p.name || '')}</td>
+          <td class="mono-sm">${esc(p.transport || '')}</td>
+          <td class="text-dim" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.principal_summary || '')}">${esc(p.principal_summary || '')}</td>
+          <td class="text-dim" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.scope_summary || '')}">${esc(p.scope_summary || '')}</td>
+          <td>${on}</td>
+          <td class="mono-sm">${sec}</td>
+          <td class="text-dim"><span class="mono-sm">${lt}</span> / ${ltExtra}${ltTiming}</td>
+          <td class="row-wrap gap4" style="white-space:nowrap">
+            <button type="button" class="tbtn btn-xs" onclick="stCredProfileOpenModalById(${id})">Edit</button>
+            <button type="button" class="tbtn btn-xs" onclick="stCredProfileToggleEnabled(${id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? 'Disable' : 'Enable'}</button>
+            <button type="button" class="tbtn btn-xs" onclick="stCredProfileDelete(${id})">Remove</button>
+          </td>
+        </tr>`;
+    }).join('');
+}
+
+function stCredProfileCloseModal() {
+    const bg = document.getElementById('st-cred-profile-modal-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function stCredProfileClearSecretInputs() {
+    ['st-cred-pf-ssh-password', 'st-cred-pf-ssh-private-key', 'st-cred-pf-ssh-passphrase', 'st-cred-pf-snmpv3-auth', 'st-cred-pf-snmpv3-priv', 'st-cred-pf-winrm-password'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+function stCredProfileCardTestHint() {
+    const el = document.getElementById('st-cred-profiles-card');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    toast('Edit a credential profile, set an encrypted secret if needed, enter a target host/IP in the modal, then Run handshake test (SSH or SNMPv3 only in this release).', 'ok');
+}
+
+function stCredProfileSecretTransportChanged() {
+    stCredProfileClearSecretInputs();
+    stCredProfileUpdateSecretFieldVisibility();
+    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
+}
+
+function stCredProfileSyncTransportTestPanel(p) {
+    const panel = document.getElementById('st-cred-pf-transport-test-panel');
+    const btn = document.getElementById('st-cred-pf-btn-transport-test');
+    const resEl = document.getElementById('st-cred-pf-test-result');
+    const tr = document.getElementById('st-cred-pf-transport');
+    if (!panel || !btn || !tr) return;
+    const t = String(tr.value || 'ssh');
+    if (t === 'winrm') {
+        panel.classList.add('hide');
+        btn.disabled = true;
+        btn.title = 'WinRM test deferred';
+        return;
+    }
+    if (!p || !p.id) {
+        panel.classList.add('hide');
+        btn.disabled = true;
+        return;
+    }
+    panel.classList.remove('hide');
+    const enc = window.__stCredEncryption && typeof window.__stCredEncryption === 'object' ? window.__stCredEncryption : {};
+    const need = !!(p.has_secret && enc.available);
+    btn.disabled = !need;
+    btn.title = !enc.available ? 'Configure encryption key on server' : (!p.has_secret ? 'Set a stored secret first' : '');
+    if (resEl && (!p.has_secret || !enc.available)) {
+        resEl.textContent = !enc.available ? 'Handshake test requires credential encryption on the server.' : (p.has_secret ? '' : 'Store a secret before running a handshake test.');
+        resEl.className = 'hint-micro mb0 text-dim';
+    }
+}
+
+async function stCredProfileRunTransportTest() {
+    const hid = document.getElementById('st-cred-pf-id');
+    const hostEl = document.getElementById('st-cred-pf-test-host');
+    const portEl = document.getElementById('st-cred-pf-test-port');
+    const btn = document.getElementById('st-cred-pf-btn-transport-test');
+    const prog = document.getElementById('st-cred-pf-test-progress');
+    const resEl = document.getElementById('st-cred-pf-test-result');
+    const hint = document.getElementById('st-cred-pf-modal-hint');
+    const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
+    const target = (hostEl && hostEl.value) ? hostEl.value.trim() : '';
+    const port = portEl && portEl.value !== '' ? parseInt(portEl.value, 10) : 0;
+    if (id < 1) return;
+    if (!target) {
+        toast('Enter target host or IP', 'err');
+        return;
+    }
+    if (btn) btn.disabled = true;
+    if (prog) prog.classList.remove('hide');
+    if (resEl) {
+        resEl.textContent = '';
+        resEl.className = 'hint-micro mb0 text-dim';
+        try {
+            delete resEl.dataset.tested;
+        } catch (e1) {}
+    }
+    const r = await apiPost('/api/credential_profiles.php', { action: 'test', id, target_host: target, port });
+    if (prog) prog.classList.add('hide');
+    if (btn) btn.disabled = false;
+    if (r && r.ok && r.test) {
+        const t = r.test;
+        const ok = !!t.success;
+        const line = (ok ? 'Success' : 'Failed') + ': ' + esc(String(t.code || '')) + (t.duration_ms != null ? ' · ' + esc(String(t.duration_ms)) + ' ms' : '');
+        const hintStr = t.hint ? ' · ' + esc(String(t.hint)) : '';
+        if (resEl) {
+            resEl.innerHTML = line + hintStr;
+            resEl.className = ok ? 'hint-micro mb0' : 'hint-micro mb0 text-dim';
+            resEl.dataset.tested = '1';
+        }
+        toast(ok ? 'Handshake succeeded' : 'Handshake failed', ok ? 'ok' : 'err');
+        if (r.profile) {
+            window.__stCredProfileModalPayload = r.profile;
+            stCredProfileSyncSecretPanel(r.profile);
+            stCredProfileSyncTransportTestPanel(r.profile);
+        }
+        if (r.encryption && typeof r.encryption === 'object') {
+            window.__stCredEncryption = r.encryption;
+        }
+        await loadCredentialProfiles();
+    } else {
+        const err = (r && r.error) ? String(r.error) : 'Test failed';
+        if (hint) hint.textContent = err;
+        if (resEl) {
+            resEl.textContent = esc(err);
+            resEl.className = 'hint-micro mb0 text-dim';
+        }
+        toast(err, 'err');
+    }
+    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
+}
+
+function stCredProfileUpdateSecretFieldVisibility() {
+    const tr = document.getElementById('st-cred-pf-transport');
+    const t = tr ? String(tr.value || 'ssh') : 'ssh';
+    const ssh = document.getElementById('st-cred-pf-secret-fields-ssh');
+    const snmp = document.getElementById('st-cred-pf-secret-fields-snmp');
+    const wrm = document.getElementById('st-cred-pf-secret-fields-winrm');
+    if (ssh) ssh.classList.toggle('hide', t !== 'ssh');
+    if (snmp) snmp.classList.toggle('hide', t !== 'snmpv3');
+    if (wrm) wrm.classList.toggle('hide', t !== 'winrm');
+}
+
+/** @returns {{ material: object }|{ error: string }} */
+function stCredProfileCollectSecretMaterial() {
+    const tr = document.getElementById('st-cred-pf-transport');
+    const t = tr ? String(tr.value || 'ssh') : 'ssh';
+    if (t === 'ssh') {
+        const pw = (document.getElementById('st-cred-pf-ssh-password')?.value || '').trim();
+        const pk = (document.getElementById('st-cred-pf-ssh-private-key')?.value || '').trim();
+        const pp = (document.getElementById('st-cred-pf-ssh-passphrase')?.value || '').trim();
+        if (pw !== '' && pk !== '') {
+            return { error: 'Enter either an SSH password or a private key, not both.' };
+        }
+        const material = {};
+        if (pw !== '') material.password = pw;
+        if (pk !== '') {
+            material.private_key = pk;
+            if (pp !== '') material.passphrase = pp;
+        }
+        if (Object.keys(material).length === 0) {
+            return { error: 'Enter an SSH password or private key.' };
+        }
+        return { material };
+    }
+    if (t === 'snmpv3') {
+        const a = (document.getElementById('st-cred-pf-snmpv3-auth')?.value || '').trim();
+        const p = (document.getElementById('st-cred-pf-snmpv3-priv')?.value || '').trim();
+        if (a === '' && p === '') {
+            return { error: 'Enter at least one of SNMPv3 auth password or privacy password.' };
+        }
+        const material = {};
+        if (a !== '') material.auth_password = a;
+        if (p !== '') material.priv_password = p;
+        return { material };
+    }
+    if (t === 'winrm') {
+        const pw = (document.getElementById('st-cred-pf-winrm-password')?.value || '').trim();
+        if (pw === '') {
+            return { error: 'Enter WinRM password.' };
+        }
+        return { material: { password: pw } };
+    }
+    return { error: 'Unknown transport.' };
+}
+
+function stCredProfileSyncSecretPanel(p) {
+    const encHint = document.getElementById('st-cred-pf-secret-enc-hint');
+    const statusEl = document.getElementById('st-cred-pf-secret-status');
+    const btnSave = document.getElementById('st-cred-pf-btn-secret-save');
+    const btnClear = document.getElementById('st-cred-pf-btn-secret-clear');
+    const enc = window.__stCredEncryption && typeof window.__stCredEncryption === 'object' ? window.__stCredEncryption : {};
+    const avail = !!enc.available;
+    const editId = p && p.id ? Number(p.id) : 0;
+    if (encHint) {
+        encHint.textContent = avail
+            ? 'Secrets are encrypted at rest. They are not returned in the API and are not used for checks until a later release.'
+            : 'Credential encryption is not configured on this server (missing SURVEYTRACE_CRED_SECRET_KEY). Save metadata below; you cannot store secrets until the key is set.';
+    }
+    if (statusEl) {
+        if (editId < 1) {
+            statusEl.textContent = 'Save the profile first, then reopen it to set or replace secrets.';
+            statusEl.className = 'hint-micro text-dim mb6';
+        } else if (p && p.has_secret) {
+            const alg = p.secret_envelope && p.secret_envelope.alg ? String(p.secret_envelope.alg) : '';
+            statusEl.textContent = 'Secret on file: yes' + (alg ? ' (envelope ' + alg + ')' : '') + '.';
+            statusEl.className = 'hint-micro mb6';
+        } else {
+            statusEl.textContent = 'No secret stored for this profile yet.';
+            statusEl.className = 'hint-micro text-dim mb6';
+        }
+    }
+    if (btnSave) {
+        btnSave.disabled = !avail || editId < 1;
+        btnSave.title = !avail ? 'Configure SURVEYTRACE_CRED_SECRET_KEY on the server' : (editId < 1 ? 'Save the profile first' : '');
+    }
+    if (btnClear) {
+        const has = !!(p && p.has_secret);
+        btnClear.disabled = editId < 1 || !has;
+        btnClear.title = !has ? 'Nothing to clear' : '';
+    }
+}
+
+function stCredProfileOpenModal(p) {
+    const bg = document.getElementById('st-cred-profile-modal-bg');
+    const title = document.getElementById('st-cred-profile-modal-title');
+    const hid = document.getElementById('st-cred-pf-id');
+    const nm = document.getElementById('st-cred-pf-name');
+    const tr = document.getElementById('st-cred-pf-transport');
+    const pr = document.getElementById('st-cred-pf-principal');
+    const sc = document.getElementById('st-cred-pf-scope');
+    const en = document.getElementById('st-cred-pf-enabled');
+    const hint = document.getElementById('st-cred-pf-modal-hint');
+    if (!bg || !title || !hid || !nm || !tr || !pr || !sc || !en) return;
+    stCredProfileClearSecretInputs();
+    if (!p) {
+        title.textContent = 'New credential profile';
+        hid.value = '';
+        nm.value = '';
+        tr.value = 'ssh';
+        pr.value = '{\n  "username": ""\n}';
+        sc.value = '{\n  "scope_ids": [],\n  "asset_ids": [],\n  "tags": []\n}';
+        en.checked = true;
+        if (hint) hint.textContent = '';
+    } else {
+        title.textContent = 'Edit credential profile';
+        hid.value = String(p.id || '');
+        nm.value = p.name || '';
+        tr.value = p.transport || 'ssh';
+        try {
+            pr.value = JSON.stringify(p.principal_json && typeof p.principal_json === 'object' ? p.principal_json : {}, null, 2);
+        } catch (e) {
+            pr.value = '{}';
+        }
+        try {
+            sc.value = JSON.stringify(p.scope_json && typeof p.scope_json === 'object' ? p.scope_json : {}, null, 2);
+        } catch (e2) {
+            sc.value = '{}';
+        }
+        en.checked = !!p.enabled;
+        if (hint) hint.textContent = '';
+    }
+    stCredProfileUpdateSecretFieldVisibility();
+    stCredProfileSyncSecretPanel(p);
+    window.__stCredProfileModalPayload = p || null;
+    const th = document.getElementById('st-cred-pf-test-host');
+    const tp = document.getElementById('st-cred-pf-test-port');
+    const trs = document.getElementById('st-cred-pf-test-result');
+    if (th) th.value = '';
+    if (tp) tp.value = '0';
+    if (trs) {
+        trs.textContent = '';
+        trs.innerHTML = '';
+        trs.className = 'hint-micro mb0 text-dim';
+        try {
+            delete trs.dataset.tested;
+        } catch (e0) {}
+    }
+    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload);
+    bg.style.display = 'flex';
+}
+
+async function stCredProfileOpenModalById(id) {
+    const r = await api('/api/credential_profiles.php?id=' + encodeURIComponent(String(id)));
+    if (!r || !r.ok || !r.profile) {
+        toast((r && r.error) ? r.error : 'Load failed', 'err');
+        return;
+    }
+    if (r.encryption && typeof r.encryption === 'object') {
+        window.__stCredEncryption = r.encryption;
+    }
+    stCredProfileOpenModal(r.profile);
+}
+
+async function stCredProfileSubmitSecret() {
+    const hid = document.getElementById('st-cred-pf-id');
+    const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
+    const hint = document.getElementById('st-cred-pf-modal-hint');
+    const enc = window.__stCredEncryption || {};
+    if (id < 1) {
+        toast('Save the profile first', 'err');
+        return;
+    }
+    if (!enc.available) {
+        toast('Credential encryption is not configured.', 'err');
+        return;
+    }
+    const got = stCredProfileCollectSecretMaterial();
+    if (got.error) {
+        if (hint) hint.textContent = got.error;
+        toast(got.error, 'err');
+        return;
+    }
+    const r = await apiPost('/api/credential_profiles.php', { action: 'set_secret', id, secret_material: got.material });
+    if (r && r.ok) {
+        stCredProfileClearSecretInputs();
+        if (hint) hint.textContent = '';
+        toast('Secret saved (value not shown again)', 'ok');
+        if (r.encryption && typeof r.encryption === 'object') {
+            window.__stCredEncryption = r.encryption;
+        }
+        stCredProfileOpenModal(r.profile);
+        await loadCredentialProfiles();
+    } else {
+        const err = (r && r.error) ? String(r.error) : 'Save secret failed';
+        if (hint) hint.textContent = err;
+        toast(err, 'err');
+    }
+}
+
+async function stCredProfileClearSecret() {
+    const hid = document.getElementById('st-cred-pf-id');
+    const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
+    const hint = document.getElementById('st-cred-pf-modal-hint');
+    if (id < 1) return;
+    if (!confirm('Clear the stored secret for this profile? This cannot be undone.')) return;
+    const r = await apiPost('/api/credential_profiles.php', { action: 'clear_secret', id });
+    if (r && r.ok) {
+        stCredProfileClearSecretInputs();
+        if (hint) hint.textContent = '';
+        toast('Secret cleared', 'ok');
+        if (r.encryption && typeof r.encryption === 'object') {
+            window.__stCredEncryption = r.encryption;
+        }
+        stCredProfileOpenModal(r.profile);
+        await loadCredentialProfiles();
+    } else {
+        const err = (r && r.error) ? String(r.error) : 'Clear failed';
+        if (hint) hint.textContent = err;
+        toast(err, 'err');
+    }
+}
+
+async function stCredProfileSave() {
+    const hid = document.getElementById('st-cred-pf-id');
+    const nm = document.getElementById('st-cred-pf-name');
+    const tr = document.getElementById('st-cred-pf-transport');
+    const pr = document.getElementById('st-cred-pf-principal');
+    const sc = document.getElementById('st-cred-pf-scope');
+    const en = document.getElementById('st-cred-pf-enabled');
+    const hint = document.getElementById('st-cred-pf-modal-hint');
+    if (!nm || !tr || !pr || !sc || !en) return;
+    let principalObj;
+    let scopeObj;
+    try {
+        principalObj = JSON.parse(pr.value || '{}');
+    } catch (e) {
+        if (hint) hint.textContent = 'Principal must be valid JSON.';
+        toast('Principal JSON invalid', 'err');
+        return;
+    }
+    try {
+        scopeObj = JSON.parse(sc.value || '{}');
+    } catch (e2) {
+        if (hint) hint.textContent = 'Scope must be valid JSON.';
+        toast('Scope JSON invalid', 'err');
+        return;
+    }
+    const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
+    const body = id > 0
+        ? { action: 'update', id, name: nm.value.trim(), transport: tr.value, principal_json: principalObj, scope_json: scopeObj, enabled: !!en.checked }
+        : { action: 'create', name: nm.value.trim(), transport: tr.value, principal_json: principalObj, scope_json: scopeObj, enabled: !!en.checked };
+    const r = await apiPost('/api/credential_profiles.php', body);
+    if (r && r.ok) {
+        if (r.encryption && typeof r.encryption === 'object') {
+            window.__stCredEncryption = r.encryption;
+        }
+        toast('Profile saved', 'ok');
+        stCredProfileCloseModal();
+        await loadCredentialProfiles();
+    } else {
+        if (hint) hint.textContent = (r && r.error) ? String(r.error) : 'Save failed';
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function stCredProfileToggleEnabled(id, toEnable) {
+    const r = await apiPost('/api/credential_profiles.php', { action: 'set_enabled', id, enabled: toEnable === true || toEnable === 'true' });
+    if (r && r.ok) {
+        toast('Updated', 'ok');
+        await loadCredentialProfiles();
+    } else {
+        toast((r && r.error) ? r.error : 'Update failed', 'err');
+    }
+}
+
+async function stCredProfileDelete(id) {
+    if (!confirm('Remove this profile? If it is referenced by check jobs, it will be archived (hidden) instead of hard-deleted.')) return;
+    const r = await apiPost('/api/credential_profiles.php', { action: 'delete', id });
+    if (r && r.ok) {
+        if (r.archived) toast('Profile archived (still referenced by jobs)', 'ok');
+        else toast('Profile removed', 'ok');
+        await loadCredentialProfiles();
+    } else {
+        toast((r && r.error) ? r.error : 'Remove failed', 'err');
+    }
+}
+
+var __stCcRunModalId = 0;
+
+function stCcJobCloseModal() {
+    const bg = document.getElementById('st-cc-job-modal-bg');
+    if (bg) bg.style.display = 'none';
+}
+
+function stCcRunCloseModal() {
+    const bg = document.getElementById('st-cc-run-modal-bg');
+    if (bg) bg.style.display = 'none';
+    __stCcRunModalId = 0;
+}
+
+function stCcJobSyncTargetHints() {
+    const mode = document.getElementById('st-cc-job-target-mode');
+    const hint = document.getElementById('st-cc-job-target-hint');
+    const ids = document.getElementById('st-cc-job-target-ids');
+    if (!mode || !hint || !ids) return;
+    if (mode.value === 'assets') {
+        hint.textContent = 'Comma-separated asset IDs (must exist in inventory).';
+        ids.placeholder = 'e.g. 12, 34';
+    } else {
+        hint.textContent = 'Comma-separated scan scope IDs; all active assets with matching scope_id are included at launch.';
+        ids.placeholder = 'e.g. 1, 2';
+    }
+}
+
+async function stCcJobOnProfileChange() {
+    const sel = document.getElementById('st-cc-job-profile');
+    const box = document.getElementById('st-cc-job-plugins');
+    if (!sel || !box) return;
+    const opt = sel.options[sel.selectedIndex];
+    const tr = opt ? String(opt.getAttribute('data-transport') || '') : '';
+    box.textContent = 'Loading plugins…';
+    if (!tr) {
+        box.textContent = 'Select a profile.';
+        return;
+    }
+    const r = await api('/api/credentialed_checks.php?transport=' + encodeURIComponent(tr));
+    if (!r || !r.ok || !Array.isArray(r.plugins)) {
+        box.textContent = 'Could not load plugins.';
+        return;
+    }
+    const rows = r.plugins
+        .map((p) => {
+            const k = esc(String(p.plugin_key || ''));
+            const v = esc(String(p.version || ''));
+            const st = esc(String(p.state || ''));
+            return `<label class="row-wrap gap6" style="display:flex;align-items:flex-start;margin-bottom:4px"><input type="checkbox" class="st-cc-pl-cb" data-pk="${k}" data-pv="${v}"><span><span class="mono-sm">${k}</span> <span class="text-dim">@${v}</span> <span class="text-dim">(${st})</span></span></label>`;
+        })
+        .join('');
+    box.innerHTML = rows || '<span class="text-dim">No plugins for this transport.</span>';
+}
+
+async function stCcJobOpenModal(jobId) {
+    if (!stRoleIsAdmin()) return;
+    const bg = document.getElementById('st-cc-job-modal-bg');
+    const hid = document.getElementById('st-cc-job-id');
+    const nm = document.getElementById('st-cc-job-name');
+    const ds = document.getElementById('st-cc-job-desc');
+    const pf = document.getElementById('st-cc-job-profile');
+    const mode = document.getElementById('st-cc-job-target-mode');
+    const ids = document.getElementById('st-cc-job-target-ids');
+    const mc = document.getElementById('st-cc-job-max-conc');
+    const to = document.getElementById('st-cc-job-timeout');
+    const en = document.getElementById('st-cc-job-enabled');
+    const hintEl = document.getElementById('st-cc-job-modal-hint');
+    if (!bg || !hid || !nm || !pf || !mode || !ids) return;
+    hintEl.textContent = '';
+    hid.value = jobId && jobId > 0 ? String(jobId) : '';
+    const pr = await api('/api/credential_profiles.php');
+    if (!pr || !pr.ok || !Array.isArray(pr.profiles)) {
+        toast('Could not load profiles', 'err');
+        return;
+    }
+    pf.innerHTML = pr.profiles
+        .map((p) => {
+            const id = Number(p.id);
+            return `<option value="${id}" data-transport="${esc(String(p.transport || ''))}">${esc(String(p.name || ''))} (${esc(String(p.transport || ''))})</option>`;
+        })
+        .join('');
+    if (!pf.options.length) {
+        toast('Add a credential profile first', 'err');
+        return;
+    }
+    if (jobId && jobId > 0) {
+        const jr = await api('/api/credential_check_jobs.php?id=' + encodeURIComponent(String(jobId)));
+        if (!jr || !jr.ok || !jr.job) {
+            toast('Could not load job', 'err');
+            return;
+        }
+        const j = jr.job;
+        nm.value = String(j.name || '');
+        ds.value = String(j.description || '');
+        pf.value = String(j.credential_profile_id || '');
+        mode.value = j.target_mode === 'scope' ? 'scope' : 'assets';
+        let tj = {};
+        try {
+            tj = j.target_json ? JSON.parse(String(j.target_json)) : {};
+        } catch (e1) {
+            tj = {};
+        }
+        if (mode.value === 'assets' && Array.isArray(tj.asset_ids)) {
+            ids.value = tj.asset_ids.join(', ');
+        } else if (mode.value === 'scope' && Array.isArray(tj.scope_ids)) {
+            ids.value = tj.scope_ids.join(', ');
+        } else {
+            ids.value = '';
+        }
+        let pol = {};
+        try {
+            pol = j.policy_json ? JSON.parse(String(j.policy_json)) : {};
+        } catch (e2) {
+            pol = {};
+        }
+        if (mc) mc.value = String(pol.max_concurrency != null ? pol.max_concurrency : 4);
+        if (to) to.value = String(pol.timeout_ms != null ? pol.timeout_ms : 600000);
+        if (en) en.checked = !!j.enabled;
+        await stCcJobOnProfileChange();
+        let plugs = [];
+        try {
+            plugs = j.plugin_selection_json ? JSON.parse(String(j.plugin_selection_json)) : [];
+        } catch (e3) {
+            plugs = [];
+        }
+        document.querySelectorAll('.st-cc-pl-cb').forEach((cb) => {
+            const pk = cb.getAttribute('data-pk');
+            const pv = cb.getAttribute('data-pv');
+            cb.checked = plugs.some((x) => String(x.plugin_key) === pk && String(x.version || '') === pv);
+        });
+    } else {
+        nm.value = '';
+        ds.value = '';
+        if (pf.options.length) pf.selectedIndex = 0;
+        mode.value = 'assets';
+        ids.value = '';
+        if (mc) mc.value = '4';
+        if (to) to.value = '600000';
+        if (en) en.checked = true;
+        stCcJobSyncTargetHints();
+        await stCcJobOnProfileChange();
+    }
+    stCcJobSyncTargetHints();
+    bg.style.display = 'flex';
+}
+
+function stCcParseCommaInts(raw) {
+    const out = [];
+    String(raw || '')
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((s) => {
+            const n = parseInt(s, 10);
+            if (!Number.isNaN(n) && n > 0) out.push(n);
+        });
+    return out;
+}
+
+async function stCcJobSave() {
+    const hid = document.getElementById('st-cc-job-id');
+    const nm = document.getElementById('st-cc-job-name');
+    const ds = document.getElementById('st-cc-job-desc');
+    const pf = document.getElementById('st-cc-job-profile');
+    const mode = document.getElementById('st-cc-job-target-mode');
+    const ids = document.getElementById('st-cc-job-target-ids');
+    const mc = document.getElementById('st-cc-job-max-conc');
+    const to = document.getElementById('st-cc-job-timeout');
+    const en = document.getElementById('st-cc-job-enabled');
+    const hintEl = document.getElementById('st-cc-job-modal-hint');
+    const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
+    const ints = stCcParseCommaInts(ids && ids.value);
+    const targetJson =
+        mode && mode.value === 'scope' ? { scope_ids: ints } : { asset_ids: ints };
+    const selPl = [];
+    document.querySelectorAll('.st-cc-pl-cb:checked').forEach((cb) => {
+        selPl.push({ plugin_key: cb.getAttribute('data-pk'), version: cb.getAttribute('data-pv') || '' });
+    });
+    const policy = {
+        max_concurrency: mc ? parseInt(mc.value, 10) || 4 : 4,
+        timeout_ms: to ? parseInt(to.value, 10) || 600000 : 600000,
+    };
+    const body = {
+        action: id > 0 ? 'update' : 'create',
+        name: nm ? nm.value.trim() : '',
+        description: ds ? ds.value.trim() : '',
+        credential_profile_id: pf ? parseInt(pf.value, 10) || 0 : 0,
+        target_mode: mode ? mode.value : 'assets',
+        target_json: targetJson,
+        plugin_selection_json: selPl,
+        policy_json: policy,
+        enabled: en ? !!en.checked : true,
+    };
+    if (id > 0) body.id = id;
+    const r = await apiPost('/api/credential_check_jobs.php', body);
+    if (r && r.ok) {
+        if (Array.isArray(r.experimental_warnings) && r.experimental_warnings.length) {
+            toast('Saved. Note: job references experimental plugin(s).', 'ok');
+        } else toast('Job saved', 'ok');
+        stCcJobCloseModal();
+        await stCcLoadJobsAndRuns();
+    } else {
+        if (hintEl) hintEl.textContent = (r && r.error) ? String(r.error) : 'Save failed';
+        toast((r && r.error) ? r.error : 'Save failed', 'err');
+    }
+}
+
+async function stCcJobDelete(id) {
+    if (!confirm('Delete this check job?')) return;
+    const r = await apiPost('/api/credential_check_jobs.php', { action: 'delete', id });
+    if (r && r.ok) {
+        toast('Job deleted', 'ok');
+        await stCcLoadJobsAndRuns();
+    } else {
+        toast((r && r.error) ? r.error : 'Delete failed', 'err');
+    }
+}
+
+async function stCcLaunchRun(jobId) {
+    const tryPost = async (accept) =>
+        apiPost('/api/credential_check_runs.php', { action: 'launch', job_id: jobId, accept_experimental: !!accept });
+    let r = await tryPost(false);
+    if (r && !r.ok && r.experimental_plugins && r.error && String(r.error).indexOf('accept_experimental') >= 0) {
+        if (!confirm('This job uses experimental plugins. Launch anyway?')) return;
+        r = await tryPost(true);
+    }
+    if (r && r.ok) {
+        toast('Run queued', 'ok');
+        await stCcLoadJobsAndRuns();
+    } else {
+        toast((r && r.error) ? r.error : 'Launch failed', 'err');
+    }
+}
+
+async function stCcRunOpenModal(runId) {
+    if (!stRoleIsAdmin() || runId < 1) return;
+    __stCcRunModalId = runId;
+    const bg = document.getElementById('st-cc-run-modal-bg');
+    const pre = document.getElementById('st-cc-run-detail');
+    const btn = document.getElementById('st-cc-run-btn-cancel');
+    if (!bg || !pre) return;
+    pre.textContent = 'Loading…';
+    bg.style.display = 'flex';
+    const r = await api('/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)));
+    if (!r || !r.ok || !r.run) {
+        pre.textContent = 'Could not load run.';
+        if (btn) btn.style.display = 'none';
+        return;
+    }
+    const run = r.run;
+    const st = String(run.status || '');
+    if (btn) btn.style.display = st === 'queued' || st === 'running' || st === 'resolving_targets' || st === 'ready' ? '' : 'none';
+    const tc = run.target_counts || {};
+    const rc = run.result_counts || {};
+    const lines = [];
+    lines.push(`Run #${run.id} · ${esc(String(run.status || ''))} · job ${esc(String(run.job_id || '—'))}`);
+    if (run.job_name) lines.push(`Job: ${esc(String(run.job_name))}`);
+    lines.push(
+        `Targets: pending ${esc(String(tc.pending ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}`
+    );
+    lines.push(`Results: success ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}`);
+    if (Array.isArray(run.targets) && run.targets.length) {
+        lines.push('— Targets —');
+        run.targets.forEach((t) => {
+            lines.push(
+                `  #${esc(String(t.id))} asset ${esc(String(t.asset_id))} ${esc(String(t.asset_ip || ''))} · ${esc(String(t.status || ''))}${t.error_code ? ' · ' + esc(String(t.error_code)) : ''}`
+            );
+        });
+    }
+    if (Array.isArray(run.results) && run.results.length) {
+        lines.push('— Results (preview) —');
+        run.results.forEach((x) => {
+            const pv = x.normalized_preview ? esc(String(x.normalized_preview)) : '—';
+            lines.push(
+                `  ${esc(String(x.plugin_key || ''))}@${esc(String(x.plugin_version || ''))} · ${esc(String(x.status || ''))} · ${pv}`
+            );
+        });
+    }
+    lines.push('— Raw (no secrets) —');
+    lines.push(JSON.stringify(run, null, 2));
+    pre.textContent = lines.join('\n');
+}
+
+async function stCcRunCancelCurrent() {
+    const id = __stCcRunModalId;
+    if (id < 1) return;
+    if (!confirm('Cancel this run?')) return;
+    const r = await apiPost('/api/credential_check_runs.php', { action: 'cancel', run_id: id });
+    if (r && r.ok) {
+        toast('Cancelled', 'ok');
+        await stCcRunOpenModal(id);
+        await stCcLoadJobsAndRuns();
+    } else {
+        toast((r && r.error) ? r.error : 'Cancel failed', 'err');
+    }
+}
+
+async function stCcLoadJobsAndRuns() {
+    const st = document.getElementById('st-cc-jobs-status');
+    const tbJ = document.getElementById('st-cc-jobs-tbody');
+    const tbR = document.getElementById('st-cc-runs-tbody');
+    if (!stRoleIsAdmin() || !tbJ || !tbR) return;
+    if (st) st.textContent = '';
+    const [rj, rr] = await Promise.all([api('/api/credential_check_jobs.php'), api('/api/credential_check_runs.php?limit=80')]);
+    if (!rj || !rj.ok) {
+        tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load jobs.</td></tr>';
+    } else {
+        const jobs = rj.jobs || [];
+        if (!jobs.length) {
+            tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">No jobs yet.</td></tr>';
+        } else {
+            tbJ.innerHTML = jobs
+                .map((j) => {
+                    const id = Number(j.id);
+                    const on = j.enabled ? 'yes' : 'no';
+                    return `<tr>
+            <td>${esc(String(j.name || ''))}</td>
+            <td class="text-dim">${esc(String(j.profile_name || ''))} <span class="mono-sm">(${esc(String(j.profile_transport || ''))})</span></td>
+            <td class="mono-sm">${esc(String(j.target_mode || ''))}</td>
+            <td>${esc(on)}</td>
+            <td class="row-wrap gap4" style="white-space:nowrap">
+              <button type="button" class="tbtn btn-xs" onclick="stCcJobOpenModal(${id})">Edit</button>
+              <button type="button" class="tbtn btn-xs" onclick="stCcLaunchRun(${id})">Run now</button>
+              <button type="button" class="tbtn btn-xs" onclick="stCcJobDelete(${id})">Delete</button>
+            </td>
+          </tr>`;
+                })
+                .join('');
+        }
+    }
+    if (!rr || !rr.ok) {
+        tbR.innerHTML = '<tr><td colspan="6" class="text-dim">Could not load runs.</td></tr>';
+    } else {
+        const runs = rr.runs || [];
+        if (!runs.length) {
+            tbR.innerHTML = '<tr><td colspan="6" class="text-dim">No runs yet.</td></tr>';
+        } else {
+            tbR.innerHTML = runs
+                .map((u) => {
+                    const id = Number(u.id);
+                    const wj = u.worker_job_id != null ? esc(String(u.worker_job_id)) : '—';
+                    return `<tr>
+            <td class="mono-sm">${id}</td>
+            <td>${esc(String(u.job_name || ''))}</td>
+            <td>${esc(String(u.status || ''))}</td>
+            <td class="mono-sm">${wj}</td>
+            <td class="text-dim mono-sm">${esc(String(u.started_at || ''))}</td>
+            <td><button type="button" class="tbtn btn-xs" onclick="stCcRunOpenModal(${id})">Detail</button></td>
+          </tr>`;
+                })
+                .join('');
+        }
+    }
 }
 
 async function saveSecurityControlsSettings() {

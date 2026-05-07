@@ -89,16 +89,17 @@ Definitions:
 ### Credential profiles
 
 - **Named**, versioned **logical** credential: `transport`, `principal`, `metadata` (non-secret: realm, port override, SNMP security level).
-- **Secret storage:** application-encrypted **blob** in DB or OS-backed secret store **later**; encryption key **outside** SQLite row (env/HSM path deferred).
+- **MVP slice 3–5 (implemented):** `GET/POST /api/credential_profiles.php` (admin-only) manages **metadata** (`principal_json` / `scope_json` — still no secret fields in principal), **optional encrypted secrets** (`set_secret` / `clear_secret`), and **transport handshake tests** (`action=test` — **SSH** and **SNMPv3** only; **WinRM** deferred). Decrypt + short-lived JSON to **`daemon/cred_transport_cli.py`** (Python **paramiko** / **pysnmp**); **no plugins**, **no worker_jobs**, **no observations**. UI: **Settings → Credentialed checks — profiles**. Envelope crypto: **libsodium secretbox** (preferred) or **OpenSSL AES-256-GCM**; responses expose `has_secret`, `secret_status`, redacted `secret_envelope`, `last_test_*` — never ciphertext, plaintext, or stack traces.
+- **Secret storage:** versioned **envelope JSON** in `credential_profiles.secret_ciphertext`; **key material only in environment** (see [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) slice 4). OS vault / HSM deferred.
 - **Scoped credentials:** profiles attach to **allowed scope_ids**, **asset tags**, or explicit **asset allowlists**. Deny by default if unset (product choice: “explicit allowlist only” for MVP is safest).
 - **Rotation:** operators mark `rotated_at` / `expires_at`; jobs warn on expiry; **no auto-rotation** in MVP.
 - **RBAC:** separate permissions, e.g. `credential:read_meta`, `credential:create`, `credential:test`, `check:run`, `check:review`. Viewing **metadata** ≠ using credential in a run (both audited).
 - **Audit logging:** every create/update/delete/test/run references `credential_profile_id` (not secret).
-- **Never expose secrets:** APIs return `has_password`, `key_fingerprint`, `last_test_status`, never plaintext passwords or private keys. Logs store **result codes** and **redacted** excerpts only.
+- **Never expose secrets:** APIs return `has_secret`, encryption **key_fingerprint** (hash prefix of derived key, not the configured string), `last_test_status`, `last_test_error_code`, `last_test_duration_ms`, and envelope metadata — never plaintext passwords or private keys. Logs store **result codes** and **redacted** excerpts only.
 
-### Credential test
+### Credential test (handshake)
 
-- **Dedicated** “test” action: minimal handshake (e.g. SSH `echo` / WinRM ping / SNMP GET sysDescr.0) with **short timeout**, **no plugin side effects**, audit event `credential.test`.
+- **Dedicated** `POST` `action=test`: explicit **target_host** (not persisted); SSH runs fixed **`true`** then bounded **`uname -s`**; SNMPv3 single GET **sysDescr.0** only. **Short timeouts**, global **non-reentrant flock** to limit parallel tests, safe error taxonomy (`auth_failed`, `timeout`, `host_key_mismatch`, …). Audits: `credential_profile.test_started`, `.test_succeeded`, `.test_failed`. **SSH host key policy:** env **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** — default accept-new for usability; set `reject` / `strict` / `no` for **RejectPolicy** (stricter). **WinRM** handshake not in this slice.
 
 ---
 
@@ -114,6 +115,12 @@ Definitions:
 - `remediation`: optional structured hints (KB IDs, package names, doc links) — **informational**, not executable in MVP
 - `state`: `disabled` \| `stable` \| `experimental` (experimental hidden unless admin enables)
 - `allowlisted_operations`: declarative list (e.g. fixed argv templates, fixed OIDs)
+
+### Built-in registry (MVP slice 2 — implemented)
+
+- **Storage:** `credential_check_plugins.manifest_json` holds the full normalized manifest (schemas, timeouts, caps, allowlisted operations). Columns `plugin_key`, `version`, `transport`, and `state` duplicate key fields for queries.
+- **Seeding:** `api/lib_credentialed_checks.php` defines built-ins (`ssh.linux.os_release`, `ssh.linux.package_inventory`, `snmpv3.device_identity`) and upserts on `(plugin_key, version)` without deleting operator-added rows.
+- **Read API:** `GET /api/credentialed_checks.php` (admin-only) returns metadata only — **no secrets**, no execution.
 
 ### Execution rules
 
@@ -150,6 +157,7 @@ Practical SQLite-oriented tables (names illustrative):
 | `principal_json` | Non-secret fields |
 | `secret_ciphertext` | Encrypted blob; **never** selected into generic APIs |
 | `scope_json` | Allowed scopes/assets/tags |
+| `enabled` | Soft-disable profile without delete |
 | `created_by`, `created_at`, `updated_at` | |
 | `last_test_at`, `last_test_status` | |
 
@@ -174,6 +182,7 @@ Practical SQLite-oriented tables (names illustrative):
 |--------|------|
 | `id` | PK |
 | `job_id` | nullable for ad-hoc |
+| `worker_job_id` | Optional link to `worker_jobs.id` when execution is enqueued on the substrate |
 | `started_at`, `finished_at` | |
 | `status` | queued / running / completed / failed / cancelled |
 | `initiated_by` | user id or `system` if ever allowed |
@@ -187,29 +196,93 @@ Practical SQLite-oriented tables (names illustrative):
 | `run_id`, `asset_id` | |
 | `status` | per-target |
 | `error_code`, `error_message_safe` | no secrets |
+| `started_at`, `finished_at` | optional per-target timing |
 
 ### `credential_check_results`
 
 | Column | Notes |
 |--------|------|
 | `id` | PK |
-| `run_id`, `asset_id`, `plugin_key`, `plugin_version` | |
-| `status` | success / partial / failed |
+| `run_id` | Logical ref to `credential_check_runs.id` |
+| `target_id` | Optional logical ref to `credential_check_run_targets.id` (per-target correlation) |
+| `asset_id` | Logical ref to `assets.id` |
+| `plugin_key`, `plugin_version` | |
+| `status` | success / partial / failed (app-level) |
 | `normalized_json` | Schema-validated output |
 | `metrics_json` | duration, bytes, retry count |
+| `created_at` | |
 
 ### `credential_check_artifacts`
 
 | Column | Notes |
 |--------|------|
 | `id` | PK |
-| `result_id` | FK |
+| `result_id` | Logical ref to `credential_check_results.id` |
 | `kind` | stdout / stderr / snmp_capture / file_excerpt |
-| `storage_path` or `blob` | Prefer file path for large payloads |
+| `storage_path` | Prefer file path for large payloads (nullable) |
+| `blob` | SQLite `BLOB` column, quoted identifier `"blob"` in DDL (nullable) |
 | `sha256`, `size_bytes` | |
-| `redaction_version` | |
+| `redaction_version` | Integer default (e.g. redaction ruleset version) |
+| `created_at` | |
+
+SQLite MVP slice 1 does **not** declare foreign keys for these references (consistent with other SurveyTrace additive tables). **`secret_ciphertext`** exists on `credential_profiles` but generic list/get APIs must **never** return it; nothing writes real ciphertext until a later slice wires encryption.
 
 Indexes: `(run_id)`, `(asset_id, started_at)` for host history; `(job_id, started_at)` for job audit.
+
+### Slice 6 — Job templates and queueing (implemented)
+
+Operators define **`credential_check_jobs`** and launch **`credential_check_runs`** from admin APIs/UI. At launch the server **snapshots** targets into **`credential_check_run_targets`**, enqueues **`worker_jobs`** with `job_type = credentialed_check`, `entity_type = credential_check_run`, `entity_id = credential_check_runs.id`, and links `credential_check_runs.worker_job_id`.
+
+APIs: `GET/POST /api/credential_check_jobs.php`, `GET/POST /api/credential_check_runs.php` (admin-only). Cooperative cancel uses `worker_jobs.cancel_requested_at` plus helpers `st_worker_finalize_queued_cancel` / `st_worker_finalize_leased_cancel` / `st_worker_finish_job_cancelled` so queued jobs do not remain stuck non-leaseable after cancel.
+
+### Slice 7 — Bounded SSH `os_release` (implemented)
+
+The Python daemon **`daemon/credential_check_worker.py`** (with **`daemon/cred_check_run.py`**, **`daemon/cred_check_ssh_os_release.py`**, **`daemon/cred_check_ssh_packages.py`** for slice 8, **`daemon/cred_secret_decrypt.py`**, **`daemon/cred_decrypt_cli.php`**) leases credentialed check jobs and, when the job’s **`plugin_selection_json`** includes **`ssh.linux.os_release@1.0.0`** and/or **`ssh.linux.package_inventory@1.0.0`** and the profile transport is **SSH**, runs the corresponding bounded paths — **no PTY**, **no operator-supplied remote command**, **no shell interpolation of user data**. **Asset `ip` only** is used as the SSH target address. Plugins not in the executable set for the transport remain **`skipped` / `not_implemented`** (unless placeholder-only mode).
+
+Secrets are decrypted with the same envelope format as **`api/lib_secrets.php`** by invoking **`daemon/cred_decrypt_cli.php`** (requires **`php`** on the worker host and **`SURVEYTRACE_CRED_SECRET_KEY`** when ciphertext is stored). On success the worker writes **`credential_check_results`** (`normalized_json` includes `os_release`, `normalized_os`, `source: credentialed_check`), a **small bounded stdout `credential_check_artifacts`** row (sha256 + size), and an **`os_version_observed`** row in **`asset_observations`** with recon source **`credentialed_check`** and a stable **`source_object_ref`** (`run:{id}:target:{id}:ssh.linux.os_release@1.0.0`). **No direct `asset_assertions` writes** from the worker.
+
+**Smoke / CI:** set **`SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1`** so the worker keeps slice-6-style skips (no SSH, no results) for automated DB fixtures.
+
+**Stabilization / security (audit):**
+
+- **Secrets:** decrypted only immediately before SSH for a target; decrypt helper never logs stderr; worker DB **`worker_jobs.error_message`** on internal failure is a **generic** string (no Python trace / exception text in SQLite).
+- **`normalized_json`:** `os_release` map is **sanitized** (sensitive-looking keys stripped, per-key and key-count caps) before insert so a hostile `/etc/os-release` cannot bloat JSON or smuggle obvious secret fields.
+- **Run detail API:** returns **`normalized_preview`** (truncated; for **`ssh.linux.package_inventory`** a bounded JSON preview with **`packages_sample`** instead of the full list) and **`metrics`** allowlist only — not raw **`metrics_json`**.
+- **SSH:** **`get_pty=False`**; stderr from remote is **not** stored on success (only a length in metrics); SFTP primary + fixed **`cat /etc/os-release`** fallback; host-key policy **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** matches **`daemon/cred_transport_ssh.py`** (default AutoAdd — MITM risk documented for lab tests; use **`reject`** / **`strict`** in production).
+- **No-network test:** `python3 daemon/cred_check_slice7_selftest.py` (parse, caps, normalizer).
+
+**Manual SSH checklist (before package inventory):**
+
+1. Job with **`ssh.linux.os_release@1.0.0`** only; profile **SSH**; asset **`ip`** reachable; **`SURVEYTRACE_CRED_SECRET_KEY`** set on app + worker; **`php`** on worker PATH; **unset** `SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY`.
+2. Expect **`credential_check_results`** row, **`credential_check_artifacts`** stdout ≤32 KiB, **`os_version_observed`** upsert, run **`completed`** with mixed target outcomes if some assets fail.
+3. Wrong password → target **`auth_failed`**; tiny timeout in job policy → **`timeout`**; **`output_too_large`** → cap manifest / policy and use an artificially huge remote file (lab only).
+4. Cancel mid-run → remaining targets **`user_cancelled`**; cancel after all targets finished → run still **`completed`**.
+5. GET run detail as admin → no **`secret_ciphertext`**, no full **`normalized_json`**, **`metrics`** only allowlisted keys.
+
+### Slice 8 — Bounded SSH `package_inventory` (implemented)
+
+When **`ssh.linux.package_inventory@1.0.0`** is selected and the profile transport is **SSH**, **`daemon/cred_check_ssh_packages.py`** uses the same Paramiko session policy as slice 7 and runs **only** these fixed remote commands (**`get_pty=False`**, strict timeout, separate stderr cap, stdout truncated at cap instead of failing the whole read):
+
+- **`dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n'`** — tried first; success when exit code **0**.
+- **`rpm -qa --qf '%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n'`** — used when dpkg does not succeed with exit **0**.
+
+There is **no** operator-supplied argv, **no** shell interpolation from user input, and **no** stderr artifact for MVP (stderr length may appear in **`metrics_json`** only). **`credential_check_results.status`** is **`success`**, **`partial`** (truncated stdout, storage row cap, or parse drops), or **`failed`** (auth, timeout, unsupported OS when neither manager works, etc.). **`normalized_json`** holds **`package_manager`**, **`package_count`**, bounded **`packages[]`**, **`partial`**, **`truncated`**, **`source: credentialed_check`** — field **`parse_dropped`** is metrics-only. **Default parse caps** (overridable via plugin manifest caps when present): **2000** stored rows; **200** / **200** / **64** characters per name / version / arch after sanitization. **`credential_check_artifacts`** stores stdout clipped to **32 KiB** (sha256 of the stored snippet). **`package_inventory_observed`** is written **once per result** as a **summary** (manager / count / digest in **`normalized_value`**; small JSON summary in **`raw_value`**) — **not** thousands of **`package_installed`** rows. **No CVE fusion, no findings, no assertions** from this path; the full bounded list is **evidence** in the check result, not a trusted software assertion.
+
+**No-network test:** `python3 daemon/cred_check_slice8_pkg_selftest.py` (parser/sanitizer). **`python3 daemon/cred_check_slice7_selftest.py`** remains for os-release. **`php scripts/st_cc_normalized_preview_slice8_selftest.php`** asserts admin run-detail preview never exposes the full **`packages`** array (only **`packages_sample`**).
+
+**Storage / retention (operator expectation):** each completed run appends **`credential_check_results`** and **≤32 KiB** stdout **`credential_check_artifacts`** per plugin row; **`normalized_json`** is capped (~2000 package dicts × field caps). **`package_inventory_observed`** upserts **one row per run** (`source_object_ref` includes `run_id`), so observation volume scales with **run history**, not package cardinality — prune old runs or trim **`asset_observations`** if retention becomes an issue (no automated TTL in MVP).
+
+### Slice 9 — SNMPv3 `device_identity` (implemented)
+
+When **`snmpv3.device_identity@1.0.0`** is selected and the job credential profile transport is **`snmpv3`**, **`daemon/cred_check_snmp_identity.py`** issues **one SNMPv3 GET** for exactly three OIDs — **`1.3.6.1.2.1.1.1.0`** (sysDescr), **`1.3.6.1.2.1.1.2.0`** (sysObjectID), **`1.3.6.1.2.1.1.5.0`** (sysName). **No walk**, **no SET**, **no operator-supplied OIDs**. Requires **`pysnmp`** on the worker host (same venv as **`daemon/cred_transport_snmp.py`** handshake). Auth/priv protocols match slice 5 handshake (**MD5/SHA** auth; **AES/AES128/DES** privacy); **`invalid_profile`** when privacy without auth, unsupported protocol strings, or contradictory **`security_level`**.
+
+**Results:** **`normalized_json`** contains **`snmpv3_identity`** (bounded strings), **`normalized_identity`** (**name** / **vendor_hint** / **model_hint** heuristics), **`source`**, **`partial`**. Status **`success`** (all three values), **`partial`** (one or two values), or **`failed`** (SNMP/auth/timeout errors, or **`partial_result`** when the GET succeeds but **no** usable OID values). **`metrics_json`** may include **`oids_present`**. Optional artifact **`snmp_identity_json`** holds OID values only (**≤4 KiB**), not packet captures.
+
+**Observations (summarized):** **`hostname_observed`** / **`fqdn_observed`** from **sysName** when present; **`device_identity_observed`** digest — **no** per-OID explosion. **No** device merge, **no** assertion writes from the executor.
+
+**Run-detail API:** **`st_cc_normalized_preview_public`** exposes short previews (**sys_descr_preview**, **sys_object_id_preview**, **sys_name_preview**) — not full **`normalized_json`**.
+
+**No-network test:** `python3 daemon/cred_check_slice9_snmp_selftest.py`.
 
 ---
 
@@ -217,17 +290,20 @@ Indexes: `(run_id)`, `(asset_id, started_at)` for host history; `(job_id, starte
 
 Checks **write observations** (and optionally **findings**) through a **single ingestion path**, analogous to scanner/Zabbix write paths described in [Trusted data model](TRUSTED_DATA_MODEL.md).
 
+**Slice 10 (implemented):** `api/lib_reconciliation.php` lazy reconciliation **consumes** persisted **`os_version_observed`**, applies **freshness (90d TTL)** vs scan/Zabbix, and tunes **`canonical_hostname`** scoring so SNMP **`sysName`** supports identity **without** pretending multi-source corroboration when only SNMP shaped both FQDN + short label. **`device_identity_observed`** is attached as an assertion-source **context** row only. **`package_inventory_observed`** stays **summary-only** on the evidence pane — **no CVE / findings / software assertions**. Workers still **never** write **`asset_assertions`** directly.
+
 | Check output | Observation / evidence | Assertion impact |
 |--------------|------------------------|------------------|
-| Installed package list | New/updated `observation_type` e.g. `package_installed` with normalized `(name, version, arch)` | May inform future **software inventory** assertions — **only** via reconciliation slice, not direct SQL update to `asset_assertions`. |
-| `/etc/os-release` | `os_version_observed` / strengthens `os_fingerprint_*` family | Feeds existing **`os_platform`** reconciliation; may raise confidence or conflict for operator review. |
+| Installed package list | Slice 8: summarized **`package_inventory_observed`** only; per-package `package_installed` deferred | **Evidence only** in slice 10 (host modal / diagnostics). Future software assertions only via a dedicated reconciliation slice — **not** direct SQL from the worker. |
+| SNMP sysName / identity | Slice 9: **`hostname_observed`** / **`fqdn_observed`** + **`device_identity_observed`** summary only | Lazy **`canonical_hostname`** reconciliation (slice 10 tuning); **no** auto-merge or executor-direct **`canonical_hostname`** writes. |
+| `/etc/os-release` | `os_version_observed` | Lazy **`os_platform`** reconciliation (slice 10): authenticated release preferred when fresh; agreement/conflict explanations; stale release does not dominate. |
 | Missing patch detector | `patch_state_observed` or **finding** row with CVE/KB link | Findings are triage objects; optional later assertion types for “patch posture” if introduced with schema. |
 | Local service list | `service_list_observed` (bounded) | Informational / future “exposed service” assertions with strict reconciliation. |
 | Config drift | `config_finding` + artifact hash | Assertions only if product defines `config_assertion` slice later. |
 
 **Rules**
 
-- Plugins produce **normalized_json**; ingester maps to `asset_observations` with `source_id` = dedicated recon source, e.g. `surveytrace_credentialed_check`, and `source_object_ref` = `run_id:plugin_key:target`.
+- Plugins produce **normalized_json**; ingester maps to `asset_observations` with `source_id` = recon source **`credentialed_check`** (seeded in `recon_sources`) and `source_object_ref` = e.g. `run:{run_id}:target:{target_row_id}:ssh.linux.os_release@1.0.0`.
 - **Never** overwrite `asset_assertions` inside the check executor. Reconciliation runs append to `reconciliation_runs` and update assertions using existing patterns (lazy or batch).
 - **Low-confidence** or conflicting observations remain visible in evidence UI; **trusted_*** style promotion stays governed by [Trusted data model](TRUSTED_DATA_MODEL.md) thresholds.
 

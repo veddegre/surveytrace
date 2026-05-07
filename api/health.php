@@ -603,17 +603,38 @@ if ($aiProvHealth === 'ollama') {
 
 $health['ok'] = $health['data_dir']['writable'] && $health['database']['reachable'];
 
+require_once __DIR__ . '/lib_worker_jobs.php';
+$health['worker_substrate'] = st_worker_substrate_health_snapshot($db);
+
+require_once __DIR__ . '/lib_credential_check_ops.php';
+try {
+    $health['credential_check_runs'] = st_cc_health_snapshot_runs($db);
+} catch (Throwable $e) {
+    $health['credential_check_runs'] = [
+        'tables_ready' => false,
+        'summary'      => 'Credentialed check run health unavailable.',
+    ];
+    @error_log('SurveyTrace health credential_check_runs: ' . $e->getMessage());
+}
+
 require_once __DIR__ . '/lib_reconciliation.php';
 try {
     $health['trusted_data'] = st_recon_health_snapshot($db);
 } catch (Throwable $e) {
     $health['trusted_data'] = [
-        'tables_ready'                      => false,
-        'observation_count'                 => 0,
-        'identity_observation_count'        => 0,
-        'identity_assertion_count'          => 0,
-        'identity_hostname_conflict_assets' => 0,
-        'warning_hints'                     => ['Trusted data health snapshot unavailable.'],
+        'tables_ready'                       => false,
+        'observation_count'                  => 0,
+        'assertion_count'                    => 0,
+        'identity_observation_count'         => 0,
+        'identity_assertion_count'           => 0,
+        'identity_hostname_conflict_assets'  => 0,
+        'reconciliation_runs_total'          => 0,
+        'failed_runs_24h'                    => 0,
+        'last_failure_message'               => null,
+        'stale_os_assertions_30d'            => 0,
+        'credentialed_observation_count'     => 0,
+        'stale_cred_os_observations_90d'     => 0,
+        'warning_hints'                      => ['Trusted data health snapshot unavailable.'],
     ];
     @error_log('SurveyTrace health trusted_data: ' . $e->getMessage());
 }

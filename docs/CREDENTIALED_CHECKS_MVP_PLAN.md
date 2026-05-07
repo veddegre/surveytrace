@@ -18,27 +18,31 @@ This document is a **staged implementation plan** for the MVP described in [Cred
 ```mermaid
 flowchart LR
   S1[1 Schema foundation]
-  S2[2 Profile UI/API]
-  S3[3 SSH test only]
-  S4[4 Plugin registry]
-  S5[5 First worker + one SSH check]
-  S6[6 MVP plugins complete]
-  S7[7 Trusted data ingestion]
-  S8[8 UI surfaces]
-  S9[9 Safety and audit hardening]
+  S2[2 Plugin registry]
+  S3[3 Profile UI/API]
+  S4[4 Secret storage]
+  S5[5 Transport handshake test]
+  S6[6 Jobs queue placeholder]
+  S7[7 First worker + SSH check]
+  S8[8 MVP plugins complete]
+  S9[9 Trusted data ingestion]
+  S10[10 UI surfaces]
+  S11[11 Safety hardening]
   S1 --> S2
   S2 --> S3
-  S2 --> S4
+  S3 --> S4
+  S3 --> S6
   S4 --> S5
-  S3 --> S5
-  S5 --> S6
+  S5 --> S7
   S6 --> S7
   S7 --> S8
-  S5 --> S9
   S8 --> S9
+  S9 --> S10
+  S7 --> S11
+  S10 --> S11
 ```
 
-*Note:* Slice 3 (SSH test) and slice 4 (registry) can proceed in parallel after slice 2; slice 5 requires both.
+*Note:* **Slice 4** (secrets) is required before **slice 5** (handshake tests) when using stored material. **Slice 6** (job templates + `worker_jobs` queue + placeholder worker) lands after profiles/plugins; **slice 7** adds first real SSH plugin execution.
 
 ---
 
@@ -66,16 +70,17 @@ stateDiagram-v2
 
 ---
 
-## Slice 1 — Schema and settings foundation
+## Slice 1 — Schema and settings foundation (**implemented**)
 
 ### Purpose
 
-Land **additive** SQLite tables and indexes so later slices can store profiles, plugins, jobs, runs, results, and artifacts **without any execution path**. Establish a single migration gate (e.g. `config.migration_cred_checks_v1` or equivalent pattern used in `api/db.php`) so deploys are idempotent.
+Land **additive** SQLite tables and indexes so later slices can store profiles, plugins, jobs, runs, results, and artifacts **without any execution path**. Establish a single migration gate (`config.migration_credentialed_checks_v1`) in `api/db.php` so deploys are idempotent.
 
 ### Files likely involved
 
-- `api/db.php` — idempotent `CREATE TABLE IF NOT EXISTS`, migration flag, optional `PRAGMA`/indexes.
-- `docs/CREDENTIALED_CHECKS_ENGINE.md` — §6 alignment (no doc drift for column names once frozen in slice 1).
+- `api/db.php` — `st_migrate_credentialed_checks_v1()`: idempotent `CREATE TABLE IF NOT EXISTS`, indexes, migration marker.
+- `sql/schema.sql` — same tables for fresh installs.
+- `docs/CREDENTIALED_CHECKS_ENGINE.md` — §6 physical schema (includes `target_id` on results, `credential_check_artifacts` column list, quoted `blob` column name).
 
 ### Schema / API changes
 
@@ -83,28 +88,28 @@ Land **additive** SQLite tables and indexes so later slices can store profiles, 
 
 | Table | MVP role |
 |-------|-----------|
-| `credential_check_plugins` | Seed rows for built-in manifests (slice 4 can populate). |
+| `credential_check_plugins` | Built-in manifests seeded from `api/lib_credentialed_checks.php` (slice 2). |
 | `credential_profiles` | Transport, `principal_json`, `secret_ciphertext`, `scope_json`, audit columns, `last_test_*`. |
 | `credential_check_jobs` | `target_mode`, `target_json`, `plugin_selection_json`, `policy_json`, `enabled`. |
-| `credential_check_runs` | `job_id` nullable, `status`, `summary_json`, `initiated_by`, timestamps. |
-| `credential_check_run_targets` | **Recommended** for per-target status (cleaner than overloading `runs`). |
-| `credential_check_results` | `run_id`, `asset_id`, `plugin_key`, `plugin_version`, `status`, `normalized_json`, `metrics_json`. |
-| `credential_check_artifacts` | Optional in slice 1 if slice 5 stores stdout to DB; otherwise defer blob table and use `results.normalized_json` only until artifact path exists. **Plan:** create table with `blob` OR `storage_path` nullable; MVP can write small redacted stdout into artifact row with size cap. |
+| `credential_check_runs` | `job_id` nullable, optional `worker_job_id` (substrate link when slice 7 enqueues), `status`, `summary_json`, `initiated_by`, timestamps. |
+| `credential_check_run_targets` | Per-target status, safe errors, `started_at` / `finished_at`. |
+| `credential_check_results` | `run_id`, optional `target_id`, `asset_id`, `plugin_key`, `plugin_version`, `status`, `normalized_json`, `metrics_json`, `created_at`. |
+| `credential_check_artifacts` | `result_id`, `kind`, `storage_path`, quoted `"blob"` BLOB column, `sha256`, `size_bytes`, `redaction_version`, `created_at` — all nullable where appropriate for slice 7+ evidence. |
 
-**Settings (optional slice 1 or 2):**
+**Settings (optional slice 1 or 3):**
 
 - Global caps: `cred_check_max_concurrency`, `cred_check_default_timeout_ms`, `cred_check_max_output_bytes` in existing `config` key pattern or dedicated keys.
 
 ### Security risks
 
-- Empty migration gives **false confidence** if tables exist but RLS/RBAC not wired yet — mitigate with **no public API** until slice 2.
-- `secret_ciphertext` column present without encryption key → treat as **blocker** for slice 2 writes (document key source: env var).
+- Empty migration gives **false confidence** if tables exist but RLS/RBAC not wired yet — mitigate: slice 2 adds **admin-only** read-only plugin API; still **no execution** until worker slices; **encrypted secrets** arrive in slice 4 (`SURVEYTRACE_CRED_SECRET_KEY`).
+- `secret_ciphertext` column present; **slice 3** was metadata-only; **slice 4** writes encrypted envelopes when `SURVEYTRACE_CRED_SECRET_KEY` is configured.
 
 ### Validation steps
 
 - Fresh DB: open app, migrations run once, tables present (`sqlite3` / admin query).
-- Repeat open: migration flag prevents duplicate DDL errors.
-- `php -l` on touched PHP files.
+- Repeat open: migration flag `migration_credentialed_checks_v1` prevents duplicate DDL errors.
+- `php -l api/db.php` · `sqlite3 :memory: < sql/schema.sql` — cred tables exist.
 
 ### Rollback considerations
 
@@ -117,230 +122,332 @@ Land **additive** SQLite tables and indexes so later slices can store profiles, 
 
 ---
 
-## Slice 2 — Credential profile UI/API
+## Slice 2 — Built-in plugin registry (**implemented**)
 
 ### Purpose
 
-Operators can **create, list, update, delete** credential **metadata** and set **secrets once**; list/get responses **never** include decrypted secrets or ciphertext. Enforce **admin (or dedicated role) boundary** and append **audit events**.
+Ship **versioned built-in plugin manifests** in `credential_check_plugins` with **idempotent seeding** and **admin-only read-only** listing. **No execution**, no credential storage/use, no worker enqueue, no observation writes. Establishes allowlisted-operations metadata for future SSH/WinRM/SNMP workers.
 
-### Files likely involved
+### Files involved
 
-- `api/credential_profiles.php` (new) or namespaced under `api/credentials.php` — CRUD + CSRF for mutating routes.
-- `api/lib_credential_crypto.php` (new) — encrypt/decrypt helpers using server key from env.
-- `api/auth.php` / role checks — new permission constants.
-- `public/index.php` — admin-only **Credentialed Checks** stub section: profile list + create form (secret field **password input**, never echoed back).
-- `api/db.php` — if not done in slice 1, wire migration.
+- `api/lib_credentialed_checks.php` — `st_cred_tables_ready`, `st_cred_builtin_plugin_manifests`, `st_cred_seed_builtin_plugins`, `st_cred_list_plugins`, `st_cred_get_plugin`.
+- `api/credentialed_checks.php` — `GET` admin-only JSON (`plugins=1` list; `plugin_key` / optional `version` for one row).
+- `api/db.php` — calls `st_cred_seed_builtin_plugins` after cred schema migration when tables are ready.
 
-### Schema / API changes
+### Built-in plugins (seeded)
 
-- Confirm `credential_profiles` columns; add `deleted_at` soft-delete optional.
-- Audit: extend `user_audit_log` or add `credential_audit_events` table with `event_type`, `actor_user_id`, `credential_profile_id`, `payload_json` (no secrets).
+| plugin_key | version | transport | state | Notes |
+|------------|---------|-----------|-------|--------|
+| `ssh.linux.os_release` | 1.0.0 | ssh | **stable** | Fixed `/etc/os-release` read; caps/timeouts in manifest. |
+| `ssh.linux.package_inventory` | 1.0.0 | ssh | **experimental** | Fixed dpkg/rpm templates; large-output truncation policy documented in manifest. |
+| `snmpv3.device_identity` | 1.0.0 | snmpv3 | **experimental** | OID allowlist for sysDescr / sysObjectID / sysName only; read-only GET. |
 
-**API contract examples (conceptual):**
+### Safety model
 
-- `GET /api/credential_profiles.php` → list: `id`, `name`, `transport`, `principal_json` (sanitized), `scope_json`, `last_test_at`, `last_test_status`, `has_secret` boolean.
-- `POST` create / `PUT` update → body may include `secret` once; response **omits** secret.
-- `DELETE` → soft-delete preferred.
-
-### Security risks
-
-- Secret in query string or GET — **forbid**; POST/PUT JSON only.
-- Logged request bodies — disable verbose access logs for this route or strip `secret` key in app-layer logger.
-- Weak encryption (hardcoded key) — document **must** set `SURVEYTRACE_CRED_KEY` (name TBD) in production.
+- Manifests declare **allowlisted_operations** only — executor slices must map `plugin_key` to these templates (no arbitrary argv).
+- **Secrets** never appear in manifests, API responses, or this slice’s code paths.
+- Unknown rows in `credential_check_plugins` are **never deleted** by the seeder; only matching `(plugin_key, version)` built-ins are upserted.
 
 ### Validation steps
 
-- Create profile with secret; GET list and GET by id show **no** secret fields.
-- Tamper ciphertext in DB; decrypt fails gracefully with safe error for operator (update secret).
-- Non-admin user receives `403` on all mutating routes.
-- Audit row per create/update/delete.
-
-### Rollback considerations
-
-- Disable routes via feature check; data retained.
+- `php -l api/lib_credentialed_checks.php` · `php -l api/credentialed_checks.php`
+- After `st_db()`, three built-in rows exist; second bootstrap leaves count unchanged (upsert idempotent).
+- `GET /api/credentialed_checks.php?plugins=1` as admin returns metadata only.
 
 ### Explicitly deferred
 
-- Vault/HSM integration, key rotation tooling, per-tenant KMS.
+- Job UI dropdown, experimental visibility toggles, rejecting unknown `plugin_key@version` on job save → **Slice 6** extensions and later profile/job slices.
 
 ---
 
-## Slice 3 — SSH credential test only
+## Slice 3 — Credential profile UI/API (**implemented** — metadata + slice 4 secrets)
 
 ### Purpose
 
-**Handshake-only** validation: TCP connect + SSH banner + auth + optional `whoami`/no-op channel, with **host key policy**, **short timeout**, and **safe error taxonomy**. **No plugin execution**, no observation writes.
+Operators manage **credential profile metadata** (name, transport, `principal_json`, `scope_json`, enabled) under **admin-only** API + Settings UI. **Slice 3 originally shipped metadata-only**; **slice 4** adds optional **encrypted** `secret_ciphertext` via `set_secret` / `clear_secret` when `SURVEYTRACE_CRED_SECRET_KEY` is set. **No transport test, no plugin runs.** List/get responses **never** include `secret_ciphertext`; responses expose `has_secret` / `secret_status` and a redacted `secret_envelope` summary when a secret exists.
 
-### Files likely involved
+### Files involved
 
-- `api/credential_profiles.php` — `action=test` POST with `id`, optional `asset_id` for target IP resolution.
-- `api/lib_cred_check_ssh.php` (new) — isolated SSH client wrapper (phpseclib or `ssh` CLI — **open decision**).
-- `credential_profiles` — persist `last_test_at`, `last_test_status`, `last_test_error_code` (safe string enum).
+- `api/credential_profiles.php` — `GET` list / `GET?id=` (+ `encryption` status); `POST` JSON actions `create`, `update`, `set_enabled`, `delete`, `set_secret`, `clear_secret` (CSRF on POST).
+- `api/lib_credential_profiles.php` — table check, JSON encode/validate, public row shaping, job reference counting, summaries, secret material normalization (with `api/lib_secrets.php`).
+- `api/db.php` — `st_migrate_cred_profiles_deleted_at_v1()` adds `deleted_at` + index for soft-archive when a profile is still referenced by `credential_check_jobs`.
+- `public/index.php` — Settings → **Credentialed checks — profiles** card (admin only): table, modal add/edit, enable/disable, remove (hard delete if unused; **archive** if jobs reference the profile). **Handshake test** UI (slice 5) in the modal + card hint.
 
 ### Schema / API changes
 
-- Optional columns: `host_key_policy` (`reject_unknown` | `pin_first_use` — open decision), `known_hosts_json` or FK to `credential_profile_host_keys` table if pins stored separately.
+- `credential_profiles.deleted_at` (nullable) — archived rows hidden from list; `delete` action archives when `credential_check_jobs` references the profile.
+- Audit via existing `user_audit_log`: `credential_profile.created`, `.updated`, `.enabled`, `.disabled`, `.deleted`, `.archived`, and slice 4 `.secret_*` events (details contain ids/names/transport — **no secrets**).
 
 ### Security risks
 
-- **TOFU** without operator confirm can enable MITM — MVP default should be **reject_unknown** until pins exist, or explicit “pin on first successful test” flow (document in slice 3 gate).
-- Testing against arbitrary IP supplied by low-priv user — bind test to **assets operator can see** and **profile scope_json**.
+- Use POST JSON only for mutations (no secrets in query string). Slice 4 encrypts payloads server-side; responses never echo ciphertext or plaintext.
 
 ### Validation steps
 
-- Valid key: `last_test_status=ok`, audit `credential.test`.
-- Wrong key: `auth_failed`, no stack trace to client.
-- Unknown host key when policy reject: `host_key_unknown`.
-- Timeout: `timeout`.
+- `php -l api/credential_profiles.php api/lib_credential_profiles.php api/lib_secrets.php api/db.php`
+- Admin: create/edit/list/disable/delete; non-admin: **403**.
+- `GET` / `POST` responses contain **no** `secret_ciphertext` key (envelope summary only when stored).
 
 ### Rollback considerations
 
-- Test is read-only server-side except profile columns; safe to disable action flag.
+- Leave tables in place; stop shipping `credential_profiles.php` / hide UI card if needed.
 
 ### Explicitly deferred
 
-- WinRM/SNMP test (slice 6 optional for SNMP).
+- Vault/HSM; automatic key rotation (documented as operator-managed in slice 4).
 
 ---
 
-## Slice 4 — Plugin registry
+## Slice 4 — Credential secret storage foundation (**implemented**)
 
 ### Purpose
 
-Ship **built-in** plugin rows with **versioned manifests**; states `stable` | `experimental` | `disabled`. **Version pinning** on jobs. **No user-uploaded** plugins.
+Provide **authenticated encryption** for profile secrets in `credential_profiles.secret_ciphertext` using an **application key from the environment** (`SURVEYTRACE_CRED_SECRET_KEY`). **No** SSH/SNMP/WinRM test, **no** check execution, **no** worker enqueue. API returns **`has_secret`**, **`secret_status`**, and a **non-decrypting** `secret_envelope` summary only — never `secret_ciphertext` or plaintext.
 
-### Files likely involved
+### Files involved
 
-- `api/db.php` — seed `INSERT OR REPLACE` for built-in manifests on migration (or PHP seed function).
-- `api/credential_check_plugins.php` (new) — read-only list for UI with RBAC; admin toggle experimental visibility.
-- `public/index.php` — job editor: dropdown of plugins filtered by state + user role.
+- `api/lib_secrets.php` — `st_secret_encrypt`, `st_secret_decrypt`, `st_secret_available`, `st_secret_status`, `st_secret_redact_summary` (libsodium secretbox preferred; OpenSSL AES-256-GCM fallback).
+- `api/lib_credential_profiles.php` — transport-specific `st_cred_profile_normalize_secret_material`; list/get selects ciphertext only server-side for envelope summary (never exposed in JSON).
+- `api/credential_profiles.php` — `GET` includes `encryption` status; `POST` actions `set_secret`, `clear_secret`.
+- `public/index.php` — modal: set/replace / clear secret, disabled when encryption unavailable.
+- `public/css/app.css` — `.modal-w640` for credential modal width.
 
-### Schema / API changes
+### Encryption / operations
 
-- `credential_check_plugins` populated with keys:
-  - `ssh.linux.os_release`
-  - `ssh.linux.package_inventory`
-  - Optional: `snmpv3.device_identity` (can ship disabled until slice 6).
+- **Key:** `SURVEYTRACE_CRED_SECRET_KEY` only (trimmed). Accepts base64 of 32 raw bytes, 64-char hex (32 bytes), or arbitrary string (SHA-256 → 32-byte key). Prefer `openssl rand -base64 32` for production.
+- **Missing key:** metadata CRUD unchanged; `set_secret` returns **503** with message `Credential encryption is not configured.`
+- **Key change:** existing envelopes become undecryptable; operators must re-enter secrets (rotation / dual-key not in this slice).
+- **Backup/restore:** DB backup contains ciphertext; **restore on a host without the same key loses secrets** (plaintext not recoverable).
 
-### Security risks
+### API (POST)
 
-- Experimental plugins shown to viewers — gate behind admin setting `cred_check_show_experimental`.
+- `set_secret`: `{ "action":"set_secret", "id": N, "secret_material": { ... } }` — allowed keys only: **SSH:** `password` *or* `private_key`, optional `passphrase` with key; **SNMPv3:** `auth_password` and/or `priv_password`; **WinRM:** `password`. Unknown keys rejected.
+- `clear_secret`: `{ "action":"clear_secret", "id": N }`.
+
+### Audit (`user_audit_log`)
+
+- `credential_profile.secret_set`, `.secret_replaced`, `.secret_cleared`, `.secret_set_failed` (no secret values in `details_json`).
 
 ### Validation steps
 
-- DB contains manifest JSON for each plugin; `disabled` plugins excluded from job UI.
-- Job save rejects unknown `plugin_key@version` combination.
+- `php -l api/lib_secrets.php api/lib_credential_profiles.php api/credential_profiles.php`
+- Without env key: `set_secret` fails safely; `GET` list still works.
+- With key: `set_secret` succeeds; `GET` never contains `secret_ciphertext`; audit rows contain no secret material.
+
+### Explicitly deferred
+
+- Using decrypted secrets for **plugin/worker execution** (later slices). **Transport handshake tests** (slice 5) decrypt only for the subprocess boundary.
+- Re-encrypt-on-key-rotate / dual-key envelope versioning beyond storing `v` in JSON.
+
+---
+
+## Slice 5 — Transport handshake test (**implemented** — SSH + SNMPv3)
+
+### Purpose
+
+**Handshake-only** validation of credential profiles: **no plugins**, **no worker_jobs**, **no observations/findings**. Admin-only `POST` `action=test` with explicit **target_host** (not persisted) + optional **port**. PHP decrypts the stored envelope once, passes a short-lived JSON payload to a **Python helper** via stdin, and updates `last_test_*` columns only.
+
+### Files involved
+
+- `api/credential_profiles.php` — `action=test` (CSRF); body: `id`, `target_host`, optional `port`, optional `timeout_sec` (clamped).
+- `api/lib_credential_profile_transport_test.php` — target validation, flock single-flight lock under `data/cred_profile_transport_test.lock`, `proc_open` runner, safe response shaping, DB + audit orchestration.
+- `daemon/cred_transport_cli.py` — stdin JSON → stdout JSON (one line).
+- `daemon/cred_transport_ssh.py` — **paramiko**: connect, `exec_command('true')`, optional `uname -s` hint (bounded).
+- `daemon/cred_transport_snmp.py` — **pysnmp**: single GET **sysDescr.0** only.
+- `api/db.php` — migration `migration_cred_profile_test_columns_v1`: `last_test_error_code`, `last_test_duration_ms`.
+- `public/index.php` — modal “Run handshake test”; table shows last code/duration.
+
+### SSH host key policy
+
+- Default: **AutoAddPolicy** for the handshake subprocess (operator-supplied target). **Stricter** deployments: set **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** (or `strict` / `no`) to use **RejectPolicy** (unknown keys fail until host keys are managed out-of-band). Documented in [deployment wiki](wiki/deployment.md).
+
+### SNMPv3 limitations
+
+- Principal must include **`securityName`** (or `security_name`). Optional **`authProtocol`** / **`privProtocol`** in principal (`SHA`|`MD5`, `AES`|`DES`). **Privacy without auth password** is rejected at the API. Only **sysDescr.0** is read; no walk/SET.
+
+### Audit (`user_audit_log`)
+
+- `credential_profile.test_started`, `.test_succeeded`, `.test_failed` — details include `credential_profile_id`, `transport`, `target_host`, `code`, `duration_ms` — **never secrets or stderr**.
+
+### Safe error codes (subset)
+
+`ok`, `auth_failed`, `timeout`, `network_unreachable`, `host_key_mismatch`, `protocol_error`, `unsupported_transport`, `encryption_unavailable`, `decrypt_failed`, `invalid_profile`, `busy`.
+
+### Validation steps
+
+- `php -l api/lib_credential_profile_transport_test.php api/credential_profiles.php api/db.php`
+- `python3 -m py_compile daemon/cred_transport_cli.py daemon/cred_transport_ssh.py daemon/cred_transport_snmp.py`
+- `pip install paramiko pysnmp` in venv (`setup.sh` installs both).
+- Without secret: test returns **invalid_profile**; without encryption key: **encryption_unavailable**.
+
+### Explicitly deferred
+
+- **WinRM** handshake. **Scope-bound target resolution** (asset picker / `scope_json` enforcement). **Known-hosts persistence** / TOFU UX. **Parallel or queued** tests beyond single global flock.
+
+---
+
+## Slice 6 — Job templates and execution queueing (**implemented**)
+
+### Purpose
+
+Deliver the **operator workflow** and **worker substrate wiring** for credentialed checks. **Slice 6** landed queueing, cancel, and (optionally) **placeholder-only** worker behavior via **`SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY`**. **Slice 7** adds real **`ssh.linux.os_release`** execution in **`credential_check_worker.py`** (see slice 7).
+
+- **Job templates** (`credential_check_jobs`): profile, plugin selection, target mode (`assets` explicit IDs or `scope` → assets with `scope_id`), policy (`max_concurrency`, `timeout_ms`), `enabled`.
+- **Runs** (`credential_check_runs` + `credential_check_run_targets`): snapshot targets at **launch**; enqueue **`worker_jobs`** (`job_type = credentialed_check`, `entity_type = credential_check_run`, `entity_id = run id`).
+- **Worker** (`daemon/credential_check_worker.py` + helpers): processes targets per job selection; plugins other than **`ssh.linux.os_release@1.0.0`** remain **`skipped` / `not_implemented`** until later slices.
+
+Also includes **strict validation** on save/launch (profile transport vs plugin transport, unknown plugins rejected, **experimental** plugins require `accept_experimental` on launch), **admin-only** HTTP APIs, **audit** events, **cancel** (run + cooperative worker cancel + queued/leased terminal cancel helpers), and a **System Health** line under the worker band.
+
+### Stabilization (slice 6–7 queueing + worker)
+
+- **Run ↔ worker row:** the worker syncs `credential_check_runs` to terminal `cancelled` / `failed` when the linked `worker_jobs` row is cancelled or fails validation, including cancel-before-lease, invalid payload after lease, and a top-level exception handler so a single bad job does not kill the daemon loop.
+- **Idempotency:** each **Run now** creates a new run and one `worker_jobs` row; duplicate `worker_jobs` for the same run are not created by launch. `--once` with an empty queue exits cleanly.
+
+### Files involved
+
+- `api/lib_credential_check_ops.php` — validation, resolve targets, CRUD jobs, launch/cancel/list/detail runs, health snapshot.
+- `api/credential_check_jobs.php`, `api/credential_check_runs.php` — HTTP entrypoints.
+- `api/lib_worker_jobs.php` — `st_worker_finalize_queued_cancel`, `st_worker_finalize_leased_cancel`, `st_worker_finish_job_cancelled` (cancel UX for queued/leased rows).
+- `daemon/credential_check_worker.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py`, `daemon/cred_check_ssh_packages.py`, `daemon/cred_check_snmp_identity.py`, `daemon/cred_secret_decrypt.py`, `daemon/cred_decrypt_cli.php`, `daemon/worker_jobs.py` — execution + cancel completion.
+- `public/index.php` — Settings: jobs table, run history, modals, Run now / cancel / detail.
+- `api/health.php` — `credential_check_runs` snapshot.
+- `surveytrace-credential-check-worker.service` — optional systemd unit (same layout as collector ingest).
+- `deploy.sh`, `setup.sh` — ship + `py_compile` the new daemon.
+
+### Schema / API changes
+
+- **No new tables** (uses slice 1 tables). `credential_check_runs.status` app values include `resolving_targets`, `ready` (reserved), `queued`, `running`, `completed`, `failed`, `cancelled` (see `sql/schema.sql` comments).
+
+### Security risks
+
+- Jobs reference **profile ids** only (no secrets in job rows). Launch still **admin-only**. Experimental plugins require explicit operator confirmation in API/UI.
+
+### Validation steps
+
+- `php -l` on touched PHP; `python3 -m py_compile` on touched Python; `bash -n` on touched shell scripts.
+- **Automated fixture (no production DB, not deployed):** from repo root run `./scripts/smoke_credential_checks_placeholder.sh` — creates a temp SQLite DB from `sql/schema.sql`, seeds a profile/job/asset, calls `st_cc_job_create` + `st_cc_run_launch()`, runs `daemon/credential_check_worker.py --once` with `SURVEYTRACE_DB_PATH`, asserts completed run + target + worker job; then launches a **second** run, calls `st_cc_run_cancel()` before the worker leases it (cancel-before-lease), asserts cancelled run/worker/target, runs the worker `--once` again (idle / terminal-only DB), and checks the first run stays `completed`. Does **not** exercise HTTP APIs or UI.
+- Create/edit/delete job; Run now creates `worker_jobs` + run targets; cancel path updates run + worker row.
+- **`./scripts/smoke_credential_checks_placeholder.sh`** sets **`SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1`** for the worker: no SSH, no `credential_check_results` / observations (slice-6-style assertions). Remove that env for real **`ssh.linux.os_release`** execution against a test host.
 
 ### Rollback considerations
 
-- Set all plugins `disabled` via migration or admin SQL; jobs fail closed at run time with `plugin_disabled`.
+- Stop `credential_check_worker` service; runs may stay `queued` until cancelled or worker resumed.
 
-### Explicitly deferred
+### Explicitly deferred (post slice 8)
 
-- Signed third-party bundles, dynamic loading from disk outside seed.
+- SNMP plugin execution, WinRM, schedules/recurrence.
 
 ---
 
-## Slice 5 — First execution worker
+## Slice 7 — First SSH execution (`ssh.linux.os_release`) (**implemented**)
 
 ### Purpose
 
-**One bounded SSH execution path**: queue a **run**, pick **one** built-in plugin (start with `ssh.linux.os_release`), execute **allowlisted argv** only, enforce **timeout** and **output cap**, record **per-target** status and **result** row. Optional small **artifact** (redacted stdout snippet).
+**One bounded SSH path** for **`ssh.linux.os_release@1.0.0`**: decrypt profile secret (PHP-compatible envelope via **`daemon/cred_decrypt_cli.php`**), connect with **Paramiko** (same host-key policy env as handshake tests), read **`/etc/os-release`** via **SFTP** or fixed **`cat /etc/os-release`**, enforce **timeout** and **stdout/stderr caps**, write **`credential_check_results`**, small **stdout artifact**, and **`os_version_observed`** observation (`recon_sources.source_type = credentialed_check`). **No arbitrary commands**; other plugins stay **`not_implemented`**.
 
-### Files likely involved
+### Files involved
 
-- `api/credential_check_runs.php` (new) — `POST` enqueue run (job id or ad-hoc payload); `GET` status.
-- `api/lib_cred_check_worker.php` (new) — invoked by cron, CLI worker, or same-request async **open decision**.
-- `api/lib_cred_check_ssh_exec.php` (new) — maps `plugin_key` → fixed argv; **no user strings** in argv except target IP from asset row.
-- `public/index.php` — “Run now” on a job with confirmation modal.
-
-### Schema / API changes
-
-- `credential_check_runs.status` transitions; `credential_check_run_targets` rows created up-front or lazily (pick one pattern and document).
+- `daemon/credential_check_worker.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py`, `daemon/cred_secret_decrypt.py`, `daemon/cred_decrypt_cli.php`
+- `api/lib_credential_check_ops.php` — launch payload/summary; run detail `results` / `result_counts`; health snapshot **`completed_recent_24h`**
+- `api/lib_reconciliation.php` — **`st_recon_seed_sources`**: `credentialed_check` recon source
+- `daemon/recon_observations.py` — `normalize_os_text_public`, `upsert_credentialed_check_os_observation`
+- `public/index.php` — Settings help + run detail modal + health line
+- `deploy.sh`, `setup.sh` — ship new daemon files + `py_compile` / `php -l`
 
 ### Security risks
 
-- **Command injection** via asset hostname — MVP: use **asset.ip only** for SSH target, not hostname, unless strict FQDN allowlist added later.
-- Worker runs as same user as web — **privilege risk**; document run-as separate OS user as hardening slice post-MVP if needed.
+- **Command injection** — mitigated: **asset IP only**, fixed remote path / fixed exec string, **no PTY**, no operator argv on remote shell.
+- **Decrypt on worker** — requires **`php`** + **`SURVEYTRACE_CRED_SECRET_KEY`** aligned with the app; envelope **`credential_profile_id`** context must match encryption.
 
 ### Validation steps
 
-- Run against test container: success populates `credential_check_results` with `normalized_json` matching schema.
-- Truncate test: artificially cap output → `partial` or `failed` with `policy_output_too_large`.
-- Kill mid-run → target `failed` / run `cancelled` per policy.
+- `php -l` / `python3 -m py_compile` on touched paths; **`./scripts/smoke_credential_checks_placeholder.sh`** (placeholder-only worker); **`python3 daemon/cred_check_slice7_selftest.py`**.
+- Manual: wrong password → `auth_failed`; tiny **`timeout_ms`** → `timeout`; disabled profile/job → safe skip/fail; output cap → `output_too_large`; repeat run → observation upsert idempotent.
 
 ### Rollback considerations
 
-- Disable worker cron / `config.cred_check_worker_enabled=0`; runs stay `queued`.
+- Stop **`surveytrace-credential-check-worker`**; optional env **`SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1`** forces no remote I/O.
 
 ### Explicitly deferred
 
-- Multi-plugin parallel per target, distributed queue (Redis), WinRM transport.
+- Multi-plugin parallel per target, distributed queue (Redis), WinRM transport — **`os_version_observed`** lazy resolver integration is **slice 10 (done)**; remaining transport/plugins still future work.
 
 ---
 
-## Slice 6 — MVP plugins complete
+## Slice 8 — SSH `package_inventory` (**implemented**)
 
 ### Purpose
 
-Add **`ssh.linux.package_inventory`** (dpkg **or** rpm via **detection** inside plugin — two internal code paths, **same** `plugin_key` or split keys `ssh.linux.packages_dpkg` / `ssh.linux.packages_rpm` — **open decision**; plan recommends **one key** with `normalized_json.packages[]` and `package_manager` field).
+**Second bounded SSH path** for **`ssh.linux.package_inventory@1.0.0`**: same decrypt + Paramiko session as slice 7, then **fixed** **`dpkg-query`** and **`rpm -qa`** strings only (detect manager by trying dpkg first, then rpm). **`get_pty=False`**, strict timeout, stdout/stderr caps; stdout **truncates** at cap with **`partial`/`truncated`** rather than dropping the whole result. **`normalized_json`** holds bounded **`packages[]`** (row cap + field length caps + control-char strip); run-detail API exposes a **preview** with **`packages_sample`** only (not the full list). **One** summarized **`package_inventory_observed`** per result — **no** mass **`package_installed`** rows. **No CVE matching, no findings, no assertions** from the executor.
 
-Add **optional** **`snmpv3.device_identity`** transport path: GET sysName, sysObjectID, sysDescr only; **OID allowlist**; rate limit.
+### Files involved
 
-### Files likely involved
-
-- `api/lib_cred_check_snmpv3.php` (new) if SNMP in MVP.
-- `api/lib_cred_check_ssh_exec.php` — second allowlisted command map entry.
-- Plugin seeds in `api/db.php`.
-
-### Schema / API changes
-
-- SNMP profile: `principal_json` includes `user`, `auth_proto`, `priv_proto`, `security_level`; secrets in ciphertext blob schema-versioned.
-
-### Security risks
-
-- SNMP brute force — per-profile rate limit and per-IP limit (slice 9 can finalize constants; stub counters in slice 6).
+- `daemon/cred_check_ssh_packages.py`, `daemon/cred_check_run.py`, `daemon/cred_check_ssh_os_release.py` (shared `read_exec_stdout_bounded` with truncate mode), `daemon/recon_observations.py` (`upsert_cred_package_inventory_summary_observation`)
+- `api/lib_credential_check_ops.php` — `st_cc_normalized_preview_public`, extended metrics allowlist
+- `daemon/cred_check_slice8_pkg_selftest.py` — no-network parser tests
+- `deploy.sh`, `setup.sh` — ship + `py_compile`
 
 ### Validation steps
 
-- Linux asset: packages array non-empty, bounded size.
-- Non-Linux asset: `skipped` / `unsupported` safe code, no shell invoked.
-- SNMP device: three OIDs present in `normalized_json`.
-
-### Rollback considerations
-
-- Disable SNMP plugin row `state=disabled`.
+- `python3 daemon/cred_check_slice8_pkg_selftest.py`; slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
+- Manual: Debian/Ubuntu → `package_manager=dpkg`; RHEL-style → `rpm`; mixed job with **`os_release`** + **`package_inventory`** → per-plugin status isolation.
 
 ### Explicitly deferred
 
-- WinRM plugins, Windows patch inventory, registry plugins.
+- WinRM, per-package **`package_installed`** observations at scale, CVE / software reconciliation, findings.
 
 ---
 
-## Slice 7 — Trusted data integration
+## Slice 9 — SNMPv3 `device_identity` (**implemented**)
 
 ### Purpose
 
-Map normalized outputs to **`asset_observations`** (and `recon_sources` seed for `surveytrace_credentialed_check`) with stable **`source_object_ref`** (`run_id:plugin_key:asset_id`). Trigger **existing** OS/platform **lazy reconciliation** on next host detail load (or explicit batch job **open decision**) — **never** write `asset_assertions` from this slice.
+**SNMPv3-only** execution for **`snmpv3.device_identity@1.0.0`** when the job’s credential profile transport is **`snmpv3`**: fixed triple GET (**sysDescr.0**, **sysObjectID.0**, **sysName.0**) via **`daemon/cred_check_snmp_identity.py`** (**pysnmp**). No walk, no SET, no operator OIDs. Profiles whose transport does not match selected plugins insert **`unsupported_transport`** per mismatched plugin; SSH plugins still run on **SSH** profiles independently.
 
-### Files likely involved
+Summarized observations only: **`hostname_observed`** / **`fqdn_observed`** from **sysName** when present (existing reconciliation paths apply lazily); **`device_identity_observed`** digest summary — **no** per-OID observation explosion. **No assertions**, device merges, or SNMP fusion.
 
-- `api/lib_reconciliation.php` — register new `recon_source` type; extend observation type allowlist.
-- `api/lib_cred_check_ingest.php` (new) — transaction: results → observations idempotently.
-- `docs/TRUSTED_DATA_MODEL.md` — short appendix note credentialed observation types (doc-only in this slice).
+### Files involved
+
+- `daemon/cred_check_snmp_identity.py`, `daemon/cred_check_run.py`, `daemon/recon_observations.py` (`upsert_cred_snmp_sysname_observations`, `upsert_cred_device_identity_summary_observation`)
+- `api/lib_credential_check_ops.php` — SNMP **`normalized_preview`**, **`oids_present`** in metrics allowlist
+- `daemon/cred_check_slice9_snmp_selftest.py`
+- `deploy.sh`, `setup.sh`
+
+### Validation
+
+- `python3 daemon/cred_check_slice9_snmp_selftest.py`; existing slice 7/8 selftests + placeholder smoke; **`pysnmp`** in app venv (same as handshake **`cred_transport_snmp.py`**).
+
+### Explicitly deferred
+
+- SNMP walks, SNMP SET, arbitrary OID maps, CVE/device fusion.
+
+---
+
+## Slice 10 — Trusted data integration *(implemented)*
+
+### Purpose
+
+Extend **`os_platform`** / identity reconciliation to weight **`os_version_observed`** (slice 7) and SNMP-derived **`hostname_observed`** / **`device_identity_observed`** (slice 9) alongside scan/Zabbix observations — via **existing lazy reconciliation**, never executor-direct **`asset_assertions`** writes.
+
+### Files touched
+
+- `api/lib_reconciliation.php` — cred OS merge + 90d staleness; SNMP hostname scoring; evidence **`contribution_hint`**; health **`credentialed_observation_count`** / stale cred OS count.
+- `public/index.php` — host evidence tables (compact **To belief** / plugin ref columns on observations + assertion sources).
+- `api/health.php` — richer **`trusted_data`** error fallback keys.
+- `docs/TRUSTED_DATA_MODEL.md`, `docs/CREDENTIALED_CHECKS_ENGINE.md` — confidence / deferral notes.
+- `scripts/st_recon_slice10_selftest.php` — no-network reconciliation assertions.
 
 ### Schema / API changes
 
-- Possibly new `observation_type` values: `os_release_cred_check`, `package_installed_cred_check`, `snmp_sys_identity` — **exact names open decision**; must match reconciliation ingest expectations.
+- None required (additive observation types already exist). API payloads gain optional observation fields (`contribution_hint`) and extended assertion-source columns (`observation_source_ref`, `observation_observed_at`).
 
 ### Security risks
 
-- Observation flood — cap rows per run (e.g. max N packages) with overflow summary in `metrics_json`.
+- Observation cadence tied to **run history** — retention pruning remains operational.
 
 ### Validation steps
 
-- After run: `asset_observations` rows appear with correct `source_id` / ref; **no** new assertion rows unless reconciliation runs.
-- Host detail: OS evidence shows new source in reconciliation detail (may require small UI tweak in slice 8).
+- `php scripts/st_recon_slice10_selftest.php`; existing slice 7/8/9 selftests + placeholder smoke; open host detail and confirm cred-sourced rows show source + ref + **To belief** hints.
 
 ### Rollback considerations
 
@@ -352,7 +459,7 @@ Map normalized outputs to **`asset_observations`** (and `recon_sources` seed for
 
 ---
 
-## Slice 8 — UI surfaces
+## Slice 11 — UI surfaces
 
 ### Purpose
 
@@ -387,7 +494,7 @@ Operator-visible **Credentialed Checks** area: profiles, jobs, run list, run det
 
 ---
 
-## Slice 9 — Safety and audit hardening
+## Slice 12 — Safety and audit hardening
 
 ### Purpose
 
@@ -426,7 +533,7 @@ Close the loop on **cancellation**, **concurrency**, **rate limits**, **output r
 
 ## Recommended first plugin manifest examples
 
-These are **illustrative JSON** fragments for `credential_check_plugins.manifest_json` (exact shape can match internal schema validator in slice 4).
+These are **illustrative JSON** fragments for `credential_check_plugins.manifest_json` (exact shape can match internal schema validator in slice 6+ job/executor slices).
 
 ### `ssh.linux.os_release` (stable)
 
@@ -564,18 +671,19 @@ These are **illustrative JSON** fragments for `credential_check_plugins.manifest
 5. **Observation type strings:** final enum set and whether to reuse existing Zabbix/scan observation types vs `_cred_check` suffix for traceability.
 6. **Host detail payload:** widen `assets.php` GET vs dedicated `credential_check_summary.php?asset_id=`.
 7. **Artifact storage:** DB blob vs `data_dir/cred_artifacts/…` with path in table.
-8. **SNMP in first release:** ship slice 6 optional or defer to capability slice 6b after SSH stable.
+8. **SNMP in first release:** ship slice 8 optional or defer to capability slice 8b after SSH stable.
 
 ---
 
 ## Suggested first smoke test scenario
 
 1. **Environment:** One Linux VM or container on lab network; SSH key pair A; asset row with correct IP; no production data.
-2. **Slice 2–3:** Create `credential_profiles` entry `transport=ssh`, scope bound to that asset only; **Test** → expect `ok` and pinned host key (if policy stores pin).
-3. **Slice 5–6:** Create job with plugins `ssh.linux.os_release@1.0.0` and `ssh.linux.package_inventory@1.0.0`; **Run**; expect `completed`, per-target `succeeded`.
-4. **Slice 7:** Open host detail; confirm new **observations** with source `surveytrace_credentialed_check`; confirm **OS assertion** only changes after existing reconciliation path (may require second navigation or batch reconcile **per open decision**).
-5. **Slice 9:** Start a second run, click **Cancel** mid-flight; verify run `cancelled` or partial with no partial secrets in `credential_check_artifacts` / logs.
-6. **Negative:** Wrong key → `auth_failed`, ciphertext unchanged, audit `credential.test` failure.
+2. **Slice 3–5:** Create `credential_profiles` entry `transport=ssh`, scope bound to that asset only; **Test** → expect `ok` and pinned host key (if policy stores pin).
+3. **Slice 7–8:** Create job with plugins `ssh.linux.os_release@1.0.0` and `ssh.linux.package_inventory@1.0.0`; **Run**; expect `completed`, per-target `succeeded`.
+4. **Slice 9:** SNMP **`snmpv3`** profile + **`snmpv3.device_identity@1.0.0`** job on a reachable SNMP agent; expect **`credential_check_results`** with **sysName/sysDescr/sysObjectID** previews (bounded).
+5. **Slice 10:** Open host detail; confirm **`os_version_observed`** / SNMP **`hostname_observed`** / **`device_identity_observed`** evidence with source **`credentialed_check`** where applicable; assertions change **only** via lazy reconciliation; optional **`php scripts/st_recon_slice10_selftest.php`** in CI.
+6. **Slice 12:** Start a second run, click **Cancel** mid-flight; verify run `cancelled` or partial with no partial secrets in `credential_check_artifacts` / logs.
+7. **Negative:** Wrong key → `auth_failed`, ciphertext unchanged, audit `credential.test` failure.
 
 ---
 

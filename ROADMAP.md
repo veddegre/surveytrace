@@ -167,7 +167,12 @@ First-class API-backed enrichment for systems such as:
 
 ### Current state
 
-- credentialed check execution engine is not yet implemented
+- **MVP slice 1 (schema):** additive SQLite tables `credential_profiles`, `credential_check_plugins`, `credential_check_jobs`, `credential_check_runs`, `credential_check_run_targets`, `credential_check_results`, `credential_check_artifacts` plus migration marker `migration_credentialed_checks_v1` ([docs/CREDENTIALED_CHECKS_MVP_PLAN.md](docs/CREDENTIALED_CHECKS_MVP_PLAN.md))
+- **MVP slice 2 (plugin registry):** built-in manifest definitions, `st_cred_seed_builtin_plugins` on `st_db()` bootstrap, `api/lib_credentialed_checks.php`, admin-only read-only `api/credentialed_checks.php` — **no execution**
+- **MVP slice 3 (credential profiles):** admin-only `api/credential_profiles.php` + `api/lib_credential_profiles.php`, Settings UI card — metadata + scope
+- **MVP slice 4 (credential secrets):** `api/lib_secrets.php` (`SURVEYTRACE_CRED_SECRET_KEY`), encrypted `secret_ciphertext`, `set_secret` / `clear_secret` — **no plugin execution**
+- **MVP slice 5 (transport handshake test):** `api/lib_credential_profile_transport_test.php`, `daemon/cred_transport_*.py`, `POST action=test` — **SSH + SNMPv3** only (paramiko + pysnmp), explicit target host, audits `credential_profile.test_*` — **no worker_jobs / observations**
+- credentialed check **execution** (SSH / WinRM / SNMP plugins) is not yet implemented
 
 ### Active areas of improvement
 
@@ -191,6 +196,28 @@ Capabilities:
 
 - This is distinct from API enrichment.
 - This executes checks on systems, not just pulling external data.
+- Shared **job/worker execution** concepts (queues, leases, retries, health) are described in [docs/WORKER_EXECUTION_SUBSTRATE.md](docs/WORKER_EXECUTION_SUBSTRATE.md) as a precursor to credentialed checks and broader observability.
+
+## Worker and job execution substrate
+
+### Current state
+
+- background work is spread across systemd services, PHP CLI workers, Python daemons, and database-specific queues without a single shared job model
+- **MVP slice 1 (schema):** additive SQLite tables `worker_nodes`, `worker_jobs`, `worker_job_attempts`, `worker_job_events`, `worker_heartbeats` plus migration marker `migration_worker_execution_substrate_v1` — **no runtime wiring** yet ([docs/WORKER_EXECUTION_MVP_PLAN.md](docs/WORKER_EXECUTION_MVP_PLAN.md))
+
+### Active areas of improvement
+
+- helper library, health visibility, and adapters on top of the substrate tables ([docs/WORKER_EXECUTION_MVP_PLAN.md](docs/WORKER_EXECUTION_MVP_PLAN.md))
+
+### Planned or deferred work
+
+- gradual adoption per [docs/WORKER_EXECUTION_SUBSTRATE.md](docs/WORKER_EXECUTION_SUBSTRATE.md) (e.g. collector ingest first, credentialed checks when implemented, Zabbix/scan paths later or read-only mirrored only)
+- implementation sequencing: [docs/WORKER_EXECUTION_MVP_PLAN.md](docs/WORKER_EXECUTION_MVP_PLAN.md)
+
+### Notes
+
+- does not replace systemd as the primary supervisor in the near term
+- see [Design approach](#design-approach) for workflow and observability priorities
 
 ## Risk operations and governance
 

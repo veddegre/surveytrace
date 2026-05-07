@@ -48,6 +48,7 @@ function st_recon_seed_sources(PDO $pdo): void
         ['surveytrace_scan', 'default', 'SurveyTrace scan', 'high'],
         ['zabbix_inventory', 'default', 'Zabbix inventory', 'high'],
         ['surveytrace_enrichment', 'default', 'SurveyTrace enrichment', 'medium'],
+        ['credentialed_check', 'default', 'Credentialed check worker', 'high'],
     ];
     $ins = $pdo->prepare(
         "INSERT OR IGNORE INTO recon_sources (source_type, source_instance_key, display_name, trust_level, enabled, updated_at)
@@ -282,7 +283,95 @@ function st_recon_identity_observation_types(): array
         'mac_observed',
         'monitoring_hostid',
         'device_link',
+        'device_identity_observed',
     ];
+}
+
+/** TTL for credentialed OS-release observations dominating reconciliation (matches hostname stale window). */
+function st_recon_cred_os_evidence_ttl_seconds(): int
+{
+    return 90 * 86400;
+}
+
+/**
+ * Whether SNMP sysName-derived hostname/FQDN rows should be scored as “SNMP-only” signals.
+ *
+ * @param array<string,mixed> $r Observation row (needs provenance_json when present).
+ */
+function st_recon_identity_obs_row_is_cred_sysname(array $r): bool
+{
+    $t = (string) ($r['observation_type'] ?? '');
+    if ($t !== 'hostname_observed' && $t !== 'fqdn_observed') {
+        return false;
+    }
+    $prov = json_decode((string) ($r['provenance_json'] ?? '{}'), true);
+
+    return is_array($prov)
+        && ($prov['origin'] ?? '') === 'credentialed_check'
+        && ($prov['field'] ?? '') === 'sysName';
+}
+
+/**
+ * Latest persisted os_version_observed from credentialed_check (worker-owned row; reconciler links by id, no upsert).
+ *
+ * @return array<string,mixed>|null
+ */
+function st_recon_fetch_latest_cred_os_version_obs_def(PDO $pdo, int $assetId): ?array
+{
+    if (! st_recon_tables_ready($pdo) || $assetId <= 0) {
+        return null;
+    }
+    st_recon_seed_sources($pdo);
+    $sidCred = st_recon_source_id($pdo, 'credentialed_check');
+    if ($sidCred === null) {
+        return null;
+    }
+    try {
+        $st = $pdo->prepare(
+            "SELECT id, raw_value, normalized_value, source_id, source_object_ref, confidence_level, provenance_json, observed_at
+             FROM asset_observations
+             WHERE asset_id = ? AND observation_type = 'os_version_observed' AND source_id = ?
+             ORDER BY datetime(observed_at) DESC, id DESC
+             LIMIT 1"
+        );
+        $st->execute([$assetId, $sidCred]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (! is_array($row)) {
+            return null;
+        }
+        $slug = strtolower(trim((string) ($row['normalized_value'] ?? '')));
+        if ($slug === '' || $slug === 'os_unknown') {
+            return null;
+        }
+        $label = st_recon_os_display_label_for_slug($slug);
+
+        return [
+            'observation_type'         => 'os_version_observed',
+            'raw_value'                => (string) ($row['raw_value'] ?? ''),
+            'normalized_slug'          => $slug,
+            'normalized_label'         => $label,
+            'source_id'                => (int) ($row['source_id'] ?? $sidCred),
+            'source_object_ref'        => (string) ($row['source_object_ref'] ?? ''),
+            'confidence_level'         => (string) ($row['confidence_level'] ?? 'high'),
+            'provenance_json'          => (string) ($row['provenance_json'] ?? '{}'),
+            'observed_at'              => isset($row['observed_at']) ? (string) $row['observed_at'] : '',
+            '_existing_observation_id' => (int) ($row['id'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function st_recon_cred_os_obs_def_is_stale(array $def): bool
+{
+    $oa = trim((string) ($def['observed_at'] ?? ''));
+    if ($oa === '') {
+        // Missing timestamp cannot justify dominance vs fresher scan/Zabbix — treat as stale for reconciliation.
+        return true;
+    }
+    $ts = strtotime($oa);
+
+    return $ts !== false && (time() - $ts) > st_recon_cred_os_evidence_ttl_seconds();
 }
 
 /**
@@ -572,6 +661,10 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
         if (! is_array($r)) {
             continue;
         }
+        $obsType = (string) ($r['observation_type'] ?? '');
+        if ($obsType !== 'hostname_observed' && $obsType !== 'fqdn_observed') {
+            continue;
+        }
         $sk = st_recon_identity_short_key_from_obs_row($r);
         if ($sk === '' || strlen($sk) > 253) {
             continue;
@@ -595,6 +688,8 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
         $src = [];
         $maxTs = '';
         $staleAll = true;
+        $hasCredSysname = false;
+        $hasOtherHostnameSignal = false;
         foreach ($g as $r) {
             $conf = strtolower((string) ($r['confidence_level'] ?? ''));
             if ($conf === 'authoritative') {
@@ -608,6 +703,13 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
             if ($t === 'hostname_observed') {
                 $hasHost = true;
             }
+            if ($t === 'hostname_observed' || $t === 'fqdn_observed') {
+                if (st_recon_identity_obs_row_is_cred_sysname($r)) {
+                    $hasCredSysname = true;
+                } else {
+                    $hasOtherHostnameSignal = true;
+                }
+            }
             $oa = (string) ($r['observed_at'] ?? '');
             if ($oa !== '' && strcmp($oa, $maxTs) > 0) {
                 $maxTs = $oa;
@@ -617,26 +719,52 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
                 $staleAll = false;
             }
         }
-        $corroboratedFqdn = $hasFqdn && $hasHost;
+        $hnFqRows = [];
+        foreach ($g as $r) {
+            $t = (string) ($r['observation_type'] ?? '');
+            if ($t === 'hostname_observed' || $t === 'fqdn_observed') {
+                $hnFqRows[] = $r;
+            }
+        }
+        $typesSeen = [];
+        foreach ($hnFqRows as $hr) {
+            $typesSeen[(string) ($hr['observation_type'] ?? '')] = true;
+        }
+        $snmpSelfCorr = count($hnFqRows) >= 2
+            && isset($typesSeen['fqdn_observed'], $typesSeen['hostname_observed'])
+            && array_reduce(
+                $hnFqRows,
+                static function (bool $ok, array $row): bool {
+                    return $ok && st_recon_identity_obs_row_is_cred_sysname($row);
+                },
+                true
+            );
+        $corroboratedFqdn = $hasFqdn && $hasHost && ! $snmpSelfCorr;
         $uniq = count($src);
+        $credSnmpOnlyGroup = $hasCredSysname && ! $hasOtherHostnameSignal && $uniq <= 1;
         $score = ($hasAuth ? 1000 : 0)
             + ($corroboratedFqdn ? 80 : 0)
             + ($uniq >= 2 ? 40 : 0)
             + (count($g) >= 2 ? 10 : 0)
-            + ($hasAnchor ? 25 : 0);
+            + ($hasAnchor ? 25 : 0)
+            + (($hasCredSysname && $hasOtherHostnameSignal) ? 38 : 0)
+            - ($credSnmpOnlyGroup ? 42 : 0);
         if ($staleAll) {
             $score -= 50;
         }
 
         return [
-            'short'            => $short,
-            'rows'             => $g,
-            'score'            => $score,
-            'has_auth'         => $hasAuth,
-            'corroboratedFqdn' => $corroboratedFqdn,
-            'uniq'             => $uniq,
-            'max_ts'           => $maxTs,
-            'stale_all'       => $staleAll,
+            'short'                => $short,
+            'rows'                 => $g,
+            'score'                => $score,
+            'has_auth'             => $hasAuth,
+            'corroboratedFqdn'     => $corroboratedFqdn,
+            'uniq'                 => $uniq,
+            'max_ts'               => $maxTs,
+            'stale_all'            => $staleAll,
+            'cred_snmp_only_group' => $credSnmpOnlyGroup,
+            'has_cred_sysname'     => $hasCredSysname,
+            'has_other_hostname'   => $hasOtherHostnameSignal,
         ];
     };
 
@@ -659,6 +787,34 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
     $winner = $meta[0];
     $wshort = (string) ($winner['short'] ?? '');
     $wrows = isset($winner['rows']) && is_array($winner['rows']) ? $winner['rows'] : [];
+
+    $rankForLabel = static function (array $r): int {
+        $conf = strtolower((string) ($r['confidence_level'] ?? ''));
+        if ($conf === 'authoritative') {
+            return 0;
+        }
+        $isCredSnmp = st_recon_identity_obs_row_is_cred_sysname($r);
+        $t = (string) ($r['observation_type'] ?? '');
+        if (! $isCredSnmp && $t === 'fqdn_observed') {
+            return 2;
+        }
+        if (! $isCredSnmp && $t === 'hostname_observed') {
+            return 4;
+        }
+        if ($isCredSnmp && $t === 'fqdn_observed') {
+            return 6;
+        }
+        if ($isCredSnmp && $t === 'hostname_observed') {
+            return 8;
+        }
+
+        return 10;
+    };
+    usort($wrows, static function (array $a, array $b) use ($rankForLabel): int {
+        $cmp = $rankForLabel($a) <=> $rankForLabel($b);
+
+        return $cmp !== 0 ? $cmp : ((int) ($a['id'] ?? 0) <=> (int) ($b['id'] ?? 0));
+    });
 
     $labelRaw = '';
     foreach ($wrows as $r) {
@@ -698,6 +854,9 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
     if (($winner['stale_all'] ?? false) && $conf !== 'authoritative') {
         $conf = st_recon_confidence_min($conf, 'low');
     }
+    if (($winner['cred_snmp_only_group'] ?? false) && $conf !== 'authoritative') {
+        $conf = st_recon_confidence_min($conf, 'medium');
+    }
 
     $expl = [];
     $expl[] = 'Canonical hostname is the short DNS label (' . $wshort . ') chosen from hostname and FQDN observations.';
@@ -706,6 +865,12 @@ function st_recon_resolve_canonical_hostname_from_rows(PDO $pdo, int $assetId, a
     }
     if (($winner['uniq'] ?? 0) >= 2) {
         $expl[] = 'Multiple independent sources agree on this label.';
+    }
+    if (($winner['has_cred_sysname'] ?? false) && ($winner['has_other_hostname'] ?? false)) {
+        $expl[] = 'Credentialed SNMP sysName agrees with other hostname or FQDN observations.';
+    }
+    if (($winner['cred_snmp_only_group'] ?? false) && ! ($winner['has_auth'] ?? false)) {
+        $expl[] = 'SNMP sysName supports this label where stronger DNS or operator hostname signals were absent.';
     }
     if ($hasAnchor) {
         $expl[] = 'MAC and/or device linkage is present, which strengthens identity confidence.';
@@ -877,7 +1042,7 @@ function st_recon_lazy_reconcile_canonical_hostname(PDO $pdo, int $assetId, arra
         }
 
         $hnSt = $pdo->prepare(
-            "SELECT id, observation_type, raw_value, normalized_value, observed_at, confidence_level, source_id, source_object_ref
+            "SELECT id, observation_type, raw_value, normalized_value, observed_at, confidence_level, source_id, source_object_ref, provenance_json
              FROM asset_observations
              WHERE asset_id = ? AND observation_type IN ('hostname_observed','fqdn_observed')
              ORDER BY observed_at DESC, id DESC"
@@ -969,6 +1134,20 @@ function st_recon_lazy_reconcile_canonical_hostname(PDO $pdo, int $assetId, arra
                 if ($xid > 0 && $xsid > 0) {
                     $link->execute([$aid, $xid, $xsid, 'corroborates', 'identity anchor / monitoring context']);
                 }
+            }
+        }
+
+        $diSt = $pdo->prepare(
+            "SELECT id, source_id FROM asset_observations WHERE asset_id = ? AND observation_type = 'device_identity_observed'
+             ORDER BY datetime(observed_at) DESC, id DESC LIMIT 1"
+        );
+        $diSt->execute([$assetId]);
+        $diRow = $diSt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($diRow)) {
+            $did = (int) ($diRow['id'] ?? 0);
+            $dsid = (int) ($diRow['source_id'] ?? 0);
+            if ($did > 0 && $dsid > 0) {
+                $link->execute([$aid, $did, $dsid, 'corroborates', 'SNMP device identity summary (context only; not hostname)']);
             }
         }
 
@@ -1134,6 +1313,24 @@ function st_recon_build_identity_recon_detail_for_asset(
             ];
         }
 
+        /** @var array<int, string> $contribByObsId */
+        $contribByObsId = [];
+        if ($assertId > 0) {
+            $cg = $pdo->prepare(
+                'SELECT observation_id, contribution, weight_note FROM assertion_sources WHERE assertion_id = ?'
+            );
+            $cg->execute([$assertId]);
+            foreach ($cg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $cr) {
+                $oidc = (int) ($cr['observation_id'] ?? 0);
+                if ($oidc > 0) {
+                    $contribByObsId[$oidc] = st_recon_evidence_contribution_hint(
+                        isset($cr['contribution']) ? (string) $cr['contribution'] : '',
+                        isset($cr['weight_note']) ? (string) $cr['weight_note'] : ''
+                    );
+                }
+            }
+        }
+
         $lim = max(1, min(80, $obsLimit));
         $ost = $pdo->prepare(
             "SELECT o.id, o.observation_type, o.raw_value, o.normalized_value, o.observed_at, o.confidence_level,
@@ -1147,8 +1344,13 @@ function st_recon_build_identity_recon_detail_for_asset(
         $ost->execute(array_merge([$assetId], $types));
         $obsList = [];
         foreach ($ost->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $oid = (int) ($r['id'] ?? 0);
+            $ch = $contribByObsId[$oid] ?? '';
+            if ($ch === '' && (($r['observation_type'] ?? '') === 'device_identity_observed')) {
+                $ch = 'Context only · SNMP digest (not hostname)';
+            }
             $obsList[] = [
-                'id'                 => (int) ($r['id'] ?? 0),
+                'id'                 => $oid,
                 'observation_type'   => (string) ($r['observation_type'] ?? ''),
                 'source_type'        => (string) ($r['source_type'] ?? ''),
                 'display_name'       => (string) ($r['display_name'] ?? ''),
@@ -1157,6 +1359,7 @@ function st_recon_build_identity_recon_detail_for_asset(
                 'normalized_value'   => st_recon_truncate_evidence_string((string) ($r['normalized_value'] ?? ''), 200),
                 'observed_at'        => $r['observed_at'] ?? null,
                 'confidence_level'   => (string) ($r['confidence_level'] ?? 'medium'),
+                'contribution_hint'  => $ch,
             ];
         }
         $empty['observations'] = $obsList;
@@ -1221,7 +1424,9 @@ function st_recon_build_identity_recon_detail_for_asset(
 
         if ($includeAssertionSources && $assertId > 0) {
             $lst = $pdo->prepare(
-                'SELECT asrc.contribution, asrc.weight_note, o.observation_type, o.normalized_value, s.display_name
+                'SELECT asrc.contribution, asrc.weight_note, o.observation_type, o.normalized_value,
+                        o.source_object_ref AS observation_source_ref, o.observed_at AS observation_observed_at,
+                        s.display_name, s.source_type
                  FROM assertion_sources asrc
                  JOIN asset_observations o ON o.id = asrc.observation_id
                  JOIN recon_sources s ON s.id = asrc.source_id
@@ -1250,15 +1455,12 @@ function st_recon_collect_os_observation_defs(PDO $pdo, int $assetId, array $ass
     $sidScan = st_recon_source_id($pdo, 'surveytrace_scan');
     $sidZbx = st_recon_source_id($pdo, 'zabbix_inventory');
     $sidEnr = st_recon_source_id($pdo, 'surveytrace_enrichment');
-    if ($sidScan === null || $sidZbx === null || $sidEnr === null) {
-        return [];
-    }
 
     /** @var list<array<string,mixed>> $obsDefs */
     $obsDefs = [];
 
     $osGuess = trim((string) ($assetRowDecoded['os_guess'] ?? ''));
-    if ($osGuess !== '') {
+    if ($osGuess !== '' && $sidScan !== null) {
         $norm = st_recon_normalize_os_text($osGuess);
         if ($norm !== null && ($norm['slug'] ?? '') !== '' && ($norm['slug'] ?? '') !== 'os_unknown') {
             $obsDefs[] = [
@@ -1275,7 +1477,7 @@ function st_recon_collect_os_observation_defs(PDO $pdo, int $assetId, array $ass
     }
 
     $cpe = trim((string) ($assetRowDecoded['cpe'] ?? ''));
-    if ($cpe !== '') {
+    if ($cpe !== '' && $sidScan !== null) {
         $cn = st_recon_normalize_os_cpe($cpe);
         if ($cn !== null) {
             $obsDefs[] = [
@@ -1291,7 +1493,7 @@ function st_recon_collect_os_observation_defs(PDO $pdo, int $assetId, array $ass
         }
     }
 
-    $zctx = st_recon_zabbix_os_context($pdo, $assetId);
+    $zctx = $sidZbx !== null ? st_recon_zabbix_os_context($pdo, $assetId) : null;
     if ($zctx !== null) {
         $combined = implode(' · ', $zctx['parts']);
         $zn = st_recon_normalize_os_text($combined);
@@ -1314,7 +1516,7 @@ function st_recon_collect_os_observation_defs(PDO $pdo, int $assetId, array $ass
     }
 
     $disc = $assetRowDecoded['discovery_sources'] ?? [];
-    if (is_array($disc) && $disc !== []) {
+    if ($sidEnr !== null && is_array($disc) && $disc !== []) {
         $flat = [];
         foreach ($disc as $d) {
             $flat[] = (string) $d;
@@ -1332,6 +1534,11 @@ function st_recon_collect_os_observation_defs(PDO $pdo, int $assetId, array $ass
                 'provenance_json'    => json_encode(['discovery_sources' => $flat], JSON_UNESCAPED_SLASHES) ?: '{}',
             ];
         }
+    }
+
+    $credOs = st_recon_fetch_latest_cred_os_version_obs_def($pdo, $assetId);
+    if ($credOs !== null) {
+        $obsDefs[] = $credOs;
     }
 
     return $obsDefs;
@@ -1680,48 +1887,16 @@ function st_recon_should_refresh_os_assertion(?array $existingRow, ?string $asse
 }
 
 /**
- * @param array<int, array<string, mixed>> $obsDefs
- * @return array<int, array<string, mixed>>
+ * Scan/CPE + Zabbix OS resolver (no credentialed os_version_observed).
+ *
+ * @param array<string,mixed>|null $cpeRow
+ * @param array<string,mixed>|null $scanRow
+ * @param array<string,mixed>|null $zbxRow
+ *
+ * @return array<string,mixed>
  */
-function st_recon_resolve_os_platform(array $obsDefs): array
+function st_recon_resolve_os_platform_legacy_scan_zbx(?array $cpeRow, ?array $scanRow, ?array $zbxRow): array
 {
-    $normalizedRows = [];
-    foreach ($obsDefs as $def) {
-        $slug = (string) ($def['normalized_slug'] ?? '');
-        if ($slug === '' || $slug === 'os_unknown') {
-            continue;
-        }
-        $normalizedRows[] = $def;
-    }
-    if ($normalizedRows === []) {
-        return ['skip' => true, 'reason' => 'no_normalized_signals'];
-    }
-
-    // Prefer structured CPE-derived slug when present
-    $cpeRow = null;
-    foreach ($normalizedRows as $r) {
-        if (($r['observation_type'] ?? '') === 'os_fingerprint_cpe') {
-            $cpeRow = $r;
-            break;
-        }
-    }
-
-    $scanRow = null;
-    foreach ($normalizedRows as $r) {
-        if (($r['observation_type'] ?? '') === 'os_fingerprint_scan') {
-            $scanRow = $r;
-            break;
-        }
-    }
-
-    $zbxRow = null;
-    foreach ($normalizedRows as $r) {
-        if (($r['observation_type'] ?? '') === 'os_inventory_zabbix') {
-            $zbxRow = $r;
-            break;
-        }
-    }
-
     $scanSlug = null;
     $scanLabel = null;
     if ($cpeRow) {
@@ -1737,7 +1912,6 @@ function st_recon_resolve_os_platform(array $obsDefs): array
 
     $explanationParts = [];
 
-    // Independent corroboration: SurveyTrace scan vs Zabbix
     if ($scanSlug !== null && $zslug !== null) {
         if ($scanSlug === $zslug) {
             $explanationParts[] = 'SurveyTrace scan and Zabbix inventory agree on ' . $scanLabel . '.';
@@ -1753,7 +1927,6 @@ function st_recon_resolve_os_platform(array $obsDefs): array
             ];
         }
 
-        // Generic Linux in Zabbix + specific distro from scan
         if (($zslug === 'linux_unknown' || str_contains((string) $zslug, 'linux'))
             && str_contains((string) $scanSlug, 'ubuntu')) {
             $explanationParts[] = 'Zabbix reports generic Linux; SurveyTrace fingerprint narrows to ' . $scanLabel . '.';
@@ -1815,6 +1988,155 @@ function st_recon_resolve_os_platform(array $obsDefs): array
 }
 
 /**
+ * @param array<int, array<string, mixed>> $obsDefs
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_resolve_os_platform(array $obsDefs): array
+{
+    $normalizedRows = [];
+    foreach ($obsDefs as $def) {
+        $slug = (string) ($def['normalized_slug'] ?? '');
+        if ($slug === '' || $slug === 'os_unknown') {
+            continue;
+        }
+        $normalizedRows[] = $def;
+    }
+    if ($normalizedRows === []) {
+        return ['skip' => true, 'reason' => 'no_normalized_signals'];
+    }
+
+    $cpeRow = null;
+    foreach ($normalizedRows as $r) {
+        if (($r['observation_type'] ?? '') === 'os_fingerprint_cpe') {
+            $cpeRow = $r;
+            break;
+        }
+    }
+
+    $scanRow = null;
+    foreach ($normalizedRows as $r) {
+        if (($r['observation_type'] ?? '') === 'os_fingerprint_scan') {
+            $scanRow = $r;
+            break;
+        }
+    }
+
+    $zbxRow = null;
+    foreach ($normalizedRows as $r) {
+        if (($r['observation_type'] ?? '') === 'os_inventory_zabbix') {
+            $zbxRow = $r;
+            break;
+        }
+    }
+
+    $credRow = null;
+    foreach ($normalizedRows as $r) {
+        if (($r['observation_type'] ?? '') === 'os_version_observed') {
+            $credRow = $r;
+            break;
+        }
+    }
+
+    $scanSlug = null;
+    if ($cpeRow) {
+        $scanSlug = (string) $cpeRow['normalized_slug'];
+    } elseif ($scanRow) {
+        $scanSlug = (string) $scanRow['normalized_slug'];
+    }
+
+    $zslug = $zbxRow ? (string) $zbxRow['normalized_slug'] : null;
+
+    $credFresh = $credRow !== null && ! st_recon_cred_os_obs_def_is_stale($credRow);
+    $credStale = $credRow !== null && ! $credFresh;
+
+    if ($credFresh && $credRow !== null) {
+        $cslug = (string) $credRow['normalized_slug'];
+        $clabel = (string) $credRow['normalized_label'];
+        $fpAgree = $scanSlug !== null && $scanSlug === $cslug;
+        $zAgree = $zslug !== null && $zslug === $cslug;
+        $zConflict = $zslug !== null && $zslug !== $cslug;
+        $fpConflict = $scanSlug !== null && $scanSlug !== $cslug;
+
+        $tieOrder = array_values(array_filter([$credRow, $cpeRow, $scanRow, $zbxRow]));
+        $expl = [];
+        $confidence = 'high';
+
+        if ($fpAgree) {
+            if ($zConflict) {
+                $expl[] = 'Authenticated OS release agrees with SurveyTrace scan fingerprint; Zabbix inventory differs — conflicting evidence is retained.';
+            } elseif ($zAgree) {
+                $expl[] = 'Authenticated OS release agrees with SurveyTrace scan fingerprint and Zabbix inventory (' . $clabel . ').';
+            } else {
+                $expl[] = 'Authenticated OS release agrees with SurveyTrace scan fingerprint (' . $clabel . ').';
+            }
+            $confidence = 'high';
+        } elseif ($zAgree && ! $fpConflict) {
+            $expl[] = 'Authenticated OS release agrees with Zabbix inventory (' . $clabel . ', no SurveyTrace scan fingerprint yet).';
+            $confidence = 'high';
+        } elseif ($zAgree && $fpConflict) {
+            $expl[] = 'Authenticated OS release agrees with Zabbix inventory; SurveyTrace scan fingerprint differs — conflicting evidence is retained.';
+            $confidence = 'medium';
+        } elseif ($scanSlug === null && $zslug === null) {
+            $expl[] = 'Based on authenticated OS release from credentialed check (' . $clabel . ').';
+            $confidence = 'high';
+        } else {
+            $expl[] = 'Authenticated OS release (' . $clabel . ') differs from unauthenticated scan/inventory signals — both sides kept as evidence.';
+            $confidence = 'medium';
+        }
+
+        return [
+            'skip'         => false,
+            'slug'         => $cslug,
+            'label'        => $clabel,
+            'confidence'   => $confidence,
+            'explanation'  => trim(implode(' ', $expl)),
+            'primary_type' => 'os_version_observed',
+            'tie_order'    => $tieOrder,
+        ];
+    }
+
+    if ($credStale && $credRow !== null) {
+        $legacy = st_recon_resolve_os_platform_legacy_scan_zbx($cpeRow, $scanRow, $zbxRow);
+        if (($legacy['skip'] ?? false) !== true) {
+            $legacySlug = (string) ($legacy['slug'] ?? '');
+            $credSlug = (string) $credRow['normalized_slug'];
+            if ($legacySlug !== '' && $credSlug !== '' && $legacySlug !== $credSlug) {
+                $legacy['explanation'] = trim(
+                    (string) ($legacy['explanation'] ?? '')
+                    . ' Older authenticated OS observation disagrees and remains visible as stale evidence.'
+                );
+            } elseif ($legacySlug !== '' && $credSlug !== '' && $legacySlug === $credSlug) {
+                $legacy['explanation'] = trim(
+                    (string) ($legacy['explanation'] ?? '')
+                    . ' An older authenticated OS observation (>90 days) agrees but is not used to raise confidence; belief follows current scan/inventory.'
+                );
+            } else {
+                $legacy['explanation'] = trim(
+                    (string) ($legacy['explanation'] ?? '')
+                    . ' An older authenticated OS observation (>90 days) did not override fresher scan/inventory signals.'
+                );
+            }
+            $legacy['tie_order'] = array_values(array_filter(array_merge((array) ($legacy['tie_order'] ?? []), [$credRow])));
+
+            return $legacy;
+        }
+
+        return [
+            'skip'         => false,
+            'slug'         => (string) $credRow['normalized_slug'],
+            'label'        => (string) $credRow['normalized_label'],
+            'confidence'   => 'low',
+            'explanation'  => 'Only an older authenticated OS observation is available (>90 days); confidence is capped low until refreshed.',
+            'primary_type' => 'os_version_observed',
+            'tie_order'    => [$credRow],
+        ];
+    }
+
+    return st_recon_resolve_os_platform_legacy_scan_zbx($cpeRow, $scanRow, $zbxRow);
+}
+
+/**
  * Build API-facing bundle from DB state.
  *
  * @return array<string, mixed>
@@ -1843,7 +2165,10 @@ function st_recon_build_os_bundle_from_db(PDO $pdo, int $assetId): array
         "SELECT o.id, o.observation_type, o.raw_value, o.normalized_value, o.source_object_ref, s.display_name, s.source_type
          FROM asset_observations o
          JOIN recon_sources s ON s.id = o.source_id
-         WHERE o.asset_id = ? AND o.observation_type IN ('os_fingerprint_scan','os_fingerprint_cpe','os_inventory_zabbix','os_hint_enrichment')
+         WHERE o.asset_id = ? AND o.observation_type IN (
+            'os_fingerprint_scan','os_fingerprint_cpe','os_inventory_zabbix','os_hint_enrichment',
+            'os_version_observed','package_inventory_observed'
+         )
          ORDER BY o.id ASC"
     );
     $obsSt->execute([$assetId]);
@@ -1965,17 +2290,22 @@ function st_recon_lazy_reconcile_os_platform(PDO $pdo, int $assetId, array $asse
         $obsIdByKey = [];
         $allObsIds = [];
         foreach ($obsDefs as $def) {
-            $oid = st_recon_upsert_asset_observation(
-                $pdo,
-                $assetId,
-                (string) $def['observation_type'],
-                (string) $def['raw_value'],
-                (string) ($def['normalized_slug'] ?? ''),
-                (int) $def['source_id'],
-                (string) ($def['source_object_ref'] ?? ''),
-                (string) ($def['confidence_level'] ?? 'medium'),
-                (string) ($def['provenance_json'] ?? '{}')
-            );
+            $existingOid = (int) ($def['_existing_observation_id'] ?? 0);
+            if ($existingOid > 0) {
+                $oid = $existingOid;
+            } else {
+                $oid = st_recon_upsert_asset_observation(
+                    $pdo,
+                    $assetId,
+                    (string) $def['observation_type'],
+                    (string) $def['raw_value'],
+                    (string) ($def['normalized_slug'] ?? ''),
+                    (int) $def['source_id'],
+                    (string) ($def['source_object_ref'] ?? ''),
+                    (string) ($def['confidence_level'] ?? 'medium'),
+                    (string) ($def['provenance_json'] ?? '{}')
+                );
+            }
             if ($oid > 0) {
                 $k = (string) $def['observation_type'] . "\0" . (string) ($def['source_object_ref'] ?? '');
                 $obsIdByKey[$k] = $oid;
@@ -2089,6 +2419,19 @@ function st_recon_truncate_evidence_string(?string $s, int $maxLen = 360): strin
     return substr($s, 0, $maxLen) . '…';
 }
 
+/** Compact explanation line for observation ↔ assertion linkage (host modal evidence). */
+function st_recon_evidence_contribution_hint(?string $contribution, ?string $weightNote): string
+{
+    $c = strtolower(trim((string) ($contribution ?? '')));
+    $w = trim((string) ($weightNote ?? ''));
+    if ($c === '' && $w === '') {
+        return '';
+    }
+    $cc = $c !== '' ? ucfirst($c) : '';
+
+    return ($cc !== '' && $w !== '') ? ($cc . ' · ' . $w) : ($cc !== '' ? $cc : $w);
+}
+
 /**
  * Trim oldest reconciliation_runs rows (audit log). Returns rows deleted.
  * Safe to call occasionally (e.g. admin maintenance); not invoked on every health poll.
@@ -2128,17 +2471,19 @@ function st_recon_trim_reconciliation_runs(PDO $pdo, int $keepNewest = 8000): in
 function st_recon_health_snapshot(PDO $pdo): array
 {
     $out = [
-        'tables_ready'                      => false,
-        'observation_count'                 => 0,
-        'assertion_count'                   => 0,
-        'identity_observation_count'        => 0,
-        'identity_assertion_count'          => 0,
-        'identity_hostname_conflict_assets' => 0,
-        'reconciliation_runs_total'         => 0,
-        'failed_runs_24h'                   => 0,
-        'last_failure_message'              => null,
-        'stale_os_assertions_30d'           => 0,
-        'warning_hints'                     => [],
+        'tables_ready'                       => false,
+        'observation_count'                  => 0,
+        'assertion_count'                    => 0,
+        'identity_observation_count'         => 0,
+        'identity_assertion_count'             => 0,
+        'identity_hostname_conflict_assets'  => 0,
+        'reconciliation_runs_total'          => 0,
+        'failed_runs_24h'                    => 0,
+        'last_failure_message'               => null,
+        'stale_os_assertions_30d'            => 0,
+        'credentialed_observation_count'    => 0,
+        'stale_cred_os_observations_90d'     => 0,
+        'warning_hints'                      => [],
     ];
     if (! st_recon_tables_ready($pdo)) {
         $out['warning_hints'][] = 'Trusted data tables are not present (migration may not have run).';
@@ -2174,6 +2519,18 @@ function st_recon_health_snapshot(PDO $pdo): array
             "SELECT COUNT(*) FROM asset_assertions WHERE assertion_type = 'os_platform'
              AND datetime(reconciled_at) < datetime('now', '-30 days')"
         )->fetchColumn();
+        $sidCred = st_recon_source_id($pdo, 'credentialed_check');
+        if ($sidCred !== null) {
+            $cs = $pdo->prepare('SELECT COUNT(*) FROM asset_observations WHERE source_id = ?');
+            $cs->execute([$sidCred]);
+            $out['credentialed_observation_count'] = (int) $cs->fetchColumn();
+            $cs2 = $pdo->prepare(
+                "SELECT COUNT(*) FROM asset_observations WHERE source_id = ? AND observation_type = 'os_version_observed'
+                 AND datetime(observed_at) < datetime('now', '-90 days')"
+            );
+            $cs2->execute([$sidCred]);
+            $out['stale_cred_os_observations_90d'] = (int) $cs2->fetchColumn();
+        }
         $msg = $pdo->query(
             "SELECT error FROM reconciliation_runs WHERE status = 'error' AND COALESCE(error,'') <> '' ORDER BY id DESC LIMIT 1"
         )->fetchColumn();
@@ -2181,7 +2538,8 @@ function st_recon_health_snapshot(PDO $pdo): array
             $out['last_failure_message'] = st_recon_truncate_evidence_string((string) $msg, 400);
         }
         if ($out['failed_runs_24h'] > 0) {
-            $out['warning_hints'][] = (string) $out['failed_runs_24h'] . ' OS reconciliation run(s) failed in the last 24h.';
+            $out['warning_hints'][] = (string) $out['failed_runs_24h']
+                . ' lazy reconciliation run(s) failed in the last 24h (OS platform / identity slices).';
         }
         if ($out['stale_os_assertions_30d'] > 200) {
             $out['warning_hints'][] = 'Many OS/platform assertions are older than 30 days — review scan/enrichment freshness.';
@@ -2241,6 +2599,25 @@ function st_recon_build_evidence_detail_for_asset(
                 'updated_at'     => $ar['updated_at'] ?? null,
             ];
         }
+        $assertIdForHints = is_array($empty['assertion']) ? (int) ($empty['assertion']['id'] ?? 0) : 0;
+        /** @var array<int, string> $contribByObsId */
+        $contribByObsId = [];
+        if ($assertIdForHints > 0) {
+            $cg = $pdo->prepare(
+                'SELECT observation_id, contribution, weight_note FROM assertion_sources WHERE assertion_id = ?'
+            );
+            $cg->execute([$assertIdForHints]);
+            foreach ($cg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $cr) {
+                $oid = (int) ($cr['observation_id'] ?? 0);
+                if ($oid > 0) {
+                    $contribByObsId[$oid] = st_recon_evidence_contribution_hint(
+                        isset($cr['contribution']) ? (string) $cr['contribution'] : '',
+                        isset($cr['weight_note']) ? (string) $cr['weight_note'] : ''
+                    );
+                }
+            }
+        }
+
         $lim = max(1, min(80, $obsLimit));
         $ost = $pdo->prepare(
             "SELECT o.id, o.observation_type, o.raw_value, o.normalized_value, o.observed_at, o.confidence_level,
@@ -2248,14 +2625,18 @@ function st_recon_build_evidence_detail_for_asset(
              FROM asset_observations o
              JOIN recon_sources s ON s.id = o.source_id
              WHERE o.asset_id = ?
-               AND o.observation_type IN ('os_fingerprint_scan','os_fingerprint_cpe','os_inventory_zabbix','os_hint_enrichment')
+               AND o.observation_type IN (
+                    'os_fingerprint_scan','os_fingerprint_cpe','os_inventory_zabbix','os_hint_enrichment',
+                    'os_version_observed','package_inventory_observed'
+               )
              ORDER BY o.id DESC
              LIMIT {$lim}"
         );
         $ost->execute([$assetId]);
         foreach ($ost->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $oid = (int) ($r['id'] ?? 0);
             $empty['observations'][] = [
-                'id'                 => (int) ($r['id'] ?? 0),
+                'id'                 => $oid,
                 'observation_type'   => (string) ($r['observation_type'] ?? ''),
                 'source_type'        => (string) ($r['source_type'] ?? ''),
                 'display_name'       => (string) ($r['display_name'] ?? ''),
@@ -2264,13 +2645,14 @@ function st_recon_build_evidence_detail_for_asset(
                 'normalized_value'   => st_recon_truncate_evidence_string((string) ($r['normalized_value'] ?? ''), 200),
                 'observed_at'        => $r['observed_at'] ?? null,
                 'confidence_level'   => (string) ($r['confidence_level'] ?? 'medium'),
+                'contribution_hint'  => $contribByObsId[$oid] ?? '',
             ];
         }
         $rlim = max(1, min(40, $runLimit));
         $rst = $pdo->prepare(
             "SELECT id, started_at, finished_at, status, slice_key, error, result_summary_json
              FROM reconciliation_runs
-             WHERE entity_type = 'asset' AND entity_id = ?
+             WHERE entity_type = 'asset' AND entity_id = ? AND slice_key = 'os_platform'
              ORDER BY id DESC
              LIMIT {$rlim}"
         );
@@ -2293,7 +2675,9 @@ function st_recon_build_evidence_detail_for_asset(
         if ($includeAssertionSources && is_array($empty['assertion']) && ($empty['assertion']['id'] ?? 0) > 0) {
             $aid = (int) $empty['assertion']['id'];
             $lst = $pdo->prepare(
-                'SELECT asrc.contribution, asrc.weight_note, o.observation_type, o.normalized_value, s.display_name
+                'SELECT asrc.contribution, asrc.weight_note, o.observation_type, o.normalized_value,
+                        o.source_object_ref AS observation_source_ref, o.observed_at AS observation_observed_at,
+                        s.display_name, s.source_type
                  FROM assertion_sources asrc
                  JOIN asset_observations o ON o.id = asrc.observation_id
                  JOIN recon_sources s ON s.id = asrc.source_id

@@ -403,6 +403,16 @@ function st_db(): PDO {
     st_migrate_phase16_2_zabbix_workflow_v1($pdo);
     st_migrate_reconciliation_trusted_data_v1($pdo);
     st_migrate_reconciliation_identity_m1_slice4_v1($pdo);
+    st_migrate_worker_execution_substrate_v1($pdo);
+    st_migrate_worker_jobs_collector_mirror_unique_v1($pdo);
+    st_migrate_credentialed_checks_v1($pdo);
+    st_migrate_cred_profiles_deleted_at_v1($pdo);
+    st_migrate_cred_profile_test_columns_v1($pdo);
+
+    require_once __DIR__ . '/lib_credentialed_checks.php';
+    if (st_cred_tables_ready($pdo)) {
+        st_cred_seed_builtin_plugins($pdo);
+    }
 
     $st_db_worker_migrations_done = true;
     } finally {
@@ -1070,6 +1080,332 @@ function st_migrate_reconciliation_identity_m1_slice4_v1(PDO $pdo): void
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_reconciliation_identity_m1_slice4_v1', '1')"
+    );
+}
+
+/**
+ * Worker execution substrate (MVP slice 1) — additive queue / worker telemetry tables only.
+ *
+ * No runtime behavior: scanner, collector ingest, scheduler, and Zabbix workers are unchanged.
+ * Logical refs: lease_node_id / node_id → worker_nodes.id (not enforced as SQLite FK for flexibility).
+ *
+ * @see docs/WORKER_EXECUTION_SUBSTRATE.md
+ * @see docs/WORKER_EXECUTION_MVP_PLAN.md
+ */
+function st_migrate_worker_execution_substrate_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_worker_execution_substrate_v1'")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS worker_nodes (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_key            TEXT NOT NULL,
+            hostname             TEXT,
+            role                 TEXT,
+            status               TEXT NOT NULL DEFAULT 'starting',
+            meta_json            TEXT,
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(node_key)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_nodes_status ON worker_nodes(status, updated_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_nodes_role ON worker_nodes(role, status)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS worker_jobs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_type             TEXT NOT NULL,
+            entity_type          TEXT,
+            entity_id            INTEGER,
+            status               TEXT NOT NULL DEFAULT 'queued',
+            priority             INTEGER NOT NULL DEFAULT 0,
+            lease_node_id        INTEGER,
+            lease_token          TEXT,
+            leased_at            DATETIME,
+            lease_expires_at     DATETIME,
+            attempts             INTEGER NOT NULL DEFAULT 0,
+            max_attempts         INTEGER NOT NULL DEFAULT 3,
+            next_attempt_at      DATETIME,
+            cancel_requested_at  DATETIME,
+            error_code           TEXT,
+            error_message        TEXT,
+            payload_json         TEXT,
+            result_summary_json  TEXT,
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            finished_at          DATETIME
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_jobs_status_next ON worker_jobs(status, next_attempt_at)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_jobs_type_status ON worker_jobs(job_type, status, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_jobs_lease_exp ON worker_jobs(lease_expires_at)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_jobs_created ON worker_jobs(created_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS worker_job_attempts (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id               INTEGER NOT NULL,
+            attempt_no           INTEGER NOT NULL,
+            node_id              INTEGER,
+            status               TEXT NOT NULL,
+            started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            finished_at          DATETIME,
+            error_code           TEXT,
+            error_message        TEXT,
+            metrics_json         TEXT,
+            UNIQUE(job_id, attempt_no)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_job_attempts_job ON worker_job_attempts(job_id, attempt_no DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_job_attempts_node ON worker_job_attempts(node_id, started_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS worker_job_events (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id               INTEGER NOT NULL,
+            attempt_id           INTEGER,
+            event_type           TEXT NOT NULL,
+            level                TEXT NOT NULL DEFAULT 'info',
+            message              TEXT,
+            details_json         TEXT,
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_job_events_job ON worker_job_events(job_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_job_events_type ON worker_job_events(event_type, created_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS worker_heartbeats (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id              INTEGER NOT NULL,
+            worker_key           TEXT,
+            worker_type          TEXT NOT NULL,
+            status               TEXT NOT NULL DEFAULT 'healthy',
+            heartbeat_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+            details_json         TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_node ON worker_heartbeats(node_id, heartbeat_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_worker_heartbeats_type ON worker_heartbeats(worker_type, heartbeat_at DESC)');
+
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_worker_execution_substrate_v1', '1')"
+    );
+}
+
+/**
+ * Partial unique index so collector ingest mirror jobs are idempotent per collector_submissions row.
+ */
+function st_migrate_worker_jobs_collector_mirror_unique_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_worker_jobs_collector_mirror_unique_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'worker_jobs' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $pdo->exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_jobs_collector_mirror_entity
+         ON worker_jobs(job_type, entity_type, entity_id)
+         WHERE job_type = 'collector_ingest' AND entity_type = 'collector_submission'"
+    );
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_worker_jobs_collector_mirror_unique_v1', '1')"
+    );
+}
+
+/**
+ * Credentialed checks engine — MVP slice 1 (schema only).
+ *
+ * Additive tables for profiles, plugins, jobs, runs, targets, results, artifacts.
+ * No execution, no API, no secrets written. Logical refs to users / worker_jobs / assets
+ * are not enforced as SQLite FKs (project style).
+ *
+ * @see docs/CREDENTIALED_CHECKS_ENGINE.md
+ * @see docs/CREDENTIALED_CHECKS_MVP_PLAN.md
+ */
+function st_migrate_credentialed_checks_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_credentialed_checks_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_profiles (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                 TEXT NOT NULL,
+            transport            TEXT NOT NULL,
+            principal_json       TEXT,
+            secret_ciphertext    TEXT,
+            scope_json           TEXT,
+            enabled              INTEGER NOT NULL DEFAULT 1,
+            created_by           INTEGER,
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            last_test_at         DATETIME,
+            last_test_status     TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_credential_profiles_transport ON credential_profiles(transport, enabled)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_credential_profiles_created ON credential_profiles(created_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_check_plugins (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            plugin_key           TEXT NOT NULL,
+            version              TEXT NOT NULL,
+            transport            TEXT NOT NULL,
+            manifest_json        TEXT NOT NULL,
+            state                TEXT NOT NULL DEFAULT 'stable',
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            updated_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(plugin_key, version)
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_plugins_key ON credential_check_plugins(plugin_key)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_plugins_transport_state ON credential_check_plugins(transport, state)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_check_jobs (
+            id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                       TEXT NOT NULL,
+            description                TEXT,
+            credential_profile_id      INTEGER NOT NULL,
+            target_mode                TEXT NOT NULL,
+            target_json                TEXT,
+            plugin_selection_json      TEXT,
+            policy_json                TEXT,
+            schedule_cron              TEXT,
+            enabled                    INTEGER NOT NULL DEFAULT 1,
+            created_by                 INTEGER,
+            created_at                 DATETIME NOT NULL DEFAULT (datetime('now')),
+            updated_at                 DATETIME NOT NULL DEFAULT (datetime('now'))
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_profile ON credential_check_jobs(credential_profile_id, enabled)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_enabled ON credential_check_jobs(enabled, updated_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_check_runs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id               INTEGER,
+            worker_job_id        INTEGER,
+            started_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+            finished_at          DATETIME,
+            status               TEXT NOT NULL DEFAULT 'queued',
+            initiated_by         TEXT,
+            summary_json         TEXT
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_runs_job ON credential_check_runs(job_id, started_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_runs_status ON credential_check_runs(status, started_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_runs_worker_job ON credential_check_runs(worker_job_id)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_check_run_targets (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id               INTEGER NOT NULL,
+            asset_id             INTEGER NOT NULL,
+            status               TEXT NOT NULL DEFAULT 'pending',
+            error_code           TEXT,
+            error_message_safe   TEXT,
+            started_at           DATETIME,
+            finished_at          DATETIME
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_run_targets_run ON credential_check_run_targets(run_id, status)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_run_targets_asset_started ON credential_check_run_targets(asset_id, started_at DESC)');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS credential_check_results (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id               INTEGER NOT NULL,
+            target_id            INTEGER,
+            asset_id             INTEGER NOT NULL,
+            plugin_key           TEXT NOT NULL,
+            plugin_version       TEXT NOT NULL,
+            status               TEXT NOT NULL,
+            normalized_json      TEXT,
+            metrics_json         TEXT,
+            created_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+        )"
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_results_run ON credential_check_results(run_id, created_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_results_target ON credential_check_results(target_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_results_asset_plugin ON credential_check_results(asset_id, plugin_key, created_at DESC)');
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS credential_check_artifacts (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            result_id            INTEGER NOT NULL,
+            kind                 TEXT NOT NULL,
+            storage_path         TEXT,
+            "blob"               BLOB,
+            sha256               TEXT,
+            size_bytes           INTEGER,
+            redaction_version    INTEGER NOT NULL DEFAULT 1,
+            created_at           DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_artifacts_result ON credential_check_artifacts(result_id, created_at DESC)');
+
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_credentialed_checks_v1', '1')"
+    );
+}
+
+/**
+ * Add credential_profiles.deleted_at for soft-archive when profiles are still referenced by jobs.
+ */
+function st_migrate_cred_profiles_deleted_at_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_cred_profiles_deleted_at_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential_profiles' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $cols = array_column($pdo->query('PRAGMA table_info(credential_profiles)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (! in_array('deleted_at', $cols, true)) {
+        $pdo->exec('ALTER TABLE credential_profiles ADD COLUMN deleted_at DATETIME');
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_credential_profiles_deleted ON credential_profiles(deleted_at)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_cred_profiles_deleted_at_v1', '1')"
+    );
+}
+
+/**
+ * Credential profile transport test result columns (slice 5 handshake).
+ */
+function st_migrate_cred_profile_test_columns_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_cred_profile_test_columns_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential_profiles' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $cols = array_column($pdo->query('PRAGMA table_info(credential_profiles)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (! in_array('last_test_error_code', $cols, true)) {
+        $pdo->exec('ALTER TABLE credential_profiles ADD COLUMN last_test_error_code TEXT');
+    }
+    if (! in_array('last_test_duration_ms', $cols, true)) {
+        $pdo->exec('ALTER TABLE credential_profiles ADD COLUMN last_test_duration_ms INTEGER');
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_cred_profile_test_columns_v1', '1')"
     );
 }
 

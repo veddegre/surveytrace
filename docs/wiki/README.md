@@ -54,6 +54,12 @@ SurveyTrace documentation for installation, operation, and understanding how the
 
 - [Device identity](../DEVICE_IDENTITY.md) — How assets map to logical devices and how merging works.
 - [Connector development guide](../CONNECTOR_DEVELOPMENT_GUIDE.md) — Internal guide for building new integrations.
+- [Trusted data model](../TRUSTED_DATA_MODEL.md) — Observations, assertions, evidence, and operational “trusted” display rules.
+- [Credentialed Checks Engine (design)](../CREDENTIALED_CHECKS_ENGINE.md) — Future authenticated in-host checks (planning doc).
+- [Credentialed Checks MVP plan](../CREDENTIALED_CHECKS_MVP_PLAN.md) — Staged implementation plan (pre-code).
+- [Release readiness checklist](../RELEASE_READINESS_CHECKLIST.md) — Pre-tag verification for stabilization releases.
+- [Worker / job execution substrate](../WORKER_EXECUTION_SUBSTRATE.md) — Shared background job design (queues, retries, health).
+- [Worker execution MVP plan](../WORKER_EXECUTION_MVP_PLAN.md) — Staged implementation before coding.
 
 ---
 

@@ -141,10 +141,19 @@ API_FILES=(
   feeds.php
   feed_sync_lib.php
   lib_collectors.php
+  lib_credentialed_checks.php
+  lib_secrets.php
+  lib_credential_profiles.php
+  lib_credential_check_ops.php
+  lib_credential_profile_transport_test.php
   collector_checkin.php
+  credential_profiles.php
+  credential_check_jobs.php
+  credential_check_runs.php
   collector_jobs.php
   collector_submit.php
   collectors.php
+  credentialed_checks.php
   scan_history.php
   scan_priority.php
   logout.php
@@ -157,6 +166,7 @@ API_FILES=(
   lib_integrations.php
   lib_rate_limit.php
   lib_reconciliation.php
+  lib_worker_jobs.php
   integrations.php
   integrations_metrics.php
   integrations_events.php
@@ -220,6 +230,7 @@ DAEMON_CORE=(
   surveytrace_version.py
   scanner_daemon.py
   recon_observations.py
+  worker_jobs.py
   change_detection.py
   asset_lifecycle.py
   finding_triage.py
@@ -227,6 +238,9 @@ DAEMON_CORE=(
   ai_cloud_client.py
   fingerprint.py
   profiles.py
+  cred_transport_cli.py
+  cred_transport_ssh.py
+  cred_transport_snmp.py
 )
 for f in "${DAEMON_CORE[@]}"; do
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
@@ -255,6 +269,17 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_webfp.py" ] && sudo cp "$SRC/daemon/sync_webfp.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/sync_cve_intel.py" ] && sudo cp "$SRC/daemon/sync_cve_intel.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/collector_ingest_worker.py" ] && sudo cp "$SRC/daemon/collector_ingest_worker.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/collector_ingest_mirror.py" ] && sudo cp "$SRC/daemon/collector_ingest_mirror.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/credential_check_worker.py" ] && sudo cp "$SRC/daemon/credential_check_worker.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_run.py" ] && sudo cp "$SRC/daemon/cred_check_run.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_ssh_os_release.py" ] && sudo cp "$SRC/daemon/cred_check_ssh_os_release.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_ssh_packages.py" ] && sudo cp "$SRC/daemon/cred_check_ssh_packages.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_snmp_identity.py" ] && sudo cp "$SRC/daemon/cred_check_snmp_identity.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_secret_decrypt.py" ] && sudo cp "$SRC/daemon/cred_secret_decrypt.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_slice7_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice7_selftest.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_slice8_pkg_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice8_pkg_selftest.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_check_slice9_snmp_selftest.py" ] && sudo cp "$SRC/daemon/cred_check_slice9_snmp_selftest.py" "$DEST/daemon/"
+[ -f "$SRC/daemon/cred_decrypt_cli.php" ] && sudo cp "$SRC/daemon/cred_decrypt_cli.php" "$DEST/daemon/"
 
 echo "  Daemon files deployed"
 
@@ -263,24 +288,49 @@ echo "  Daemon files deployed"
 # ---------------------------------------------------------------------------
 if command -v php >/dev/null 2>&1; then
   if st_sudo php -l "$DEST/api/lib_reconciliation.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/api/recon_diagnostics.php" >/dev/null 2>&1; then
-    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php)"
+    && st_sudo php -l "$DEST/api/recon_diagnostics.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_worker_jobs.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_credentialed_checks.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/credentialed_checks.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_secrets.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_credential_profiles.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_credential_check_ops.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/credential_profiles.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/credential_check_jobs.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/credential_check_runs.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/api/lib_credential_profile_transport_test.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/daemon/cred_decrypt_cli.php" >/dev/null 2>&1; then
+    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php, lib_worker_jobs.php, lib_credentialed_checks.php, credentialed_checks.php, lib_secrets.php, lib_credential_profiles.php, lib_credential_check_ops.php, lib_credential_profile_transport_test.php, credential_profiles.php, credential_check_jobs.php, credential_check_runs.php)"
   else
-    echo "  [FAIL] php -l reconciliation API — fix syntax before relying on deploy"
+    echo "  [FAIL] php -l reconciliation / worker_jobs / cred checks API — fix syntax before relying on deploy"
     exit 1
   fi
 else
-  echo "  [WARN] php not in PATH — skipped php -l for reconciliation API files"
+  echo "  [WARN] php not in PATH — skipped php -l for reconciliation / worker_jobs API files"
 fi
 if command -v python3 >/dev/null 2>&1; then
-  if st_sudo python3 -m py_compile "$DEST/daemon/recon_observations.py" >/dev/null 2>&1; then
-    echo "  Python syntax OK (recon_observations.py)"
+  if st_sudo python3 -m py_compile "$DEST/daemon/recon_observations.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/worker_jobs.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/collector_ingest_mirror.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_cli.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_ssh.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_transport_snmp.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/credential_check_worker.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_run.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_ssh_os_release.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_ssh_packages.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_snmp_identity.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_secret_decrypt.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice7_selftest.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice8_pkg_selftest.py" >/dev/null 2>&1 \
+    && st_sudo python3 -m py_compile "$DEST/daemon/cred_check_slice9_snmp_selftest.py" >/dev/null 2>&1; then
+    echo "  Python syntax OK (recon_observations.py, worker_jobs.py, collector_ingest_mirror.py, cred_transport_*.py, credential_check_worker.py, cred_check_*.py)"
   else
-    echo "  [FAIL] python3 -m py_compile recon_observations.py"
+    echo "  [FAIL] python3 -m py_compile recon_observations.py / worker_jobs.py / collector_ingest_mirror.py"
     exit 1
   fi
 else
-  echo "  [WARN] python3 not in PATH — skipped py_compile recon_observations.py"
+  echo "  [WARN] python3 not in PATH — skipped py_compile recon_observations.py / worker_jobs.py"
 fi
 
 # ---------------------------------------------------------------------------
@@ -345,6 +395,12 @@ if [ -f "$SRC/surveytrace-collector-ingest.service" ]; then
   sudo systemctl enable surveytrace-collector-ingest.service
   echo "  surveytrace-collector-ingest unit installed/enabled"
 fi
+if [ -f "$SRC/surveytrace-credential-check-worker.service" ]; then
+  sudo cp "$SRC/surveytrace-credential-check-worker.service" /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable surveytrace-credential-check-worker.service
+  echo "  surveytrace-credential-check-worker unit installed/enabled (optional)"
+fi
 
 # ---------------------------------------------------------------------------
 # Restart daemons
@@ -353,6 +409,7 @@ echo "Restarting daemons..."
 sudo systemctl restart surveytrace-daemon
 sudo systemctl restart surveytrace-scheduler
 sudo systemctl restart surveytrace-collector-ingest.service || true
+sudo systemctl restart surveytrace-credential-check-worker.service || true
 
 sleep 2
 if sudo systemctl is-active --quiet surveytrace-daemon; then
@@ -373,8 +430,16 @@ if sudo systemctl is-active --quiet surveytrace-collector-ingest.service; then
   echo "  surveytrace-collector-ingest: running"
 else
   echo "  surveytrace-collector-ingest: FAILED or inactive"
-  echo "      sudo systemctl status surveytrace-collector-ingest --no-pager"
-  echo "      sudo journalctl -u surveytrace-collector-ingest -n 30"
+fi
+
+if sudo systemctl cat surveytrace-credential-check-worker.service >/dev/null 2>&1; then
+  if sudo systemctl is-active --quiet surveytrace-credential-check-worker.service; then
+    echo "  surveytrace-credential-check-worker: running"
+  else
+    echo "  surveytrace-credential-check-worker: inactive or failed (optional)"
+  fi
+else
+  echo "  surveytrace-credential-check-worker: unit not installed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -489,16 +554,29 @@ check_dir "$DEST/daemon" "daemon dir exists"
 check_dir "$DEST/data" "data dir exists"
 check_file "$DEST/api/st_version.php" "st_version.php (ST_VERSION loader)"
 check_file "$DEST/api/lib_reconciliation.php" "lib_reconciliation.php (trusted data)"
+check_file "$DEST/api/lib_worker_jobs.php" "lib_worker_jobs.php (worker execution substrate)"
 check_file "$DEST/api/recon_diagnostics.php" "recon_diagnostics.php"
 check_file "$DEST/api/health.php" "health API"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
 check_file "$DEST/api/lib_collectors.php" "lib_collectors"
+check_file "$DEST/api/lib_credentialed_checks.php" "lib_credentialed_checks (plugin registry)"
+check_file "$DEST/api/lib_secrets.php" "lib_secrets (credential envelope crypto)"
+check_file "$DEST/api/lib_credential_profiles.php" "lib_credential_profiles (credential metadata)"
 check_file "$DEST/api/lib_rate_limit.php" "lib_rate_limit"
 check_file "$DEST/api/collector_checkin.php" "collector_checkin API"
 check_file "$DEST/api/collector_jobs.php" "collector_jobs API"
 check_file "$DEST/api/collector_submit.php" "collector_submit API"
 check_file "$DEST/api/collectors.php" "collectors API"
+check_file "$DEST/api/credentialed_checks.php" "credentialed_checks API (plugin registry)"
+check_file "$DEST/api/credential_profiles.php" "credential_profiles API"
+check_file "$DEST/api/lib_credential_check_ops.php" "lib_credential_check_ops (cred check jobs/runs)"
+check_file "$DEST/api/credential_check_jobs.php" "credential_check_jobs API"
+check_file "$DEST/api/credential_check_runs.php" "credential_check_runs API"
+check_file "$DEST/api/lib_credential_profile_transport_test.php" "lib_credential_profile_transport_test (handshake runner)"
+check_file "$DEST/daemon/cred_transport_cli.py" "cred_transport_cli.py"
+check_file "$DEST/daemon/cred_transport_ssh.py" "cred_transport_ssh.py"
+check_file "$DEST/daemon/cred_transport_snmp.py" "cred_transport_snmp.py"
 check_file "$DEST/api/scan_history.php" "scan history API"
 check_file "$DEST/api/lib_scan_scopes.php" "lib_scan_scopes (scoped reporting)"
 check_file "$DEST/api/scan_scopes.php" "scan_scopes API"
@@ -516,8 +594,11 @@ check_file "$DEST/daemon/sync_oui.py" "sync_oui.py"
 check_file "$DEST/daemon/sync_webfp.py" "sync_webfp.py"
 check_file "$DEST/daemon/sync_cve_intel.py" "sync_cve_intel.py"
 check_file "$DEST/daemon/collector_ingest_worker.py" "collector_ingest_worker.py"
+check_file "$DEST/daemon/collector_ingest_mirror.py" "collector_ingest_mirror.py (worker mirror)"
+check_file "$DEST/daemon/credential_check_worker.py" "credential_check_worker.py (cred checks placeholder)"
 check_file "$DEST/daemon/asset_lifecycle.py" "asset_lifecycle.py"
 check_file "$DEST/daemon/recon_observations.py" "recon_observations.py (scan → observations)"
+check_file "$DEST/daemon/worker_jobs.py" "worker_jobs.py (worker execution substrate helpers)"
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"
 check_file "$DEST/docs/TRUSTED_DATA_MODEL.md" "docs/TRUSTED_DATA_MODEL.md"
 check_file "$DEST/docs/CREDENTIALED_CHECKS_ENGINE.md" "docs/CREDENTIALED_CHECKS_ENGINE.md"

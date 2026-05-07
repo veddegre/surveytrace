@@ -37,9 +37,10 @@ This must be run from the **repository root directory**.
 
 The deploy script will:
 
-- copy updated files to `/opt/surveytrace`
+- copy updated files to `/opt/surveytrace` (including explicit `api/*.php`, `daemon/` modules, `public/`, `sql/schema.sql`, and **`docs/`** operator reference)
 - normalize ownership and permissions
-- validate required files exist
+- validate required files exist (including trusted-data / reconciliation PHP and `recon_observations.py` where shipped)
+- run targeted `php -l` / `python3 -m py_compile` checks when configured in the script
 - check worker readability
 - verify systemd units
 - restart services as needed
@@ -107,6 +108,26 @@ After a successful deploy:
 - database remains intact
 - configuration is preserved
 - UI reflects new version (check VERSION file or UI indicator)
+
+---
+
+## Credentialed checks — profile secret encryption (optional)
+
+To allow admins to **store encrypted SSH / SNMPv3 / WinRM secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in the **PHP/web server environment** (same pattern as other SurveyTrace env vars: e.g. systemd `Environment=` on the unit that runs PHP-FPM or Apache, or your reverse-proxy–passed config — not inside SQLite).
+
+- **Format:** trimmed string. Best: `openssl rand -base64 32` (32 raw bytes as base64). Also accepted: 64 hex chars (32 bytes), or any string (implementation derives a 32-byte key with SHA-256 — weaker if short/predictable).
+- **If unset:** profile metadata CRUD still works; `set_secret` fails with **Credential encryption is not configured.**
+- **Backups / restore:** the SQLite database holds **ciphertext only**. Restoring a backup on a host **without the same key** makes existing profile secrets **unusable** until operators set a new key and re-enter secrets. **Key rotation** (re-encrypt all rows with a new key) is **not** automated in the current product slice.
+- **Execution:** credentialed check **worker** runs (slices 7–9) decrypt profile secrets on the worker for **`ssh.linux.os_release`**, **`ssh.linux.package_inventory`**, and **`snmpv3.device_identity`** when the profile transport matches (SNMP uses **`pysnmp`**; SSH uses **`paramiko`**). Other plugins remain placeholders. **Slice 5** still uses stored secrets for the **handshake test** subprocess from the API path.
+
+### Credentialed checks — transport handshake test (slice 5)
+
+After **slice 4** encryption and **slice 5** code deploy, admins can run **SSH** or **SNMPv3** handshake tests from **Settings → Credentialed checks — profiles** (modal: target host/IP, optional port).
+
+- **Python:** the web PHP process invokes `venv/bin/python3` (or `python3`) on `daemon/cred_transport_cli.py`. Requires **`paramiko`** (SSH) and **`pysnmp`** (SNMPv3) in the same venv as the scanner (`setup.sh` installs both).
+- **`proc_open`:** must not be disabled for the PHP-FPM pool user (`disable_functions` in `php.ini`).
+- **SSH host keys:** default policy accepts unknown host keys for the test only (**MITM risk** on untrusted networks). Stricter: set **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** (or `strict` / `no`) in the PHP environment so **paramiko** uses **RejectPolicy** (operators must align server-known_hosts or pinning separately — productized TOFU deferred).
+- **Concurrency:** only one handshake test at a time per SurveyTrace data directory (file lock); a second request returns **429** with a safe message.
 
 ---
 

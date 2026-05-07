@@ -120,6 +120,7 @@ def _recon_seed_sources(conn: sqlite3.Connection) -> None:
         ("surveytrace_scan", "SurveyTrace scan", "high"),
         ("zabbix_inventory", "Zabbix inventory", "high"),
         ("surveytrace_enrichment", "SurveyTrace enrichment", "medium"),
+        ("credentialed_check", "Credentialed check worker", "high"),
     )
     for stype, disp, trust in rows:
         conn.execute(
@@ -169,6 +170,229 @@ def _upsert_observation(
         """,
         (asset_id, obs_type, raw_value, norm_value, source_id, source_ref, confidence, provenance_json),
     )
+
+
+def normalize_os_text_public(raw: str) -> tuple[str, str]:
+    """Deterministic OS slug + label; aligned with api/lib_reconciliation.php buckets."""
+    n = _normalize_os_text(raw)
+    if n is None:
+        return "os_unknown", ""
+    return n[0], n[1]
+
+
+def upsert_credentialed_check_os_observation(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    raw_value: str,
+    source_object_ref: str,
+    provenance: dict[str, Any],
+) -> bool:
+    """
+    os_version_observed from credentialed_check source. Idempotent on UNIQUE(asset_id, type, source_id, ref).
+    Returns True if a row was written/updated.
+    """
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return False
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return False
+        slug, label = normalize_os_text_public(raw_value)
+        norm_val = slug if slug else "os_unknown"
+        prov = json.dumps(provenance, separators=(",", ":"), ensure_ascii=False)
+        raw_safe = (raw_value or "")[:4000]
+        _upsert_observation(
+            conn,
+            asset_id,
+            "os_version_observed",
+            raw_safe,
+            norm_val,
+            sid,
+            source_object_ref[:500] if source_object_ref else "",
+            "high",
+            prov if prov else "{}",
+        )
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def upsert_cred_package_inventory_summary_observation(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    raw_value: str,
+    normalized_value: str,
+    source_object_ref: str,
+    provenance: dict[str, Any],
+) -> bool:
+    """
+    Summarized package_inventory_observed from credentialed_check (manager / count / digest).
+    Does not create per-package asset_observations rows (bounded volume).
+    """
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return False
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return False
+        prov = json.dumps(provenance, separators=(",", ":"), ensure_ascii=False)
+        raw_safe = (raw_value or "")[:4000]
+        norm_safe = (normalized_value or "")[:500]
+        _upsert_observation(
+            conn,
+            asset_id,
+            "package_inventory_observed",
+            raw_safe,
+            norm_safe,
+            sid,
+            source_object_ref[:500] if source_object_ref else "",
+            "medium",
+            prov if prov else "{}",
+        )
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def upsert_cred_snmp_sysname_observations(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    sys_name: str,
+    run_id: int,
+    target_row_id: int,
+    plugin_key: str,
+    plugin_version: str,
+    result_id: int,
+) -> bool:
+    """
+    hostname_observed (+ fqdn_observed when sysName looks like FQDN) from SNMP sysName.
+    Idempotent per (asset_id, type, credentialed_check source, unique source_object_ref suffix).
+    """
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return False
+    s = (sys_name or "").strip()
+    if not s:
+        return False
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return False
+        base_ref = f"run:{run_id}:target:{target_row_id}:{plugin_key}@{plugin_version}"
+        prov_core = {
+            "plugin_key": plugin_key,
+            "plugin_version": plugin_version,
+            "run_id": run_id,
+            "target_row_id": target_row_id,
+            "result_id": result_id,
+        }
+        low = s.lower().rstrip(".")
+        if len(low) > 512:
+            return False
+        wrote = False
+        if "." in low:
+            short = low.split(".", 1)[0]
+            if short and short != low:
+                fqdn_prov = json.dumps({**prov_core, "field": "sysName", "origin": "credentialed_check"}, separators=(",", ":"))
+                hn_prov = json.dumps(
+                    {**prov_core, "field": "sysName", "derived_from": "fqdn", "origin": "credentialed_check"},
+                    separators=(",", ":"),
+                )
+                _upsert_observation(
+                    conn,
+                    asset_id,
+                    "fqdn_observed",
+                    s[:4000],
+                    low[:512],
+                    sid,
+                    f"{base_ref}:fqdn"[:500],
+                    "medium",
+                    fqdn_prov if fqdn_prov else "{}",
+                )
+                _upsert_observation(
+                    conn,
+                    asset_id,
+                    "hostname_observed",
+                    s[:4000],
+                    short[:512],
+                    sid,
+                    f"{base_ref}:hostname_short"[:500],
+                    "medium",
+                    hn_prov if hn_prov else "{}",
+                )
+                wrote = True
+            else:
+                prov = json.dumps({**prov_core, "field": "sysName", "origin": "credentialed_check"}, separators=(",", ":"))
+                _upsert_observation(
+                    conn,
+                    asset_id,
+                    "hostname_observed",
+                    s[:4000],
+                    low[:512],
+                    sid,
+                    f"{base_ref}:hostname"[:500],
+                    "medium",
+                    prov if prov else "{}",
+                )
+                wrote = True
+        else:
+            prov = json.dumps({**prov_core, "field": "sysName", "origin": "credentialed_check"}, separators=(",", ":"))
+            _upsert_observation(
+                conn,
+                asset_id,
+                "hostname_observed",
+                s[:4000],
+                low[:512],
+                sid,
+                f"{base_ref}:hostname"[:500],
+                "medium",
+                prov if prov else "{}",
+            )
+            wrote = True
+        return wrote
+    except sqlite3.Error:
+        return False
+
+
+def upsert_cred_device_identity_summary_observation(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    normalized_digest: str,
+    raw_summary_json: str,
+    source_object_ref: str,
+    provenance: dict[str, Any],
+) -> bool:
+    """Summarized device_identity_observed from SNMP cred check (no per-OID explosion)."""
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return False
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return False
+        prov = json.dumps(provenance, separators=(",", ":"), ensure_ascii=False)
+        raw_safe = (raw_summary_json or "")[:4000]
+        norm_safe = (normalized_digest or "")[:500]
+        _upsert_observation(
+            conn,
+            asset_id,
+            "device_identity_observed",
+            raw_safe,
+            norm_safe,
+            sid,
+            source_object_ref[:500] if source_object_ref else "",
+            "medium",
+            prov if prov else "{}",
+        )
+        return True
+    except sqlite3.Error:
+        return False
 
 
 def write_scan_os_observations_best_effort(

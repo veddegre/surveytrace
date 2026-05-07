@@ -2808,6 +2808,7 @@ body.light-mode .chk-confirm-block{
 .modal-w480{width:480px;max-height:90vh;overflow-y:auto}
 .modal-w560{width:560px;max-height:85vh;overflow-y:auto}
 .modal-w600{width:600px;max-height:88vh;overflow-y:auto}
+.modal-w640{width:640px;max-height:88vh;overflow-y:auto}
 .modal-w760{width:760px;max-height:88vh;overflow-y:auto}
 .modal-w360{width:360px;font-family:var(--sf)}
 .modal-w440{padding:24px;width:440px;max-height:80vh;overflow-y:auto;font-family:var(--sf)}
@@ -3642,6 +3643,8 @@ body.light-mode .st-health-kpi{
   border-left:3px solid color-mix(in srgb,var(--amber) 72%,var(--bd));
   padding-left:calc(20px - 3px);
 }
+.st-health-band--worker .st-health-worker-lede{max-width:min(100%,52rem);line-height:1.45}
+.st-health-band--worker .st-health-worker-summary{max-width:min(100%,52rem);line-height:1.45}
 .st-health-warning-list{margin:0;padding-left:1.2em}
 .st-health-warning-list li{margin:4px 0;line-height:1.45}
 .st-health-warning-list li::marker{color:var(--amber)}

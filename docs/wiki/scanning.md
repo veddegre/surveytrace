@@ -203,4 +203,5 @@ See also:
 - [Reporting](reporting.md)
 - [Concepts](concepts.md)
 - [Getting Started](getting-started.md)
+- [Troubleshooting — Collector results and master ingest](troubleshooting.md#collector-results-and-master-ingest) — when jobs use collector nodes and the master shows submission/ingest states
 - [Documentation home](README.md)

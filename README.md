@@ -4,7 +4,7 @@ SurveyTrace is a security and asset visibility platform that combines scanning, 
 
 It provides both historical scan insight and current asset state without forcing everything into one model.
 
-SurveyTrace 1.0.0 marks the first stable release.
+SurveyTrace **1.0.1** (see `VERSION`) is the current stabilization line on top of **1.0.0** (first stable). See [CHANGELOG.md](CHANGELOG.md) and [RELEASE_NOTES.md](RELEASE_NOTES.md). Pre-release verification: [docs/RELEASE_READINESS_CHECKLIST.md](docs/RELEASE_READINESS_CHECKLIST.md).
 
 ## What “SurveyTrace” means
 
@@ -98,7 +98,7 @@ See [ROADMAP.md](./ROADMAP.md) for capability direction and planned development 
 
 ## Changelog
 
-See [CHANGELOG.md](./CHANGELOG.md) for version history.
+See [CHANGELOG.md](./CHANGELOG.md) for version history and [RELEASE_NOTES.md](./RELEASE_NOTES.md) for operator-focused summaries. Before promoting a build internally, use [docs/RELEASE_READINESS_CHECKLIST.md](./docs/RELEASE_READINESS_CHECKLIST.md).
 
 ## Notes
 
