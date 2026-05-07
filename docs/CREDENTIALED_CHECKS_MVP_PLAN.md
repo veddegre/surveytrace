@@ -394,7 +394,7 @@ Also includes **strict validation** on save/launch (profile transport vs plugin 
 
 ### Validation steps
 
-- `python3 daemon/cred_check_slice8_pkg_selftest.py`; `python3 daemon/st_software_obs_slice1_selftest.py`; slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
+- `python3 daemon/cred_check_slice8_pkg_selftest.py`; `python3 daemon/st_software_obs_slice1_selftest.py`; `php scripts/st_software_inventory_slice2_selftest.php` (slice 2 summary resolver); `php scripts/st_software_inventory_slice3_selftest.php` (slice 3 UX/API bounds); `php scripts/st_software_inventory_slice4_selftest.php` (slice 4 bands + health contracts); slice 7 selftest unchanged; placeholder smoke; `php -l` / `py_compile` on touched files.
 - Manual: Debian/Ubuntu → `package_manager=dpkg`; RHEL-style → `rpm`; mixed job with **`os_release`** + **`package_inventory`** → per-plugin status isolation.
 
 ### Explicitly deferred

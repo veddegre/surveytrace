@@ -5409,6 +5409,48 @@ function renderHealthHtml(h, zbxResp) {
         if (tdCred > 0) {
             tdDetail += ` · cred obs ${esc(String(tdCred))}`;
         }
+        const tdSwAst = parseInt(String(td.software_inventory_summary_assets || 0), 10) || 0;
+        const tdSwLow = parseInt(String(td.software_inventory_summary_low_confidence || 0), 10) || 0;
+        const tdSwStale = parseInt(String(td.software_inventory_summary_stale_assets || 0), 10) || 0;
+        const tdSwPartial = parseInt(String(td.software_inventory_summary_partial_assets || 0), 10) || 0;
+        const tdSwOrphan = parseInt(String(td.software_observed_without_summary_assets || 0), 10) || 0;
+        if (tdSwAst > 0) {
+            tdDetail += ` · sw inventory summaries ${esc(String(tdSwAst))}`;
+            if (tdSwLow > 0) {
+                tdDetail += ` (${esc(String(tdSwLow))} low confidence)`;
+            }
+            if (tdSwStale > 0) {
+                tdDetail += ` · stale sw summaries ${esc(String(tdSwStale))}`;
+            }
+            if (tdSwPartial > 0) {
+                tdDetail += ` · partial sw summaries ${esc(String(tdSwPartial))}`;
+            }
+        }
+        if (tdSwOrphan > 0) {
+            tdDetail += ` · sw_observed without summary ${esc(String(tdSwOrphan))}`;
+        }
+        const tdSwBand91 = parseInt(String(td.software_inventory_summary_stale_evidence_90_180d_assets || 0), 10) || 0;
+        const tdSwBand180 = parseInt(String(td.software_inventory_summary_stale_evidence_over_180d_assets || 0), 10) || 0;
+        const tdSwRepPar = parseInt(String(td.software_inventory_assets_repeat_partial_pkg_inventory || 0), 10) || 0;
+        const tdSwRecAfter = parseInt(String(td.software_inventory_summary_reconciled_after_sw_obs_assets || 0), 10) || 0;
+        const tdSwNoBnd = parseInt(String(td.software_inventory_summary_without_bounded_sw_obs_assets || 0), 10) || 0;
+        if (tdSwAst > 0) {
+            if (tdSwBand91 > 0) {
+                tdDetail += ` · sw stale 90\u2013180d ${esc(String(tdSwBand91))}`;
+            }
+            if (tdSwBand180 > 0) {
+                tdDetail += ` · sw stale >180d ${esc(String(tdSwBand180))}`;
+            }
+            if (tdSwRepPar > 0) {
+                tdDetail += ` · repeat partial pkg inv ${esc(String(tdSwRepPar))}`;
+            }
+            if (tdSwRecAfter > 0) {
+                tdDetail += ` · summary newer than sw_obs ${esc(String(tdSwRecAfter))}`;
+            }
+            if (tdSwNoBnd > 0) {
+                tdDetail += ` · summaries w/o sw_obs rows ${esc(String(tdSwNoBnd))}`;
+            }
+        }
     }
     integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
 
@@ -7706,6 +7748,114 @@ function stHostReconciliationEvidenceHtml(assetData) {
         ${swLine}
         ${expl}
         ${detailBlock}
+      </div>
+    </section>`;
+}
+
+/** Slice 2–3 — reconciled software_inventory_summary (no CVE signal). Bounded preview via recon_detail.software_observed only. */
+function stHostSoftwareInventoryHtml(assetData) {
+    if (!assetData) return '';
+    const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
+    const sw = rd && rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
+    const swObs = sw && sw.observation_count != null ? (parseInt(String(sw.observation_count), 10) || 0) : 0;
+
+    const sum = assetData.software_inventory_summary != null && String(assetData.software_inventory_summary).trim()
+        ? String(assetData.software_inventory_summary).trim() : '';
+
+    if (!sum && swObs <= 0) return '';
+
+    const mgrRaw = assetData.software_inventory_manager != null ? String(assetData.software_inventory_manager).trim() : '';
+    const mgr = mgrRaw || '\u2014';
+    const cnt = assetData.software_inventory_count != null ? String(assetData.software_inventory_count) : '\u2014';
+    const confRaw = assetData.software_inventory_confidence != null ? String(assetData.software_inventory_confidence).trim().toLowerCase() : '';
+    const confLabel = confRaw ? confRaw.toUpperCase() : '\u2014';
+    const chipClass = findingConfidenceChipClass(confRaw || 'low');
+    const partial = !!assetData.software_inventory_partial;
+    const oatRaw = assetData.software_inventory_observed_at != null ? String(assetData.software_inventory_observed_at) : '';
+    const oatMs = oatRaw ? Date.parse(oatRaw) : NaN;
+
+    let staleFlag = false;
+    if (assetData.software_inventory_stale === true || assetData.software_inventory_stale === 1) {
+        staleFlag = true;
+    } else if (assetData.software_inventory_stale === false || assetData.software_inventory_stale === 0) {
+        staleFlag = false;
+    } else {
+        staleFlag = Number.isFinite(oatMs) && (Date.now() - oatMs) > 90 * 86400000;
+    }
+
+    const oatDisp = oatRaw ? esc(localTime(oatRaw)) : '\u2014';
+    const srcLine = assetData.software_inventory_source != null && String(assetData.software_inventory_source).trim()
+        ? esc(String(assetData.software_inventory_source).trim())
+        : esc('Credentialed SSH package inventory (ssh.linux.package_inventory)');
+
+    const staleBand = assetData.software_inventory_stale_band != null ? String(assetData.software_inventory_stale_band).trim().toLowerCase() : '';
+    const obsGap = assetData.software_inventory_observation_gap === true || assetData.software_inventory_observation_gap === 1;
+    const badgeParts = [];
+    if (partial) {
+        badgeParts.push('<span class="hp-chip" title="Truncated, capped, or incomplete inventory signal">Partial / bounded inventory</span>');
+    }
+    if (staleFlag) {
+        const staleHint = staleBand === 'over_180' ? 'Stale evidence (>180d since last observation)' : 'Stale evidence (>90d since last observation)';
+        badgeParts.push(`<span class="hp-chip" title="Beyond freshness window — not vulnerability posture">${esc(staleHint)}</span>`);
+    }
+    if (obsGap) {
+        badgeParts.push('<span class="hp-chip" title="Cardinality from package_inventory_observed summary until bounded rows exist">No bounded row corroboration</span>');
+    }
+    const badgeRow = badgeParts.length
+        ? `<div class="hp-chips" style="margin-top:6px">${badgeParts.join('')}</div>`
+        : '';
+
+    const noCveLine = `<p class="text-micro mt6 text-dim">This <strong>software evidence</strong> summary reflects inventory freshness and completeness only. It is <strong>not</strong> CVE or vulnerability analysis. <strong>No findings</strong> are generated from package inventory in SurveyTrace yet.</p>`;
+
+    const expl = assetData.software_inventory_explanation != null && String(assetData.software_inventory_explanation).trim()
+        ? `<p class="text-micro mt6 st-host-evidence-expl">${esc(String(assetData.software_inventory_explanation))}</p>`
+        : '';
+
+    const swPrev = sw && Array.isArray(sw.preview) ? sw.preview : [];
+    const swPrevLis = swPrev.map((p) => {
+        const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
+        return `<li class="text-micro mono-sm">${lb}</li>`;
+    }).join('');
+
+    const evidenceParts = [];
+    if (swPrev.length && rd && rd.tables_ready === true) {
+        evidenceParts.push(`<ul class="st-host-sw-preview mb0">${swPrevLis}</ul>`);
+        evidenceParts.push('<p class="text-micro text-dim mt6 mb0">Showing up to <span class="mono-sm">3</span> sample identities from bounded <span class="mono-sm">software_observed</span> rows. The full installed package list is not loaded here by design.</p>');
+    } else if (swObs > 0) {
+        evidenceParts.push(`<p class="text-micro text-dim mb0"><span class="mono-sm">${esc(String(swObs))}</span> bounded <span class="mono-sm">software_observed</span> row(s); preview samples unavailable in this response.</p>`);
+    } else {
+        evidenceParts.push('<p class="text-micro text-dim mb0">No bounded row preview in this response.</p>');
+    }
+
+    const evidenceBlock = evidenceParts.length
+        ? `<details class="st-host-evidence-details mt8"><summary class="text-micro st-host-evidence-sum">View software evidence</summary>${evidenceParts.join('')}</details>`
+        : '';
+
+    if (!sum) {
+        return `<section class="host-section st-host-subsection st-host-evidence st-host-sw-inv" aria-label="Software evidence pending reconciliation">
+      <h3 class="host-section-heading">Evidence \u2014 Software evidence (bounded inventory)</h3>
+      <div class="host-inner-surface st-host-evidence-inner">
+        <p class="text-micro text-dim">Bounded <span class="mono-sm">software_observed</span> rows are present (${esc(String(swObs))}), but no reconciled <span class="mono-sm">software_inventory_summary</span> yet. Open this host again after the next credentialed package inventory run, or review trusted-data diagnostics if this persists.</p>
+        ${noCveLine}
+        ${evidenceBlock}
+      </div>
+    </section>`;
+    }
+
+    return `<section class="host-section st-host-subsection st-host-evidence st-host-sw-inv" aria-label="Software evidence">
+      <h3 class="host-section-heading">Evidence \u2014 Software evidence (bounded inventory)</h3>
+      <div class="host-inner-surface st-host-evidence-inner">
+        <div class="st-host-evidence-row">
+          <span class="text-dim text-micro">Summary belief</span>
+          <strong class="mono-sm">${esc(sum)}</strong>
+          <span class="${chipClass}" title="Reconciliation confidence from freshness/completeness — not CVE or vulnerability exposure">${esc(confLabel)}</span>
+        </div>
+        <div class="text-micro text-dim mt4">Source \u00b7 ${srcLine}</div>
+        <div class="text-micro text-dim mt2">Package manager \u00b7 <span class="mono-sm">${esc(mgr)}</span> · Observed package count (hint) \u00b7 <span class="mono-sm">${esc(cnt)}</span> · Last evidence \u00b7 ${oatDisp}</div>
+        ${badgeRow}
+        ${noCveLine}
+        ${expl}
+        ${evidenceBlock}
       </div>
     </section>`;
 }
@@ -20353,6 +20503,7 @@ async function openHostPanel(id, ip) {
         : '<div class="hp-empty st-host-empty">No scan-to-scan deltas yet. Repeat scans build this timeline.</div>';
 
     const reconEvidenceHtml = stHostReconciliationEvidenceHtml(assetData);
+    const softwareInventoryHtml = stHostSoftwareInventoryHtml(assetData);
     const identityEvidenceHtml = stHostIdentityEvidenceHtml(assetData);
     const credHostSummaryHtml = stHostCredentialedChecksHtml(assetData);
 
@@ -20419,6 +20570,7 @@ async function openHostPanel(id, ip) {
           <div class="st-host-summary-item"><span class="st-host-summary-k">Last scan</span><span class="st-host-summary-v">${esc(latestScanLabel)}</span></div>
         </div>
         ${reconEvidenceHtml}
+        ${softwareInventoryHtml}
         ${identityEvidenceHtml}
         ${credHostSummaryHtml}
         ${hpActionsHtml}

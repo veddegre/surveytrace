@@ -479,7 +479,7 @@ CREATE TABLE IF NOT EXISTS asset_assertions (
     updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
     asset_id             INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     assertion_type       TEXT NOT NULL,
-        -- os_platform | canonical_hostname | ...
+        -- os_platform | canonical_hostname | software_inventory_summary | ...
     asserted_value       TEXT NOT NULL,
         -- normalized bucket key (machine-readable)
     confidence_level     TEXT NOT NULL DEFAULT 'medium',

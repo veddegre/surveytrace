@@ -842,6 +842,10 @@ check_file "$INSTALL_DIR/daemon/cred_check_slice7_selftest.py" "cred_check_slice
 check_file "$INSTALL_DIR/daemon/cred_check_slice8_pkg_selftest.py" "cred_check_slice8_pkg_selftest.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_slice9_snmp_selftest.py" "cred_check_slice9_snmp_selftest.py exists"
 check_file "$INSTALL_DIR/daemon/st_software_obs_slice1_selftest.py" "st_software_obs_slice1_selftest.py exists"
+check_file "$INSTALL_DIR/scripts/st_software_inventory_slice2_selftest.php" "scripts/st_software_inventory_slice2_selftest.php exists"
+check_file "$INSTALL_DIR/scripts/st_software_inventory_slice3_selftest.php" "scripts/st_software_inventory_slice3_selftest.php exists"
+check_file "$INSTALL_DIR/scripts/st_software_inventory_slice4_selftest.php" "scripts/st_software_inventory_slice4_selftest.php exists"
+check_file "$INSTALL_DIR/scripts/st_recon_slice10_selftest.php" "scripts/st_recon_slice10_selftest.php exists"
 check_file "$INSTALL_DIR/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php exists"
 check_executable_as_user "$APP_USER" "$VENV_DIR/bin/python3" "surveytrace executable: venv python3"
 
@@ -878,6 +882,9 @@ if command -v php >/dev/null 2>&1; then
         php -l "$INSTALL_DIR/api/$_st_php" >/dev/null 2>&1 && check_ok "php -l api/$_st_php" || check_fail "php -l api/$_st_php"
     done
     php -l "$INSTALL_DIR/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 && check_ok "php -l daemon/cred_decrypt_cli.php" || check_fail "php -l daemon/cred_decrypt_cli.php"
+    for _st_scr in st_software_inventory_slice2_selftest.php st_software_inventory_slice3_selftest.php st_software_inventory_slice4_selftest.php st_recon_slice10_selftest.php; do
+        php -l "$INSTALL_DIR/scripts/$_st_scr" >/dev/null 2>&1 && check_ok "php -l scripts/$_st_scr" || check_fail "php -l scripts/$_st_scr"
+    done
 else
     check_warn "php not in PATH — skipped php -l (reconciliation / worker_jobs API)"
 fi

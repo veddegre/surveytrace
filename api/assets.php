@@ -668,9 +668,17 @@ if ($single_id > 0) {
         @error_log('SurveyTrace assets.php identity reconciliation: ' . $e->getMessage());
     }
 
+    $softwareBundle = st_recon_empty_software_inventory_bundle();
+    try {
+        $softwareBundle = st_recon_lazy_reconcile_software_inventory_summary($db, $single_id, $asset);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php software_inventory_summary: ' . $e->getMessage());
+    }
+
     $mergedAssertions = array_merge(
         $reconBundle['assertions'] ?? [],
-        $identityBundle['identity_assertions'] ?? []
+        $identityBundle['identity_assertions'] ?? [],
+        $softwareBundle['software_inventory_assertions'] ?? []
     );
 
     $identityReconDetail = [
@@ -734,6 +742,18 @@ if ($single_id > 0) {
         'recon_detail'            => $reconDetail,
         'identity_recon_detail'       => $identityReconDetail,
         'credential_check_host_summary'=> $credHost,
+        'software_inventory_summary'     => $softwareBundle['software_inventory_summary'],
+        'software_inventory_confidence' => $softwareBundle['software_inventory_confidence'],
+        'software_inventory_explanation' => $softwareBundle['software_inventory_explanation'],
+        'software_inventory_count'      => $softwareBundle['software_inventory_count'],
+        'software_inventory_manager'    => $softwareBundle['software_inventory_manager'],
+        'software_inventory_partial'    => $softwareBundle['software_inventory_partial'],
+        'software_inventory_observed_at' => $softwareBundle['software_inventory_observed_at'],
+        'software_inventory_stale'      => $softwareBundle['software_inventory_stale'],
+        'software_inventory_source'     => $softwareBundle['software_inventory_source'],
+        'software_inventory_has_bounded_observations' => $softwareBundle['software_inventory_has_bounded_observations'],
+        'software_inventory_observation_gap' => $softwareBundle['software_inventory_observation_gap'],
+        'software_inventory_stale_band' => $softwareBundle['software_inventory_stale_band'],
     ], $trustedApi));
 }
 

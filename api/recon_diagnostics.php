@@ -4,6 +4,7 @@
  *
  * Admin-only read-only payload for trusted-data debugging:
  * OS/platform recon plus identity (canonical_hostname) detail when requested.
+ * Includes read-only `software_inventory` diagnostics (bounded summary — no CVE).
  *
  * Query:
  *   asset_id (required) — assets.id
@@ -49,10 +50,12 @@ if ((int) $chk->fetchColumn() !== 1) {
 $includeSources = st_str('include_sources') === '1';
 $detail = st_recon_build_evidence_detail_for_asset($db, $assetId, 48, 20, $includeSources);
 $identityDetail = st_recon_build_identity_recon_detail_for_asset($db, $assetId, 48, 20, $includeSources);
+$softwareInventory = st_recon_software_inventory_diag_for_asset($db, $assetId);
 
 st_json([
-    'ok'              => true,
-    'asset_id'        => $assetId,
-    'recon'           => $detail,
-    'identity_recon'  => $identityDetail,
+    'ok'               => true,
+    'asset_id'         => $assetId,
+    'recon'            => $detail,
+    'identity_recon'   => $identityDetail,
+    'software_inventory' => $softwareInventory,
 ]);

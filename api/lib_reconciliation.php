@@ -8,6 +8,30 @@
 
 declare(strict_types=1);
 
+/** Inventory summary staleness threshold (days) — see TRUSTED_DATA_MODEL.md / CREDENTIALED_CHECKS_ENGINE.md */
+const ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS = 90;
+
+/**
+ * Operator-facing inventory source label (API/UI) — credentialed package inventory only.
+ */
+const ST_RECON_SW_INV_SOURCE_LABEL = 'Credentialed SSH package inventory (ssh.linux.package_inventory)';
+
+/**
+ * Fragments embedded in `software_inventory_summary` explanations — used by health SQL (`instr`).
+ * Must stay aligned with {@see st_recon_resolve_software_inventory_summary_evidence()}.
+ */
+const ST_RECON_SW_INV_HEALTH_MARKER_STALE = '(stale threshold)';
+const ST_RECON_SW_INV_HEALTH_MARKER_PARTIAL = 'partial, truncated, or capped below total installed package cardinality';
+
+/** Embedded when summary relies on package_inventory_observed only — counted in health diagnostics. */
+const ST_RECON_SW_INV_HEALTH_MARKER_OBS_GAP = 'bounded software_observed corroboration is absent';
+
+/**
+ * Future inventory reconciliation sources (not implemented — no ingestion in slice 4).
+ * Reserved for eventual fusion with cred-check inventory: scanner_inventory, api_integration_inventory,
+ * sbom_import, agent_inventory. Resolver and collectors remain cred-check scoped until explicitly wired.
+ */
+
 /**
  * @return array<string, mixed>
  */
@@ -2444,6 +2468,563 @@ function st_recon_lazy_reconcile_os_platform(PDO $pdo, int $assetId, array $asse
     }
 }
 
+// -----------------------------------------------------------------------------
+// Software inventory summary reconciliation (slice 2 — bounded summary assertion only)
+// -----------------------------------------------------------------------------
+
+/**
+ * API-shaped defaults before lazy reconcile fills OS/host bundles elsewhere.
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_empty_software_inventory_bundle(): array
+{
+    return [
+        'software_inventory_summary'       => null,
+        'software_inventory_confidence'    => null,
+        'software_inventory_explanation'   => null,
+        'software_inventory_count'         => null,
+        'software_inventory_manager'       => null,
+        'software_inventory_partial'       => null,
+        'software_inventory_observed_at'           => null,
+        'software_inventory_stale'                 => null,
+        'software_inventory_source'                  => null,
+        'software_inventory_has_bounded_observations'=> null,
+        'software_inventory_observation_gap'         => null,
+        'software_inventory_stale_band'              => null,
+        'software_inventory_assertions'              => [],
+    ];
+}
+
+/**
+ * Latest SQLite/datetime string by lexical strtotime ordering.
+ *
+ * @param list<string|null> $candidates
+ */
+function st_recon_pick_latest_observed_at_string(array $candidates): ?string
+{
+    $best = null;
+    $bestTs = null;
+    foreach ($candidates as $c) {
+        $s = trim((string) ($c ?? ''));
+        if ($s === '') {
+            continue;
+        }
+        $t = strtotime($s);
+        if ($t !== false && ($bestTs === null || $t > $bestTs)) {
+            $bestTs = $t;
+            $best = $s;
+        }
+    }
+
+    return $best;
+}
+
+function st_recon_software_inventory_evidence_is_stale(?string $observedAt): bool
+{
+    $s = trim((string) ($observedAt ?? ''));
+    if ($s === '') {
+        return true;
+    }
+    $t = strtotime($s);
+    if ($t === false) {
+        return true;
+    }
+
+    return (time() - $t) > ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS * 86400;
+}
+
+/** Evidence age in whole days (UTC-ish via strtotime), or null when unknown. */
+function st_recon_sw_inv_evidence_age_days(?string $observedAt): ?float
+{
+    $s = trim((string) ($observedAt ?? ''));
+    if ($s === '') {
+        return null;
+    }
+    $t = strtotime($s);
+    if ($t === false) {
+        return null;
+    }
+
+    return (time() - $t) / 86400.0;
+}
+
+/**
+ * Fresh vs stale age reporting band for operators/diagnostics (not vulnerability tiers).
+ *
+ * @return 'fresh'|'90_180'|'over_180'
+ */
+function st_recon_sw_inv_stale_band_label(?string $observedAt): string
+{
+    if (! st_recon_software_inventory_evidence_is_stale($observedAt)) {
+        return 'fresh';
+    }
+    $age = st_recon_sw_inv_evidence_age_days($observedAt);
+    if ($age === null || $age > 180.0) {
+        return 'over_180';
+    }
+
+    return '90_180';
+}
+
+function st_recon_normalize_inventory_package_manager_token(?string $raw): string
+{
+    $x = strtolower(trim((string) ($raw ?? '')));
+
+    return ($x === 'dpkg' || $x === 'rpm') ? $x : '';
+}
+
+/**
+ * Read credentialed-check package inventory + bounded software_observed slice evidence.
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_collect_software_inventory_evidence(PDO $pdo, int $assetId): array
+{
+    $out = [
+        'package_inventory_id'          => null,
+        'package_inventory_raw'         => null,
+        'package_inventory_observed_at' => null,
+        'software_observed_count'       => 0,
+        'software_observation_ids_sample' => [],
+        'software_first_raw'            => null,
+        'software_first_provenance'     => null,
+        'software_max_observed_at'      => null,
+        'evidence_max_observed_at'      => null,
+    ];
+    if ($assetId <= 0 || ! st_recon_tables_ready($pdo)) {
+        return $out;
+    }
+    $sidCred = st_recon_source_id($pdo, 'credentialed_check');
+    if ($sidCred === null) {
+        return $out;
+    }
+    try {
+        $pkgSt = $pdo->prepare(
+            'SELECT id, raw_value, observed_at FROM asset_observations
+             WHERE asset_id = ? AND source_id = ? AND observation_type = \'package_inventory_observed\'
+             ORDER BY datetime(observed_at) DESC, id DESC LIMIT 1'
+        );
+        $pkgSt->execute([$assetId, $sidCred]);
+        $pkgRow = $pkgSt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($pkgRow)) {
+            $out['package_inventory_id'] = (int) ($pkgRow['id'] ?? 0);
+            $out['package_inventory_raw'] = (string) ($pkgRow['raw_value'] ?? '');
+            $out['package_inventory_observed_at'] = isset($pkgRow['observed_at']) ? (string) $pkgRow['observed_at'] : null;
+        }
+
+        $cntSt = $pdo->prepare(
+            'SELECT COUNT(*) FROM asset_observations WHERE asset_id = ? AND source_id = ? AND observation_type = \'software_observed\''
+        );
+        $cntSt->execute([$assetId, $sidCred]);
+        $out['software_observed_count'] = (int) $cntSt->fetchColumn();
+
+        $maxSt = $pdo->prepare(
+            'SELECT MAX(observed_at) FROM asset_observations WHERE asset_id = ? AND source_id = ? AND observation_type = \'software_observed\''
+        );
+        $maxSt->execute([$assetId, $sidCred]);
+        $mx = $maxSt->fetchColumn();
+        $out['software_max_observed_at'] = ($mx !== false && $mx !== null) ? (string) $mx : null;
+
+        $samSt = $pdo->prepare(
+            'SELECT id FROM asset_observations WHERE asset_id = ? AND source_id = ? AND observation_type = \'software_observed\'
+             ORDER BY id ASC LIMIT 5'
+        );
+        $samSt->execute([$assetId, $sidCred]);
+        foreach ($samSt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $rw) {
+            $rid = (int) ($rw['id'] ?? 0);
+            if ($rid > 0) {
+                $out['software_observation_ids_sample'][] = $rid;
+            }
+        }
+
+        $frSt = $pdo->prepare(
+            'SELECT raw_value, provenance_json FROM asset_observations WHERE asset_id = ? AND source_id = ? AND observation_type = \'software_observed\'
+             ORDER BY id ASC LIMIT 1'
+        );
+        $frSt->execute([$assetId, $sidCred]);
+        $fr = $frSt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($fr)) {
+            $out['software_first_raw'] = (string) ($fr['raw_value'] ?? '');
+            $out['software_first_provenance'] = (string) ($fr['provenance_json'] ?? '');
+        }
+
+        $out['evidence_max_observed_at'] = st_recon_pick_latest_observed_at_string([
+            $out['package_inventory_observed_at'],
+            $out['software_max_observed_at'],
+        ]);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_recon_collect_software_inventory_evidence: ' . $e->getMessage());
+    }
+
+    return $out;
+}
+
+/**
+ * Pure resolver for tests + lazy reconcile (no DB writes).
+ *
+ * @param array<string, mixed> $ev Output of st_recon_collect_software_inventory_evidence
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_resolve_software_inventory_summary_evidence(array $ev): array
+{
+    $pkgId = isset($ev['package_inventory_id']) ? (int) $ev['package_inventory_id'] : 0;
+    $swCnt = (int) ($ev['software_observed_count'] ?? 0);
+    if ($pkgId <= 0 && $swCnt <= 0) {
+        return ['skip' => true];
+    }
+
+    $pkgRaw = (string) ($ev['package_inventory_raw'] ?? '');
+    $pkgDoc = json_decode($pkgRaw, true);
+    $pkgMgr = '';
+    $pkgCount = 0;
+    $pkgPartial = false;
+    if (is_array($pkgDoc)) {
+        $pkgMgr = st_recon_normalize_inventory_package_manager_token(isset($pkgDoc['package_manager']) ? (string) $pkgDoc['package_manager'] : '');
+        $pkgCount = (int) ($pkgDoc['package_count'] ?? 0);
+        $pkgPartial = ! empty($pkgDoc['partial']) || ! empty($pkgDoc['truncated']);
+    }
+
+    $provDoc = json_decode((string) ($ev['software_first_provenance'] ?? ''), true);
+    $aggregateFromProv = null;
+    $boundedTrunc = false;
+    if (is_array($provDoc)) {
+        if (isset($provDoc['aggregate_package_count'])) {
+            $aggregateFromProv = (int) $provDoc['aggregate_package_count'];
+        }
+        $boundedTrunc = ! empty($provDoc['bounded_truncation']);
+    }
+
+    $swRawDoc = json_decode((string) ($ev['software_first_raw'] ?? ''), true);
+    $swPayloadPartial = false;
+    $swMgr = '';
+    if (is_array($swRawDoc)) {
+        $swPayloadPartial = ! empty($swRawDoc['partial']);
+        $swMgr = st_recon_normalize_inventory_package_manager_token(isset($swRawDoc['manager']) ? (string) $swRawDoc['manager'] : '');
+    }
+
+    $displayCount = 0;
+    if ($aggregateFromProv !== null && $aggregateFromProv > 0) {
+        $displayCount = $aggregateFromProv;
+    } elseif ($pkgCount > 0) {
+        $displayCount = $pkgCount;
+    } elseif ($swCnt > 0) {
+        $displayCount = $swCnt;
+    }
+
+    $mgrToken = $pkgMgr !== '' ? $pkgMgr : $swMgr;
+    $mgrLabel = $mgrToken !== '' ? $mgrToken : 'inventory';
+
+    $boundedIncomplete = $boundedTrunc
+        || ($aggregateFromProv !== null && $aggregateFromProv > $swCnt && $swCnt > 0);
+    $partial = $pkgPartial || $boundedIncomplete || $swPayloadPartial;
+
+    $observedAt = st_recon_pick_latest_observed_at_string([
+        isset($ev['package_inventory_observed_at']) ? (string) $ev['package_inventory_observed_at'] : null,
+        isset($ev['software_max_observed_at']) ? (string) $ev['software_max_observed_at'] : null,
+    ]);
+
+    $stale = st_recon_software_inventory_evidence_is_stale($observedAt);
+    $staleBand = st_recon_sw_inv_stale_band_label($observedAt);
+    $hasBoundedSwObs = $swCnt > 0;
+    $observationGap = $pkgId > 0 && $swCnt <= 0;
+
+    $confidence = 'medium';
+    if ($stale || $partial) {
+        $confidence = 'low';
+    }
+
+    $expl = [];
+    $expl[] = 'Derived from credentialed SSH package inventory (`ssh.linux.package_inventory`) — today’s trusted-data fusion slot for inventory remains SSH-only; additional inventory sources (scanner, integrations, SBOM/agents) are deferred reconciliation-side ingest.';
+    $expl[] = 'Stored software evidence identities are bounded (≤128 `software_observed` rows per asset); larger snapshots remain in credentialed check results / artifacts only — never promoted here as authoritative vulnerability truth.';
+    $expl[] = 'This reconciliation judges freshness and completeness only — not CVE exposure. No CVE matching, advisory ingestion, severity scoring, findings, or remediation assessment has been performed.';
+
+    if ($confidence === 'medium') {
+        if ($hasBoundedSwObs) {
+            $expl[] = 'Confidence is MEDIUM: evidence is within the '
+                . (string) ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS
+                . '-day freshness window; inventory reported complete; bounded `software_observed` rows corroborate the cardinality hint.';
+        } else {
+            $expl[] = 'Confidence is MEDIUM: evidence is within the '
+                . (string) ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS
+                . '-day freshness window and inventory reported complete, though '
+                . ST_RECON_SW_INV_HEALTH_MARKER_OBS_GAP
+                . ' so cardinality relies on `package_inventory_observed` summary only.';
+        }
+    } else {
+        $reasons = [];
+        if ($partial) {
+            $reasons[] = 'inventory is partial, truncated, or bounded below installed cardinality (' . ST_RECON_SW_INV_HEALTH_MARKER_PARTIAL . ')';
+        }
+        if ($stale) {
+            if ($staleBand === 'over_180') {
+                $reasons[] = 'evidence exceeds the '
+                    . (string) ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS
+                    . '-day freshness window and is older than 180 days';
+            } else {
+                $reasons[] = 'evidence is older than the '
+                    . (string) ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS
+                    . '-day freshness window';
+            }
+        }
+        $expl[] = 'Confidence is LOW because ' . implode('; ', $reasons)
+            . ' — operator posture visibility only, not vulnerability authority.';
+    }
+
+    if ($stale) {
+        if ($staleBand === 'over_180') {
+            $expl[] = 'Stale evidence timestamp is older than 180 days ' . ST_RECON_SW_INV_HEALTH_MARKER_STALE . '.';
+        } else {
+            $expl[] = 'Stale evidence timestamp exceeds the '
+                . (string) ST_RECON_SOFTWARE_INVENTORY_STALE_DAYS
+                . '-day freshness window (reporting band ≤180 days) ' . ST_RECON_SW_INV_HEALTH_MARKER_STALE . '.';
+        }
+    }
+    if ($partial) {
+        $expl[] = 'Inventory evidence is ' . ST_RECON_SW_INV_HEALTH_MARKER_PARTIAL . '.';
+    }
+
+    $label = $displayCount . ' packages (' . $mgrLabel . ')';
+
+    return [
+        'skip'                   => false,
+        'label'                  => $label,
+        'confidence'             => $confidence,
+        'explanation'            => implode(' ', $expl),
+        'display_count'          => $displayCount,
+        'manager'                => $mgrToken !== '' ? $mgrToken : null,
+        'partial'                => $partial,
+        'observed_at'            => $observedAt,
+        'stale'                  => $stale,
+        'stale_band'             => $staleBand,
+        'has_bounded_sw_obs'     => $hasBoundedSwObs,
+        'observation_gap'        => $observationGap,
+    ];
+}
+
+/**
+ * @param array<string, mixed> $resolved
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_software_inventory_bundle_from_resolve(array $resolved): array
+{
+    $b = st_recon_empty_software_inventory_bundle();
+    if (($resolved['skip'] ?? true) === true) {
+        return $b;
+    }
+    $b['software_inventory_summary'] = (string) ($resolved['label'] ?? '');
+    $b['software_inventory_confidence'] = (string) ($resolved['confidence'] ?? 'medium');
+    $b['software_inventory_explanation'] = (string) ($resolved['explanation'] ?? '');
+    $b['software_inventory_count'] = (int) ($resolved['display_count'] ?? 0);
+    $b['software_inventory_manager'] = $resolved['manager'] ?? null;
+    $b['software_inventory_partial'] = ! empty($resolved['partial']);
+    $b['software_inventory_observed_at'] = $resolved['observed_at'] ?? null;
+    $b['software_inventory_stale'] = ! empty($resolved['stale']);
+    $b['software_inventory_source'] = ST_RECON_SW_INV_SOURCE_LABEL;
+    $b['software_inventory_has_bounded_observations'] = ! empty($resolved['has_bounded_sw_obs']);
+    $b['software_inventory_observation_gap'] = ! empty($resolved['observation_gap']);
+    $staleBand = isset($resolved['stale_band']) ? (string) $resolved['stale_band'] : 'fresh';
+    $b['software_inventory_stale_band'] = in_array($staleBand, ['fresh', '90_180', 'over_180'], true) ? $staleBand : 'fresh';
+    $b['software_inventory_assertions'] = [[
+        'type'          => 'software_inventory_summary',
+        'value_slug'    => (string) ($resolved['label'] ?? ''),
+        'value_label'   => (string) ($resolved['label'] ?? ''),
+        'confidence'    => (string) ($resolved['confidence'] ?? 'medium'),
+        'explanation'   => (string) ($resolved['explanation'] ?? ''),
+        'reconciled_at' => null,
+        'version'       => 1,
+    ]];
+
+    return $b;
+}
+
+/**
+ * Lazy reconcile `software_inventory_summary` assertion on single-asset GET.
+ *
+ * @param array<string, mixed> $assetRowDecoded
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_lazy_reconcile_software_inventory_summary(PDO $pdo, int $assetId, array $assetRowDecoded): array
+{
+    $empty = st_recon_empty_software_inventory_bundle();
+    if (! st_recon_tables_ready($pdo) || $assetId <= 0) {
+        return $empty;
+    }
+    $sidCred = st_recon_source_id($pdo, 'credentialed_check');
+    if ($sidCred === null) {
+        return $empty;
+    }
+
+    $ev = st_recon_collect_software_inventory_evidence($pdo, $assetId);
+    $resolved = st_recon_resolve_software_inventory_summary_evidence($ev);
+    $bundle = st_recon_software_inventory_bundle_from_resolve($resolved);
+
+    $existingStmt = $pdo->prepare(
+        'SELECT id, reconciled_at, asserted_value, confidence_level, explanation, version
+         FROM asset_assertions WHERE asset_id = ? AND assertion_type = \'software_inventory_summary\' LIMIT 1'
+    );
+    $existingStmt->execute([$assetId]);
+    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+    $existingAssertId = is_array($existing) ? (int) ($existing['id'] ?? 0) : 0;
+
+    $lastSeen = isset($assetRowDecoded['last_seen']) ? (string) $assetRowDecoded['last_seen'] : null;
+    $runStarted = date('Y-m-d H:i:s');
+
+    if (($resolved['skip'] ?? true) === true) {
+        try {
+            $pdo->beginTransaction();
+            if ($existingAssertId > 0) {
+                $pdo->prepare('DELETE FROM assertion_sources WHERE assertion_id = ?')->execute([$existingAssertId]);
+                $pdo->prepare('DELETE FROM asset_assertions WHERE id = ?')->execute([$existingAssertId]);
+            }
+            $pdo->commit();
+
+            $sum = ['slice' => 'software_inventory_summary', 'result' => 'skipped_no_evidence'];
+            $insRun = $pdo->prepare(
+                "INSERT INTO reconciliation_runs (started_at, finished_at, entity_type, entity_id, slice_key, status, result_summary_json, error)
+                 VALUES (?, datetime('now'), 'asset', ?, 'software_inventory_summary', 'skipped', ?, NULL)"
+            );
+            $insRun->execute([$runStarted, $assetId, json_encode($sum, JSON_UNESCAPED_SLASHES) ?: '{}']);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            @error_log('SurveyTrace software_inventory_summary skip cleanup: ' . $e->getMessage());
+        }
+
+        return $empty;
+    }
+
+    $label = (string) ($resolved['label'] ?? '');
+    $confidence = (string) ($resolved['confidence'] ?? 'medium');
+    $explanation = (string) ($resolved['explanation'] ?? '');
+    $newFp = md5($label . '|' . $confidence . '|' . $explanation);
+    $oldFp = is_array($existing)
+        ? md5((string) ($existing['asserted_value'] ?? '') . '|' . (string) ($existing['confidence_level'] ?? '') . '|' . (string) ($existing['explanation'] ?? ''))
+        : '';
+
+    $evMax = isset($ev['evidence_max_observed_at']) ? trim((string) $ev['evidence_max_observed_at']) : '';
+    $recAt = is_array($existing) ? trim((string) ($existing['reconciled_at'] ?? '')) : '';
+
+    $needWrite = $existingAssertId <= 0
+        || st_recon_should_refresh_cached_assertion(is_array($existing) ? $existing : null, $lastSeen)
+        || ($evMax !== '' && ($recAt === '' || strcmp($evMax, $recAt) > 0))
+        || ($newFp !== $oldFp);
+
+    if (! $needWrite) {
+        $bundle['software_inventory_assertions'][0]['reconciled_at'] = is_array($existing) ? ($existing['reconciled_at'] ?? null) : null;
+        $bundle['software_inventory_assertions'][0]['version'] = is_array($existing) ? (int) ($existing['version'] ?? 1) : 1;
+
+        return $bundle;
+    }
+
+    $pkgObsId = isset($ev['package_inventory_id']) ? (int) $ev['package_inventory_id'] : 0;
+    $sampleIds = isset($ev['software_observation_ids_sample']) && is_array($ev['software_observation_ids_sample'])
+        ? $ev['software_observation_ids_sample'] : [];
+
+    try {
+        $pdo->beginTransaction();
+
+        if ($existingAssertId > 0) {
+            $pdo->prepare('DELETE FROM assertion_sources WHERE assertion_id = ?')->execute([$existingAssertId]);
+        }
+
+        if ($existingAssertId > 0) {
+            $pdo->prepare(
+                'UPDATE asset_assertions SET asserted_value = ?, confidence_level = ?, reconciled_at = datetime(\'now\'),
+                    explanation = ?, version = version + 1, updated_at = datetime(\'now\')
+                 WHERE id = ?'
+            )->execute([$label, $confidence, $explanation, $existingAssertId]);
+            $aid = $existingAssertId;
+        } else {
+            $pdo->prepare(
+                "INSERT INTO asset_assertions (asset_id, assertion_type, asserted_value, confidence_level, status, reconciled_at, explanation, version, created_at, updated_at)
+                 VALUES (?, 'software_inventory_summary', ?, ?, 'active', datetime('now'), ?, 1, datetime('now'), datetime('now'))"
+            )->execute([$assetId, $label, $confidence, $explanation]);
+            $aid = (int) $pdo->lastInsertId();
+        }
+
+        $link = $pdo->prepare(
+            'INSERT INTO assertion_sources (assertion_id, observation_id, source_id, contribution, weight_note)
+             VALUES (?,?,?,?,?)'
+        );
+
+        $hasPrimary = false;
+        if ($pkgObsId > 0) {
+            $chk = $pdo->prepare('SELECT id FROM asset_observations WHERE id = ? AND asset_id = ? LIMIT 1');
+            $chk->execute([$pkgObsId, $assetId]);
+            if ($chk->fetchColumn() !== false) {
+                $link->execute([$aid, $pkgObsId, $sidCred, 'primary', 'package_inventory_observed summary']);
+                $hasPrimary = true;
+            }
+        }
+        foreach ($sampleIds as $oid) {
+            $oid = (int) $oid;
+            if ($oid <= 0) {
+                continue;
+            }
+            $chk = $pdo->prepare(
+                'SELECT id FROM asset_observations WHERE id = ? AND asset_id = ? AND observation_type = \'software_observed\' LIMIT 1'
+            );
+            $chk->execute([$oid, $assetId]);
+            if ($chk->fetchColumn() === false) {
+                continue;
+            }
+            $contrib = $hasPrimary ? 'corroborates' : 'primary';
+            $note = 'bounded software_observed sample';
+            $link->execute([$aid, $oid, $sidCred, $contrib, $note]);
+            $hasPrimary = true;
+        }
+
+        $pdo->commit();
+
+        $rw = $pdo->prepare(
+            'SELECT reconciled_at, version FROM asset_assertions WHERE id = ? LIMIT 1'
+        );
+        $rw->execute([$aid]);
+        $meta = $rw->fetch(PDO::FETCH_ASSOC);
+        if (is_array($meta)) {
+            $bundle['software_inventory_assertions'][0]['reconciled_at'] = $meta['reconciled_at'] ?? null;
+            $bundle['software_inventory_assertions'][0]['version'] = (int) ($meta['version'] ?? 1);
+        }
+
+        $sumOk = [
+            'slice'        => 'software_inventory_summary',
+            'result'       => 'ok',
+            'fresh'        => empty($resolved['stale']),
+            'partial'      => ! empty($resolved['partial']),
+            'stale_band'   => isset($resolved['stale_band']) ? (string) $resolved['stale_band'] : null,
+            'obs_gap'      => ! empty($resolved['observation_gap']),
+        ];
+        $insRun = $pdo->prepare(
+            "INSERT INTO reconciliation_runs (started_at, finished_at, entity_type, entity_id, slice_key, status, result_summary_json, error)
+             VALUES (?, datetime('now'), 'asset', ?, 'software_inventory_summary', 'ok', ?, NULL)"
+        );
+        $insRun->execute([$runStarted, $assetId, json_encode($sumOk, JSON_UNESCAPED_SLASHES) ?: '{}']);
+
+        return $bundle;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        @error_log('SurveyTrace software_inventory_summary lazy: ' . $e->getMessage());
+
+        $insRun = $pdo->prepare(
+            "INSERT INTO reconciliation_runs (started_at, finished_at, entity_type, entity_id, slice_key, status, result_summary_json, error)
+             VALUES (?, datetime('now'), 'asset', ?, 'software_inventory_summary', 'error', NULL, ?)"
+        );
+        $insRun->execute([$runStarted, $assetId, $e->getMessage()]);
+
+        $fallback = st_recon_software_inventory_bundle_from_resolve($resolved);
+        $fallback['software_inventory_assertions'] = [];
+
+        return $fallback;
+    }
+}
+
 function st_recon_truncate_evidence_string(?string $s, int $maxLen = 360): string
 {
     $s = (string) ($s ?? '');
@@ -2518,6 +3099,16 @@ function st_recon_health_snapshot(PDO $pdo): array
         'stale_os_assertions_30d'            => 0,
         'credentialed_observation_count'    => 0,
         'stale_cred_os_observations_90d'     => 0,
+        'software_inventory_summary_assets'             => 0,
+        'software_inventory_summary_low_confidence'     => 0,
+        'software_inventory_summary_stale_assets'       => 0,
+        'software_inventory_summary_partial_assets'     => 0,
+        'software_observed_without_summary_assets'      => 0,
+        'software_inventory_summary_stale_evidence_90_180d_assets' => 0,
+        'software_inventory_summary_stale_evidence_over_180d_assets' => 0,
+        'software_inventory_assets_repeat_partial_pkg_inventory' => 0,
+        'software_inventory_summary_reconciled_after_sw_obs_assets' => 0,
+        'software_inventory_summary_without_bounded_sw_obs_assets' => 0,
         'warning_hints'                      => [],
     ];
     if (! st_recon_tables_ready($pdo)) {
@@ -2565,7 +3156,93 @@ function st_recon_health_snapshot(PDO $pdo): array
             );
             $cs2->execute([$sidCred]);
             $out['stale_cred_os_observations_90d'] = (int) $cs2->fetchColumn();
+
+            $sid = (int) $sidCred;
+            $bandRow = $pdo->query(
+                "SELECT
+                    SUM(CASE WHEN datetime(mx) <= datetime('now', '-90 days') AND datetime(mx) > datetime('now', '-180 days') THEN 1 ELSE 0 END) AS b90_180,
+                    SUM(CASE WHEN datetime(mx) <= datetime('now', '-180 days') THEN 1 ELSE 0 END) AS b_over_180
+                 FROM (
+                    SELECT (
+                        SELECT MAX(o.observed_at) FROM asset_observations o
+                        WHERE o.asset_id = aa.asset_id AND o.source_id = {$sid}
+                        AND o.observation_type IN ('package_inventory_observed','software_observed')
+                    ) AS mx
+                    FROM asset_assertions aa
+                    WHERE aa.assertion_type = 'software_inventory_summary'
+                 ) q
+                 WHERE mx IS NOT NULL AND datetime(mx) <= datetime('now', '-90 days')"
+            )->fetch(PDO::FETCH_ASSOC);
+            if (is_array($bandRow)) {
+                $out['software_inventory_summary_stale_evidence_90_180d_assets'] = (int) ($bandRow['b90_180'] ?? 0);
+                $out['software_inventory_summary_stale_evidence_over_180d_assets'] = (int) ($bandRow['b_over_180'] ?? 0);
+            }
+
+            $out['software_inventory_assets_repeat_partial_pkg_inventory'] = (int) $pdo->query(
+                "SELECT COUNT(*) FROM (
+                    SELECT o.asset_id FROM asset_observations o
+                    WHERE o.observation_type = 'package_inventory_observed'
+                    AND o.source_id = {$sid}
+                    AND (
+                        instr(COALESCE(o.raw_value,''), '\"partial\":true') > 0
+                        OR instr(COALESCE(o.raw_value,''), '\"partial\": true') > 0
+                        OR instr(COALESCE(o.raw_value,''), '\"truncated\":true') > 0
+                        OR instr(COALESCE(o.raw_value,''), '\"truncated\": true') > 0
+                    )
+                    GROUP BY o.asset_id HAVING COUNT(*) >= 2
+                ) x"
+            )->fetchColumn();
+
+            $out['software_inventory_summary_reconciled_after_sw_obs_assets'] = (int) $pdo->query(
+                "SELECT COUNT(*) FROM asset_assertions aa
+                 WHERE aa.assertion_type = 'software_inventory_summary'
+                 AND EXISTS (
+                    SELECT 1 FROM asset_observations pk
+                    WHERE pk.asset_id = aa.asset_id AND pk.observation_type = 'package_inventory_observed' AND pk.source_id = {$sid}
+                 )
+                 AND (
+                    SELECT COUNT(*) FROM asset_observations so
+                    WHERE so.asset_id = aa.asset_id AND so.observation_type = 'software_observed' AND so.source_id = {$sid}
+                 ) > 0
+                 AND datetime(aa.reconciled_at) > (
+                    SELECT MAX(datetime(so.observed_at)) FROM asset_observations so
+                    WHERE so.asset_id = aa.asset_id AND so.observation_type = 'software_observed' AND so.source_id = {$sid}
+                 )"
+            )->fetchColumn();
         }
+        $out['software_inventory_summary_assets'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM asset_assertions WHERE assertion_type = 'software_inventory_summary'"
+        )->fetchColumn();
+        $out['software_inventory_summary_low_confidence'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM asset_assertions WHERE assertion_type = 'software_inventory_summary' AND confidence_level = 'low'"
+        )->fetchColumn();
+        $ms = $pdo->quote(ST_RECON_SW_INV_HEALTH_MARKER_STALE);
+        $mp = $pdo->quote(ST_RECON_SW_INV_HEALTH_MARKER_PARTIAL);
+        $out['software_inventory_summary_stale_assets'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM asset_assertions WHERE assertion_type = 'software_inventory_summary'
+             AND instr(COALESCE(explanation,''), {$ms}) > 0"
+        )->fetchColumn();
+        $out['software_inventory_summary_partial_assets'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM asset_assertions WHERE assertion_type = 'software_inventory_summary'
+             AND instr(COALESCE(explanation,''), {$mp}) > 0"
+        )->fetchColumn();
+        $out['software_observed_without_summary_assets'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM (
+                SELECT DISTINCT o.asset_id AS aid FROM asset_observations o
+                WHERE o.observation_type = 'software_observed'
+                AND NOT EXISTS (
+                    SELECT 1 FROM asset_assertions a
+                    WHERE a.asset_id = o.asset_id AND a.assertion_type = 'software_inventory_summary'
+                )
+            )"
+        )->fetchColumn();
+        $out['software_inventory_summary_without_bounded_sw_obs_assets'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM asset_assertions aa
+             WHERE aa.assertion_type = 'software_inventory_summary'
+             AND NOT EXISTS (
+                SELECT 1 FROM asset_observations o WHERE o.asset_id = aa.asset_id AND o.observation_type = 'software_observed'
+             )"
+        )->fetchColumn();
         $msg = $pdo->query(
             "SELECT error FROM reconciliation_runs WHERE status = 'error' AND COALESCE(error,'') <> '' ORDER BY id DESC LIMIT 1"
         )->fetchColumn();
@@ -2582,12 +3259,152 @@ function st_recon_health_snapshot(PDO $pdo): array
         if ((int) ($out['identity_hostname_conflict_assets'] ?? 0) > 100) {
             $out['warning_hints'][] = 'Many assets show conflicting hostname observations — review enrichment and Zabbix naming.';
         }
+        $orphSw = (int) ($out['software_observed_without_summary_assets'] ?? 0);
+        if ($orphSw >= 10 && (int) ($out['credentialed_observation_count'] ?? 0) > 0) {
+            $out['warning_hints'][] = (string) $orphSw
+                . ' asset(s) have bounded software_observed rows but no software_inventory_summary assertion — open host details to reconcile or review trusted-data health.';
+        }
     } catch (Throwable $e) {
         $out['warning_hints'][] = 'Trusted data diagnostics query failed.';
         @error_log('SurveyTrace st_recon_health_snapshot: ' . $e->getMessage());
     }
 
     return $out;
+}
+
+/**
+ * Read-only software inventory diagnostics (no assertion writes) — admin recon diagnostics API.
+ *
+ * @return array<string, mixed>
+ */
+function st_recon_software_inventory_diag_for_asset(PDO $pdo, int $assetId): array
+{
+    $empty = [
+        'tables_ready'  => false,
+        'has_evidence'   => false,
+    ];
+    if ($assetId <= 0 || ! st_recon_tables_ready($pdo)) {
+        return $empty;
+    }
+    $empty['tables_ready'] = true;
+    try {
+        $ev = st_recon_collect_software_inventory_evidence($pdo, $assetId);
+        $r = st_recon_resolve_software_inventory_summary_evidence($ev);
+        if (($r['skip'] ?? true) === true) {
+            return $empty;
+        }
+
+        return [
+            'tables_ready'   => true,
+            'has_evidence'   => true,
+            'label'          => (string) ($r['label'] ?? ''),
+            'confidence'     => (string) ($r['confidence'] ?? ''),
+            'partial'        => ! empty($r['partial']),
+            'stale'          => ! empty($r['stale']),
+            'stale_band'     => isset($r['stale_band']) ? (string) $r['stale_band'] : 'fresh',
+            'has_bounded_sw_obs' => ! empty($r['has_bounded_sw_obs']),
+            'observation_gap' => ! empty($r['observation_gap']),
+            'observed_at'    => $r['observed_at'] ?? null,
+            'display_count'  => (int) ($r['display_count'] ?? 0),
+            'manager'        => $r['manager'] ?? null,
+            'source'         => ST_RECON_SW_INV_SOURCE_LABEL,
+            'explanation'    => st_recon_truncate_evidence_string((string) ($r['explanation'] ?? ''), 800),
+        ];
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_recon_software_inventory_diag_for_asset: ' . $e->getMessage());
+
+        return $empty;
+    }
+}
+
+/**
+ * Single-asset GET: expected top-level JSON keys for software inventory (slice 3 contract tests).
+ *
+ * @return list<string>
+ */
+function st_recon_slice3_expected_asset_top_level_software_keys(): array
+{
+    return [
+        'software_inventory_summary',
+        'software_inventory_confidence',
+        'software_inventory_explanation',
+        'software_inventory_count',
+        'software_inventory_manager',
+        'software_inventory_partial',
+        'software_inventory_observed_at',
+        'software_inventory_stale',
+        'software_inventory_source',
+        'software_inventory_has_bounded_observations',
+        'software_inventory_observation_gap',
+        'software_inventory_stale_band',
+    ];
+}
+
+/**
+ * Health `trusted_data` must stay count-oriented — no raw package dumps (slice 4 contract tests).
+ *
+ * @param array<string, mixed>|null $trusted
+ *
+ * @return list<string>
+ */
+function st_recon_slice4_assert_health_trusted_software_diag_bounded(?array $trusted): array
+{
+    $violations = [];
+    if ($trusted === null) {
+        return $violations;
+    }
+    foreach (['packages', 'credential_check_results', 'credential_check_artifacts', 'normalized_json'] as $forbid) {
+        if (array_key_exists($forbid, $trusted)) {
+            $violations[] = 'trusted_data must not expose raw key ' . $forbid;
+        }
+    }
+
+    return $violations;
+}
+
+/**
+ * Ensures recon_detail does not expose unbounded package dumps (slice 3).
+ *
+ * @param array<string, mixed>|null $reconDetail
+ *
+ * @return list<string> violation messages (empty if OK)
+ */
+function st_recon_slice3_assert_bounded_software_payload(?array $reconDetail): array
+{
+    $violations = [];
+    if ($reconDetail === null) {
+        return $violations;
+    }
+    foreach (['packages', 'installed_packages', 'all_packages'] as $k) {
+        if (array_key_exists($k, $reconDetail)) {
+            $violations[] = 'recon_detail must not contain top-level key ' . $k;
+        }
+    }
+    $sw = $reconDetail['software_observed'] ?? null;
+    if ($sw === null) {
+        return $violations;
+    }
+    if (! is_array($sw)) {
+        $violations[] = 'recon_detail.software_observed must be an array when present';
+
+        return $violations;
+    }
+    foreach (['packages', 'rows', 'items'] as $k) {
+        if (array_key_exists($k, $sw)) {
+            $violations[] = 'recon_detail.software_observed must not contain key ' . $k;
+        }
+    }
+    $prev = $sw['preview'] ?? [];
+    if (! is_array($prev)) {
+        $violations[] = 'recon_detail.software_observed.preview must be an array';
+
+        return $violations;
+    }
+    if (count($prev) > 3) {
+        $violations[] = 'recon_detail.software_observed.preview exceeds 3 rows';
+    }
+
+    return $violations;
 }
 
 /**

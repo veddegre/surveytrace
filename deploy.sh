@@ -282,6 +282,11 @@ sudo cp "$SRC/daemon/restore_db.sh" "$DEST/daemon/"
 [ -f "$SRC/daemon/st_software_obs_slice1_selftest.py" ] && sudo cp "$SRC/daemon/st_software_obs_slice1_selftest.py" "$DEST/daemon/"
 [ -f "$SRC/daemon/cred_decrypt_cli.php" ] && sudo cp "$SRC/daemon/cred_decrypt_cli.php" "$DEST/daemon/"
 
+sudo mkdir -p "$DEST/scripts"
+for _st_recon_scr in st_software_inventory_slice2_selftest.php st_software_inventory_slice3_selftest.php st_software_inventory_slice4_selftest.php st_recon_slice10_selftest.php; do
+  [ -f "$SRC/scripts/$_st_recon_scr" ] && sudo cp "$SRC/scripts/$_st_recon_scr" "$DEST/scripts/"
+done
+
 echo "  Daemon files deployed"
 
 # ---------------------------------------------------------------------------
@@ -300,8 +305,12 @@ if command -v php >/dev/null 2>&1; then
     && st_sudo php -l "$DEST/api/credential_check_jobs.php" >/dev/null 2>&1 \
     && st_sudo php -l "$DEST/api/credential_check_runs.php" >/dev/null 2>&1 \
     && st_sudo php -l "$DEST/api/lib_credential_profile_transport_test.php" >/dev/null 2>&1 \
-    && st_sudo php -l "$DEST/daemon/cred_decrypt_cli.php" >/dev/null 2>&1; then
-    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php, lib_worker_jobs.php, lib_credentialed_checks.php, credentialed_checks.php, lib_secrets.php, lib_credential_profiles.php, lib_credential_check_ops.php, lib_credential_profile_transport_test.php, credential_profiles.php, credential_check_jobs.php, credential_check_runs.php)"
+    && st_sudo php -l "$DEST/daemon/cred_decrypt_cli.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice2_selftest.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice3_selftest.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/scripts/st_software_inventory_slice4_selftest.php" >/dev/null 2>&1 \
+    && st_sudo php -l "$DEST/scripts/st_recon_slice10_selftest.php" >/dev/null 2>&1; then
+    echo "  PHP syntax OK (lib_reconciliation.php, recon_diagnostics.php, lib_worker_jobs.php, lib_credentialed_checks.php, credentialed_checks.php, lib_secrets.php, lib_credential_profiles.php, lib_credential_check_ops.php, lib_credential_profile_transport_test.php, credential_profiles.php, credential_check_jobs.php, credential_check_runs.php, scripts/st_*_selftest.php)"
   else
     echo "  [FAIL] php -l reconciliation / worker_jobs / cred checks API — fix syntax before relying on deploy"
     exit 1
