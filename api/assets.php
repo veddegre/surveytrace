@@ -57,6 +57,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reconciliation.php';
+require_once __DIR__ . '/lib_credential_check_ops.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
 
@@ -703,6 +704,20 @@ if ($single_id > 0) {
         $reconBundle['os_platform_confidence'] ?? null
     );
 
+    $credHost = [
+        'tables_ready' => false,
+        'has_activity' => false,
+    ];
+    try {
+        $credHost = st_cc_asset_cred_summary(
+            $db,
+            $single_id,
+            isset($reconBundle['os_platform_explanation']) ? (string) $reconBundle['os_platform_explanation'] : null
+        );
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace assets.php credential_check_host_summary: ' . $e->getMessage());
+    }
+
     st_json(array_merge([
         'asset'                   => $asset,
         'asset_scope_assignable'  => st_assets_has_scope_id($db),
@@ -717,7 +732,8 @@ if ($single_id > 0) {
         'canonical_hostname_sources'     => $identityBundle['canonical_hostname_sources'],
         'canonical_hostname_explanation' => $identityBundle['canonical_hostname_explanation'],
         'recon_detail'            => $reconDetail,
-        'identity_recon_detail'   => $identityReconDetail,
+        'identity_recon_detail'       => $identityReconDetail,
+        'credential_check_host_summary'=> $credHost,
     ], $trustedApi));
 }
 

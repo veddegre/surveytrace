@@ -3109,6 +3109,88 @@ body.light-mode .host-inner-surface{box-shadow:0 1px 2px rgba(15,23,42,0.04)}
 .st-host-identity-evidence .hint-micro{max-width:42rem}
 .st-trusted-pref-chip{font-weight:600;opacity:0.95}
 .st-host-id-evidence-row--conflict td{background:color-mix(in srgb,var(--amber) 12%,transparent)}
+.st-ev-src{
+  display:inline-block;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:0.02em;
+  line-height:1.2;
+  padding:1px 5px;
+  border-radius:4px;
+  margin-right:4px;
+  vertical-align:middle;
+  border:1px solid color-mix(in srgb,var(--border) 70%,transparent);
+  background:color-mix(in srgb,var(--surface) 88%,transparent);
+  color:var(--tx2);
+}
+.st-ev-src--authenticated{border-color:color-mix(in srgb,var(--green) 35%,var(--border));color:color-mix(in srgb,var(--green) 85%,var(--tx))}
+.st-ev-src--unauthenticated{border-color:color-mix(in srgb,var(--blue) 28%,var(--border));color:color-mix(in srgb,var(--blue) 80%,var(--tx))}
+.st-ev-src--monitoring{border-color:color-mix(in srgb,var(--amber) 40%,var(--border));color:color-mix(in srgb,var(--amber) 82%,var(--tx))}
+.st-ev-src--enrichment{border-color:color-mix(in srgb,var(--tx2) 45%,var(--border));color:color-mix(in srgb,var(--tx2) 92%,var(--tx))}
+.st-host-cc-inner{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid color-mix(in srgb,var(--border) 88%,transparent);
+  background:color-mix(in srgb,var(--surface) 92%,transparent);
+}
+.st-host-cc-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:10px 14px;
+}
+.st-host-cc-recent > summary.st-host-cc-recent-sum{cursor:pointer;color:var(--tx2);list-style-position:outside}
+.st-host-cc-recent[open] > summary.st-host-cc-recent-sum{color:var(--tx)}
+.st-host-cc-recent-list{list-style:disc}
+.st-cc-pill{
+  display:inline-block;
+  font-size:10px;
+  font-weight:600;
+  padding:1px 6px;
+  border-radius:999px;
+  vertical-align:middle;
+}
+.st-cc-pill--warn{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--tx)}
+.st-cc-pill--bad{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--tx)}
+.st-cc-runs-filters .finp{font-size:12px}
+.st-cc-runs-retention-note{max-width:52rem;line-height:1.45}
+.st-cc-run-detail{
+  max-height:min(70vh,520px);
+  overflow:auto;
+  font-size:11px;
+  margin:0;
+  padding-right:4px;
+}
+.st-cc-run-sec-title{
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+  color:var(--tx2);
+  margin-bottom:6px;
+}
+.st-cc-run-badge{
+  display:inline-block;
+  font-size:10px;
+  font-weight:600;
+  padding:2px 7px;
+  border-radius:6px;
+  border:1px solid var(--border);
+  background:color-mix(in srgb,var(--surface) 90%,transparent);
+}
+.st-cc-run-badge--ok{border-color:color-mix(in srgb,var(--green) 40%,var(--border));color:color-mix(in srgb,var(--green) 88%,var(--tx))}
+.st-cc-run-badge--bad{border-color:color-mix(in srgb,var(--red) 35%,var(--border));color:color-mix(in srgb,var(--red) 85%,var(--tx))}
+.st-cc-run-badge--act{border-color:color-mix(in srgb,var(--blue) 32%,var(--border));color:color-mix(in srgb,var(--blue) 82%,var(--tx))}
+.st-cc-run-err-hint{color:color-mix(in srgb,var(--amber) 75%,var(--tx2))}
+.st-cc-run-detail-tbl{font-size:11px}
+.st-cc-norm-prev{max-width:22rem;word-break:break-word;vertical-align:top}
+.st-cc-run-sec--debug{
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px dashed color-mix(in srgb,var(--border) 90%,transparent);
+  background:color-mix(in srgb,var(--surface) 94%,transparent);
+}
+.st-health-cc-hint-list{margin:6px 0 0 1rem;padding:0}
+.st-health-cc-ret-hint{font-weight:400;opacity:0.92}
 .host-modal-body .st-host-empty{
   padding:12px 14px;
   border:1px dashed var(--border);

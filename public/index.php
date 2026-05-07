@@ -2426,10 +2426,41 @@ if (!headers_sent()) {
           </table>
         </div>
         <div class="flbl mb4">Recent runs</div>
+        <p class="hint-micro text-dim mb6 st-cc-runs-retention-note">Run list shows bounded previews only in <strong>Detail</strong> (no full package dumps). Stored <code class="code-accent">credential_check_results</code> / artifact metadata grow with history; plan operational pruning — automatic TTL is not enabled in this release.</p>
+        <div class="row-wrap gap6 mb8 st-cc-runs-filters flex-wrap" style="align-items:center">
+          <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px">Status
+            <select class="finp" id="st-cc-runs-filter-status" style="min-width:120px" onchange="stCcLoadJobsAndRuns()">
+              <option value="">All</option>
+              <option value="queued">queued</option>
+              <option value="resolving_targets">resolving_targets</option>
+              <option value="ready">ready</option>
+              <option value="running">running</option>
+              <option value="completed">completed</option>
+              <option value="failed">failed</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+          <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px">Transport
+            <select class="finp" id="st-cc-runs-filter-transport" style="min-width:100px" onchange="stCcLoadJobsAndRuns()">
+              <option value="">All</option>
+              <option value="ssh">ssh</option>
+              <option value="snmpv3">snmpv3</option>
+            </select>
+          </label>
+          <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px">Profile
+            <select class="finp" id="st-cc-runs-filter-profile" style="min-width:160px" onchange="stCcLoadJobsAndRuns()">
+              <option value="0">All profiles</option>
+            </select>
+          </label>
+          <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px;flex:1;min-width:180px">Plugin contains
+            <input class="finp" id="st-cc-runs-filter-plugin" type="text" placeholder="e.g. package_inventory" style="flex:1;min-width:140px" onchange="stCcLoadJobsAndRuns()">
+          </label>
+          <button type="button" class="tbtn btn-xs" onclick="stCcRunsClearFilters()">Clear filters</button>
+        </div>
         <div class="table-wrap" style="overflow:auto;max-width:100%">
-          <table class="data-table" style="min-width:760px">
-            <thead><tr><th>Run</th><th>Job</th><th>Status</th><th>Worker job</th><th>Started</th><th></th></tr></thead>
-            <tbody id="st-cc-runs-tbody"><tr><td colspan="6" class="text-dim">—</td></tr></tbody>
+          <table class="data-table st-cc-runs-table" style="min-width:920px">
+            <thead><tr><th>Run</th><th>Job</th><th>Transport</th><th>Status</th><th>Targets</th><th>Duration</th><th>Worker job</th><th>Started</th><th></th></tr></thead>
+            <tbody id="st-cc-runs-tbody"><tr><td colspan="9" class="text-dim">—</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -2871,7 +2902,7 @@ if (!headers_sent()) {
   <div class="modal-card modal-w720" onclick="event.stopPropagation()">
     <div class="modal-title">Credentialed check run</div>
     <button type="button" class="modal-close-x" onclick="stCcRunCloseModal()" title="Close" aria-label="Close">×</button>
-    <pre id="st-cc-run-detail" class="hint-micro text-dim" style="white-space:pre-wrap;max-height:420px;overflow:auto;font-size:11px;margin:0"></pre>
+    <div id="st-cc-run-detail" class="st-cc-run-detail hint-micro text-dim"></div>
     <div class="row-wrap gap6 mt10">
       <button type="button" class="tbtn" id="st-cc-run-btn-cancel" onclick="stCcRunCancelCurrent()">Cancel run</button>
       <button type="button" class="tbtn" onclick="stCcRunCloseModal()">Close</button>
@@ -5310,16 +5341,54 @@ function renderHealthHtml(h, zbxResp) {
     }
 
     const ccRuns = h.credential_check_runs && typeof h.credential_check_runs === 'object' ? h.credential_check_runs : null;
-    const ccSnapHtml =
-        ccRuns && ccRuns.tables_ready
-            ? `<p class="hint-micro text-dim st-health-cc-runs-summary mb0">Credentialed check runs: <span class="mono-sm">${esc(
-                  String(ccRuns.queued_or_active ?? 0)
-              )}</span> queued/active · <span class="mono-sm">${esc(String(ccRuns.running ?? 0))}</span> running · <span class="mono-sm">${esc(
-                  String(ccRuns.completed_recent_24h ?? 0)
-              )}</span> completed (24h) · <span class="mono-sm">${esc(String(ccRuns.failed_recent_24h ?? 0))}</span> failed (24h). ${esc(
-                  String(ccRuns.summary || '')
-              )}</p>`
+    let ccSnapHtml = '';
+    if (ccRuns && ccRuns.tables_ready) {
+        const adminRet = stRoleIsAdmin()
+            ? ' <span class="st-health-cc-ret-hint text-dim">Results and artifacts are bounded per run; long-term retention is operational.</span>'
             : '';
+        const line1 = `<p class="hint-micro text-dim st-health-cc-runs-summary mb0">Credentialed check runs: <span class="mono-sm">${esc(
+            String(ccRuns.queued_or_active ?? 0)
+        )}</span> queued/active · <span class="mono-sm">${esc(String(ccRuns.running ?? 0))}</span> running · <span class="mono-sm">${esc(
+            String(ccRuns.completed_recent_24h ?? 0)
+        )}</span> successful (24h) · <span class="mono-sm">${esc(String(ccRuns.failed_recent_24h ?? 0))}</span> failed (24h). ${esc(
+            String(ccRuns.summary || '')
+        )}${adminRet}</p>`;
+        const partial = parseInt(String(ccRuns.partial_results_recent_24h ?? 0), 10) || 0;
+        const stale = parseInt(String(ccRuns.stale_active_runs ?? 0), 10) || 0;
+        const badP = parseInt(String(ccRuns.enabled_jobs_on_disabled_profiles ?? 0), 10) || 0;
+        const failed24 = parseInt(String(ccRuns.failed_recent_24h ?? 0), 10) || 0;
+        const avgMs = ccRuns.avg_duration_ms_completed_24h != null ? parseInt(String(ccRuns.avg_duration_ms_completed_24h), 10) : null;
+        const hints = Array.isArray(ccRuns.warning_hints) ? ccRuns.warning_hints : [];
+        const anomaly = hints.length > 0 || partial > 0 || stale > 0 || badP > 0 || failed24 > 5;
+        const bits = [];
+        if (avgMs != null && avgMs > 0) bits.push(`avg completed run ~${(avgMs / 1000).toFixed(1)}s (24h)`);
+        if (partial > 0) bits.push(`partial plugin rows ${partial} (24h)`);
+        if (stale > 0) bits.push(`stale queued/running ${stale} (>3h)`);
+        if (badP > 0) bits.push(`enabled jobs on disabled/archived profiles ${badP}`);
+        let line2 = '';
+        if (bits.length && anomaly) {
+            line2 = `<p class="hint-micro text-dim st-health-cc-runs-extra mb0">${bits.join(' · ')}</p>`;
+        }
+        let line3 = '';
+        if (stRoleIsAdmin() && anomaly) {
+            const rN = parseInt(String(ccRuns.approx_result_rows ?? 0), 10) || 0;
+            const aN = parseInt(String(ccRuns.approx_artifact_rows ?? 0), 10) || 0;
+            line3 = `<p class="hint-micro text-dim st-health-cc-runs-store mb0">${esc(
+                `Approximate store: ${rN} cred result row(s), ${aN} artifact row(s) — plan pruning if the DB grows.`
+            )}</p>`;
+        }
+        const hintList = hints.length
+            ? `<ul class="hint-micro text-dim st-health-cc-hint-list mb0">${hints.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ul>`
+            : '';
+        ccSnapHtml = line1 + line2 + line3 + hintList;
+        hints.forEach((hint) => {
+            const s = String(hint || '').trim();
+            const prefixed = s ? ('Credentialed checks: ' + s) : '';
+            if (prefixed && warnings.indexOf(prefixed) === -1) {
+                warnings.push(prefixed);
+            }
+        });
+    }
 
     const workerSectionHtml = `
       <section class="st-band st-health-band st-health-band--worker health-section${wsAttention ? ' st-health-band--attention' : ''}" aria-labelledby="st-health-sec-worker">
@@ -7222,6 +7291,118 @@ function findingConfidenceChipClass(conf) {
     return 'conf-chip conf-low';
 }
 
+/** Subtle provenance chip for reconciliation evidence tables (matches `source_tier` from API). */
+function stEvidenceSourceTierHtml(tier) {
+    const t = String(tier || 'other').toLowerCase();
+    const map = {
+        authenticated: { abbr: 'Auth', title: 'Authenticated credentialed evidence' },
+        unauthenticated: { abbr: 'Scan', title: 'Unauthenticated scan / network inference' },
+        monitoring: { abbr: 'Mon', title: 'Monitoring inventory (e.g. Zabbix)' },
+        enrichment: { abbr: 'Enrich', title: 'Enrichment or operator-supplied context' },
+        other: { abbr: '', title: '' },
+    };
+    const m = map[t] || map.other;
+    if (!m.abbr) return '';
+    return `<span class="st-ev-src st-ev-src--${esc(t)}" title="${esc(m.title)}">${esc(m.abbr)}</span>`;
+}
+
+function stHostCredentialedChecksHtml(assetData) {
+    if (!assetData) return '';
+    const s = assetData.credential_check_host_summary;
+    if (!s || s.tables_ready !== true) return '';
+    const hasPkg = s.package_inventory_summary && (
+        (s.package_inventory_summary.package_count != null && Number(s.package_inventory_summary.package_count) >= 0)
+        || (s.package_inventory_summary.package_manager != null && String(s.package_inventory_summary.package_manager).trim() !== '')
+    );
+    const snmp = s.snmp_identity_summary;
+    const hasSnmp = snmp && (
+        (snmp.sys_name != null && String(snmp.sys_name).trim() !== '')
+        || (snmp.vendor_hint != null && String(snmp.vendor_hint).trim() !== '')
+        || (snmp.name_hint != null && String(snmp.name_hint).trim() !== '')
+    );
+    if (!s.has_activity && !hasPkg && !hasSnmp && !s.os_trust_note) return '';
+
+    const ls = s.last_successful_run;
+    const lastSucc = ls && ls.run_id
+        ? `Run #${esc(String(ls.run_id))} · ${esc(ls.job_name || '—')} · ${esc(localTime(ls.finished_at || ''))}`
+        : '<span class="text-dim">—</span>';
+    const pluginsEx = ls && Array.isArray(ls.plugins_executed) && ls.plugins_executed.length
+        ? ls.plugins_executed.map((p) => `<span class="mono-sm">${esc(String(p))}</span>`).join(' ')
+        : '<span class="text-dim">—</span>';
+    const lt = s.last_target_touch;
+    const lastState = lt
+        ? `<span class="mono-sm">${esc(lt.target_status || '')}</span> · run <span class="mono-sm">${esc(lt.run_status || '')}</span>${lt.error_code ? ` · <span class="mono-sm">${esc(String(lt.error_code))}</span>` : ''}`
+        : '<span class="text-dim">—</span>';
+
+    let pkgBlock = '';
+    if (s.package_inventory_summary) {
+        const p = s.package_inventory_summary;
+        const bits = [];
+        if (p.package_manager) bits.push(esc(String(p.package_manager)));
+        if (p.package_count != null) bits.push(`${esc(String(p.package_count))} packages`);
+        if (p.partial) bits.push('<span class="st-cc-pill st-cc-pill--warn">partial</span>');
+        if (p.truncated) bits.push('<span class="st-cc-pill st-cc-pill--warn">truncated</span>');
+        if (bits.length) {
+            pkgBlock = `<div><span class="text-dim">Package inventory (summary)</span><div class="row-wrap gap4">${bits.join(' · ')}</div></div>`;
+        }
+    }
+
+    let snmpBlock = '';
+    if (hasSnmp) {
+        const n = s.snmp_identity_summary;
+        const bits = [];
+        if (n.sys_name) bits.push(`sysName <span class="mono-sm">${esc(String(n.sys_name))}</span>`);
+        if (n.vendor_hint) bits.push(esc(String(n.vendor_hint)));
+        if (n.name_hint) bits.push(esc(String(n.name_hint)));
+        if (n.partial) bits.push('<span class="st-cc-pill st-cc-pill--warn">partial</span>');
+        snmpBlock = `<div><span class="text-dim">SNMP identity (summary)</span><div class="row-wrap gap4">${bits.join(' · ')}</div></div>`;
+    }
+
+    const recent = Array.isArray(s.recent_runs) ? s.recent_runs : [];
+    const recentBlock = recent.length
+        ? `<details class="st-host-cc-recent mt8"><summary class="text-micro st-host-cc-recent-sum">View recent runs</summary>
+            <ul class="st-host-cc-recent-list text-micro text-dim mt4 mb0 pl18">${recent.map((r) =>
+            `<li><span class="mono-sm">#${esc(String(r.run_id))}</span> · ${esc(r.run_status || '')} · target ${esc(r.target_status || '')} · ${esc(r.job_name || '')}</li>`
+        ).join('')}</ul>
+           </details>`
+        : '';
+
+    const trustNote = s.os_trust_note
+        ? `<p class="hint-micro text-dim mt6 mb0 st-host-cc-trust">${esc(String(s.os_trust_note))}</p>`
+        : '';
+
+    const adminRuns = stRoleIsAdmin()
+        ? `<div class="mt8"><button type="button" class="tbtn btn-xs" onclick="stGoToCredentialedRunsSettings()">Open credentialed runs in Settings</button></div>`
+        : '';
+
+    return `<section class="host-section st-host-subsection st-host-cc-summary" aria-label="Credentialed checks">
+      <h3 class="host-section-heading">Credentialed checks</h3>
+      <div class="host-inner-surface st-host-cc-inner">
+        <div class="st-host-cc-grid text-micro">
+          <div><span class="text-dim">Last successful target completion</span><div>${lastSucc}</div></div>
+          <div><span class="text-dim">Plugins observed on that run</span><div class="row-wrap gap4">${pluginsEx}</div></div>
+          <div><span class="text-dim">Latest target touch</span><div>${lastState}</div></div>
+          ${pkgBlock}
+          ${snmpBlock}
+        </div>
+        <p class="hint-micro text-dim mt6 mb0">Package names are summarized here; full lists stay in bounded run results (not in this modal).</p>
+        ${trustNote}
+        ${recentBlock}
+        ${adminRuns}
+      </div>
+    </section>`;
+}
+
+function stGoToCredentialedRunsSettings() {
+    goTab('settings');
+    hiNav('nsettings');
+    setTimeout(() => {
+        const el = document.getElementById('st-cred-jobs-card');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (stRoleIsAdmin()) void stCcLoadJobsAndRuns();
+    }, 80);
+}
+
 function stHostReconciliationEvidenceDetailHtml(rd) {
     if (!rd || rd.tables_ready !== true) return '';
     const obs = Array.isArray(rd.observations) ? rd.observations : [];
@@ -7234,13 +7415,14 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         : '';
     const asrcRows = asrc.map((a) => {
         const nm = a.normalized_value != null && String(a.normalized_value).trim() ? esc(String(a.normalized_value)) : '\u2014';
+        const tierH = stEvidenceSourceTierHtml(a.source_tier);
         const dn = esc(String(a.display_name || '\u2014'));
         const ot = esc(String(a.observation_type || ''));
         const c = esc(String(a.contribution || ''));
         const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
         const oref = a.observation_source_ref ? `<span class="mono-sm">${esc(String(a.observation_source_ref))}</span>` : '\u2014';
         const oat = a.observation_observed_at ? esc(localTime(String(a.observation_observed_at))) : '\u2014';
-        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+        return `<tr><td>${tierH}${tierH ? ' ' : ''}${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
     }).join('');
     const asrcBlock = asrc.length
         ? `<div class="text-micro text-dim mt8 mb4">How the belief was built (assertion sources)</div>
@@ -7250,12 +7432,13 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
         const norm = o.normalized_value != null && String(o.normalized_value).trim() ? esc(String(o.normalized_value)) : '\u2014';
         const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
+        const tierH = stEvidenceSourceTierHtml(o.source_tier);
         const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
         const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
         const hint = o.contribution_hint && String(o.contribution_hint).trim()
             ? esc(String(o.contribution_hint))
             : '\u2014';
-        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     }).join('');
     const runRows = runs.map((r) => {
         const rawErr = r.error && String(r.error).trim() ? String(r.error) : '';
@@ -7334,13 +7517,14 @@ function stHostIdentityEvidenceDetailHtml(ird) {
         : '';
     const asrcRows = asrc.map((a) => {
         const nm = a.normalized_value != null && String(a.normalized_value).trim() ? esc(String(a.normalized_value)) : '\u2014';
+        const tierH = stEvidenceSourceTierHtml(a.source_tier);
         const dn = esc(String(a.display_name || '\u2014'));
         const ot = esc(String(a.observation_type || ''));
         const c = esc(String(a.contribution || ''));
         const w = a.weight_note != null && String(a.weight_note).trim() ? esc(String(a.weight_note)) : '\u2014';
         const oref = a.observation_source_ref ? `<span class="mono-sm">${esc(String(a.observation_source_ref))}</span>` : '\u2014';
         const oat = a.observation_observed_at ? esc(localTime(String(a.observation_observed_at))) : '\u2014';
-        return `<tr><td>${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
+        return `<tr><td>${tierH}${tierH ? ' ' : ''}${dn}</td><td class="mono-sm">${ot}</td><td>${oref}</td><td class="text-dim">${oat}</td><td class="mono-sm">${nm}</td><td>${c}</td><td class="text-dim">${w}</td></tr>`;
     }).join('');
     const asrcBlock = asrc.length
         ? `<div class="text-micro text-dim mt8 mb4">Assertion sources</div>
@@ -7350,13 +7534,14 @@ function stHostIdentityEvidenceDetailHtml(ird) {
         const raw = o.raw_value != null && String(o.raw_value).trim() ? esc(String(o.raw_value)) : '\u2014';
         const norm = o.normalized_value != null && String(o.normalized_value).trim() ? esc(String(o.normalized_value)) : '\u2014';
         const when = o.observed_at ? esc(localTime(o.observed_at)) : '\u2014';
+        const tierH = stEvidenceSourceTierHtml(o.source_tier);
         const src = esc([o.display_name || '', o.source_type || ''].filter(Boolean).join(' · ') || '\u2014');
         const ref = o.source_object_ref ? `<span class="mono-sm">${esc(String(o.source_object_ref))}</span>` : '\u2014';
         const hint = o.contribution_hint && String(o.contribution_hint).trim()
             ? esc(String(o.contribution_hint))
             : '\u2014';
         const cls = rowCls ? ` class="${rowCls}"` : '';
-        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     };
     const supRows = obs.filter((o) => sup.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
     const neuRows = obs.filter((o) => !sup.has(parseInt(String(o.id), 10) || 0) && !con.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
@@ -9626,6 +9811,17 @@ function fmtDuration(secs) {
     return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
 }
 
+/** Wall duration from API `duration_ms` (cred runs, etc.). */
+function stFmtDurationMs(ms) {
+    const n = ms != null ? parseInt(String(ms), 10) : NaN;
+    if (!Number.isFinite(n) || n < 0) return '—';
+    if (n < 1000) return n + 'ms';
+    if (n < 60000) return (n / 1000).toFixed(1) + 's';
+    const m = Math.floor(n / 60000);
+    const s = Math.round((n % 60000) / 1000);
+    return m + 'm ' + s + 's';
+}
+
 /** Clipboard API when allowed; else textarea + execCommand (HTTP, Safari, some modal contexts). */
 async function stCopyTextToClipboard(text) {
     const t = String(text || '');
@@ -10788,18 +10984,38 @@ async function stCcLaunchRun(jobId) {
     }
 }
 
+function stCcParseRunSummaryJson(raw) {
+    if (raw == null || raw === '') return null;
+    try {
+        return JSON.parse(String(raw));
+    } catch {
+        const s = String(raw);
+        return { _unparsed: s.length > 480 ? s.slice(0, 480) + '…' : s };
+    }
+}
+
+function stCcRunStatusBadgeHtml(status) {
+    const st = String(status || '').toLowerCase();
+    let cls = 'st-cc-run-badge';
+    if (st === 'completed') cls += ' st-cc-run-badge--ok';
+    else if (st === 'failed' || st === 'cancelled') cls += ' st-cc-run-badge--bad';
+    else if (st === 'running' || st === 'queued' || st === 'ready' || st === 'resolving_targets') cls += ' st-cc-run-badge--act';
+    return `<span class="${cls}">${esc(String(status || '—'))}</span>`;
+}
+
 async function stCcRunOpenModal(runId) {
     if (!stRoleIsAdmin() || runId < 1) return;
     __stCcRunModalId = runId;
     const bg = document.getElementById('st-cc-run-modal-bg');
-    const pre = document.getElementById('st-cc-run-detail');
+    const box = document.getElementById('st-cc-run-detail');
     const btn = document.getElementById('st-cc-run-btn-cancel');
-    if (!bg || !pre) return;
-    pre.textContent = 'Loading…';
+    if (!bg || !box) return;
+    box.innerHTML = '<p class="text-dim mb0">Loading…</p>';
     bg.style.display = 'flex';
-    const r = await api('/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)));
+    const dbg = stRoleIsAdmin() ? '&debug=1' : '';
+    const r = await api('/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)) + dbg);
     if (!r || !r.ok || !r.run) {
-        pre.textContent = 'Could not load run.';
+        box.innerHTML = '<p class="text-dim mb0">Could not load run.</p>';
         if (btn) btn.style.display = 'none';
         return;
     }
@@ -10808,33 +11024,123 @@ async function stCcRunOpenModal(runId) {
     if (btn) btn.style.display = st === 'queued' || st === 'running' || st === 'resolving_targets' || st === 'ready' ? '' : 'none';
     const tc = run.target_counts || {};
     const rc = run.result_counts || {};
-    const lines = [];
-    lines.push(`Run #${run.id} · ${esc(String(run.status || ''))} · job ${esc(String(run.job_id || '—'))}`);
-    if (run.job_name) lines.push(`Job: ${esc(String(run.job_name))}`);
-    lines.push(
-        `Targets: pending ${esc(String(tc.pending ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}`
-    );
-    lines.push(`Results: success ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}`);
-    if (Array.isArray(run.targets) && run.targets.length) {
-        lines.push('— Targets —');
-        run.targets.forEach((t) => {
-            lines.push(
-                `  #${esc(String(t.id))} asset ${esc(String(t.asset_id))} ${esc(String(t.asset_ip || ''))} · ${esc(String(t.status || ''))}${t.error_code ? ' · ' + esc(String(t.error_code)) : ''}`
-            );
-        });
+    const dur = stFmtDurationMs(run.duration_ms);
+    const partialN = parseInt(String(rc.partial ?? 0), 10) || 0;
+    const failN = parseInt(String(rc.failed ?? 0), 10) || 0;
+    const planned = Array.isArray(run.job_plugins_planned) ? run.job_plugins_planned : [];
+    const plannedLine = planned.length ? planned.map((p) => `<span class="mono-sm">${esc(String(p))}</span>`).join(' ') : '<span class="text-dim">—</span>';
+    const sumObj = stCcParseRunSummaryJson(run.summary_json);
+    let sumHtml = '';
+    if (sumObj && typeof sumObj === 'object') {
+        const rows = Object.keys(sumObj).map((k) => `<tr><td class="text-dim mono-sm">${esc(k)}</td><td class="st-host-evidence-cell-raw">${esc(JSON.stringify(sumObj[k]))}</td></tr>`).join('');
+        sumHtml = rows ? `<div class="tbl-wrap tbl-wrap--compact mt6"><table class="tbl tbl--compact st-cc-run-sum-tbl"><tbody>${rows}</tbody></table></div>` : '';
     }
-    if (Array.isArray(run.results) && run.results.length) {
-        lines.push('— Results (preview) —');
-        run.results.forEach((x) => {
-            const pv = x.normalized_preview ? esc(String(x.normalized_preview)) : '—';
-            lines.push(
-                `  ${esc(String(x.plugin_key || ''))}@${esc(String(x.plugin_version || ''))} · ${esc(String(x.status || ''))} · ${pv}`
-            );
-        });
+    const errHint = failN > 0 || String(st) === 'failed'
+        ? `<p class="hint-micro st-cc-run-err-hint mt6 mb0">Some targets or plugins reported failure or partial data — inspect per-target messages and normalized previews (bounded; no raw artifact bodies).</p>`
+        : '';
+
+    const tgtRows = (Array.isArray(run.targets) ? run.targets : []).map((t) => {
+        const safeErr = t.error_message_safe != null && String(t.error_message_safe).trim()
+            ? `<div class="text-dim mono-sm">${esc(String(t.error_message_safe))}</div>`
+            : '';
+        const ec = t.error_code ? `<span class="mono-sm">${esc(String(t.error_code))}</span>` : '';
+        return `<tr>
+          <td class="mono-sm">${esc(String(t.id))}</td>
+          <td class="mono-sm">${esc(String(t.asset_id))}</td>
+          <td class="mono-sm">${esc(String(t.asset_ip || ''))}</td>
+          <td>${stCcRunStatusBadgeHtml(t.status)}</td>
+          <td>${ec}</td>
+          <td class="st-host-evidence-cell-raw">${safeErr || '—'}</td>
+        </tr>`;
+    }).join('');
+    const tgtBlock = tgtRows
+        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Asset</th><th>IP</th><th>Status</th><th>Code</th><th>Safe error</th></tr></thead><tbody>${tgtRows}</tbody></table></div>`
+        : '<p class="text-dim mb0">No targets.</p>';
+
+    const resRows = (Array.isArray(run.results) ? run.results : []).map((x) => {
+        const stB = String(x.status || '').toLowerCase() === 'partial'
+            ? `${stCcRunStatusBadgeHtml(x.status)} <span class="st-cc-pill st-cc-pill--warn">partial</span>`
+            : stCcRunStatusBadgeHtml(x.status);
+        const pv = x.normalized_preview ? esc(String(x.normalized_preview)) : '—';
+        return `<tr>
+          <td class="mono-sm">${esc(String(x.plugin_key || ''))}@${esc(String(x.plugin_version || ''))}</td>
+          <td>${stB}</td>
+          <td class="st-cc-norm-prev mono-sm">${pv}</td>
+        </tr>`;
+    }).join('');
+    const resBlock = resRows
+        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Plugin</th><th>Status</th><th>Normalized preview</th></tr></thead><tbody>${resRows}</tbody></table></div>`
+        : '<p class="text-dim mb0">No result rows.</p>';
+
+    const obs = Array.isArray(run.observations_written) ? run.observations_written : [];
+    const obsRows = obs.map((o) => `<tr>
+      <td class="mono-sm">${esc(String(o.id))}</td>
+      <td class="mono-sm">${esc(String(o.asset_id))}</td>
+      <td class="mono-sm">${esc(String(o.observation_type || ''))}</td>
+      <td class="mono-sm">${esc(String(o.source_object_ref || ''))}</td>
+      <td class="text-dim">${o.observed_at ? esc(localTime(String(o.observed_at))) : '—'}</td>
+    </tr>`).join('');
+    const obsBlock = obsRows
+        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Obs</th><th>Asset</th><th>Type</th><th>Ref</th><th>Observed</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
+        : '<p class="text-dim mb0">No reconciled observations linked to this run (or reconciliation unavailable).</p>';
+
+    const arts = Array.isArray(run.artifact_summaries) ? run.artifact_summaries : [];
+    const artRows = arts.map((a) => {
+        const sha = a.sha256 != null ? String(a.sha256) : '';
+        const shaShort = sha.length > 14 ? sha.slice(0, 12) + '…' : sha;
+        return `<tr>
+          <td class="mono-sm">${esc(String(a.id))}</td>
+          <td>${esc(String(a.kind || ''))}</td>
+          <td class="mono-sm">${esc(shaShort)}</td>
+          <td class="text-dim">${a.size_bytes != null ? esc(String(a.size_bytes)) : '—'}</td>
+        </tr>`;
+    }).join('');
+    const artBlock = artRows
+        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Kind</th><th>SHA256</th><th>Bytes</th></tr></thead><tbody>${artRows}</tbody></table></div>`
+        : '<p class="text-dim mb0">No artifact rows (or none in cap).</p>';
+
+    const wj = run.worker_debug && typeof run.worker_debug === 'object' ? run.worker_debug : null;
+    let wjBlock = '';
+    if (stRoleIsAdmin() && wj) {
+        wjBlock = `<div class="st-cc-run-sec st-cc-run-sec--debug mt10">
+          <div class="st-cc-run-sec-title">Admin — worker job</div>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><tbody>
+            <tr><td class="text-dim">worker_job_id</td><td class="mono-sm">${esc(String(wj.id ?? '—'))}</td></tr>
+            <tr><td class="text-dim">status</td><td class="mono-sm">${esc(String(wj.status ?? '—'))}</td></tr>
+            <tr><td class="text-dim">attempts / max</td><td class="mono-sm">${esc(String(wj.attempts ?? '—'))} / ${esc(String(wj.max_attempts ?? '—'))}</td></tr>
+            <tr><td class="text-dim">next_attempt_at</td><td class="mono-sm">${esc(String(wj.next_attempt_at ?? '—'))}</td></tr>
+            <tr><td class="text-dim">leased_at / expires</td><td class="mono-sm">${esc(String(wj.leased_at ?? '—'))} · ${esc(String(wj.lease_expires_at ?? '—'))}</td></tr>
+            <tr><td class="text-dim">created / updated / finished</td><td class="mono-sm">${esc(String(wj.created_at ?? '—'))} · ${esc(String(wj.updated_at ?? '—'))} · ${esc(String(wj.finished_at ?? '—'))}</td></tr>
+            <tr><td class="text-dim">cancel_requested_at</td><td class="mono-sm">${esc(String(wj.cancel_requested_at ?? '—'))}</td></tr>
+            <tr><td class="text-dim">error_code</td><td class="mono-sm">${esc(String(wj.error_code ?? '—'))}</td></tr>
+          </tbody></table></div>
+        </div>`;
     }
-    lines.push('— Raw (no secrets) —');
-    lines.push(JSON.stringify(run, null, 2));
-    pre.textContent = lines.join('\n');
+
+    const retNote = run.retention_note ? `<p class="hint-micro text-dim mt8 mb0">${esc(String(run.retention_note))}</p>` : '';
+
+    box.innerHTML = `
+      <div class="st-cc-run-head row-wrap gap8 align-center">
+        <span class="text-strong">Run #${esc(String(run.id))}</span>
+        ${stCcRunStatusBadgeHtml(run.status)}
+        <span class="text-dim mono-sm">job ${esc(String(run.job_id || '—'))}</span>
+        <span class="text-dim">duration ${esc(dur)}</span>
+        ${partialN > 0 ? '<span class="st-cc-pill st-cc-pill--warn">partial results</span>' : ''}
+      </div>
+      <p class="hint-micro text-dim mb0 mt4">${esc(String(run.job_name || ''))}${run.profile_name != null ? ` · ${esc(String(run.profile_name))}` : ''}${run.profile_transport != null ? ` <span class="mono-sm">(${esc(String(run.profile_transport))})</span>` : ''}</p>
+      <p class="hint-micro text-dim mb0 mt4">Planned plugins: ${plannedLine}</p>
+      <p class="hint-micro text-dim mb0">Targets: pending ${esc(String(tc.pending ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}
+        · Results: ok ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}</p>
+      ${errHint}
+      ${sumHtml ? `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Run summary (JSON)</div>${sumHtml}</div>` : ''}
+
+      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Targets</div>${tgtBlock}</div>
+      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Normalized previews</div>${resBlock}</div>
+      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Observations written (reconciliation)</div>${obsBlock}</div>
+      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Artifact metadata</div>${artBlock}</div>
+      ${wjBlock}
+      ${retNote}
+    `;
 }
 
 async function stCcRunCancelCurrent() {
@@ -10851,13 +11157,50 @@ async function stCcRunCancelCurrent() {
     }
 }
 
+function stCcRunsClearFilters() {
+    const a = document.getElementById('st-cc-runs-filter-status');
+    const b = document.getElementById('st-cc-runs-filter-transport');
+    const c = document.getElementById('st-cc-runs-filter-profile');
+    const d = document.getElementById('st-cc-runs-filter-plugin');
+    if (a) a.value = '';
+    if (b) b.value = '';
+    if (c) c.value = '0';
+    if (d) d.value = '';
+    void stCcLoadJobsAndRuns();
+}
+
 async function stCcLoadJobsAndRuns() {
     const st = document.getElementById('st-cc-jobs-status');
     const tbJ = document.getElementById('st-cc-jobs-tbody');
     const tbR = document.getElementById('st-cc-runs-tbody');
+    const fpSel = document.getElementById('st-cc-runs-filter-profile');
     if (!stRoleIsAdmin() || !tbJ || !tbR) return;
     if (st) st.textContent = '';
-    const [rj, rr] = await Promise.all([api('/api/credential_check_jobs.php'), api('/api/credential_check_runs.php?limit=80')]);
+    if (fpSel && fpSel.dataset.loaded !== '1') {
+        const pr = await api('/api/credential_profiles.php');
+        if (pr && pr.ok && Array.isArray(pr.profiles)) {
+            const keep = fpSel.value;
+            fpSel.innerHTML = '<option value="0">All profiles</option>' + pr.profiles.map((p) =>
+                `<option value="${esc(String(p.id))}">${esc(String(p.name || ''))}</option>`
+            ).join('');
+            fpSel.value = keep && [...fpSel.options].some((o) => o.value === keep) ? keep : '0';
+            fpSel.dataset.loaded = '1';
+        }
+    }
+    const qs = new URLSearchParams();
+    qs.set('limit', '80');
+    const fSt = document.getElementById('st-cc-runs-filter-status');
+    const fTr = document.getElementById('st-cc-runs-filter-transport');
+    const fPr = document.getElementById('st-cc-runs-filter-profile');
+    const fPl = document.getElementById('st-cc-runs-filter-plugin');
+    if (fSt && fSt.value) qs.set('status', fSt.value);
+    if (fTr && fTr.value) qs.set('transport', fTr.value);
+    if (fPr && fPr.value && fPr.value !== '0') qs.set('profile_id', fPr.value);
+    if (fPl && fPl.value.trim()) qs.set('plugin', fPl.value.trim());
+    const [rj, rr] = await Promise.all([
+        api('/api/credential_check_jobs.php'),
+        api('/api/credential_check_runs.php?' + qs.toString()),
+    ]);
     if (!rj || !rj.ok) {
         tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load jobs.</td></tr>';
     } else {
@@ -10885,20 +11228,35 @@ async function stCcLoadJobsAndRuns() {
         }
     }
     if (!rr || !rr.ok) {
-        tbR.innerHTML = '<tr><td colspan="6" class="text-dim">Could not load runs.</td></tr>';
+        tbR.innerHTML = '<tr><td colspan="9" class="text-dim">Could not load runs.</td></tr>';
     } else {
         const runs = rr.runs || [];
         if (!runs.length) {
-            tbR.innerHTML = '<tr><td colspan="6" class="text-dim">No runs yet.</td></tr>';
+            tbR.innerHTML = '<tr><td colspan="9" class="text-dim">No runs match filters.</td></tr>';
         } else {
             tbR.innerHTML = runs
                 .map((u) => {
                     const id = Number(u.id);
                     const wj = u.worker_job_id != null ? esc(String(u.worker_job_id)) : '—';
+                    const tr = esc(String(u.profile_transport || '—'));
+                    const tot = parseInt(String(u.targets_total ?? 0), 10) || 0;
+                    const done = parseInt(String(u.targets_completed ?? 0), 10) || 0;
+                    const failT = parseInt(String(u.targets_failed ?? 0), 10) || 0;
+                    const partialR = parseInt(String(u.result_partial_count ?? 0), 10) || 0;
+                    const failR = parseInt(String(u.result_failed_count ?? 0), 10) || 0;
+                    const dur = stFmtDurationMs(u.duration_ms);
+                    const stLow = String(u.status || '').toLowerCase();
+                    const errVis = (stLow === 'failed' || failT > 0 || failR > 0)
+                        ? '<span class="st-cc-pill st-cc-pill--bad" title="Target or plugin failures">err</span>'
+                        : '';
+                    const partVis = partialR > 0 ? '<span class="st-cc-pill st-cc-pill--warn" title="Partial plugin results">partial</span>' : '';
                     return `<tr>
             <td class="mono-sm">${id}</td>
             <td>${esc(String(u.job_name || ''))}</td>
-            <td>${esc(String(u.status || ''))}</td>
+            <td class="mono-sm">${tr}</td>
+            <td class="row-wrap gap4">${stCcRunStatusBadgeHtml(u.status)} ${errVis} ${partVis}</td>
+            <td class="mono-sm">${esc(String(done))}/${esc(String(tot))}${failT > 0 ? ` <span class="text-dim">(${esc(String(failT))} fail)</span>` : ''}</td>
+            <td class="mono-sm">${esc(dur)}</td>
             <td class="mono-sm">${wj}</td>
             <td class="text-dim mono-sm">${esc(String(u.started_at || ''))}</td>
             <td><button type="button" class="tbtn btn-xs" onclick="stCcRunOpenModal(${id})">Detail</button></td>
@@ -19695,6 +20053,7 @@ async function openHostPanel(id, ip) {
 
     const reconEvidenceHtml = stHostReconciliationEvidenceHtml(assetData);
     const identityEvidenceHtml = stHostIdentityEvidenceHtml(assetData);
+    const credHostSummaryHtml = stHostCredentialedChecksHtml(assetData);
 
     const hpActionsHtml = (stRoleCanManageScans() || (openFindings.length || acceptedFindings.length))
         ? `<div class="hp-actions hp-actions-host-primary mt14 st-host-actionbar">
@@ -19760,6 +20119,7 @@ async function openHostPanel(id, ip) {
         </div>
         ${reconEvidenceHtml}
         ${identityEvidenceHtml}
+        ${credHostSummaryHtml}
         ${hpActionsHtml}
         <section class="host-section st-host-subsection" aria-label="Identity and inventory">
           <h3 class="host-section-heading">Identity &amp; inventory</h3>

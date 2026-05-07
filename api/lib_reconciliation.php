@@ -71,6 +71,20 @@ function st_recon_source_id(PDO $pdo, string $sourceType): ?int
 }
 
 /**
+ * Evidence UI: coarse provenance bucket for icons/CSS (not a security label).
+ */
+function st_recon_evidence_source_tier(string $sourceType): string
+{
+    return match (strtolower(trim($sourceType))) {
+        'credentialed_check'     => 'authenticated',
+        'surveytrace_scan'       => 'unauthenticated',
+        'zabbix_inventory'       => 'monitoring',
+        'surveytrace_enrichment' => 'enrichment',
+        default                  => 'other',
+    };
+}
+
+/**
  * Upsert one OS-related observation (idempotent on UNIQUE(asset_id, observation_type, source_id, source_object_ref)).
  * Updates observed_at only when raw_value or normalized_value changed.
  *
@@ -1349,10 +1363,12 @@ function st_recon_build_identity_recon_detail_for_asset(
             if ($ch === '' && (($r['observation_type'] ?? '') === 'device_identity_observed')) {
                 $ch = 'Context only · SNMP digest (not hostname)';
             }
+            $styp = (string) ($r['source_type'] ?? '');
             $obsList[] = [
                 'id'                 => $oid,
                 'observation_type'   => (string) ($r['observation_type'] ?? ''),
-                'source_type'        => (string) ($r['source_type'] ?? ''),
+                'source_type'        => $styp,
+                'source_tier'        => st_recon_evidence_source_tier($styp),
                 'display_name'       => (string) ($r['display_name'] ?? ''),
                 'source_object_ref'  => (string) ($r['source_object_ref'] ?? ''),
                 'raw_value'          => st_recon_truncate_evidence_string((string) ($r['raw_value'] ?? ''), 420),
@@ -1435,7 +1451,14 @@ function st_recon_build_identity_recon_detail_for_asset(
                  LIMIT 48'
             );
             $lst->execute([$assertId]);
-            $empty['assertion_sources'] = $lst->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $asrc = $lst->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            foreach ($asrc as &$arow) {
+                if (is_array($arow)) {
+                    $arow['source_tier'] = st_recon_evidence_source_tier((string) ($arow['source_type'] ?? ''));
+                }
+            }
+            unset($arow);
+            $empty['assertion_sources'] = $asrc;
         }
     } catch (Throwable $e) {
         @error_log('SurveyTrace st_recon_build_identity_recon_detail_for_asset: ' . $e->getMessage());
@@ -2635,10 +2658,12 @@ function st_recon_build_evidence_detail_for_asset(
         $ost->execute([$assetId]);
         foreach ($ost->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
             $oid = (int) ($r['id'] ?? 0);
+            $styp = (string) ($r['source_type'] ?? '');
             $empty['observations'][] = [
                 'id'                 => $oid,
                 'observation_type'   => (string) ($r['observation_type'] ?? ''),
-                'source_type'        => (string) ($r['source_type'] ?? ''),
+                'source_type'        => $styp,
+                'source_tier'        => st_recon_evidence_source_tier($styp),
                 'display_name'       => (string) ($r['display_name'] ?? ''),
                 'source_object_ref'  => (string) ($r['source_object_ref'] ?? ''),
                 'raw_value'          => st_recon_truncate_evidence_string((string) ($r['raw_value'] ?? ''), 420),
@@ -2686,7 +2711,14 @@ function st_recon_build_evidence_detail_for_asset(
                  LIMIT 40'
             );
             $lst->execute([$aid]);
-            $empty['assertion_sources'] = $lst->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $asrc = $lst->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            foreach ($asrc as &$arow) {
+                if (is_array($arow)) {
+                    $arow['source_tier'] = st_recon_evidence_source_tier((string) ($arow['source_type'] ?? ''));
+                }
+            }
+            unset($arow);
+            $empty['assertion_sources'] = $asrc;
         }
     } catch (Throwable $e) {
         @error_log('SurveyTrace st_recon_build_evidence_detail_for_asset: ' . $e->getMessage());

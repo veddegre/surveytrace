@@ -43,7 +43,8 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Step | Verify |
 |------|--------|
 | Assets list | Load, sort, search; optional trusted hostname display when reconciliation enabled. |
-| Host details modal | Overview, tabs, evidence (OS + identity), **Identity & inventory** shows stored vs trusted where applicable. |
+| Host details modal | Overview, tabs, evidence (OS + identity), **Identity & inventory** shows stored vs trusted where applicable. When cred checks are in use: **Credentialed checks** summary on overview (no raw package dump in-modal). |
+| Credentialed checks (admin) | **Settings → jobs & runs**: filters (status, transport, profile, plugin), run row badges (partial/err), duration/targets; **run detail** sections + optional admin worker debug; **System health** cred block stays quiet when healthy. |
 | Devices | List and device panel; merge flows unchanged from expectations. |
 | Vulnerabilities | Filters, triage columns, host link. |
 | Findings actions | Resolve / accept risk (role-gated); audit expectation understood. |

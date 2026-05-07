@@ -611,8 +611,19 @@ try {
     $health['credential_check_runs'] = st_cc_health_snapshot_runs($db);
 } catch (Throwable $e) {
     $health['credential_check_runs'] = [
-        'tables_ready' => false,
-        'summary'      => 'Credentialed check run health unavailable.',
+        'tables_ready'                      => false,
+        'queued_or_active'                  => 0,
+        'running'                           => 0,
+        'completed_recent_24h'              => 0,
+        'failed_recent_24h'                 => 0,
+        'partial_results_recent_24h'        => 0,
+        'avg_duration_ms_completed_24h'     => null,
+        'stale_active_runs'                 => 0,
+        'enabled_jobs_on_disabled_profiles' => 0,
+        'approx_result_rows'                => 0,
+        'approx_artifact_rows'              => 0,
+        'summary'                           => 'Credentialed check run health unavailable.',
+        'warning_hints'                     => [],
     ];
     @error_log('SurveyTrace health credential_check_runs: ' . $e->getMessage());
 }

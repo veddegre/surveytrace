@@ -29,7 +29,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
     $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
     if ($id > 0) {
-        $det = st_cc_run_get_detail($db, $id);
+        $wantDebug = isset($_GET['debug']) && (string) $_GET['debug'] === '1';
+        $det = st_cc_run_get_detail($db, $id, $wantDebug);
         if ($det === null) {
             st_json(['ok' => false, 'error' => 'Run not found'], 404);
         }
@@ -37,7 +38,13 @@ if ($method === 'GET') {
     }
     $jobId = isset($_GET['job_id']) ? (int) $_GET['job_id'] : 0;
     $lim = isset($_GET['limit']) ? (int) $_GET['limit'] : 100;
-    $list = st_cc_run_list($db, $jobId > 0 ? $jobId : null, $lim);
+    $filters = [
+        'status'         => isset($_GET['status']) ? (string) $_GET['status'] : '',
+        'transport'      => isset($_GET['transport']) ? (string) $_GET['transport'] : '',
+        'plugin_substr'  => isset($_GET['plugin']) ? (string) $_GET['plugin'] : '',
+        'profile_id'     => isset($_GET['profile_id']) ? (int) $_GET['profile_id'] : 0,
+    ];
+    $list = st_cc_run_list($db, $jobId > 0 ? $jobId : null, $lim, $filters);
     st_json(['ok' => true, 'runs' => $list]);
 }
 

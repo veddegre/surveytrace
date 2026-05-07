@@ -26,8 +26,9 @@ flowchart LR
   S7[7 First worker + SSH check]
   S8[8 MVP plugins complete]
   S9[9 Trusted data ingestion]
-  S10[10 UI surfaces]
-  S11[11 Safety hardening]
+  S10[10 Trusted data integration]
+  S11[11 UI / ops visibility]
+  S12[12 Safety hardening]
   S1 --> S2
   S2 --> S3
   S3 --> S4
@@ -38,8 +39,9 @@ flowchart LR
   S7 --> S8
   S8 --> S9
   S9 --> S10
-  S7 --> S11
   S10 --> S11
+  S7 --> S12
+  S11 --> S12
 ```
 
 *Note:* **Slice 4** (secrets) is required before **slice 5** (handshake tests) when using stored material. **Slice 6** (job templates + `worker_jobs` queue + placeholder worker) lands after profiles/plugins; **slice 7** adds first real SSH plugin execution.
@@ -459,38 +461,33 @@ Extend **`os_platform`** / identity reconciliation to weight **`os_version_obser
 
 ---
 
-## Slice 11 — UI surfaces
+## Slice 11 — UI and operational visibility (**implemented**)
 
 ### Purpose
 
-Operator-visible **Credentialed Checks** area: profiles, jobs, run list, run detail, per-asset history link. **Host detail** summary card. **System Health** read-only block (counts, last failure **safe** message).
+Polish operator workflows **without** new execution types: compact **Credentialed checks** host overview (`credential_check_host_summary`), richer **Settings → runs** (filters, badges, duration, targets, partial/error hints), structured **run detail** (grouped sections, bounded previews, admin worker debug via `debug=1`), **health** hints (24h stats, stale runs, bad-profile jobs, approx store when anomalous), **evidence source tier** chips, and **retention** copy (bounded data; no auto-prune in this release).
 
-### Files likely involved
+### Files touched
 
-- `public/index.php` — new tab or Integrations sub-panel **open decision**; navigation entry.
-- `api/health.php` — optional `cred_checks` snapshot object.
-- `api/assets.php` — optional summary fields `cred_check_last_at`, `cred_check_last_status` (additive GET only) **or** separate `GET` to avoid widening list payload — **open decision**.
+- `public/index.php`, `public/css/app.css` — host block, runs filters/table/modal, health rendering, `stEvidenceSourceTierHtml`.
+- `api/lib_credential_check_ops.php`, `api/credential_check_runs.php`, `api/assets.php`, `api/lib_reconciliation.php`, `api/health.php` — list filters/detail/health snapshot/summary APIs (as landed in slice 11).
+- `docs/CREDENTIALED_CHECKS_ENGINE.md`, `docs/wiki/troubleshooting.md`, `docs/RELEASE_READINESS_CHECKLIST.md`.
 
 ### Schema / API changes
 
-- Mostly read APIs; possibly materialized summary columns on `assets` **deferred** — prefer JOIN or subquery in host GET only for MVP.
+- None beyond existing cred + worker tables; list/detail query shapes extended in PHP.
 
 ### Security risks
 
-- Exposing artifact URLs without auth — use same-session token or short-lived signed URL pattern **open decision**.
+- Run detail never returns raw artifact blobs; `debug=1` is admin-only and exposes `worker_jobs` metadata only (no secrets).
 
 ### Validation steps
 
-- Viewer role: cannot see secrets, cannot start runs (403).
-- Admin: full flow end-to-end from UI.
-
-### Rollback considerations
-
-- Hide nav link behind config flag.
+- `php -l` on touched PHP; `python3 -m py_compile` on touched Python if any; slice 7/8/9 selftests + slice10 recon selftest + placeholder smoke; manual UI: empty runs, failed run, partial package run, SNMP identity, host with scan + cred evidence, light/dark, narrow width.
 
 ### Explicitly deferred
 
-- Reports tab CSV export extensions; change-alert email integration.
+- Reports CSV extensions; automatic pruning/TTL jobs; signed artifact URLs.
 
 ---
 

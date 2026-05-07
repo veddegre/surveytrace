@@ -693,33 +693,107 @@ function st_cc_run_cancel(PDO $pdo, int $runId, string $actorUsername): array
 }
 
 /**
+ * Approximate run wall duration in ms (null if cannot compute).
+ */
+function st_cc_run_duration_ms_approx(?string $startedAt, ?string $finishedAt): ?int
+{
+    $s = $startedAt !== null ? trim($startedAt) : '';
+    if ($s === '') {
+        return null;
+    }
+    $e = $finishedAt !== null && trim($finishedAt) !== '' ? trim($finishedAt) : date('Y-m-d H:i:s');
+    $ts1 = strtotime($s);
+    $ts2 = strtotime($e);
+    if ($ts1 === false || $ts2 === false) {
+        return null;
+    }
+
+    return max(0, (int) round(($ts2 - $ts1) * 1000));
+}
+
+/**
+ * Filters: status?, transport?, plugin_substr?, profile_id?
+ *
+ * @param array<string, mixed> $filters
+ *
  * @return list<array<string, mixed>>
  */
-function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100): array
+function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $filters = []): array
 {
     if (! st_cc_ops_tables_ready($pdo)) {
         return [];
     }
     $limit = max(1, min(500, $limit));
+    $where = ['1=1'];
+    $params = [];
     if ($jobId !== null && $jobId > 0) {
-        $st = $pdo->prepare(
-            'SELECT r.*, j.name AS job_name FROM credential_check_runs r
-             LEFT JOIN credential_check_jobs j ON j.id = r.job_id
-             WHERE r.job_id = ? ORDER BY r.started_at DESC, r.id DESC LIMIT ' . (int) $limit
-        );
-        $st->execute([$jobId]);
-    } else {
-        $st = $pdo->query(
-            'SELECT r.*, j.name AS job_name FROM credential_check_runs r
-             LEFT JOIN credential_check_jobs j ON j.id = r.job_id
-             ORDER BY r.started_at DESC, r.id DESC LIMIT ' . (int) $limit
-        );
+        $where[] = 'r.job_id = ?';
+        $params[] = $jobId;
     }
+    $stF = isset($filters['status']) ? strtolower(trim((string) $filters['status'])) : '';
+    if ($stF !== '') {
+        $where[] = 'r.status = ?';
+        $params[] = $stF;
+    }
+    $trF = isset($filters['transport']) ? strtolower(trim((string) $filters['transport'])) : '';
+    if ($trF !== '') {
+        $where[] = 'LOWER(COALESCE(p.transport, \'\')) = ?';
+        $params[] = $trF;
+    }
+    $profF = isset($filters['profile_id']) ? (int) $filters['profile_id'] : 0;
+    if ($profF > 0) {
+        $where[] = 'j.credential_profile_id = ?';
+        $params[] = $profF;
+    }
+    $plugF = isset($filters['plugin_substr']) ? trim((string) $filters['plugin_substr']) : '';
+    if ($plugF !== '') {
+        $where[] = 'COALESCE(j.plugin_selection_json, \'\') LIKE ?';
+        $params[] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $plugF) . '%';
+    }
+    $sql = 'SELECT r.*, j.name AS job_name, j.credential_profile_id,
+                    COALESCE(p.transport, \'\') AS profile_transport, COALESCE(p.name, \'\') AS profile_name,
+                    COALESCE(tc.targets_total, 0) AS targets_total,
+                    COALESCE(tc.targets_completed, 0) AS targets_completed,
+                    COALESCE(tc.targets_failed, 0) AS targets_failed,
+                    COALESCE(tc.targets_pending, 0) AS targets_pending,
+                    COALESCE(tc.targets_skipped, 0) AS targets_skipped,
+                    COALESCE(rc.partial_n, 0) AS result_partial_count,
+                    COALESCE(rc.failed_n, 0) AS result_failed_count
+             FROM credential_check_runs r
+             LEFT JOIN credential_check_jobs j ON j.id = r.job_id
+             LEFT JOIN credential_profiles p ON p.id = j.credential_profile_id AND p.deleted_at IS NULL
+             LEFT JOIN (
+                SELECT run_id,
+                    COUNT(*) AS targets_total,
+                    SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) AS targets_completed,
+                    SUM(CASE WHEN status = \'failed\' THEN 1 ELSE 0 END) AS targets_failed,
+                    SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS targets_pending,
+                    SUM(CASE WHEN status = \'skipped\' THEN 1 ELSE 0 END) AS targets_skipped
+                FROM credential_check_run_targets GROUP BY run_id
+             ) tc ON tc.run_id = r.id
+             LEFT JOIN (
+                SELECT run_id,
+                    SUM(CASE WHEN status = \'partial\' THEN 1 ELSE 0 END) AS partial_n,
+                    SUM(CASE WHEN status = \'failed\' THEN 1 ELSE 0 END) AS failed_n
+                FROM credential_check_results GROUP BY run_id
+             ) rc ON rc.run_id = r.id
+             WHERE ' . implode(' AND ', $where) . '
+             ORDER BY r.started_at DESC, r.id DESC
+             LIMIT ' . (int) $limit;
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
     $out = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        if (is_array($row)) {
-            $out[] = $row;
+        if (! is_array($row)) {
+            continue;
         }
+        // List API: omit per-run summary blob (unbounded growth; detail endpoint serves it).
+        unset($row['summary_json']);
+        $row['duration_ms'] = st_cc_run_duration_ms_approx(
+            isset($row['started_at']) ? (string) $row['started_at'] : null,
+            isset($row['finished_at']) ? (string) $row['finished_at'] : null
+        );
+        $out[] = $row;
     }
 
     return $out;
@@ -851,17 +925,285 @@ function st_cc_normalized_preview_public(string $pluginKey, string $normalizedJs
 }
 
 /**
+ * Bounded summaries for host modal (no raw package lists).
+ *
+ * @return array<string, mixed>
+ */
+function st_cc_asset_cred_summary(PDO $pdo, int $assetId, ?string $osPlatformExplanation): array
+{
+    $out = [
+        'tables_ready'              => false,
+        'has_activity'              => false,
+        'last_target_touch'         => null,
+        'last_successful_run'       => null,
+        'recent_runs'               => [],
+        'package_inventory_summary' => null,
+        'snmp_identity_summary'     => null,
+        'os_trust_note'             => null,
+    ];
+    if (! st_cc_ops_tables_ready($pdo) || $assetId < 1) {
+        return $out;
+    }
+    $out['tables_ready'] = true;
+    $expl = $osPlatformExplanation !== null ? trim($osPlatformExplanation) : '';
+    if ($expl !== '' && (stripos($expl, 'authenticated') !== false || stripos($expl, 'credentialed') !== false)) {
+        $out['os_trust_note'] = strlen($expl) > 220 ? substr($expl, 0, 220) . '…' : $expl;
+    }
+    try {
+        $st = $pdo->prepare(
+            'SELECT t.id AS target_row_id, t.run_id, t.status AS target_status, t.error_code, t.error_message_safe,
+                    t.started_at AS target_started_at, t.finished_at AS target_finished_at,
+                    r.status AS run_status, r.started_at AS run_started_at, r.finished_at AS run_finished_at,
+                    j.name AS job_name, j.plugin_selection_json
+             FROM credential_check_run_targets t
+             JOIN credential_check_runs r ON r.id = t.run_id
+             LEFT JOIN credential_check_jobs j ON j.id = r.job_id
+             WHERE t.asset_id = ?
+             ORDER BY datetime(COALESCE(t.finished_at, t.started_at, r.finished_at, r.started_at)) DESC, r.id DESC, t.id DESC
+             LIMIT 32'
+        );
+        $st->execute([$assetId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if ($rows === []) {
+            return $out;
+        }
+        $out['has_activity'] = true;
+        $first = $rows[0];
+        if (is_array($first)) {
+            $out['last_target_touch'] = [
+                'run_id'          => (int) ($first['run_id'] ?? 0),
+                'run_status'      => (string) ($first['run_status'] ?? ''),
+                'target_status'   => (string) ($first['target_status'] ?? ''),
+                'error_code'      => (string) ($first['error_code'] ?? ''),
+                'finished_at'     => $first['target_finished_at'] ?? $first['run_finished_at'] ?? null,
+                'job_name'        => (string) ($first['job_name'] ?? ''),
+                'plugins_planned' => st_cc_parse_plugin_labels((string) ($first['plugin_selection_json'] ?? '')),
+            ];
+        }
+        $seenRuns = [];
+        foreach ($rows as $r) {
+            if (! is_array($r)) {
+                continue;
+            }
+            $rid = (int) ($r['run_id'] ?? 0);
+            if ($rid < 1 || isset($seenRuns[$rid])) {
+                continue;
+            }
+            $seenRuns[$rid] = true;
+            $ts = strtolower((string) ($r['target_status'] ?? ''));
+            $rs = strtolower((string) ($r['run_status'] ?? ''));
+            if ($ts === 'completed') {
+                $plugins = st_cc_results_plugins_for_asset_run($pdo, $rid, $assetId);
+                $out['last_successful_run'] = [
+                    'run_id'            => $rid,
+                    'run_status'        => (string) ($r['run_status'] ?? ''),
+                    'finished_at'       => $r['run_finished_at'] ?? $r['target_finished_at'] ?? null,
+                    'job_name'          => (string) ($r['job_name'] ?? ''),
+                    'plugins_executed'  => $plugins,
+                    'plugins_planned'   => st_cc_parse_plugin_labels((string) ($r['plugin_selection_json'] ?? '')),
+                ];
+                break;
+            }
+        }
+        $recent = [];
+        $n = 0;
+        foreach ($rows as $r) {
+            if (! is_array($r)) {
+                continue;
+            }
+            $rid = (int) ($r['run_id'] ?? 0);
+            if ($rid < 1) {
+                continue;
+            }
+            $key = $rid;
+            if (isset($recent[$key])) {
+                continue;
+            }
+            $recent[$key] = [
+                'run_id'        => $rid,
+                'run_status'    => (string) ($r['run_status'] ?? ''),
+                'target_status' => (string) ($r['target_status'] ?? ''),
+                'started_at'    => $r['run_started_at'] ?? null,
+                'job_name'      => (string) ($r['job_name'] ?? ''),
+            ];
+            if (++$n >= 8) {
+                break;
+            }
+        }
+        $out['recent_runs'] = array_values($recent);
+
+        $pkg = $pdo->prepare(
+            "SELECT normalized_json, status, created_at FROM credential_check_results
+             WHERE asset_id = ? AND plugin_key = 'ssh.linux.package_inventory'
+             ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        );
+        $pkg->execute([$assetId]);
+        $pr = $pkg->fetch(PDO::FETCH_ASSOC);
+        if (is_array($pr)) {
+            $out['package_inventory_summary'] = st_cc_package_summary_from_normalized((string) ($pr['normalized_json'] ?? ''), (string) ($pr['status'] ?? ''));
+        }
+
+        $sn = $pdo->prepare(
+            "SELECT normalized_json, status, created_at FROM credential_check_results
+             WHERE asset_id = ? AND plugin_key = 'snmpv3.device_identity'
+             ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        );
+        $sn->execute([$assetId]);
+        $sr = $sn->fetch(PDO::FETCH_ASSOC);
+        if (is_array($sr)) {
+            $out['snmp_identity_summary'] = st_cc_snmp_identity_summary_from_normalized((string) ($sr['normalized_json'] ?? ''), (string) ($sr['status'] ?? ''));
+        }
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_cc_asset_cred_summary: ' . $e->getMessage());
+    }
+
+    return $out;
+}
+
+/**
+ * @return list<string>
+ */
+function st_cc_parse_plugin_labels(string $pluginJson): array
+{
+    if ($pluginJson === '') {
+        return [];
+    }
+    try {
+        $tmp = json_decode($pluginJson, true, 64, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return [];
+    }
+    if (! is_array($tmp)) {
+        return [];
+    }
+    $out = [];
+    foreach ($tmp as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $pk = trim((string) ($row['plugin_key'] ?? ''));
+        $ver = trim((string) ($row['version'] ?? ''));
+        if ($pk === '') {
+            continue;
+        }
+        $out[] = $ver !== '' ? $pk . '@' . $ver : $pk;
+    }
+
+    return $out;
+}
+
+/**
+ * @return list<string>
+ */
+function st_cc_results_plugins_for_asset_run(PDO $pdo, int $runId, int $assetId): array
+{
+    if ($runId < 1 || $assetId < 1) {
+        return [];
+    }
+    try {
+        $st = $pdo->prepare(
+            'SELECT DISTINCT plugin_key, plugin_version FROM credential_check_results
+             WHERE run_id = ? AND asset_id = ? ORDER BY plugin_key ASC, plugin_version ASC'
+        );
+        $st->execute([$runId, $assetId]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            if (! is_array($r)) {
+                continue;
+            }
+            $pk = (string) ($r['plugin_key'] ?? '');
+            $pv = (string) ($r['plugin_version'] ?? '');
+            if ($pk === '') {
+                continue;
+            }
+            $out[] = $pv !== '' ? $pk . '@' . $pv : $pk;
+        }
+
+        return $out;
+    } catch (Throwable) {
+        return [];
+    }
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function st_cc_package_summary_from_normalized(string $normalizedJson, string $resultStatus): array
+{
+    $out = [
+        'package_manager' => null,
+        'package_count'     => null,
+        'partial'           => null,
+        'truncated'         => null,
+        'result_status'     => strtolower(trim($resultStatus)),
+    ];
+    if ($normalizedJson === '') {
+        return $out;
+    }
+    try {
+        $d = json_decode($normalizedJson, true, 16, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return $out;
+    }
+    if (! is_array($d)) {
+        return $out;
+    }
+    $out['package_manager'] = isset($d['package_manager']) ? (string) $d['package_manager'] : null;
+    $out['package_count'] = isset($d['package_count']) ? (int) $d['package_count'] : null;
+    $out['partial'] = isset($d['partial']) ? (bool) $d['partial'] : null;
+    $out['truncated'] = isset($d['truncated']) ? (bool) $d['truncated'] : null;
+
+    return $out;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function st_cc_snmp_identity_summary_from_normalized(string $normalizedJson, string $resultStatus): array
+{
+    $out = [
+        'result_status' => strtolower(trim($resultStatus)),
+        'sys_name'      => null,
+        'vendor_hint'   => null,
+        'name_hint'     => null,
+        'partial'       => null,
+    ];
+    if ($normalizedJson === '') {
+        return $out;
+    }
+    try {
+        $d = json_decode($normalizedJson, true, 24, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return $out;
+    }
+    if (! is_array($d)) {
+        return $out;
+    }
+    $id = isset($d['snmpv3_identity']) && is_array($d['snmpv3_identity']) ? $d['snmpv3_identity'] : [];
+    $nid = isset($d['normalized_identity']) && is_array($d['normalized_identity']) ? $d['normalized_identity'] : [];
+    $sn = isset($id['sys_name']) ? trim((string) $id['sys_name']) : '';
+    $out['sys_name'] = $sn !== '' ? (strlen($sn) > 120 ? substr($sn, 0, 120) . '…' : $sn) : null;
+    $out['vendor_hint'] = isset($nid['vendor_hint']) ? (string) $nid['vendor_hint'] : null;
+    $out['name_hint'] = isset($nid['name']) ? (string) $nid['name'] : null;
+    $out['partial'] = isset($d['partial']) ? (bool) $d['partial'] : null;
+
+    return $out;
+}
+
+/**
  * @return array<string, mixed>|null
  */
-function st_cc_run_get_detail(PDO $pdo, int $runId): ?array
+function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = false): ?array
 {
     if (! st_cc_ops_tables_ready($pdo) || $runId < 1) {
         return null;
     }
     $st = $pdo->prepare(
-        'SELECT r.*, j.name AS job_name, j.credential_profile_id, j.plugin_selection_json AS job_plugin_selection_json
+        'SELECT r.*, j.name AS job_name, j.credential_profile_id, j.plugin_selection_json AS job_plugin_selection_json,
+                p.name AS profile_name, COALESCE(p.transport, \'\') AS profile_transport
          FROM credential_check_runs r
          LEFT JOIN credential_check_jobs j ON j.id = r.job_id
+         LEFT JOIN credential_profiles p ON p.id = j.credential_profile_id AND p.deleted_at IS NULL
          WHERE r.id = ? LIMIT 1'
     );
     $st->execute([$runId]);
@@ -924,6 +1266,77 @@ function st_cc_run_get_detail(PDO $pdo, int $runId): ?array
         }
     }
     $run['result_counts'] = $rc;
+    $run['duration_ms'] = st_cc_run_duration_ms_approx(
+        isset($run['started_at']) ? (string) $run['started_at'] : null,
+        isset($run['finished_at']) ? (string) $run['finished_at'] : null
+    );
+    $run['job_plugins_planned'] = st_cc_parse_plugin_labels((string) ($run['job_plugin_selection_json'] ?? ''));
+
+    $run['observations_written'] = [];
+    require_once __DIR__ . '/lib_reconciliation.php';
+    if (st_recon_tables_ready($pdo)) {
+        try {
+            st_recon_seed_sources($pdo);
+            $sidCred = st_recon_source_id($pdo, 'credentialed_check');
+            if ($sidCred !== null) {
+                $pref = 'run:' . $runId . ':';
+                $obSt = $pdo->prepare(
+                    "SELECT o.id, o.asset_id, o.observation_type, o.source_object_ref, o.observed_at
+                     FROM asset_observations o
+                     WHERE o.source_id = ? AND o.source_object_ref LIKE ?
+                     ORDER BY o.id ASC LIMIT 120"
+                );
+                $obSt->execute([$sidCred, $pref . '%']);
+                foreach ($obSt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $or) {
+                    if (is_array($or)) {
+                        $run['observations_written'][] = $or;
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_cc_run_get_detail observations: ' . $e->getMessage());
+        }
+    }
+
+    $run['artifact_summaries'] = [];
+    try {
+        $aSt = $pdo->prepare(
+            'SELECT ca.id, ca.kind, ca.sha256, ca.size_bytes, ca.created_at, ca.result_id
+             FROM credential_check_artifacts ca
+             INNER JOIN credential_check_results res ON res.id = ca.result_id
+             WHERE res.run_id = ?
+             ORDER BY ca.id ASC LIMIT 48'
+        );
+        $aSt->execute([$runId]);
+        foreach ($aSt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $ar) {
+            if (is_array($ar)) {
+                $run['artifact_summaries'][] = $ar;
+            }
+        }
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_cc_run_get_detail artifacts: ' . $e->getMessage());
+    }
+
+    $run['worker_debug'] = null;
+    if ($includeWorkerDebug && st_worker_tables_ready($pdo)) {
+        $wjid = isset($run['worker_job_id']) ? (int) $run['worker_job_id'] : 0;
+        if ($wjid > 0) {
+            try {
+                $wst = $pdo->prepare(
+                    'SELECT id, status, attempts, max_attempts, next_attempt_at, leased_at, lease_expires_at, error_code,
+                            created_at, updated_at, finished_at, cancel_requested_at
+                     FROM worker_jobs WHERE id = ? LIMIT 1'
+                );
+                $wst->execute([$wjid]);
+                $wj = $wst->fetch(PDO::FETCH_ASSOC);
+                $run['worker_debug'] = is_array($wj) ? $wj : null;
+            } catch (Throwable $e) {
+                @error_log('SurveyTrace st_cc_run_get_detail worker_debug: ' . $e->getMessage());
+            }
+        }
+    }
+
+    $run['retention_note'] = 'Results and artifacts are bounded per run; long-term retention is operational — prune old runs if SQLite grows.';
 
     return $run;
 }
@@ -934,12 +1347,19 @@ function st_cc_run_get_detail(PDO $pdo, int $runId): ?array
 function st_cc_health_snapshot_runs(PDO $pdo): array
 {
     $out = [
-        'tables_ready'           => st_cc_ops_tables_ready($pdo),
-        'queued_or_active'       => 0,
-        'running'                => 0,
-        'completed_recent_24h' => 0,
-        'failed_recent_24h'      => 0,
-        'summary'                => 'Credentialed check runs: unavailable.',
+        'tables_ready'                      => st_cc_ops_tables_ready($pdo),
+        'queued_or_active'                  => 0,
+        'running'                           => 0,
+        'completed_recent_24h'              => 0,
+        'failed_recent_24h'                 => 0,
+        'partial_results_recent_24h'        => 0,
+        'avg_duration_ms_completed_24h'     => null,
+        'stale_active_runs'                 => 0,
+        'enabled_jobs_on_disabled_profiles' => 0,
+        'approx_result_rows'                => 0,
+        'approx_artifact_rows'              => 0,
+        'summary'                           => 'Credentialed check runs: unavailable.',
+        'warning_hints'                     => [],
     ];
     if (! $out['tables_ready']) {
         return $out;
@@ -957,9 +1377,42 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         $out['failed_recent_24h'] = (int) $pdo->query(
             "SELECT COUNT(*) FROM credential_check_runs WHERE status = 'failed' AND datetime(started_at) >= datetime('now', '-1 day')"
         )->fetchColumn();
+        $out['partial_results_recent_24h'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_results WHERE status = 'partial' AND datetime(created_at) >= datetime('now', '-1 day')"
+        )->fetchColumn();
+        $avg = $pdo->query(
+            "SELECT AVG((julianday(COALESCE(finished_at, started_at)) - julianday(started_at)) * 86400000.0)
+             FROM credential_check_runs
+             WHERE status = 'completed' AND finished_at IS NOT NULL AND datetime(finished_at) >= datetime('now', '-1 day')"
+        )->fetchColumn();
+        if ($avg !== false && $avg !== null && is_numeric($avg)) {
+            $out['avg_duration_ms_completed_24h'] = (int) round((float) $avg);
+        }
+        $out['stale_active_runs'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_runs
+             WHERE status IN ('queued','resolving_targets','ready','running')
+             AND datetime(started_at) < datetime('now', '-3 hours')"
+        )->fetchColumn();
+        $out['enabled_jobs_on_disabled_profiles'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_jobs j
+             INNER JOIN credential_profiles p ON p.id = j.credential_profile_id
+             WHERE j.enabled = 1 AND (p.enabled = 0 OR p.deleted_at IS NOT NULL)"
+        )->fetchColumn();
+        $out['approx_result_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_results')->fetchColumn();
+        $out['approx_artifact_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_artifacts')->fetchColumn();
         $out['summary'] = 'Queued/active runs: ' . $out['queued_or_active'] . '; running: ' . $out['running']
             . '; completed (24h): ' . $out['completed_recent_24h']
-            . '; failed (24h): ' . $out['failed_recent_24h'];
+            . '; failed (24h): ' . $out['failed_recent_24h']
+            . '; partial results (24h): ' . $out['partial_results_recent_24h'];
+        if ($out['stale_active_runs'] > 0) {
+            $out['warning_hints'][] = (string) $out['stale_active_runs'] . ' credentialed run(s) active >3h — check worker connectivity.';
+        }
+        if ($out['enabled_jobs_on_disabled_profiles'] > 0) {
+            $out['warning_hints'][] = (string) $out['enabled_jobs_on_disabled_profiles'] . ' enabled job(s) reference disabled/archived credential profiles.';
+        }
+        if ($out['failed_recent_24h'] > 5) {
+            $out['warning_hints'][] = 'Several credentialed runs failed in the last 24h — review run detail errors.';
+        }
     } catch (Throwable) {
         $out['summary'] = 'Credentialed check run counts unavailable.';
     }

@@ -356,11 +356,12 @@ Audit events (append-only table or existing audit stream extension):
 
 ## 11. Reporting and exports
 
-- **Host details:** New section “Credentialed checks” — last run time, plugin summary, link to artifacts (RBAC), conflicts vs scan/Zabbix called out.
-- **Reports:** Job-scoped or inventory-scoped reports include **check coverage** (% assets with successful run in window) and **delta** package lists between runs.
-- **Exports:** CSV/JSON columns additive: `last_cred_check_at`, `cred_check_plugins_ok`, optional package hash summary — **no secrets**.
-- **Change alerts:** Diff normalized package sets or OS string between runs; tie to existing alert stream patterns.
-- **Trusted data diagnostics:** Extend health-style snapshot with counts: runs 24h, failures by `error_code`, observation rows from credentialed source — mirrors “quiet when healthy” philosophy from current trusted diagnostics.
+- **Host details (MVP slice 11):** Overview tab includes a compact **Credentialed checks** block when the schema is present and there is activity or inventory summaries: last target completion with plugins executed, latest target/run state, **summarized** package inventory (manager, count, `partial` / `truncated` flags — not the full package table), SNMP identity summary when present, optional OS/trust note when the reconciliation explanation references authenticated evidence, and a disclosure list of recent runs. Admins get a shortcut to **Settings → Credentialed checks — jobs & runs**.
+- **Settings runs table:** Filterable list (`status`, profile transport, `profile_id`, plugin substring), per-row duration, target completion counts, partial/result-failure badges, worker job id. **Run detail** groups targets, bounded normalized previews, reconciliation observations tied to `credentialed_check`, artifact metadata (kind/size/sha256 only), run `summary_json`, and an **admin-only** `worker_jobs` debug panel when `GET …&debug=1` is used.
+- **System health:** `credential_check_runs` snapshot adds partial-result counts (24h), average completed duration (24h), stale active runs (\>3h), enabled jobs on disabled/archived profiles, approximate result/artifact row counts, and `warning_hints` — extra lines stay muted until something is wrong (or admin store hint when anomalies fire).
+- **Trusted data / evidence UI:** Observation and assertion-source rows show a subtle **source tier** chip (`Auth` = credentialed, `Scan` = unauthenticated scan, `Mon` = monitoring inventory, `Enrich` = enrichment) derived from `recon_sources.source_type` — not a security label, for operator context only.
+- **Retention messaging:** UI copy states that previews and stored rows are **bounded** and retention is **operational** (no automatic pruning in this release unless aligned with a future cleanup job).
+- **Reports / exports / change alerts:** Job-scoped coverage, delta package exports, and diff alerts remain **deferred** beyond summarized host and run surfaces.
 
 ---
 
