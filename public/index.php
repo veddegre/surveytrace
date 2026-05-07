@@ -4275,9 +4275,9 @@ function stSettingsGetPreferredSubtab() {
 
 function stSettingsSetSubtab(name, persistHash) {
     const tab = ST_SETTINGS_SUBTABS.includes(name) ? name : 'platform';
-    document.querySelectorAll('#t-settings [data-st-group]').forEach((el) => {
+    document.querySelectorAll('#t-settings .st-settings-group, #t-settings .st-settings-tab-intro').forEach((el) => {
         const group = String(el.getAttribute('data-st-group') || '').trim();
-        el.hidden = (group !== tab);
+        if (group) el.hidden = (group !== tab);
     });
     ST_SETTINGS_SUBTABS.forEach((key) => {
         const btn = document.getElementById('st-settings-subtab-' + key);
@@ -4298,9 +4298,37 @@ function stSettingsSetSubtab(name, persistHash) {
     }
 }
 
+function stSettingsNormalizeGroupDom() {
+    const root = document.getElementById('st-settings-grid');
+    if (!root || root.dataset.grouped === '1') return;
+    const oldNodes = Array.from(root.querySelectorAll(':scope > div > [data-st-group], :scope > [data-st-group]'));
+    if (!oldNodes.length) return;
+    const buckets = {};
+    ST_SETTINGS_SUBTABS.forEach((g) => { buckets[g] = []; });
+    oldNodes.forEach((node) => {
+        const grp = String(node.getAttribute('data-st-group') || '').trim();
+        if (!grp || !buckets[grp]) return;
+        buckets[grp].push(node);
+    });
+    root.innerHTML = '';
+    ST_SETTINGS_SUBTABS.forEach((grp) => {
+        const items = buckets[grp] || [];
+        const sec = document.createElement('section');
+        sec.className = 'st-settings-group';
+        sec.setAttribute('data-st-group', grp);
+        const grid = document.createElement('div');
+        grid.className = 'st-settings-group-grid';
+        items.forEach((node) => grid.appendChild(node));
+        sec.appendChild(grid);
+        root.appendChild(sec);
+    });
+    root.dataset.grouped = '1';
+}
+
 function stSettingsInitSubtabs() {
     const root = document.getElementById('t-settings');
     if (!root) return;
+    stSettingsNormalizeGroupDom();
     root.querySelectorAll('.st-settings-subnav-btn').forEach((btn) => {
         btn.addEventListener('keydown', (ev) => {
             const key = ev.key;
