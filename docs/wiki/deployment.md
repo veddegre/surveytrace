@@ -113,7 +113,7 @@ After a successful deploy:
 
 ## Credentialed checks — profile secret encryption (optional)
 
-To allow admins to **store encrypted SSH / SNMPv3 / WinRM secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in the **PHP/web server environment** (same pattern as other SurveyTrace env vars: e.g. systemd `Environment=` on the unit that runs PHP-FPM or Apache, or your reverse-proxy–passed config — not inside SQLite).
+To allow admins to **store encrypted SSH / SNMPv3 credential secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in the **PHP/web server environment** (same pattern as other SurveyTrace env vars: e.g. systemd `Environment=` on the unit that runs PHP-FPM or Apache, or your reverse-proxy–passed config — not inside SQLite).
 
 - **Format:** trimmed string. Best: `openssl rand -base64 32` (32 raw bytes as base64). Also accepted: 64 hex chars (32 bytes), or any string (implementation derives a 32-byte key with SHA-256 — weaker if short/predictable).
 - **Strict mode (recommended):** set `SURVEYTRACE_CRED_SECRET_KEY_STRICT=1` to require only strong key formats (base64-32-byte or 64-hex). In strict mode, short passphrases are rejected.

@@ -2343,12 +2343,19 @@ if (!headers_sent()) {
   <section class="st-band st-settings-band st-settings-band--workspace" aria-labelledby="st-settings-workspace-title">
     <header class="st-settings-section-head">
       <h3 class="st-settings-section-title" id="st-settings-workspace-title">Configuration groups</h3>
-      <p class="hint-micro text-dim st-settings-section-lede mb0">Each card keeps its own save/test actions. Security-sensitive toggles, external credentials, AI behavior, and operational maintenance settings are grouped below for faster review.</p>
+      <p class="hint-micro text-dim st-settings-section-lede mb0">Each card keeps its own save/test actions. Use section tabs to focus on one operational area at a time.</p>
     </header>
-  <div class="scgrid st-settings-grid">
+    <div class="st-settings-subnav" role="tablist" aria-label="Settings sections">
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-general" role="tab" aria-selected="true" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('general', true)">General</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-integrations" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('integrations', true)">Integrations</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-credentialed" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('credentialed', true)">Credentialed Checks</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-operations" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('operations', true)">Operations &amp; Maintenance</button>
+      <button type="button" class="st-settings-subnav-btn" id="st-settings-subtab-advanced" role="tab" aria-selected="false" aria-controls="st-settings-grid" onclick="stSettingsSetSubtab('advanced', true)">Advanced</button>
+    </div>
+  <div class="scgrid st-settings-grid" id="st-settings-grid">
     <div>
-      <div class="st-settings-col-title">Security &amp; session</div>
-      <div class="card st-settings-card st-settings-card--security">
+      <div class="st-settings-col-title" data-st-group="general">Security &amp; session</div>
+      <div class="card st-settings-card st-settings-card--security" data-st-group="general">
         <div class="ct">Sign-in session</div>
         <div class="help-line mb10">
           Idle timeout for the PHP session cookie after you sign in (session auth) or after the first successful
@@ -2369,7 +2376,7 @@ if (!headers_sent()) {
           <button class="tbtn" type="button" onclick="saveExtraSafePorts()">Save ports</button>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--security" id="st-security-controls-card">
+      <div class="card st-settings-card st-settings-card--security" id="st-security-controls-card" data-st-group="general">
         <div class="ct">Security controls</div>
         <p class="help-line mb10 text-dim">
           When enabled, <strong>viewer</strong> accounts can no longer call the System Health or inventory export APIs—only <strong>scan editor</strong> and <strong>admin</strong> roles. Default is off (unchanged from prior releases).
@@ -2386,11 +2393,21 @@ if (!headers_sent()) {
         </div>
         <button class="tbtn" type="button" onclick="saveSecurityControlsSettings()">Save security controls</button>
       </div>
-      <div id="st-cred-profiles-card-wrap">
+      <div id="st-cc-summary-wrap" data-st-group="credentialed">
+      <div class="st-settings-col-title">Credentialed checks — operational summary</div>
+      <div class="card st-settings-card st-settings-card--maintenance" id="st-cc-summary-card" aria-live="polite">
+        <div class="ct">At-a-glance status</div>
+        <p class="hint-micro text-dim mb8">Compact posture from profiles/jobs plus credentialed-run and worker health snapshots.</p>
+        <div id="st-cc-summary-strip" class="st-cc-summary-strip">
+          <div class="hint-micro text-dim">Loading summary…</div>
+        </div>
+      </div>
+      </div>
+      <div id="st-cred-profiles-card-wrap" data-st-group="credentialed">
       <div class="st-settings-col-title">Credentialed checks — profiles</div>
       <div class="card st-settings-card" id="st-cred-profiles-card">
         <div class="ct">Credential profiles</div>
-        <p class="help-line mb10 text-dim">Bind a <strong>transport</strong> and <strong>scope intent</strong> for future credentialed checks. Principal JSON stays <strong>metadata only</strong> (no passwords in principal). Optional <strong>encrypted secrets</strong> use <code class="code-accent">SURVEYTRACE_CRED_SECRET_KEY</code> on the server; without it, metadata still works but you cannot store secrets. Stored secrets are <strong>not used</strong> for transport tests or check execution until a later MVP slice.</p>
+        <p class="help-line mb10 text-dim">Define reusable credential metadata per transport. Principal JSON stays <strong>metadata only</strong> (no passwords in principal). Optional encrypted secrets use <code class="code-accent">SURVEYTRACE_CRED_SECRET_KEY</code>; without it, metadata still works but secret-backed tests and executions fail safely. Handshake testing is implemented for <strong>SSH</strong> and <strong>SNMPv3</strong>; WinRM execution remains out of scope.</p>
         <p class="hint-micro text-dim mb10" id="st-cred-profiles-encryption-line">Encryption status: —</p>
         <div class="row-wrap gap6 mb10">
           <button type="button" class="btnp" onclick="stCredProfileOpenModal(null)">Add profile</button>
@@ -2408,11 +2425,11 @@ if (!headers_sent()) {
         </div>
       </div>
       </div>
-      <div id="st-cred-jobs-card-wrap">
+      <div id="st-cred-jobs-card-wrap" data-st-group="credentialed">
       <div class="st-settings-col-title">Credentialed checks — jobs &amp; runs</div>
       <div class="card st-settings-card" id="st-cred-jobs-card">
         <div class="ct">Check jobs (queue / worker)</div>
-        <p class="help-line mb10 text-dim">Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue a <code class="code-accent">worker_jobs</code> row (<code class="code-accent">job_type=credentialed_check</code>). The <code class="code-accent">credential_check_worker.py</code> daemon runs <strong>ssh.linux.os_release@1.0.0</strong> (bounded <code class="code-accent">/etc/os-release</code>) and <strong>ssh.linux.package_inventory@1.0.0</strong> (fixed <code class="code-accent">dpkg-query</code> / <code class="code-accent">rpm</code>) on <strong>SSH</strong> profiles, and <strong>snmpv3.device_identity@1.0.0</strong> (three fixed SNMP GETs only — no walk/SET) on <strong>SNMPv3</strong> profiles. Other plugins stay placeholders. Writes <code class="code-accent">credential_check_results</code>, bounded artifacts, <code class="code-accent">os_version_observed</code>, summarized <code class="code-accent">package_inventory_observed</code>, and SNMP-driven <code class="code-accent">hostname_observed</code> / <code class="code-accent">fqdn_observed</code> / <code class="code-accent">device_identity_observed</code> (no CVE matching, no findings, no direct assertion changes).</p>
+        <p class="help-line mb10 text-dim">Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue <code class="code-accent">worker_jobs</code> (<code class="code-accent">job_type=credentialed_check</code>). Implemented plugins: <strong>ssh.linux.os_release@1.0.0</strong>, <strong>ssh.linux.package_inventory@1.0.0</strong>, and <strong>snmpv3.device_identity@1.0.0</strong> with bounded outputs/artifacts and trusted-data observation writes. Intentionally not implemented here: arbitrary commands, remediation, WinRM execution, CVE/finding fusion, or custom SNMP walk/SET behavior.</p>
         <div class="row-wrap gap6 mb10">
           <button type="button" class="btnp" onclick="stCcJobOpenModal(null)">New job</button>
           <button type="button" class="tbtn" onclick="stCcLoadJobsAndRuns()">Refresh</button>
@@ -2465,8 +2482,8 @@ if (!headers_sent()) {
         </div>
       </div>
       </div>
-      <div class="st-settings-col-title">API keys, feeds &amp; external data</div>
-      <div class="card st-settings-card st-settings-card--feeds">
+      <div class="st-settings-col-title" data-st-group="integrations">API keys, feeds &amp; external data</div>
+      <div class="card st-settings-card st-settings-card--feeds" data-st-group="integrations">
         <div class="ct">NVD, CVE intelligence &amp; offline fingerprint feeds</div>
         <p class="help-line mb10">
           One server job and one log per run in <code class="code-accent">data/feed_sync_result.json</code>. The sections that follow describe each feed; you can also run NVD, OUI, WebFP, and CVE intel in a single job at the bottom of this card.
@@ -2550,8 +2567,8 @@ if (!headers_sent()) {
       </div>
     </div>
     <div>
-      <div class="st-settings-col-title">Optional / advanced reference</div>
-      <div class="card st-settings-card st-settings-card--advanced">
+      <div class="st-settings-col-title" data-st-group="advanced">Optional / advanced reference</div>
+      <div class="card st-settings-card st-settings-card--advanced" data-st-group="advanced">
         <div class="ct">About</div>
         <div class="help-mono">
           SurveyTrace v<?= htmlspecialchars(ST_VERSION, ENT_QUOTES, 'UTF-8') ?><br>
@@ -2560,7 +2577,7 @@ if (!headers_sent()) {
           <a href="https://github.com/veddegre/surveytrace/blob/main/RELEASE_NOTES.md" target="_blank" rel="noopener">View release notes</a>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--advanced">
+      <div class="card st-settings-card st-settings-card--advanced" data-st-group="advanced">
         <div class="ct">Asset categories</div>
         <table class="table-mini">
           <tr><td><span class="cat srv">srv</span></td><td>Server (Linux, Windows Server, macOS in server roles)</td></tr>
@@ -2573,8 +2590,8 @@ if (!headers_sent()) {
           <tr><td><span class="cat hv">hv</span></td><td>Hypervisor (VMware ESXi / vSphere / vCenter, Proxmox VE, Hyper-V)</td></tr>
         </table>
       </div>
-      <div class="st-settings-col-title">Integrations &amp; credentials</div>
-      <div class="card st-settings-card st-settings-card--integrations">
+      <div class="st-settings-col-title" data-st-group="integrations">Integrations &amp; credentials</div>
+      <div class="card st-settings-card st-settings-card--integrations" data-st-group="integrations">
         <div class="ct">Collector setup</div>
         <div id="st-collector-install-help" class="help-line mb8">Loading…</div>
         <div class="row-wrap gap6 mb6">
@@ -2582,8 +2599,8 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro mb6" id="st-collector-install-token-status">Not configured</div>
       </div>
-      <div class="st-settings-col-title">Maintenance &amp; operations</div>
-      <div class="card st-settings-card st-settings-card--maintenance">
+      <div class="st-settings-col-title" data-st-group="operations">Maintenance &amp; operations</div>
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
         <div class="ct">Scan trash retention</div>
         <div class="help-line mb8">
           Trashed scans are permanently purged after this many days by the scheduler daemon.
@@ -2593,7 +2610,7 @@ if (!headers_sent()) {
           <button type="button" class="tbtn btn-xs" id="scan-trash-retention-save" onclick="saveScanTrashRetentionDays()" title="Save trash retention days (admin)">Save retention</button>
         </div>
       </div>
-      <div class="card st-settings-card st-settings-card--maintenance">
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
         <div class="ct">Database backups</div>
         <div class="help-line mb8">
           Scheduler-triggered SQLite backups using <code class="code-accent">daemon/backup_db.sh</code>.
@@ -2621,7 +2638,7 @@ if (!headers_sent()) {
         </div>
         <div class="hint-micro" id="st-db-backup-last" style="line-height:1.4">Last run: —</div>
       </div>
-      <div class="card st-settings-card st-settings-card--maintenance">
+      <div class="card st-settings-card st-settings-card--maintenance" data-st-group="operations">
         <div class="ct">Operational maintenance reference</div>
         <div class="help-line mb8">
           Read-only runbook shortcuts for manual maintenance tools. Run dry-run first and take a DB backup before any <code class="code-accent">--apply</code> operation.
@@ -2637,8 +2654,8 @@ if (!headers_sent()) {
           · <a href="https://github.com/veddegre/surveytrace/blob/main/docs/wiki/troubleshooting.md" target="_blank" rel="noopener">Troubleshooting</a>
         </p>
       </div>
-      <div class="st-settings-col-title">AI / automation</div>
-      <div class="card st-settings-card st-settings-card--ai">
+      <div class="st-settings-col-title" data-st-group="advanced">AI / automation</div>
+      <div class="card st-settings-card st-settings-card--ai" data-st-group="advanced">
         <div class="ct" id="st-ai-section-title">AI enrichment</div>
         <div class="hint-micro mb6">Generated summary and suggestions. Verify before acting.</div>
         <div id="st-ai-provider-blurb" class="help-line mb8 text-dim" style="font-size:13px;line-height:1.5"></div>
@@ -4229,6 +4246,74 @@ function stScrollMainToTop() {
     }
 }
 
+const ST_SETTINGS_SUBTABS = ['general', 'integrations', 'credentialed', 'operations', 'advanced'];
+const ST_SETTINGS_SUBTAB_STORAGE_KEY = 'st_settings_subtab';
+
+function stSettingsGetPreferredSubtab() {
+    try {
+        const hash = String(window.location.hash || '').trim();
+        const m = hash.match(/^#settings-([a-z_]+)$/i);
+        if (m && ST_SETTINGS_SUBTABS.includes(m[1])) return m[1];
+    } catch (e) {}
+    try {
+        const saved = String(localStorage.getItem(ST_SETTINGS_SUBTAB_STORAGE_KEY) || '').trim();
+        if (ST_SETTINGS_SUBTABS.includes(saved)) return saved;
+    } catch (e) {}
+    return 'general';
+}
+
+function stSettingsSetSubtab(name, persistHash) {
+    const tab = ST_SETTINGS_SUBTABS.includes(name) ? name : 'general';
+    document.querySelectorAll('#t-settings [data-st-group]').forEach((el) => {
+        const group = String(el.getAttribute('data-st-group') || '').trim();
+        el.hidden = (group !== tab);
+    });
+    ST_SETTINGS_SUBTABS.forEach((key) => {
+        const btn = document.getElementById('st-settings-subtab-' + key);
+        if (!btn) return;
+        const on = (key === tab);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        btn.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    try { localStorage.setItem(ST_SETTINGS_SUBTAB_STORAGE_KEY, tab); } catch (e) {}
+    if (persistHash) {
+        try {
+            if (history && history.replaceState) {
+                history.replaceState(null, '', '#settings-' + tab);
+            } else {
+                window.location.hash = 'settings-' + tab;
+            }
+        } catch (e) {}
+    }
+}
+
+function stSettingsInitSubtabs() {
+    const root = document.getElementById('t-settings');
+    if (!root) return;
+    root.querySelectorAll('.st-settings-subnav-btn').forEach((btn) => {
+        btn.addEventListener('keydown', (ev) => {
+            const key = ev.key;
+            if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'Home' && key !== 'End') return;
+            ev.preventDefault();
+            const ids = ST_SETTINGS_SUBTABS;
+            const current = ids.findIndex((id) => {
+                const b = document.getElementById('st-settings-subtab-' + id);
+                return b && b.getAttribute('aria-selected') === 'true';
+            });
+            let next = current < 0 ? 0 : current;
+            if (key === 'ArrowRight') next = (next + 1) % ids.length;
+            if (key === 'ArrowLeft') next = (next - 1 + ids.length) % ids.length;
+            if (key === 'Home') next = 0;
+            if (key === 'End') next = ids.length - 1;
+            const target = ids[next];
+            stSettingsSetSubtab(target, true);
+            const targetBtn = document.getElementById('st-settings-subtab-' + target);
+            if (targetBtn) targetBtn.focus();
+        });
+    });
+    stSettingsSetSubtab(stSettingsGetPreferredSubtab(), false);
+}
+
 function goTab(name) {
     if (name === 'access' && !stRoleIsAdmin()) {
         toast('Access control is available to admin users only.', 'err');
@@ -4283,6 +4368,8 @@ function goTab(name) {
         loadAuthUsers();
     }
     if (name === 'settings') {
+        stSettingsSetSubtab(stSettingsGetPreferredSubtab(), false);
+        void stCcLoadOperationalSummary(false);
         loadEnrichment(); // NVD sync status on settings tab
         loadUiSettings();
         if (stRoleIsAdmin()) {
@@ -9873,6 +9960,15 @@ function fmtDuration(secs) {
     return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
 }
 
+function stFmtUtcTs(ts) {
+    if (!ts) return '—';
+    const s = String(ts);
+    const normalized = s.includes('T') ? s : (s.replace(' ', 'T') + 'Z');
+    const d = new Date(normalized);
+    if (isNaN(d)) return s;
+    return d.toLocaleString([], { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
 /** Wall duration from API `duration_ms` (cred runs, etc.). */
 function stFmtDurationMs(ms) {
     const n = ms != null ? parseInt(String(ms), 10) : NaN;
@@ -10382,6 +10478,8 @@ async function loadCredentialProfiles() {
         }
     }
     const rows = r.profiles || [];
+    window.__stCredProfilesCache = rows;
+    stCcRenderOperationalSummary();
     if (rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-dim">No profiles yet. Add one to record transport and scope intent.</td></tr>';
         return;
@@ -11267,6 +11365,8 @@ async function stCcLoadJobsAndRuns() {
         tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load jobs.</td></tr>';
     } else {
         const jobs = rj.jobs || [];
+        window.__stCcJobsCache = jobs;
+        stCcRenderOperationalSummary();
         if (!jobs.length) {
             tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">No jobs yet.</td></tr>';
         } else {
@@ -11293,6 +11393,8 @@ async function stCcLoadJobsAndRuns() {
         tbR.innerHTML = '<tr><td colspan="9" class="text-dim">Could not load runs.</td></tr>';
     } else {
         const runs = rr.runs || [];
+        window.__stCcRunsListCache = runs;
+        stCcRenderOperationalSummary();
         if (!runs.length) {
             tbR.innerHTML = '<tr><td colspan="9" class="text-dim">No runs match filters.</td></tr>';
         } else {
@@ -11327,6 +11429,85 @@ async function stCcLoadJobsAndRuns() {
                 .join('');
         }
     }
+}
+
+function stCcSummaryChip(label, value, tone, hint) {
+    const t = tone ? ' st-cc-summary-chip--' + tone : '';
+    const note = hint ? `<div class="st-cc-summary-chip-note">${esc(String(hint))}</div>` : '';
+    return `<div class="st-cc-summary-chip${t}" role="listitem" aria-label="${esc(String(label + ': ' + value))}">
+      <div class="st-cc-summary-chip-label">${esc(String(label))}</div>
+      <div class="st-cc-summary-chip-value mono-sm">${esc(String(value))}</div>
+      ${note}
+    </div>`;
+}
+
+function stCcRenderOperationalSummary() {
+    const host = document.getElementById('st-cc-summary-strip');
+    if (!host) return;
+    const profiles = Array.isArray(window.__stCredProfilesCache) ? window.__stCredProfilesCache : [];
+    const jobs = Array.isArray(window.__stCcJobsCache) ? window.__stCcJobsCache : [];
+    const hh = window.__stCcOpsHealthCache && typeof window.__stCcOpsHealthCache === 'object' ? window.__stCcOpsHealthCache : {};
+    const cc = hh.credential_check_runs && typeof hh.credential_check_runs === 'object' ? hh.credential_check_runs : {};
+    const ws = hh.worker_substrate && typeof hh.worker_substrate === 'object' ? hh.worker_substrate : {};
+    const maint = hh.maintenance && typeof hh.maintenance === 'object' ? hh.maintenance : {};
+
+    const profilesTotal = profiles.length;
+    const profilesSecrets = profiles.filter((p) => !!p && !!p.has_secret).length;
+    const jobsEnabled = jobs.filter((j) => !!j && !!j.enabled).length;
+    const completed24 = parseInt(String(cc.completed_recent_24h ?? 0), 10) || 0;
+    const failed24 = parseInt(String(cc.failed_recent_24h ?? 0), 10) || 0;
+    const partial24 = parseInt(String(cc.partial_results_recent_24h ?? 0), 10) || 0;
+    const queuedActive = parseInt(String(cc.queued_or_active ?? 0), 10) || 0;
+    const oldestQueuedSec = ws.oldest_queued_age_sec != null ? (parseInt(String(ws.oldest_queued_age_sec), 10) || 0) : 0;
+    const staleActive = parseInt(String(cc.stale_active_runs ?? 0), 10) || 0;
+    const staleWorkerJobs = parseInt(String(maint.stale_worker_job_candidates ?? 0), 10) || 0;
+    const lastOk = cc.last_successful_run_at ? stFmtUtcTs(cc.last_successful_run_at) : '—';
+
+    const empty = profilesTotal === 0 && jobsEnabled === 0 && completed24 === 0 && failed24 === 0 && queuedActive === 0;
+    if (empty) {
+        host.innerHTML = '<p class="hint-micro text-dim mb0">No credentialed-check activity yet. Add a profile, run a handshake test, then queue a job when ready.</p>';
+        return;
+    }
+
+    const stuckQueued = queuedActive > 0 && oldestQueuedSec >= 3600;
+    const chips = [
+        stCcSummaryChip('Profiles configured', profilesTotal, ''),
+        stCcSummaryChip('Profiles with secrets', profilesSecrets, profilesTotal > 0 && profilesSecrets === 0 ? 'warn' : ''),
+        stCcSummaryChip('Enabled jobs', jobsEnabled, ''),
+        stCcSummaryChip('Runs completed (24h)', completed24, ''),
+        stCcSummaryChip('Failed runs (24h)', failed24, failed24 > 0 ? 'bad' : ''),
+        stCcSummaryChip('Partial results (24h)', partial24, partial24 > 0 ? 'warn' : ''),
+        stCcSummaryChip('Queued/active runs', queuedActive, stuckQueued ? 'warn' : ''),
+        stCcSummaryChip('Oldest queued worker age', oldestQueuedSec > 0 ? fmtDuration(oldestQueuedSec) : '—', stuckQueued ? 'bad' : ''),
+        stCcSummaryChip('Last successful execution', lastOk, lastOk === '—' ? 'warn' : '')
+    ];
+    const states = [];
+    if (failed24 > 0) states.push('Failed runs in last 24h');
+    if (partial24 > 0) states.push('Partial results observed');
+    if (staleActive > 0 || staleWorkerJobs > 0) states.push('Stale run/worker candidates present');
+    if (stuckQueued) states.push('Queued work appears stuck');
+    const stateLine = states.length
+        ? `<p class="hint-micro mb0 st-cc-summary-state"><span class="st-cc-pill st-cc-pill--warn" aria-hidden="true">attention</span> ${esc(states.join(' · '))}</p>`
+        : '<p class="hint-micro text-dim mb0 st-cc-summary-state">No active credentialed-check warnings in this snapshot.</p>';
+    host.innerHTML = `<div class="st-cc-summary-chips" role="list" aria-label="Credentialed checks operational metrics">${chips.join('')}</div>${stateLine}`;
+}
+
+async function stCcLoadOperationalSummary(force) {
+    if (!stRoleIsAdmin()) return;
+    const now = Date.now();
+    const last = parseInt(String(window.__stCcOpsHealthCacheAt || 0), 10) || 0;
+    if (!force && window.__stCcOpsHealthCache && (now - last) < 30000) {
+        stCcRenderOperationalSummary();
+        return;
+    }
+    try {
+        const h = await api('/api/health.php');
+        if (h && h.ok) {
+            window.__stCcOpsHealthCache = h;
+            window.__stCcOpsHealthCacheAt = Date.now();
+        }
+    } catch (e) {}
+    stCcRenderOperationalSummary();
 }
 
 async function saveSecurityControlsSettings() {
@@ -20810,6 +20991,7 @@ initApp();
 (function bootAfterAuth() {
     if (loginRequired && (authMode === 'session' || authMode === 'oidc')) return;
 const lastTab = (() => { try { return sessionStorage.getItem('st_tab'); } catch(e) { return null; } })();
+stSettingsInitSubtabs();
 stApplyNavItemTitles();
 stNavQuickTipBind();
 document.addEventListener('keydown', (ev) => {

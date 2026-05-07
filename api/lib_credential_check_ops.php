@@ -1353,6 +1353,7 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         'completed_recent_24h'              => 0,
         'failed_recent_24h'                 => 0,
         'partial_results_recent_24h'        => 0,
+        'last_successful_run_at'            => null,
         'avg_duration_ms_completed_24h'     => null,
         'stale_active_runs'                 => 0,
         'enabled_jobs_on_disabled_profiles' => 0,
@@ -1380,6 +1381,12 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         $out['partial_results_recent_24h'] = (int) $pdo->query(
             "SELECT COUNT(*) FROM credential_check_results WHERE status = 'partial' AND datetime(created_at) >= datetime('now', '-1 day')"
         )->fetchColumn();
+        $lastOk = $pdo->query(
+            "SELECT MAX(finished_at) FROM credential_check_runs WHERE status = 'completed' AND finished_at IS NOT NULL"
+        )->fetchColumn();
+        if ($lastOk !== false && $lastOk !== null && $lastOk !== '') {
+            $out['last_successful_run_at'] = (string) $lastOk;
+        }
         $avg = $pdo->query(
             "SELECT AVG((julianday(COALESCE(finished_at, started_at)) - julianday(started_at)) * 86400000.0)
              FROM credential_check_runs

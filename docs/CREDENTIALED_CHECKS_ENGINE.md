@@ -19,7 +19,7 @@ This document specifies the **SurveyTrace Credentialed Checks Engine** before im
 
 ### What credentialed checks are
 
-**Credentialed checks** are **authenticated, in-scope collection actions** initiated by operators (or explicitly scheduled jobs they defined). They use stored **credential profiles** and a chosen **transport** (SSH, WinRM, SNMPv3, etc.) to run **bounded plugins** on a **target asset or device**, producing **structured results** and **evidence artifacts** that SurveyTrace normalizes and ties to the trusted data path.
+**Credentialed checks** are **authenticated, in-scope collection actions** initiated by operators. They use stored **credential profiles** and implemented transports (**SSH** and **SNMPv3** in this release) to run **bounded plugins** on a **target asset or device**, producing **structured results** and **evidence artifacts** that SurveyTrace normalizes and ties to the trusted data path.
 
 They are **not** passive ingestion of a third party’s already-chewed summary; they are **SurveyTrace-executed** operations with a clear blast radius and audit trail.
 
@@ -47,7 +47,7 @@ Definitions:
 | **Check job** | A **logical intent**: which targets (assets/devices or scope), which **credential profile** (or ordered fallback list), which **plugins** (and versions), schedule or ad-hoc, and policy knobs (timeouts, concurrency). Persists as a template or one-shot definition. |
 | **Target asset/device** | Primary **asset** (`assets.id`, IP/identity) or **device** (logical grouping). Resolution rules: job specifies asset list or scope; executor resolves to concrete endpoints (IPs, management interfaces). |
 | **Credential profile** | Named bundle: transport type, principal identity (username, community user, etc.), **secret material by reference** (encrypted blob or external ref in future), scope tags, allowed transports/plugins. Never returned verbatim via API. |
-| **Transport** | Mechanism to reach the host: **SSH**, **WinRM**, **SNMPv3** (initial set). Pluggable conceptually; each enforces auth and channel limits. |
+| **Transport** | Mechanism to reach the host: **SSH** and **SNMPv3** are implemented; **WinRM** remains deferred. Pluggable conceptually; each enforces auth and channel limits. |
 | **Plugin/check** | Versioned unit of work: declared inputs, **allowlisted operations** (e.g. read-only file paths, specific OIDs), max output size, required privilege hint, output JSON schema. |
 | **Evidence artifact** | Opaque or semi-opaque **blob** (stdout capture, SNMP walk fragment, file excerpt) stored with **hash**, size, MIME hint, and **redaction** metadata. Linked to a **run** and optionally to a **result** row. |
 | **Result normalization** | Plugin raw output → **typed fields** (packages, OS string, finding records) + **proposed observations** payload. Failures here are **soft failures** (artifact kept, result status `partial` / `normalize_error`). |
