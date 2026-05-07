@@ -3,6 +3,11 @@
  * Single source of truth for deploy.sh / setup.sh parity: which repo paths ship on master installs.
  * CLI consumers use deploy_manifest_export.php (do not execute this file directly for listing).
  *
+ * Policy — any new runtime, admin/maintenance, or production-safe selftest file MUST be added here
+ * under the correct category (e.g. api_files, scripts_php, daemon_optional_py), OR explicitly listed
+ * as intentionally dev-only (scripts_dev_only, daemon_dev_only_py). There is no third category: if it is
+ * missing from both, check_deploy_coverage.php and CI/deploy will flag drift and installs may omit it.
+ *
  * @return array<string, list<string>>
  */
 declare(strict_types=1);
