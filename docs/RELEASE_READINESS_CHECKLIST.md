@@ -12,10 +12,10 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 |------|--------|
 | Fresh **master** install | `sudo bash setup.sh` (or `SURVEYTRACE_SETUP=master`) completes; post-install validation passes. |
 | **deploy.sh** on existing master | Completes; post-deploy checks **PASS**; no missing `api/*.php` from explicit list. |
-| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
+| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_obs_slice1_selftest.py`, `scripts/st_software_inventory_slice2_selftest.php`, `scripts/st_software_inventory_slice3_selftest.php`, `scripts/st_software_inventory_slice4_selftest.php`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
 | Permissions | `api/`: `surveytrace:www-data`, dirs `2750`, files `640`; `data/`: `2770` / `660` on DB; `daemon/`: `surveytrace:surveytrace`. |
 | PHP syntax | `php -l` on changed API files (or run deploy output which includes reconciliation API checks). |
-| Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). |
+| Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). Include **`daemon/st_software_obs_slice1_selftest.py`** when present (`setup.sh` / `deploy.sh` **`py_compile`** loops). |
 | systemd | `surveytrace-daemon`, `surveytrace-scheduler`, `surveytrace-collector-ingest` **active** (master). |
 | systemd sandbox / SQLite | Installed units for master daemons that open the DB include **`ReadWritePaths`** for the SurveyTrace **`data`** directory (see `setup.sh` / `deploy.sh` post-checks); avoids `ProtectSystem=strict` blocking SQLite opens. |
 | Collector node | `collector/setup.sh` / `collector/deploy.sh` per [wiki setup-collector](wiki/setup-collector.md). |
@@ -44,7 +44,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Step | Verify |
 |------|--------|
 | Assets list | Load, sort, search; optional trusted hostname display when reconciliation enabled. |
-| Host details modal | Overview, tabs, evidence (OS + identity), **Identity & inventory** shows stored vs trusted where applicable. When cred checks are in use: **Credentialed checks** summary on overview (no raw package dump in-modal). |
+| Host details modal | Overview, tabs, evidence (OS + identity), **Evidence — Software evidence (bounded inventory)** when inventory reconciliation applies (`software_inventory_*` + bounded **`View software evidence`** preview — **no** full package list). **Identity & inventory** shows stored vs trusted where applicable. When cred checks are in use: **Credentialed checks** summary on overview (no raw package dump in-modal). |
 | Credentialed checks (admin) | **Settings → Credentialed Checks** subtab: operational summary strip, **profiles**, **jobs & runs**; filters (status, transport, profile, plugin), run row badges (partial/err), duration/targets; **run detail** sections + optional admin worker debug; **System health** cred block stays quiet when healthy. |
 | Devices | List and device panel; merge flows unchanged from expectations. |
 | Vulnerabilities | Filters, triage columns, host link. |
@@ -73,7 +73,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Schema migration | Fresh DB + existing DB: `api/db.php` bootstrap runs without error; recon tables present when migration shipped. |
 | OS/platform evidence | Host modal **Evidence — OS / platform** expands; observations/assertions visible. |
 | Identity evidence | **Evidence — identity** (canonical hostname); conflicting rows highlighted when applicable. |
-| System Health | `trusted_data` block: quiet when healthy; warnings actionable; missing tables do not break health JSON. |
+| System Health | `trusted_data` block: quiet when healthy; warnings actionable; missing tables do not break health JSON. When cred inventory runs exist: optional software inventory readiness counters (`software_inventory_*`) appear **only as scalar counts** — never raw package arrays. |
 | Exports | Additive `trusted_*` columns; null/empty handled. |
 | Low-confidence fallback | Assertions at **low** confidence do not populate `trusted_*` helpers; UI falls back to stored hostname / scan OS. |
 
@@ -147,7 +147,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 
 Document for operators **what is not in this release**:
 
-- **Credentialed checks scope limits** — no WinRM execution, no CVE/finding/remediation from package inventory, no auto-prune daemon, no Vault/KMS integration yet.
+- **Credentialed checks scope limits** — no WinRM execution; **no CVE matching, findings, or remediation from package inventory / `software_inventory_summary`** (inventory evidence and reconciliation only); no auto-prune daemon, no Vault/KMS integration yet.
 - **CVE fusion** / multi-source reconciliation — roadmap [Data fusion](../ROADMAP.md#data-fusion-and-source-reconciliation).
 - **Ownership / Defender / TeamDynamix** — deferred connector track ([Roadmap](../ROADMAP.md#ownership-and-endpoint-enrichment)).
 - **Infrastructure API connectors** (Proxmox, VMware, …) — planned track, not part of stabilization scope.
@@ -179,6 +179,18 @@ Document for operators **what is not in this release**:
 - [ ] `php -l public/index.php` (Settings markup/JS) passes
 - [ ] `php scripts/st_collector_ingest_worker_hardening_selftest.php` passes (if collector ingest touched this line)
 - [ ] Manual: Settings subtabs and **Credentialed Checks** subtab (admin); collector ingest journal free of SQLite open failures on fresh unit install
+
+### Software inventory reconciliation foundations (1.0.4)
+
+- [ ] `python3 daemon/st_software_obs_slice1_selftest.py` passes
+- [ ] `php scripts/st_software_inventory_slice2_selftest.php` passes
+- [ ] `php scripts/st_software_inventory_slice3_selftest.php` passes
+- [ ] `php scripts/st_software_inventory_slice4_selftest.php` passes
+- [ ] `python3 daemon/cred_check_slice7_selftest.py`, `cred_check_slice8_pkg_selftest.py`, `cred_check_slice9_snmp_selftest.py` pass
+- [ ] `php scripts/st_recon_slice10_selftest.php` passes
+- [ ] `bash scripts/smoke_credential_checks_placeholder.sh` passes (optional / CI clone)
+- [ ] `bash -n setup.sh` and `bash -n deploy.sh` pass
+- [ ] Manual: Host modal **Software evidence** block + **System Health** trusted-data line when non-zero software diagnostics
 
 ---
 
