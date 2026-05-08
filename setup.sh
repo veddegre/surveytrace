@@ -73,12 +73,26 @@ check_systemd_unit_enabled() {
         check_warn "systemd unit not enabled: $unit"
     fi
 }
-check_systemd_unit_has_data_rw() {
+check_systemd_unit_rw_policy() {
     local unit="$1"
-    if systemctl cat "$unit" 2>/dev/null | grep -Eq '^ReadWritePaths=.*/data'; then
-        check_ok "systemd unit writable data path: $unit"
+    local cat_out
+    cat_out="$(systemctl cat "$unit" 2>/dev/null || true)"
+    if printf '%s\n' "$cat_out" | grep -Eq '^ProtectSystem=strict'; then
+        if printf '%s\n' "$cat_out" | grep -Eq '^ReadWritePaths=.*/data'; then
+            check_ok "systemd unit strict+ReadWritePaths data: $unit"
+        else
+            check_fail "systemd unit uses ProtectSystem=strict but lacks ReadWritePaths=/opt/surveytrace/data: $unit"
+        fi
     else
-        check_fail "systemd unit missing ReadWritePaths=/opt/surveytrace/data: $unit"
+        check_ok "systemd unit RW policy acceptable (no ProtectSystem=strict): $unit"
+    fi
+}
+check_systemd_unit_has_line() {
+    local unit="$1" regex="$2" label="$3"
+    if systemctl cat "$unit" 2>/dev/null | grep -Eq "$regex"; then
+        check_ok "$label"
+    else
+        check_fail "$label"
     fi
 }
 
@@ -885,10 +899,21 @@ check_systemd_unit_enabled "surveytrace-daemon.service"
 check_systemd_unit_enabled "surveytrace-scheduler.service"
 check_systemd_unit_enabled "surveytrace-collector-ingest.service"
 check_systemd_unit_enabled "surveytrace-credential-check-worker.service"
-check_systemd_unit_has_data_rw "surveytrace-daemon.service"
-check_systemd_unit_has_data_rw "surveytrace-scheduler.service"
-check_systemd_unit_has_data_rw "surveytrace-collector-ingest.service"
-check_systemd_unit_has_data_rw "surveytrace-credential-check-worker.service"
+check_systemd_unit_rw_policy "surveytrace-daemon.service"
+check_systemd_unit_rw_policy "surveytrace-scheduler.service"
+check_systemd_unit_rw_policy "surveytrace-collector-ingest.service"
+check_systemd_unit_rw_policy "surveytrace-credential-check-worker.service"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^EnvironmentFile=-/etc/surveytrace/surveytrace\.env$' "collector-ingest unit has EnvironmentFile"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^User=surveytrace$' "collector-ingest unit has User=surveytrace"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^Group=surveytrace$' "collector-ingest unit has Group=surveytrace"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^SupplementaryGroups=www-data$' "collector-ingest unit has SupplementaryGroups=www-data"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^WorkingDirectory=/opt/surveytrace/daemon$' "collector-ingest unit has WorkingDirectory"
+check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^Restart=on-failure$' "collector-ingest unit has Restart=on-failure"
+if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/collector_ingest_worker.py" --check-db-open >/dev/null 2>&1; then
+    check_ok "collector ingest runtime DB-open check"
+else
+    check_fail "collector ingest runtime DB-open check"
+fi
 
 if command -v zabbix_sender >/dev/null 2>&1; then
     check_ok "zabbix_sender available"

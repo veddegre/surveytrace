@@ -60,13 +60,13 @@ if (!headers_sent()) {
 
 <!-- Top bar -->
 <div class="bar">
-  <div class="logo">
+  <button type="button" class="logo logo-btn" onclick="goTab('dash');hiNav('ndash')" aria-label="Go to Dashboard" title="Dashboard">
     <span class="logo-mark" aria-hidden="true">
       <span class="logo-mark-text">ST</span>
       <span class="logo-mark-dot" id="logodot"></span>
     </span>
     <span class="logo-word">SurveyTrace</span>
-  </div>
+  </button>
   <div class="bar-meta" id="bar-meta">v<?= ST_VERSION ?></div>
   <div class="sep"></div>
   <button type="button" class="pill" id="status-pill" disabled aria-disabled="true" onclick="stStatusPillNavToHistory()"><div class="pdot"></div><span id="status-txt">Idle</span></button>
@@ -770,6 +770,11 @@ if (!headers_sent()) {
             <option value="0">None — unscoped job</option>
           </select>
           <div class="hint-micro mt4 mb0">Tags the job for Reports &amp; Analysis so drift and baselines stay within the same network/environment.</div>
+          <label class="flbl mt8" for="sc-cred-profile-id">Credential profile (optional; future)</label>
+          <select class="finput" id="sc-cred-profile-id" disabled aria-disabled="true">
+            <option value="0">Not available in scan launch yet</option>
+          </select>
+          <div class="hint-micro mt4 mb0">Credentialed checks never auto-run from scans. Use <strong>Settings → Credentialed Checks</strong> jobs for explicit operator-triggered execution.</div>
         </div>
         <div class="st-scan-region">
           <div class="st-scan-region-h">Rate limiting</div>
@@ -1855,6 +1860,9 @@ if (!headers_sent()) {
           <div class="zb-subhead">Scope map apply</div>
           <p class="hint-micro mb6">Plan uses only <strong>enabled</strong> rules whose scope still exists. Fix any “deleted scope” rows before applying.</p>
           <div class="row-wrap gap6 mb6">
+                <select class="finp" id="zb-apply-scope-filter" style="min-width:180px" onchange="void stZabbixLoadApplyPlan()" title="Optional filter: only suggested updates to this target scope">
+                  <option value="0">All target scopes</option>
+                </select>
                 <button type="button" class="tbtn btn-sm" id="zb-apply-plan-btn" onclick="stZabbixLoadApplyPlan()">Build apply plan</button>
           </div>
           <div id="zb-apply-plan-body" class="mb6">—</div>
@@ -2980,6 +2988,7 @@ if (!headers_sent()) {
     <textarea class="finp w100 mb8" id="st-cc-job-desc" rows="2" maxlength="8000"></textarea>
     <label class="flbl" for="st-cc-job-profile">Credential profile</label>
     <select class="finp w100 mb8" id="st-cc-job-profile" onchange="stCcJobOnProfileChange()"></select>
+    <p class="hint-micro text-dim mb8">Profiles define where credentials <strong>may</strong> be used (allowlist). This job chooses what targets <strong>will</strong> run now.</p>
     <label class="flbl" for="st-cc-job-target-mode">Target mode</label>
     <select class="finp w100 mb8" id="st-cc-job-target-mode" onchange="stCcJobSyncTargetHints()">
       <option value="assets">Explicit assets</option>
@@ -10791,6 +10800,41 @@ function stCredProfileSavedId() {
     return !Number.isNaN(n) && n > 0 ? n : 0;
 }
 
+function stCredProfileCurrentId() {
+    return stCredProfileSavedId();
+}
+
+function stCredProfileBuildUiState(p) {
+    const tr = document.getElementById('st-cred-pf-transport');
+    const hostEl = document.getElementById('st-cred-pf-test-host');
+    const t = tr ? String(tr.value || 'ssh') : 'ssh';
+    const host = hostEl ? String(hostEl.value || '').trim() : '';
+    const profile = stCredProfileNormalizeProfilePayload(p || window.__stCredProfileModalPayload || null);
+    const editId = (() => {
+        const fromHidden = stCredProfileSavedId();
+        const fromProfile = profile && profile.id ? Number(profile.id) : 0;
+        return fromHidden > 0 ? fromHidden : (!Number.isNaN(fromProfile) && fromProfile > 0 ? fromProfile : 0);
+    })();
+    const encryptionAvailable = stCredEncryptionAvailable();
+    const hasStoredSecret = stCredProfileHasStoredSecret(profile);
+    const secretPeek = stCredProfilePeekSecretMaterialOk();
+    const hs = window.__stCredHandshakeResult;
+    const testingHandshake = !!(hs && hs.phase === 'testing');
+    const supportsHandshake = t !== 'winrm';
+    return {
+        profile,
+        transport: t,
+        editId,
+        host,
+        hostOk: host !== '',
+        encryptionAvailable,
+        hasStoredSecret,
+        supportsHandshake,
+        secretPeek,
+        testingHandshake,
+    };
+}
+
 /** @returns {{ ok: boolean, reason: string }} */
 function stCredProfilePeekSecretMaterialOk() {
     const got = stCredProfileCollectSecretMaterial();
@@ -10801,6 +10845,7 @@ function stCredProfilePeekSecretMaterialOk() {
 
 function stCredProfileOnSecretInputsChanged() {
     stCredProfileSyncSecretPanel(window.__stCredProfileModalPayload || null);
+    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
 }
 
 async function stCredAssetsQuickSearch(qRaw, limit) {
@@ -10811,12 +10856,26 @@ async function stCredAssetsQuickSearch(qRaw, limit) {
     const url = '/api/assets.php?q=' + encodeURIComponent(q) + '&per_page=' + encodeURIComponent(String(lim)) + '&page=1';
     let r = null;
     try {
-        r = await api(url, { quiet: true });
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        if (!resp.ok) {
+            if (resp.status === 401) handleAuthRequired();
+            return { rows: [], err: 'http', message: 'Inventory search unavailable (HTTP ' + resp.status + ').' };
+        }
+        r = await resp.json();
     } catch (e) {
-        r = null;
+        return { rows: [], err: 'network', message: 'Could not reach inventory search (sign in or check network).' };
     }
-    if (r === null) return { rows: [], err: 'network' };
-    const rows = Array.isArray(r.assets) ? r.assets : [];
+    if (!r || r.ok === false) {
+        return { rows: [], err: 'http', message: (r && r.error) ? String(r.error) : 'Inventory search unavailable.' };
+    }
+    const rows = (Array.isArray(r.assets) ? r.assets : []).map((a) => ({
+        id: Number(a && a.id),
+        hostname: a && a.hostname ? String(a.hostname) : '',
+        ip: a && a.ip ? String(a.ip) : '',
+        category: a && a.category ? String(a.category) : '',
+        scope_name: a && a.scope_name ? String(a.scope_name) : '',
+        label: (a && a.hostname ? String(a.hostname) : '—') + ' (' + (a && a.ip ? String(a.ip) : '—') + ') [' + String((a && a.id) || '') + ']',
+    })).filter((a) => Number.isFinite(a.id) && a.id > 0);
     return { rows, err: null };
 }
 
@@ -11062,7 +11121,7 @@ async function stCredPfScopeAssetSearch() {
     if (!qEl || !res) return;
     const q = String(qEl.value || '').trim();
     res.innerHTML = '<span class="hint-micro text-dim">Searching…</span>';
-    const { rows, err } = await stCredAssetsQuickSearch(q, 20);
+    const { rows, err, message } = await stCredAssetsQuickSearch(q, 20);
     if (err === 'empty') {
         res.innerHTML = '<span class="hint-micro text-dim">Enter hostname, IP, MAC, or device id.</span>';
         return;
@@ -11071,8 +11130,8 @@ async function stCredPfScopeAssetSearch() {
         res.innerHTML = '<span class="hint-micro text-dim">Enter at least 2 characters (or digits only for a short id).</span>';
         return;
     }
-    if (err === 'network') {
-        res.innerHTML = '<span class="hint-micro text-dim">Could not reach inventory search (sign in or check network).</span>';
+    if (err === 'network' || err === 'http') {
+        res.innerHTML = '<span class="hint-micro text-dim">' + esc(message || 'Could not reach inventory search (sign in or check network).') + '</span>';
         return;
     }
     if (!rows.length) {
@@ -11389,7 +11448,7 @@ async function stCcJobAssetSearch() {
     if (!qEl || !res) return;
     const q = String(qEl.value || '').trim();
     res.innerHTML = '<span class="hint-micro text-dim">Searching…</span>';
-    const { rows, err } = await stCredAssetsQuickSearch(q, 20);
+    const { rows, err, message } = await stCredAssetsQuickSearch(q, 20);
     if (err === 'empty') {
         res.innerHTML = '<span class="hint-micro text-dim">Enter hostname, IP, MAC, or device id.</span>';
         return;
@@ -11398,8 +11457,8 @@ async function stCcJobAssetSearch() {
         res.innerHTML = '<span class="hint-micro text-dim">Enter at least 2 characters (or digits only for a short id).</span>';
         return;
     }
-    if (err === 'network') {
-        res.innerHTML = '<span class="hint-micro text-dim">Could not reach inventory search (sign in or check network).</span>';
+    if (err === 'network' || err === 'http') {
+        res.innerHTML = '<span class="hint-micro text-dim">' + esc(message || 'Could not reach inventory search (sign in or check network).') + '</span>';
         return;
     }
     if (!rows.length) {
@@ -11543,19 +11602,16 @@ function stCredProfileSyncTransportTestPanel(p) {
     const btn = document.getElementById('st-cred-pf-btn-transport-test');
     const statEl = document.getElementById('st-cred-pf-handshake-status');
     const hostEl = document.getElementById('st-cred-pf-test-host');
-    const tr = document.getElementById('st-cred-pf-transport');
-    if (!panel || !btn || !tr) return;
-    const t = String(tr.value || 'ssh');
-    p = stCredProfileNormalizeProfilePayload(p || null);
-    const hostOk = !!(hostEl && String(hostEl.value || '').trim());
-    if (t === 'winrm') {
+    if (!panel || !btn) return;
+    const st = stCredProfileBuildUiState(p);
+    if (!st.supportsHandshake) {
         panel.classList.add('hide');
         btn.disabled = true;
         btn.title = 'WinRM handshake test is not implemented yet';
         if (statEl) statEl.textContent = '';
         return;
     }
-    if (!p || !p.id) {
+    if (st.editId < 1) {
         panel.classList.add('hide');
         btn.disabled = true;
         btn.title = '';
@@ -11563,8 +11619,9 @@ function stCredProfileSyncTransportTestPanel(p) {
         return;
     }
     panel.classList.remove('hide');
-    const encOk = stCredEncryptionAvailable();
-    const secOk = stCredProfileHasStoredSecret(p);
+    const encOk = st.encryptionAvailable;
+    const secOk = st.hasStoredSecret;
+    const hostOk = st.hostOk;
     let stat = '';
     if (!encOk) {
         stat = 'Credential encryption is not configured.';
@@ -11579,9 +11636,7 @@ function stCredProfileSyncTransportTestPanel(p) {
         statEl.textContent = stat;
         statEl.className = 'hint-micro mb6 ' + (encOk && secOk && hostOk ? 'text-secondary' : 'text-dim');
     }
-    const hs = window.__stCredHandshakeResult;
-    const testing = !!(hs && hs.phase === 'testing');
-    const canClick = !!(encOk && secOk && hostOk && !testing);
+    const canClick = !!(encOk && secOk && hostOk && !st.testingHandshake);
     btn.disabled = !canClick;
     if (!encOk) {
         btn.title = 'Credential encryption is not configured on the server.';
@@ -11615,33 +11670,36 @@ async function stCredProfileRunTransportTest() {
     if (prog) prog.classList.remove('hide');
     if (hint) hint.textContent = '';
     stCredHandshakeBeginTest(id, transport, target, port);
-    const r = await apiPost('/api/credential_profiles.php', { action: 'test', id, target_host: target, port });
-    if (prog) prog.classList.add('hide');
-    if (r && r.ok && r.test) {
-        const ok = !!r.test.success;
-        stCredHandshakeFinishFromResponse(r, id, transport, target, port);
-        toast(ok ? 'Handshake succeeded' : 'Handshake failed', ok ? 'ok' : 'err');
-        if (r.profile) {
-            window.__stCredProfileModalPayload = stCredProfileNormalizeProfilePayload(r.profile);
-            stCredProfileSyncSecretPanel(window.__stCredProfileModalPayload);
-            stCredProfileSyncNextSteps(window.__stCredProfileModalPayload);
-            stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload);
+    try {
+        const r = await apiPost('/api/credential_profiles.php', { action: 'test', id, target_host: target, port });
+        if (r && r.ok && r.test) {
+            const ok = !!r.test.success;
+            stCredHandshakeFinishFromResponse(r, id, transport, target, port);
+            toast(ok ? 'Handshake succeeded' : 'Handshake failed', ok ? 'ok' : 'err');
+            if (r.profile) {
+                window.__stCredProfileModalPayload = stCredProfileNormalizeProfilePayload(r.profile);
+                stCredProfileSyncSecretPanel(window.__stCredProfileModalPayload);
+                stCredProfileSyncNextSteps(window.__stCredProfileModalPayload);
+                stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload);
+            }
+            if (r.encryption && typeof r.encryption === 'object') {
+                window.__stCredEncryption = r.encryption;
+            }
+            await loadCredentialProfiles();
+        } else {
+            const err = (r && r.error) ? String(r.error) : 'Test failed';
+            if (hint) hint.textContent = err;
+            toast(err, 'err');
+            const failCode = r && r.code ? String(r.code) : 'protocol_error';
+            stCredHandshakeFinishFromResponse(r || { ok: false, error: err, code: failCode }, id, transport, target, port);
+            if (r && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
+                window.__stCredEncryption = r.encryption;
+            }
         }
-        if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = r.encryption;
-        }
-        await loadCredentialProfiles();
-    } else {
-        const err = (r && r.error) ? String(r.error) : 'Test failed';
-        if (hint) hint.textContent = err;
-        toast(err, 'err');
-        const failCode = r && r.code ? String(r.code) : 'protocol_error';
-        stCredHandshakeFinishFromResponse(r || { ok: false, error: err, code: failCode }, id, transport, target, port);
-        if (r && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
-            window.__stCredEncryption = r.encryption;
-        }
+    } finally {
+        if (prog) prog.classList.add('hide');
+        stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
     }
-    stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
 }
 
 
@@ -11707,15 +11765,12 @@ function stCredProfileSyncSecretPanel(p) {
     const actHint = document.getElementById('st-cred-pf-secret-action-hint');
     const btnSave = document.getElementById('st-cred-pf-btn-secret-save');
     const btnClear = document.getElementById('st-cred-pf-btn-secret-clear');
-    const avail = stCredEncryptionAvailable();
-    const editId = (() => {
-        const fromH = stCredProfileSavedId();
-        const fromP = p && p.id ? Number(p.id) : 0;
-        return fromH > 0 ? fromH : (!Number.isNaN(fromP) && fromP > 0 ? fromP : 0);
-    })();
-    p = stCredProfileNormalizeProfilePayload(p || null);
-    const hasSec = stCredProfileHasStoredSecret(p);
-    const peek = stCredProfilePeekSecretMaterialOk();
+    const ui = stCredProfileBuildUiState(p);
+    const avail = ui.encryptionAvailable;
+    const editId = ui.editId;
+    const hasSec = ui.hasStoredSecret;
+    const peek = ui.secretPeek;
+    p = ui.profile;
     if (encHint) {
         encHint.textContent = avail
             ? 'Secrets are encrypted at rest. They are never returned by the API. Credentialed checks use the stored envelope server-side.'
@@ -14528,6 +14583,15 @@ function stZabbixApplyEnrichmentPanel(z) {
     }
     const zbSc = document.getElementById('zb-scope-apply-block');
     if (zbSc) zbSc.style.display = (z.workflow && z.workflow.asset_scope_apply) ? 'block' : 'none';
+    const scopeFilterSel = document.getElementById('zb-apply-scope-filter');
+    if (scopeFilterSel) {
+        const prev = String(scopeFilterSel.value || '0');
+        scopeFilterSel.innerHTML = '<option value="0">All target scopes</option>' + (zbScopeOptions || []).map((s) => {
+            const id = parseInt(String(s.id), 10);
+            return `<option value="${id}">${esc(String(s.name || ('#' + id)))}</option>`;
+        }).join('');
+        scopeFilterSel.value = [...scopeFilterSel.options].some((o) => o.value === prev) ? prev : '0';
+    }
     stZabbixRefreshScopeRuleButtons();
 }
 
@@ -14938,15 +15002,25 @@ async function stZabbixLoadApplyPlan() {
     if (!el) return;
     const prevKeys = stZabbixScopePlanCapturePrevSelection();
     el.textContent = 'Loading plan…';
-    const r = await apiPost('/api/zabbix.php', { action: 'preview_scope_apply' });
+    const scopeFilterEl = document.getElementById('zb-apply-scope-filter');
+    const scopeFilter = scopeFilterEl ? parseInt(String(scopeFilterEl.value || '0'), 10) : 0;
+    const payload = { action: 'preview_scope_apply' };
+    if (scopeFilter > 0) payload.scope_id = scopeFilter;
+    const r = await apiPost('/api/zabbix.php', payload);
     if (!r || !r.ok) {
         el.textContent = (r && r.error) ? r.error : 'Plan failed';
         return;
     }
     const plan = r.plan || [];
     __stZabbixScopePlan = plan;
+    const scopeFilterLabel = (() => {
+        if (!(scopeFilter > 0)) return 'All scopes';
+        const hit = (zbScopeOptions || []).find((s) => parseInt(String(s.id), 10) === scopeFilter);
+        return hit ? ('Filtered to scope: ' + String(hit.name || ('#' + scopeFilter))) : ('Filtered to scope #' + scopeFilter);
+    })();
     if (!plan.length) {
-        el.innerHTML = '<p class="hint-micro mb2">' + esc(r.note || 'No scope updates needed.') + '</p>'
+        el.innerHTML = '<p class="hint-micro mb2"><strong>' + esc(scopeFilterLabel) + '</strong></p>'
+            + '<p class="hint-micro mb2">' + esc(r.note || 'No scope updates needed.') + '</p>'
             + '<p class="text-dim text-micro mb0">No saved enabled rules produced changes, or no linked assets matched those rules.</p>';
         return;
     }
@@ -14988,9 +15062,11 @@ async function stZabbixLoadApplyPlan() {
     });
     let sumP = '';
     if (eligibleN === 0) {
-        sumP = '<p class="hint-micro mb6">No scope updates needed — every row is already at the suggested scope.</p>';
+        sumP = '<p class="hint-micro mb4"><strong>' + esc(scopeFilterLabel) + '</strong></p>'
+            + '<p class="hint-micro mb6">No scope updates needed — every row is already at the suggested scope.</p>';
     } else {
-        sumP = '<p class="hint-micro mb6">' + esc(String(eligibleN)) + ' row(s) can be applied'
+        sumP = '<p class="hint-micro mb4"><strong>' + esc(scopeFilterLabel) + '</strong></p>'
+            + '<p class="hint-micro mb6">' + esc(String(eligibleN)) + ' row(s) can be applied'
             + (noChg > 0 ? ' · ' + esc(String(noChg)) + ' already at target (disabled)' : '')
             + '.</p>';
     }

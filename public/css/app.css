@@ -246,6 +246,20 @@ body.light-mode .bar{
   border-bottom-color:color-mix(in srgb,var(--bd) 82%,transparent);
 }
 .logo{font-family:var(--sf);font-size:16px;font-weight:600;color:var(--tx);letter-spacing:.02em;display:flex;align-items:center;gap:10px}
+.logo-btn{
+  appearance:none;
+  border:0;
+  background:transparent;
+  padding:0;
+  margin:0;
+  cursor:pointer;
+  text-align:left;
+}
+.logo-btn:focus-visible{
+  outline:2px solid var(--primary);
+  outline-offset:3px;
+  border-radius:8px;
+}
 .logo-mark{
   width:28px;height:28px;border-radius:11px;border:1px solid color-mix(in srgb,var(--primary) 35%,var(--border));
   background:linear-gradient(145deg,color-mix(in srgb,var(--primary) 92%,#0f172a),var(--primary-hover));
@@ -2679,7 +2693,7 @@ body.light-mode .st-settings-kicker{color:var(--primary)}
 #t-settings.on .st-cc-summary-strip{min-width:0;max-width:100%}
 #t-settings.on .st-cc-summary-chips{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   gap:10px;
   min-width:0;
   width:100%;

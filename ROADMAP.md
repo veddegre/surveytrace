@@ -220,6 +220,13 @@ First-class API-backed enrichment for systems such as:
 - **MVP slice 3 (credential profiles):** admin-only `api/credential_profiles.php` + `api/lib_credential_profiles.php`, Settings UI card — metadata + scope
 - **MVP slice 4 (credential secrets):** `api/lib_secrets.php` (`SURVEYTRACE_CRED_SECRET_KEY`), encrypted `secret_ciphertext`, `set_secret` / `clear_secret` — **no plugin execution**
 - **MVP slice 5 (transport handshake test):** `api/lib_credential_profile_transport_test.php`, `daemon/cred_transport_*.py`, `POST action=test` — **SSH + SNMPv3** only (paramiko + pysnmp), explicit target host, audits `credential_profile.test_*` — **no worker_jobs / observations**
+
+### Scan workflow integration (next work; explicit operator choice required)
+- Scan launch and schedule flows currently choose scan coverage/rates only; credential profile binding is still handled in **Credentialed Checks jobs**.
+- Add an explicit scan/schedule option to select **credential profile (optional)**, with a safe default of **none selected**.
+- Filter profile choices by scope compatibility (`scope_json.scope_ids` allowlist) when the scan/schedule has a selected `scope_id`.
+- Require an explicit run-mode choice before credentialed execution is allowed from scan contexts (for example: discover-only vs discover+credentialed), so credentialed checks never start silently.
+- Keep existing job-based credentialed checks as the stable path until the scan-linked execution mode has equivalent auditability and operator controls.
 - **SSH**-backed **package inventory** collection is implemented as part of Software Inventory foundations above; **WinRM**, broader production **SNMP** inventory plugins (beyond handshake/testing paths), and **API-based** authenticated checks remain MVP-plan work
 
 ### Active areas of improvement

@@ -595,13 +595,44 @@ else
   VERIFY_OK=0
 fi
 for _st_unit in surveytrace-daemon.service surveytrace-scheduler.service surveytrace-collector-ingest.service surveytrace-credential-check-worker.service; do
-  if sudo systemctl cat "$_st_unit" 2>/dev/null | grep -Eq '^ReadWritePaths=.*/data'; then
-    echo "  [OK] unit writable data path: $_st_unit"
+  _cat_unit="$(sudo systemctl cat "$_st_unit" 2>/dev/null || true)"
+  if printf '%s\n' "$_cat_unit" | grep -Eq '^ProtectSystem=strict'; then
+    if printf '%s\n' "$_cat_unit" | grep -Eq '^ReadWritePaths=.*/data'; then
+      echo "  [OK] unit strict+ReadWritePaths data: $_st_unit"
+    else
+      echo "  [FAIL] unit uses ProtectSystem=strict but lacks ReadWritePaths=/opt/surveytrace/data: $_st_unit"
+      VERIFY_OK=0
+    fi
   else
-    echo "  [FAIL] unit missing ReadWritePaths=/opt/surveytrace/data: $_st_unit"
+    echo "  [OK] unit RW policy acceptable (no ProtectSystem=strict): $_st_unit"
+  fi
+done
+
+_collector_unit="$(sudo systemctl cat surveytrace-collector-ingest.service 2>/dev/null || true)"
+for _req in \
+  '^EnvironmentFile=-/etc/surveytrace/surveytrace\.env$|collector unit EnvironmentFile' \
+  '^User=surveytrace$|collector unit User=surveytrace' \
+  '^Group=surveytrace$|collector unit Group=surveytrace' \
+  '^SupplementaryGroups=www-data$|collector unit SupplementaryGroups=www-data' \
+  '^WorkingDirectory=/opt/surveytrace/daemon$|collector unit WorkingDirectory' \
+  '^Restart=on-failure$|collector unit Restart=on-failure'
+do
+  _pat="${_req%%|*}"
+  _lbl="${_req##*|}"
+  if printf '%s\n' "$_collector_unit" | grep -Eq "$_pat"; then
+    echo "  [OK] ${_lbl}"
+  else
+    echo "  [FAIL] ${_lbl}"
     VERIFY_OK=0
   fi
 done
+
+if sudo -u surveytrace "$DEST/venv/bin/python3" "$DEST/daemon/collector_ingest_worker.py" --check-db-open >/dev/null 2>&1; then
+  echo "  [OK] collector ingest runtime DB-open check"
+else
+  echo "  [FAIL] collector ingest runtime DB-open check"
+  VERIFY_OK=0
+fi
 
 if command -v zabbix_sender >/dev/null 2>&1; then
   echo "  [OK] zabbix_sender available"

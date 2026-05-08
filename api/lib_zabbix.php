@@ -1753,7 +1753,7 @@ function st_zabbix_assert_no_enabled_stale_scope_rules(PDO $pdo): void
  * @param array<string,mixed>|null     $debugCollector set to [] by caller to receive admin-only debug stats (no secrets)
  * @return array<int,array<string,mixed>>
  */
-function st_zabbix_preview_scope_map(PDO $pdo, array $rules, ?array &$debugCollector = null): array
+function st_zabbix_preview_scope_map(PDO $pdo, array $rules, ?array &$debugCollector = null, ?int $filterScopeId = null): array
 {
     $v = st_zabbix_scope_rules_validate($pdo, $rules);
     if (! $v['ok']) {
@@ -1867,6 +1867,9 @@ function st_zabbix_preview_scope_map(PDO $pdo, array $rules, ?array &$debugColle
                 }
             }
             if ($hit) {
+                if ($filterScopeId !== null && $filterScopeId > 0 && $sid !== $filterScopeId) {
+                    continue;
+                }
                 $curScope = $row['current_scope_id'] ?? null;
                 $out[] = [
                     'asset_id' => $aid,

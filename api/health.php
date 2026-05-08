@@ -66,6 +66,79 @@ function st_health_systemd_unit(string $unit): array {
 }
 
 /**
+ * Runtime signal emitted by daemon/collector_ingest_worker.py (status file in data/).
+ *
+ * @return array<string,mixed>
+ */
+function st_health_collector_ingest_runtime(string $dataDir): array {
+    $out = [
+        'status_file' => $dataDir . '/collector_ingest_status.json',
+        'status_file_exists' => false,
+        'state' => 'unknown',
+        'updated_at' => '',
+        'last_db_open_ok_at' => '',
+        'last_loop_ok_at' => '',
+        'last_claim_attempt_at' => '',
+        'last_processed_at' => '',
+        'last_db_open_error_at' => '',
+        'db_open_error_count_consecutive' => 0,
+        'db_open_error_total' => 0,
+        'db_open_error_first_at' => '',
+        'db_open_error_last_message' => '',
+        'message' => '',
+        'warnings' => [],
+    ];
+    $path = $out['status_file'];
+    if (!is_file($path) || !is_readable($path)) {
+        $out['warnings'][] = 'collector ingest runtime status file missing/unreadable.';
+        return $out;
+    }
+    $raw = @file_get_contents($path);
+    if (!is_string($raw) || trim($raw) === '') {
+        $out['warnings'][] = 'collector ingest runtime status file is empty.';
+        return $out;
+    }
+    $doc = json_decode($raw, true);
+    if (!is_array($doc)) {
+        $out['warnings'][] = 'collector ingest runtime status file is invalid JSON.';
+        return $out;
+    }
+    $out['status_file_exists'] = true;
+    foreach ([
+        'state', 'updated_at', 'last_db_open_ok_at', 'last_loop_ok_at', 'last_claim_attempt_at',
+        'last_processed_at', 'last_db_open_error_at', 'db_open_error_first_at',
+        'db_open_error_last_message', 'message',
+    ] as $k) {
+        if (isset($doc[$k])) {
+            $out[$k] = (string) $doc[$k];
+        }
+    }
+    foreach (['db_open_error_count_consecutive', 'db_open_error_total'] as $k) {
+        if (isset($doc[$k])) {
+            $out[$k] = max(0, (int) $doc[$k]);
+        }
+    }
+    $now = time();
+    $updatedTs = strtotime((string) $out['updated_at']);
+    $loopOkTs = strtotime((string) $out['last_loop_ok_at']);
+    $dbOkTs = strtotime((string) $out['last_db_open_ok_at']);
+    $dbErrTs = strtotime((string) $out['last_db_open_error_at']);
+    if ($updatedTs !== false && ($now - $updatedTs) > 300) {
+        $out['warnings'][] = 'collector ingest heartbeat stale (>5 minutes).';
+    }
+    if ($dbErrTs !== false && ($now - $dbErrTs) <= 600 && $out['db_open_error_count_consecutive'] > 0) {
+        $out['warnings'][] = 'collector ingest observed recent SQLite open failures.';
+    }
+    if ($loopOkTs !== false && ($now - $loopOkTs) > 300) {
+        $out['warnings'][] = 'collector ingest loop success timestamp stale (>5 minutes).';
+    }
+    if ($dbOkTs !== false && ($now - $dbOkTs) > 300) {
+        $out['warnings'][] = 'collector ingest DB-open success timestamp stale (>5 minutes).';
+    }
+    return $out;
+}
+
+/**
  * Human size without (int) casts — they overflow for multi-GB on 32-bit PHP and
  * can corrupt filesize/stat results that wrap past 2^31.
  *
@@ -523,6 +596,7 @@ $health = [
         'scheduler' => st_health_systemd_unit('surveytrace-scheduler'),
         'collector_ingest' => st_health_systemd_unit('surveytrace-collector-ingest'),
     ],
+    'collector_ingest_runtime' => [],
     'collectors' => [
         'total' => 0,
         'online_recent_2m' => 0,
@@ -817,5 +891,14 @@ try {
 }
 
 $health['maintenance'] = st_health_maintenance_snapshot($db);
+$health['collector_ingest_runtime'] = st_health_collector_ingest_runtime($dataDir);
+if (
+    $health['services']['collector_ingest']['state'] === 'active'
+    && is_array($health['collector_ingest_runtime'])
+    && !empty($health['collector_ingest_runtime']['warnings'])
+) {
+    $health['services']['collector_ingest']['state'] = 'degraded';
+    $health['services']['collector_ingest']['detail'] = 'Running with runtime warnings (see collector_ingest_runtime).';
+}
 
 st_json($health);

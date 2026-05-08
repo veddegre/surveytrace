@@ -326,6 +326,14 @@ if ($action === 'save_scope_rules') {
 }
 
 if ($action === 'preview_scope_apply') {
+    $scopeFilterId = isset($body['scope_id']) ? (int) $body['scope_id'] : 0;
+    if ($scopeFilterId > 0) {
+        $chkScope = $db->prepare('SELECT 1 FROM scan_scopes WHERE id = ? LIMIT 1');
+        $chkScope->execute([$scopeFilterId]);
+        if ((int) $chkScope->fetchColumn() !== 1) {
+            st_json(['ok' => false, 'error' => 'Invalid scope filter'], 400);
+        }
+    }
     if (! st_zabbix_table_ready($db)) {
         st_json(['ok' => false, 'error' => 'Zabbix tables missing; run database migrations'], 503);
     }
@@ -356,7 +364,7 @@ if ($action === 'preview_scope_apply') {
         $dbg = [];
     }
     try {
-        $plan = st_zabbix_preview_scope_map($db, $dbRules, $dbg);
+        $plan = st_zabbix_preview_scope_map($db, $dbRules, $dbg, $scopeFilterId > 0 ? $scopeFilterId : null);
     } catch (InvalidArgumentException $e) {
         $msg = st_zabbix_redact_secrets($e->getMessage());
         @error_log('SurveyTrace zabbix preview_scope_apply failed: ' . $msg);

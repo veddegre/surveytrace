@@ -15,6 +15,7 @@ import copy
 import json
 import logging
 import os
+import resource
 import sqlite3
 import sys
 import threading
@@ -27,6 +28,9 @@ from surveytrace_paths import data_dir, install_root, main_db_path
 DB_PATH = main_db_path()
 INGEST_DIR = data_dir() / "collector_ingest"
 POLL_SECS = 3
+STATUS_PATH = data_dir() / "collector_ingest_status.json"
+_DB_OPEN_FAIL_MAX_CONSECUTIVE = 10
+_DB_OPEN_FAIL_MAX_SECONDS = 120
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [collector_ingest] %(message)s")
 log = logging.getLogger("collector_ingest")
@@ -418,11 +422,21 @@ def _process_one_exec_ai_followup() -> None:
 
 
 def _exec_ai_followup_loop() -> None:
+    db_open_fail_count = 0
     while True:
         try:
             _process_one_exec_ai_followup()
+            db_open_fail_count = 0
         except Exception:
-            log.exception("executive AI follow-up loop error")
+            exc = sys.exc_info()[1]
+            if isinstance(exc, BaseException) and _is_db_open_error(exc):
+                db_open_fail_count += 1
+                if db_open_fail_count <= 2:
+                    log.warning("executive AI follow-up loop: SQLite unavailable (%s)", exc)
+                elif db_open_fail_count % 10 == 0:
+                    log.warning("executive AI follow-up loop still waiting on SQLite (%d failures)", db_open_fail_count)
+            else:
+                log.exception("executive AI follow-up loop error")
         time.sleep(_EXEC_AI_POLL_SEC)
 
 
@@ -444,6 +458,50 @@ def _uid_gid_names() -> tuple[str, str]:
         return str(os.getuid()), str(os.getgid())
 
 
+def _iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _safe_stat_meta(p: Path) -> dict:
+    try:
+        st = p.stat()
+        return {
+            "exists": True,
+            "mode": oct(st.st_mode),
+            "uid": int(st.st_uid),
+            "gid": int(st.st_gid),
+            "readable": os.access(p, os.R_OK),
+            "writable": os.access(p, os.W_OK),
+        }
+    except OSError:
+        return {"exists": False, "mode": None, "uid": None, "gid": None, "readable": False, "writable": False}
+
+
+def _write_status(status: dict) -> None:
+    try:
+        STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATUS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(status, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+        tmp.replace(STATUS_PATH)
+    except Exception:
+        # Status write failures must never crash ingest.
+        pass
+
+
+def _status_read_previous() -> dict:
+    try:
+        if STATUS_PATH.is_file():
+            parsed = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+            return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _is_db_open_error(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "unable to open database file" in str(exc).lower()
+
+
 def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
     """Log everything needed to debug sqlite3 'unable to open database file' on the master."""
     try:
@@ -459,6 +517,16 @@ def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
     db_exists = dbp.exists()
     db_rw = os.access(dbp, os.R_OK | os.W_OK) if db_exists else False
     db_r = os.access(dbp, os.R_OK) if db_exists else False
+    wal_meta = _safe_stat_meta(Path(str(dbp) + "-wal"))
+    shm_meta = _safe_stat_meta(Path(str(dbp) + "-shm"))
+    try:
+        sup_groups = sorted(int(g) for g in os.getgroups())
+    except Exception:
+        sup_groups = []
+    try:
+        nofile_soft, nofile_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except Exception:
+        nofile_soft, nofile_hard = (-1, -1)
     try:
         pmode = oct(parent.stat().st_mode) if parent_exists else "n/a"
     except OSError:
@@ -471,7 +539,9 @@ def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
     log.error(
         "SQLite open failed | resolved_db_path=%s | install_root=%s | cwd=%s | euid=%s egid=%s (%s:%s) | "
         "parent=%s exists=%s is_dir=%s mode=%s readable=%s writable=%s | "
-        "db_file_exists=%s mode=%s db_readable=%s db_writable=%s | env_INSTALL_DIR=%r env_DB_PATH=%r | err=%s",
+        "db_file_exists=%s mode=%s db_readable=%s db_writable=%s | "
+        "wal=%s shm=%s | supplementary_groups=%s | nofile_soft=%s nofile_hard=%s | "
+        "env_INSTALL_DIR=%r env_DB_PATH=%r | err=%s",
         dbp,
         install_root().resolve(),
         os.getcwd(),
@@ -489,6 +559,11 @@ def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
         fmode,
         db_r,
         db_rw,
+        wal_meta,
+        shm_meta,
+        sup_groups,
+        nofile_soft,
+        nofile_hard,
         os.environ.get("SURVEYTRACE_INSTALL_DIR"),
         os.environ.get("SURVEYTRACE_DB_PATH"),
         err,
@@ -1197,17 +1272,56 @@ def process_one(qrow: dict, mirror_out: dict | None = None) -> None:
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="SurveyTrace collector ingest worker")
     ap.add_argument("--once", action="store_true", help="Process one outer ingest pass then exit")
+    ap.add_argument("--check-db-open", action="store_true", help="Check DB open/preflight then exit 0/1")
     return ap.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
+    prev = _status_read_previous()
+    status_state = {
+        "pid": os.getpid(),
+        "state": "starting",
+        "started_at": _iso_now(),
+        "updated_at": _iso_now(),
+        "last_db_open_ok_at": str(prev.get("last_db_open_ok_at") or ""),
+        "last_loop_ok_at": str(prev.get("last_loop_ok_at") or ""),
+        "last_claim_attempt_at": str(prev.get("last_claim_attempt_at") or ""),
+        "last_processed_at": str(prev.get("last_processed_at") or ""),
+        "last_db_open_error_at": "",
+        "db_open_error_count_consecutive": 0,
+        "db_open_error_total": int(prev.get("db_open_error_total") or 0),
+        "db_open_error_first_at": "",
+        "db_open_error_last_message": "",
+        "message": "starting",
+    }
+    _write_status(status_state)
     log.info(
         "collector ingest worker started | install_root=%s | db_path=%s | ingest_dir=%s",
         install_root().resolve(),
         DB_PATH.resolve(),
         INGEST_DIR,
     )
+    if args.check_db_open:
+        if _preflight_sqlite():
+            status_state["state"] = "check_ok"
+            status_state["updated_at"] = _iso_now()
+            status_state["last_db_open_ok_at"] = status_state["updated_at"]
+            status_state["message"] = "db_open_check_ok"
+            _write_status(status_state)
+            log.info("collector ingest DB open check: OK")
+            return
+        status_state["state"] = "check_failed"
+        status_state["updated_at"] = _iso_now()
+        status_state["last_db_open_error_at"] = status_state["updated_at"]
+        status_state["db_open_error_count_consecutive"] = 1
+        status_state["db_open_error_total"] = int(status_state["db_open_error_total"]) + 1
+        status_state["db_open_error_first_at"] = status_state["updated_at"]
+        status_state["db_open_error_last_message"] = "preflight_sqlite_failed"
+        status_state["message"] = "db_open_check_failed"
+        _write_status(status_state)
+        log.error("collector ingest DB open check: FAILED")
+        raise SystemExit(2)
     while not _preflight_sqlite():
         log.error("preflight failed; fix permissions or SURVEYTRACE_INSTALL_DIR/SURVEYTRACE_DB_PATH; retry in 30s")
         time.sleep(30)
@@ -1227,6 +1341,12 @@ def main() -> None:
     log.info("deferred executive AI follow-up thread started (poll=%ds)", _EXEC_AI_POLL_SEC)
     last_pending_warn_at = 0.0
     loop_count = 0
+    db_open_fail_consecutive = 0
+    db_open_fail_window_started_monotonic = 0.0
+    status_state["state"] = "running"
+    status_state["updated_at"] = _iso_now()
+    status_state["message"] = "running"
+    _write_status(status_state)
     while True:
         try:
             # One queue item per outer attempt: payload vs enrichment are separate transactions;
@@ -1240,9 +1360,15 @@ def main() -> None:
                 if row_dict is None:
                     break
                 had_row = True
+                status_state["last_claim_attempt_at"] = _iso_now()
+                status_state["updated_at"] = status_state["last_claim_attempt_at"]
+                _write_status(status_state)
                 mirror_ctx: dict = {}
                 try:
                     process_one(row_dict, mirror_ctx)
+                    status_state["last_processed_at"] = _iso_now()
+                    status_state["updated_at"] = status_state["last_processed_at"]
+                    _write_status(status_state)
                 except Exception as exc:
                     attempts_before = int(row_dict.get("attempts") or 0)
                     attempts_after = attempts_before + 1
@@ -1352,9 +1478,54 @@ def main() -> None:
                         diag["oldest_pending_eligible_age_sec"],
                     )
                     last_pending_warn_at = now
+            if db_open_fail_consecutive > 0:
+                db_open_fail_consecutive = 0
+                db_open_fail_window_started_monotonic = 0.0
+                status_state["db_open_error_count_consecutive"] = 0
+                status_state["db_open_error_first_at"] = ""
+                status_state["db_open_error_last_message"] = ""
+            status_state["last_db_open_ok_at"] = _iso_now()
+            status_state["last_loop_ok_at"] = status_state["last_db_open_ok_at"]
+            status_state["updated_at"] = status_state["last_db_open_ok_at"]
+            status_state["message"] = "running"
+            _write_status(status_state)
         except Exception as outer:
-            if isinstance(outer, sqlite3.OperationalError) and "unable to open database file" in str(outer):
-                log.error("worker loop: SQLite DB unavailable (%s); retry in %ds", outer, POLL_SECS)
+            if _is_db_open_error(outer):
+                db_open_fail_consecutive += 1
+                if db_open_fail_window_started_monotonic <= 0.0:
+                    db_open_fail_window_started_monotonic = time.monotonic()
+                    status_state["db_open_error_first_at"] = _iso_now()
+                elapsed_unavailable = max(0.0, time.monotonic() - db_open_fail_window_started_monotonic)
+                status_state["last_db_open_error_at"] = _iso_now()
+                status_state["db_open_error_count_consecutive"] = db_open_fail_consecutive
+                status_state["db_open_error_total"] = int(status_state["db_open_error_total"]) + 1
+                status_state["db_open_error_last_message"] = str(outer)[:240]
+                status_state["updated_at"] = status_state["last_db_open_error_at"]
+                status_state["state"] = "db_open_retrying"
+                should_exit = (
+                    db_open_fail_consecutive >= _DB_OPEN_FAIL_MAX_CONSECUTIVE
+                    or elapsed_unavailable >= float(_DB_OPEN_FAIL_MAX_SECONDS)
+                )
+                if should_exit:
+                    status_state["state"] = "db_open_terminal"
+                    status_state["message"] = (
+                        "SQLite DB unavailable after "
+                        f"{db_open_fail_consecutive} attempts / {int(elapsed_unavailable)} seconds; exiting for systemd restart"
+                    )
+                    _write_status(status_state)
+                    log.error(status_state["message"])
+                    raise SystemExit(2)
+                status_state["message"] = (
+                    "SQLite DB unavailable; retrying "
+                    f"({db_open_fail_consecutive}/{_DB_OPEN_FAIL_MAX_CONSECUTIVE}, "
+                    f"elapsed={int(elapsed_unavailable)}s/{_DB_OPEN_FAIL_MAX_SECONDS}s)"
+                )
+                _write_status(status_state)
+                if db_open_fail_consecutive <= 3:
+                    _log_db_open_diagnostics(outer)
+                    log.error("%s", status_state["message"])
+                elif db_open_fail_consecutive % 5 == 0:
+                    log.warning("%s", status_state["message"])
             else:
                 log.exception("worker loop error: %s", outer)
         loop_count += 1
