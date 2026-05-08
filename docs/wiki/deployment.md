@@ -308,6 +308,7 @@ SURVEYTRACE_CRED_SECRET_KEY_STRICT=1
   - directory `/etc/surveytrace` as `root:surveytrace` mode `0750`
   - file `/etc/surveytrace/surveytrace.env` as `root:surveytrace` mode `0640`
 - Add `EnvironmentFile=/etc/surveytrace/surveytrace.env` to the units that run PHP and the credential-check worker (or equivalent override files), then restart those services.
+- **`deploy.sh` / `setup.sh`:** after updating `SURVEYTRACE_PHP_CLI_BIN`, if **`SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY`** is not already set in `surveytrace.env`, the scripts append **`accept_new`** so cred SSH checks do not rely on legacy **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** alone when automation replaces the env file without that key. Set the variable explicitly (for example **`reject`**) for strict installs. To disable this append, run with **`SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY=1`**.
 - Validate with one handshake test from Settings and one small credentialed run before declaring production-ready.
 
 ### Credentialed checks — transport handshake test (slice 5)

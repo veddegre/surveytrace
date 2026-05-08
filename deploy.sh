@@ -9,6 +9,8 @@
 # Non-interactive / automation: SURVEYTRACE_DEPLOY=master|collector forces the mode
 # when the host could be ambiguous (rare). SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1
 # ignores .install_role vs chosen mode mismatches (emergency only).
+# SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY=1 — do not append
+# SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new when that key is missing from surveytrace.env.
 set -e
 
 DEST="/opt/surveytrace"
@@ -869,6 +871,14 @@ EOF
 else
   echo "  [FAIL] no CLI-capable php binary found for sudoers helper rule"
   VERIFY_OK=0
+fi
+# External / template deploys often omit this line; without it, cred SSH falls back to
+# SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY (often reject) and fails on unknown host keys.
+if [[ "${SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY:-}" != 1 ]]; then
+  if st_sudo test -f "$ENV_FILE" && ! st_sudo grep -Eq '^SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=' "$ENV_FILE" 2>/dev/null; then
+    st_upsert_env_kv "$ENV_FILE" "SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY" "accept_new"
+    echo "  [OK] surveytrace.env: set SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new (key was absent; override in file or set SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY=1 to skip)"
+  fi
 fi
 if sudo test -f "$ENV_FILE"; then
   echo "  [OK] env file present: $ENV_FILE"

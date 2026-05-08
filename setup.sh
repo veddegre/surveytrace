@@ -1070,6 +1070,13 @@ EOF
 else
     check_fail "no CLI-capable php binary found for sudoers helper rule"
 fi
+# Match deploy.sh: ensure cred workers see accept_new when CHECK policy is omitted from templates.
+if [[ "${SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY:-}" != 1 ]]; then
+    if [[ -f "$ENV_FILE" ]] && ! grep -Eq '^SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=' "$ENV_FILE" 2>/dev/null; then
+        st_upsert_env_kv "$ENV_FILE" "SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY" "accept_new"
+        check_ok "surveytrace.env: set SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new (key was absent; set explicitly for strict / known_hosts-only, or SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY=1 to skip)"
+    fi
+fi
 if [[ -f "$ENV_FILE" ]]; then
     check_ok "env file present: $ENV_FILE"
 else

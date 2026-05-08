@@ -12,7 +12,10 @@ Decrypt uses the same PHP helper as the worker; **SURVEYTRACE_CRED_SECRET_KEY** 
 environment (systemd loads **EnvironmentFile=-/etc/surveytrace/surveytrace.env**). This CLI applies
 that file automatically when present (unless **--no-env-file**), or use **--env-file** /
 **SURVEYTRACE_ENV_FILE** for a custom path. **SURVEYTRACE_CRED_SECRET_KEY** and **SURVEYTRACE_PHP_CLI_BIN**
-from the file always override the process (so a bad value leaked in via ``sudo`` from your shell is replaced).
+from the file always override the process (so bad values leaked in via ``sudo`` are replaced). When
+auto-loading ``/etc/surveytrace/surveytrace.env``, **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** and
+**SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY** are cleared first so the probe matches **systemd** (which
+does not inherit your login shell); use **--no-env-file** to test with only exported vars.
 
 The **handshake** step sets ``SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`` (AutoAddPolicy), matching the UI
 transport test. **os_release_collect** uses **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** when set,
