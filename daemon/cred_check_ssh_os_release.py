@@ -3,7 +3,8 @@ Bounded SSH read of /etc/os-release for ssh.linux.os_release@1.0.0 (slice 7).
 
 - Fixed remote path only (/etc/os-release) via SFTP, else allowlisted `cat /etc/os-release` exec.
 - No PTY, no operator argv, no shell interpolation of user data.
-- Mirrors host-key policy from cred_transport_ssh (SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY).
+- Host keys: **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** (preferred for workers) or legacy
+  **SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY** (see ``_policy_for_cred_ssh_checks``).
 """
 
 from __future__ import annotations
@@ -39,13 +40,33 @@ REMOTE_PATH = "/etc/os-release"
 EXEC_FALLBACK_ARGV = "cat /etc/os-release"
 
 
-def _policy_from_env():
+def _cred_ssh_host_key_env_is_reject() -> bool:
+    """True when cred SSH should use Paramiko RejectPolicy (no auto-accept unknown keys)."""
+    raw_check = (os.environ.get("SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY") or "").strip()
+    if raw_check != "":
+        return raw_check.lower() in ("reject", "strict", "no")
+    raw_test = (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip().lower()
+    return raw_test in ("reject", "strict", "no")
+
+
+def _policy_for_cred_ssh_checks():
+    """
+    Paramiko host-key policy for automated cred SSH (os_release, package_inventory).
+
+    If **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** is set (non-empty), it wins:
+      reject | strict | no  -> RejectPolicy
+      anything else (accept_new, auto, allow, yes, …) -> AutoAddPolicy
+
+    If unset, fall back to **SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY** for backward compatibility.
+    """
     import paramiko
 
-    raw = (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip().lower()
-    if raw in ("reject", "strict", "no"):
-        return paramiko.RejectPolicy()
-    return paramiko.AutoAddPolicy()
+    return paramiko.RejectPolicy() if _cred_ssh_host_key_env_is_reject() else paramiko.AutoAddPolicy()
+
+
+def cred_check_ssh_host_key_effective_label() -> str:
+    """Human label for probe / logs: reject vs accept_new (no Paramiko import)."""
+    return "reject" if _cred_ssh_host_key_env_is_reject() else "accept_new"
 
 
 def _connect_client(
@@ -84,7 +105,7 @@ def _connect_client(
         return None, "auth_failed", None
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(_policy_from_env())
+    client.set_missing_host_key_policy(_policy_for_cred_ssh_checks())
     try:
         client.connect(
             host,

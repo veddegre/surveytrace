@@ -6,7 +6,8 @@ No plugin execution, no shell session, no operator-supplied remote command.
 
 Requires: pip install paramiko
 Host key policy: UI handshake sets SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1 (AutoAddPolicy).
-Production SSH checks use SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY in cred_check_ssh_os_release.py.
+Production cred SSH checks use SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY (preferred) or
+SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY in cred_check_ssh_os_release.py.
 """
 
 from __future__ import annotations

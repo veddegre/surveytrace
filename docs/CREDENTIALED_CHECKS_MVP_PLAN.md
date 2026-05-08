@@ -269,7 +269,7 @@ Provide **authenticated encryption** for profile secrets in `credential_profiles
 
 ### SSH host key policy
 
-- Default: **AutoAddPolicy** for the handshake subprocess (operator-supplied target); the API sets **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1`** so pool **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** does not apply to this path. **Stricter** host-key checks for **production** cred SSH: set **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** on **worker** environments (`cred_check_ssh_os_release.py`). Documented in [deployment wiki](wiki/deployment.md).
+- Default: **AutoAddPolicy** for the handshake subprocess (operator-supplied target); the API sets **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1`** so pool **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** does not apply to this path. **Production** cred SSH uses **`SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY`** when set (e.g. **`accept_new`** for many hosts), else legacy **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** (`cred_check_ssh_os_release.py`). Documented in [deployment wiki](wiki/deployment.md).
 
 ### SNMPv3 limitations
 

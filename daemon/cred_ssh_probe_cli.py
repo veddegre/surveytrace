@@ -14,9 +14,9 @@ that file automatically when present (unless **--no-env-file**), or use **--env-
 **SURVEYTRACE_ENV_FILE** for a custom path.
 
 The **handshake** step sets ``SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`` (AutoAddPolicy), matching the UI
-transport test. **os_release_collect** uses ``SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`` from the env
-file (for example ``reject``): unknown hosts must already be in **surveytrace**'s ``known_hosts``, or
-the plugin fails even when handshake succeeded.
+transport test. **os_release_collect** uses **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** when set,
+else **SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY** (legacy). Set ``CHECK_HOST_KEY_POLICY=accept_new``
+on workers to allow first-seen keys for automated inventory (MITM risk on untrusted networks).
 
 SSH checks need **Paramiko** in the Python interpreter you use. On production hosts, use the same
 venv as **surveytrace-credential-check-worker** (not system ``python3``):
@@ -44,7 +44,7 @@ _DAEMON = Path(__file__).resolve().parent
 if str(_DAEMON) not in sys.path:
     sys.path.insert(0, str(_DAEMON))
 
-from cred_check_ssh_os_release import collect_os_release  # noqa: E402
+from cred_check_ssh_os_release import collect_os_release, cred_check_ssh_host_key_effective_label  # noqa: E402
 from cred_secret_decrypt import decrypt_profile_secret  # noqa: E402
 from cred_transport_ssh import run_test as run_ssh_handshake  # noqa: E402
 from surveytrace_paths import install_root, main_db_path  # noqa: E402
@@ -58,24 +58,25 @@ def _strip_ssh_out(obj: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _probe_hints(*, handshake: dict[str, Any], os_out: dict[str, Any], host_key_policy: str) -> list[str]:
+def _probe_hints(*, handshake: dict[str, Any], os_out: dict[str, Any], effective_host_key: str) -> list[str]:
     """Short operator hints when handshake and plugin disagree (common: host-key policy)."""
     hints: list[str] = []
     if not handshake.get("ok") or os_out.get("ok"):
         return hints
     det = str(os_out.get("connect_detail_safe") or "")
     dl = det.lower()
-    pol = (host_key_policy or "").strip().lower()
     if "known_hosts" in dl and ("not found" in dl or "not in" in dl):
         hints.append(
-            "Handshake OK but os_release failed: the handshake step uses AutoAddPolicy (unknown host keys allowed). "
-            "The real cred check uses SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY; with reject/strict, the host must "
-            "already be in the surveytrace user's known_hosts (typically ~surveytrace/.ssh/known_hosts). "
-            "Fix: run ssh-keyscan as surveytrace and append the line, or pin keys via your SSH policy."
+            "Handshake OK but os_release failed on host keys / known_hosts. "
+            "For many dynamic assets, set SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new in the worker env "
+            "(MITM risk on untrusted paths — same tradeoff as first-time OpenSSH StrictHostKeyChecking=no). "
+            "Or keep reject: install keys for user surveytrace (use sudo -u surveytrace bash -lc '…' so $HOME is correct, "
+            "not ~surveytrace from the invoking shell)."
         )
-    elif pol in ("reject", "strict", "no") and os_out.get("code") == "protocol_error":
+    elif effective_host_key == "reject" and os_out.get("code") == "protocol_error":
         hints.append(
-            "SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY is restrictive; confirm this host's key is trusted for user surveytrace."
+            "Cred SSH uses effective host-key policy reject; unknown hosts must be in surveytrace known_hosts, "
+            "or set SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new for automated checks."
         )
     return hints
 
@@ -318,7 +319,7 @@ def main() -> int:
         max_stderr_bytes=8192,
     )
 
-    hk_pol = (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip() or "(default accept_new)"
+    hk_eff = cred_check_ssh_host_key_effective_label()
     report = {
         "ok": bool(handshake.get("ok")) and bool(os_out.get("ok")),
         "profile_id": int(args.profile_id),
@@ -328,8 +329,11 @@ def main() -> int:
         "db_path": str(db_path),
         "env_bootstrap": env_meta,
         "cred_secret_key_configured": bool(str(os.environ.get("SURVEYTRACE_CRED_SECRET_KEY", "")).strip()),
-        "host_key_policy_env": hk_pol,
-        "probe_hints": _probe_hints(handshake=handshake, os_out=os_out, host_key_policy=hk_pol),
+        "cred_check_host_key_effective": hk_eff,
+        "SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY": os.environ.get("SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY"),
+        "SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY": os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY"),
+        "host_key_policy_env": hk_eff,
+        "probe_hints": _probe_hints(handshake=handshake, os_out=os_out, effective_host_key=hk_eff),
         "handshake_subprocess_style": handshake,
         "os_release_collect": _strip_ssh_out(os_out),
     }

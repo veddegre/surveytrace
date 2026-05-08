@@ -8,6 +8,7 @@ Run from repo root:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from cred_check_run import (
     _sanitize_os_release_for_result,
     _ssh_plugin_fail_normalized,
 )
-from cred_check_ssh_os_release import sanitize_ssh_diag_message
+from cred_check_ssh_os_release import cred_check_ssh_host_key_effective_label, sanitize_ssh_diag_message
 
 
 def _fail(msg: str) -> None:
@@ -77,6 +78,29 @@ def main() -> None:
     fn = _ssh_plugin_fail_normalized("protocol_error", {"connect_detail_safe": "Incompatible ssh peer"})
     if fn.get("error_detail_safe") != "Incompatible ssh peer":
         _fail("ssh fail normalized detail: " + repr(fn))
+
+    _k_check = "SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY"
+    _k_test = "SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY"
+    _saved = {k: os.environ.get(k) for k in (_k_check, _k_test)}
+    try:
+        os.environ[_k_check] = "accept_new"
+        os.environ[_k_test] = "reject"
+        if cred_check_ssh_host_key_effective_label() != "accept_new":
+            _fail("CHECK=accept_new must override TEST=reject")
+        del os.environ[_k_check]
+        os.environ[_k_test] = "reject"
+        if cred_check_ssh_host_key_effective_label() != "reject":
+            _fail("legacy TEST=reject when CHECK unset")
+        os.environ[_k_check] = "reject"
+        os.environ[_k_test] = "accept_new"
+        if cred_check_ssh_host_key_effective_label() != "reject":
+            _fail("explicit CHECK=reject must win over TEST=accept_new")
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
     print("OK cred_check_os_release_selftest")
 

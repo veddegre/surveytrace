@@ -1806,7 +1806,7 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
             $protoSt->execute([$runId]);
             $protoOs = (int) $protoSt->fetchColumn();
             if ($protoOs >= 2) {
-                $run['run_operational_notes'][] = 'Several ssh.linux.os_release checks failed with protocol_error: the SSH client did not complete a normal session (handshake or transport mismatch, wrong port, non-SSH service, or incompatible algorithms). Confirm user, key or password, port, and that targets are reachable Linux SSH from the worker host. If the credential UI handshake worked for one host, compare worker env (for example SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY) and network path.';
+                $run['run_operational_notes'][] = 'Several ssh.linux.os_release checks failed with protocol_error: the SSH client did not complete a normal session (handshake or transport mismatch, wrong port, non-SSH service, or incompatible algorithms). Confirm user, key or password, port, and that targets are reachable Linux SSH from the worker host. If the credential UI handshake worked for one host, compare worker env (SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY or legacy SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY) and network path.';
             }
         } catch (Throwable $e) {
             @error_log('SurveyTrace st_cc_run_get_detail run_operational_notes: ' . $e->getMessage());
@@ -1819,7 +1819,7 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
             );
             $khSt->execute([$runId, '%known_hosts%']);
             if ((int) $khSt->fetchColumn() >= 1) {
-                $run['run_operational_notes'][] = 'At least one os_release failure references known_hosts: with SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject (or strict), the surveytrace user must have the server SSH host key in known_hosts before cred checks succeed. The UI transport handshake uses AutoAddPolicy, so it can succeed while cred runs fail until keys are pinned (for example ssh-keyscan as surveytrace).';
+                $run['run_operational_notes'][] = 'At least one os_release failure references known_hosts: with strict host-key policy (reject/strict on SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY or legacy SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY), the surveytrace user must have the server SSH host key in known_hosts before cred checks succeed. The UI transport handshake uses AutoAddPolicy, so it can succeed while cred runs fail until keys are pinned, or set SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new on the worker for automated first-seen keys (MITM risk on untrusted networks).';
             }
         } catch (Throwable $e) {
             @error_log('SurveyTrace st_cc_run_get_detail known_hosts note: ' . $e->getMessage());

@@ -6,6 +6,9 @@ the job selects that plugin (bounded SFTP/exec read of /etc/os-release only). Ot
 skipped/not_implemented. Optional SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1 forces placeholder-mode skips
 (smoke tests). Writes credential_check_results, small stdout artifacts, and os_version_observations.
 
+SSH host keys for plugins: **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** (preferred; e.g. accept_new
+for many assets) or legacy **SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY** — see ``cred_check_ssh_os_release.py``.
+
 SSH connect failures log a WARNING from cred_check_ssh_os_release / cred_check_ssh_packages
 (host, port, user, code, sanitized detail). Failed plugin rows may include error_detail_safe
 (PHP/UI preview). On the worker host, run the probe with this unit's Python (**venv**, not system python3):

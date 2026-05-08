@@ -101,7 +101,7 @@ Definitions:
 
 ### Credential test (handshake)
 
-- **Dedicated** `POST` `action=test`: explicit **target_host** (not persisted); SSH runs fixed **`true`** then bounded **`uname -s`**; SNMPv3 single GET **sysDescr.0** only. **Short timeouts**, global **non-reentrant flock** to limit parallel tests, safe error taxonomy (`auth_failed`, `timeout`, `host_key_mismatch`, …). Audits: `credential_profile.test_started`, `.test_succeeded`, `.test_failed`. **SSH host key policy (handshake):** **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1`** forces **AutoAddPolicy** for first-connect tests (see **`daemon/cred_transport_ssh.py`**). **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** applies to **production** cred SSH workers, not this subprocess. **WinRM** handshake not in this slice.
+- **Dedicated** `POST` `action=test`: explicit **target_host** (not persisted); SSH runs fixed **`true`** then bounded **`uname -s`**; SNMPv3 single GET **sysDescr.0** only. **Short timeouts**, global **non-reentrant flock** to limit parallel tests, safe error taxonomy (`auth_failed`, `timeout`, `host_key_mismatch`, …). Audits: `credential_profile.test_started`, `.test_succeeded`, `.test_failed`. **SSH host key policy (handshake):** **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1`** forces **AutoAddPolicy** for first-connect tests (see **`daemon/cred_transport_ssh.py`**). **Production cred SSH workers** use **`SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY`** when set, else **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** (see **`daemon/cred_check_ssh_os_release.py`**). **WinRM** handshake not in this slice.
 
 ---
 
@@ -250,7 +250,7 @@ Secrets are decrypted with the same envelope format as **`api/lib_secrets.php`**
 - **Secrets:** decrypted only immediately before SSH for a target; decrypt helper never logs stderr; worker DB **`worker_jobs.error_message`** on internal failure is a **generic** string (no Python trace / exception text in SQLite).
 - **`normalized_json`:** `os_release` map is **sanitized** (sensitive-looking keys stripped, per-key and key-count caps) before insert so a hostile `/etc/os-release` cannot bloat JSON or smuggle obvious secret fields.
 - **Run detail API:** returns **`normalized_preview`** (truncated; for **`ssh.linux.package_inventory`** a bounded JSON preview with **`packages_sample`** instead of the full list) and **`metrics`** allowlist only — not raw **`metrics_json`**.
-- **SSH:** **`get_pty=False`**; stderr from remote is **not** stored on success (only a length in metrics); SFTP primary + fixed **`cat /etc/os-release`** fallback; host-key policy for **workers** uses **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** in **`daemon/cred_check_ssh_os_release.py`**. UI handshake uses **`daemon/cred_transport_ssh.py`** with **AutoAddPolicy** when **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`** is set (MITM risk documented for lab tests).
+- **SSH:** **`get_pty=False`**; stderr from remote is **not** stored on success (only a length in metrics); SFTP primary + fixed **`cat /etc/os-release`** fallback; host-key policy for **workers** uses **`SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY`** (preferred) or **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** in **`daemon/cred_check_ssh_os_release.py`**. UI handshake uses **`daemon/cred_transport_ssh.py`** with **AutoAddPolicy** when **`SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`** is set (MITM risk documented for lab tests).
 - **No-network test:** `python3 daemon/cred_check_os_release_selftest.py` (parse, caps, normalizer).
 
 **Manual SSH checklist (before package inventory):**
