@@ -25,12 +25,15 @@ venv as **surveytrace-credential-check-worker** (not system ``python3``):
     /opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/cred_ssh_probe_cli.py --profile-id=12 --host=192.168.23.10
 
   /opt/surveytrace/venv/bin/python3 daemon/cred_ssh_probe_cli.py --db=/path/to/surveytrace.db --profile-id=12 --host=10.0.0.5 --port=2222
+
+Use **--quiet** to suppress WARNING lines on stderr from cred SSH helpers (stdout JSON only).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sqlite3
 import sys
@@ -140,6 +143,12 @@ def _bootstrap_surveytrace_env(*, extra_files: list[Path], no_auto: bool) -> dic
     return meta
 
 
+def _silence_cred_probe_loggers() -> None:
+    """Avoid stderr WARNING lines before JSON when piping to jq."""
+    for name in ("cred_check_ssh_os_release", "cred_check_ssh_packages", "cred_secret_decrypt"):
+        logging.getLogger(name).disabled = True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="SSH cred probe (DB profile + target host)")
     ap.add_argument("--profile-id", type=int, required=True)
@@ -159,7 +168,15 @@ def main() -> int:
         action="store_true",
         help="Do not auto-load /etc/surveytrace/surveytrace.env (only already-exported vars and --env-file).",
     )
+    ap.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable WARNING logs from cred SSH/decrypt helpers on stderr (JSON remains on stdout).",
+    )
     args = ap.parse_args()
+
+    if bool(getattr(args, "quiet", False)):
+        _silence_cred_probe_loggers()
 
     env_meta = _bootstrap_surveytrace_env(
         extra_files=[Path(x) for x in (args.env_file or []) if str(x).strip()],
