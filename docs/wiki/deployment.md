@@ -311,7 +311,7 @@ After **slice 4** encryption and **slice 5** code deploy, admins can run **SSH**
 - **Python:** the web PHP process invokes `venv/bin/python3` (or `python3`) on `daemon/cred_transport_cli.py`. Requires **`paramiko`** (SSH) and **`pysnmp`** (SNMPv3) in the same venv as the scanner (`setup.sh` installs both).
 - **Worker decrypt dependency:** worker hosts also need **`php`** on PATH for `daemon/cred_decrypt_cli.php` when encrypted profile secrets are used.
 - **`proc_open`:** must not be disabled for the PHP-FPM pool user (`disable_functions` in `php.ini`).
-- **SSH host keys:** default policy accepts unknown host keys for the test only (**MITM risk** on untrusted networks). Stricter: set **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** (or `strict` / `no`) in the PHP environment so **paramiko** uses **RejectPolicy** (operators must align server-known_hosts or pinning separately — productized TOFU deferred).
+- **SSH host keys:** the **Settings → handshake test** subprocess always uses **AutoAddPolicy** (unknown keys accepted; **MITM risk** on untrusted networks — documented tradeoff). **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`** is **not** applied there so a pool-wide **`reject`** does not break first-connect tests. For **production** SSH cred checks, set **`SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject`** (or `strict` / `no`) on **systemd units / workers** that run **`daemon/cred_check_ssh_os_release.py`** (and align **`surveytrace`** **`known_hosts`** or pinning separately).
 - **Concurrency:** only one handshake test at a time per SurveyTrace data directory (file lock); a second request returns **429** with a safe message.
 
 ---

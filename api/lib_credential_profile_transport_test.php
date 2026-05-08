@@ -207,13 +207,16 @@ function st_cred_transport_run_cli(array $stdinPayload): array
     $timeoutWall = (int) ($stdinPayload['timeout_sec'] ?? 15) + 8;
     $timeoutWall = max(12, min(45, $timeoutWall));
     $env = [];
-    foreach (['PATH', 'HOME', 'SURVEYTRACE_INSTALL_DIR', 'SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY'] as $k) {
+    foreach (['PATH', 'HOME', 'SURVEYTRACE_INSTALL_DIR'] as $k) {
         $v = getenv($k);
         if (is_string($v) && $v !== '') {
             $env[$k] = $v;
         }
     }
     $env['SURVEYTRACE_INSTALL_DIR'] = $root;
+    // Handshake-only: force AutoAddPolicy in cred_transport_ssh (do not forward
+    // SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY — pool may set reject for other paths).
+    $env['SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE'] = '1';
     $desc = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],

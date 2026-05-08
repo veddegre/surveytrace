@@ -5,7 +5,8 @@ Handshake only: TCP + SSH auth + exec fixed allowlisted command `true`.
 No plugin execution, no shell session, no operator-supplied remote command.
 
 Requires: pip install paramiko
-Host key policy: see cred_transport_cli / SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY.
+Host key policy: UI handshake sets SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE=1 (AutoAddPolicy).
+Production SSH checks use SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY in cred_check_ssh_os_release.py.
 """
 
 from __future__ import annotations
@@ -19,6 +20,11 @@ from typing import Any
 
 def _policy_from_env():
     import paramiko
+
+    # API handshake subprocess only — ignore pool-wide reject/strict for first-connect tests.
+    raw_hand = (os.environ.get("SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE") or "").strip().lower()
+    if raw_hand in ("1", "true", "yes", "on"):
+        return paramiko.AutoAddPolicy()
 
     raw = (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip().lower()
     if raw in ("reject", "strict", "no"):
