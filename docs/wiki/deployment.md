@@ -429,12 +429,8 @@ sudo systemctl restart surveytrace-scheduler
 
 - Symptom: **`sudo -l`** shows the correct **`NOPASSWD`** line; **`sudo -u www-data env -i … sudo -n …`** from SSH **succeeds**; browser / **`mod_php`** still gets **`sudo: I'm sorry www-data. I'm afraid I can't do that`** and empty helper stdout.
 - Cause: **`/etc/sudoers`** often has **`Defaults use_pty`**, which makes **`sudo`** allocate a **pseudo-TTY**. **`apache2.service`** on recent Ubuntu may set **`PrivateDevices=yes`**, which **restricts `/dev`** in the worker — **PTY allocation can fail** inside that namespace, and **`sudo`** can surface a **generic policy denial** even when **`NOPASSWD`** is correct.
-- Fix: install **`/etc/sudoers.d/surveytrace-credential-sudo-usepty`** (created by current **`setup.sh`** / **`deploy.sh`**) containing:
-
-  `Defaults:www-data !use_pty`
-
-  (use your real php-fpm / **`mod_php`** pool user if not **`www-data`**). Then **`sudo visudo -cf`** that file and **`sudo systemctl restart apache2`**.
-- Alternative: migrate SurveyTrace to **php-fpm + `proxy_fcgi`** (recommended stack in **`setup.sh`**) and re-evaluate whether you still need the **`!use_pty`** drop-in.
+- Fix: **`setup.sh`** / **`deploy.sh`** write **`/etc/sudoers.d/surveytrace-credential-secret-helper`** with a **`Cmnd_Alias ST_CRED_SECRET_OPS`**, **`Defaults!ST_CRED_SECRET_OPS !use_pty`** (command-scoped, overrides global **`use_pty`** for this helper only), and **`NOPASSWD: ST_CRED_SECRET_OPS`**. Re-run setup/deploy as root, **`sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper`**, then **`sudo systemctl restart apache2`**. Legacy **`surveytrace-credential-sudo-usepty`** is removed when you re-run setup/deploy.
+- Alternative: migrate SurveyTrace to **php-fpm + `proxy_fcgi`** (recommended stack in **`setup.sh`**) and re-evaluate whether you still need the **`!use_pty`** line for **`mod_php`**.
 
 ---
 
@@ -442,9 +438,7 @@ sudo systemctl restart surveytrace-scheduler
 
 - Meaning: **sudo** refused the command for **`www-data`** (or your pool user). This is **not** encryption misconfiguration; the argv did not match an allowed **`NOPASSWD`** rule (or another **`Defaults`** rule blocked it).
 - As root, list effective rules: `sudo -l -U www-data` (replace `www-data` with your php pool user).
-- Open `/etc/sudoers.d/surveytrace-credential-secret-helper` and confirm **one** line matches **exactly** (paths, no extra args):
-
-  `www-data ALL=(surveytrace) NOPASSWD: /usr/bin/php /opt/surveytrace/daemon/cred_secret_ops_cli.php`
+- Open `/etc/sudoers.d/surveytrace-credential-secret-helper` and confirm **`Cmnd_Alias ST_CRED_SECRET_OPS`** lists the **same** PHP binary and script path the helper runs, then **`NOPASSWD: ST_CRED_SECRET_OPS`** (paths, no extra args).
 
   On Debian/Ubuntu, **`/usr/bin/php`** is often a symlink via **`/etc/alternatives`** to **`/usr/bin/php8.x`**. Sudo may validate the **resolved** path; if the web helper invokes **`/usr/bin/php8.5`** but sudoers only list **`/usr/bin/php`**, you can get a policy denial. Use the **same path** in sudoers, **`SURVEYTRACE_PHP_CLI_BIN`**, and the helper (current `setup.sh` / `deploy.sh` / `lib_cred_secret_helper.php` canonicalize to **`readlink -f` / `realpath`**).
 - Check for **`Defaults requiretty`** (or similar) affecting `www-data`; non-interactive `sudo -n` from the web needs a rule that does not require a TTY for this command.

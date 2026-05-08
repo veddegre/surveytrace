@@ -1022,28 +1022,17 @@ if [[ -n "$PHP_BIN_REAL" ]]; then
     cat > "$SUDO_HELPER_DROPIN" <<EOF
 # SurveyTrace credential secret helper (least-privilege).
 # Invoking UNIX user: ${CRED_HELPER_WEB_USER} (override with SURVEYTRACE_CRED_HELPER_WEB_USER).
-${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
+# Cmnd_Alias + Defaults! avoids global "Defaults use_pty" + Apache PrivateDevices PTY failures (see docs).
+Cmnd_Alias ST_CRED_SECRET_OPS = ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
+Defaults!ST_CRED_SECRET_OPS !use_pty
+${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ST_CRED_SECRET_OPS
 
 EOF
+    rm -f /etc/sudoers.d/surveytrace-credential-sudo-usepty 2>/dev/null || true
     if visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
         check_ok "sudoers helper drop-in valid: $SUDO_HELPER_DROPIN"
     else
         check_fail "sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
-    fi
-    # Global "Defaults use_pty" + Apache PrivateDevices=yes: sudo cannot allocate a PTY in the worker
-    # namespace; NOPASSWD still fails with a generic policy denial from the web. Disable use_pty for the
-    # pool user only (same user as NOPASSWD line above).
-    SUDO_HELPER_USEPTY_DROPIN="/etc/sudoers.d/surveytrace-credential-sudo-usepty"
-    install -m 440 /dev/null "$SUDO_HELPER_USEPTY_DROPIN"
-    cat > "$SUDO_HELPER_USEPTY_DROPIN" <<EOF
-# SurveyTrace — sudo use_pty vs Apache PrivateDevices (see docs/wiki/deployment.md).
-Defaults:${CRED_HELPER_WEB_USER} !use_pty
-
-EOF
-    if visudo -cf "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null 2>&1; then
-        check_ok "sudoers use_pty override valid: $SUDO_HELPER_USEPTY_DROPIN"
-    else
-        check_fail "sudoers use_pty override invalid: $SUDO_HELPER_USEPTY_DROPIN"
     fi
 else
     check_fail "no CLI-capable php binary found for sudoers helper rule"

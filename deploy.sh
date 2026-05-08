@@ -743,26 +743,17 @@ if [[ -n "$PHP_BIN_REAL" ]]; then
   sudo tee "$SUDO_HELPER_DROPIN" >/dev/null <<EOF
 # SurveyTrace credential secret helper (least-privilege).
 # Invoking UNIX user: ${CRED_HELPER_WEB_USER} (override with SURVEYTRACE_CRED_HELPER_WEB_USER).
-${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${DEST}/daemon/cred_secret_ops_cli.php
+# Cmnd_Alias + Defaults! avoids global "Defaults use_pty" + Apache PrivateDevices PTY failures (see docs).
+Cmnd_Alias ST_CRED_SECRET_OPS = ${PHP_BIN_REAL} ${DEST}/daemon/cred_secret_ops_cli.php
+Defaults!ST_CRED_SECRET_OPS !use_pty
+${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ST_CRED_SECRET_OPS
 
 EOF
+  sudo rm -f /etc/sudoers.d/surveytrace-credential-sudo-usepty 2>/dev/null || true
   if sudo visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
     echo "  [OK] sudoers helper drop-in valid: $SUDO_HELPER_DROPIN"
   else
     echo "  [FAIL] sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
-    VERIFY_OK=0
-  fi
-  SUDO_HELPER_USEPTY_DROPIN="/etc/sudoers.d/surveytrace-credential-sudo-usepty"
-  sudo install -m 440 /dev/null "$SUDO_HELPER_USEPTY_DROPIN"
-  sudo tee "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null <<EOF
-# SurveyTrace — sudo use_pty vs Apache PrivateDevices (see docs/wiki/deployment.md).
-Defaults:${CRED_HELPER_WEB_USER} !use_pty
-
-EOF
-  if sudo visudo -cf "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null 2>&1; then
-    echo "  [OK] sudoers use_pty override valid: $SUDO_HELPER_USEPTY_DROPIN"
-  else
-    echo "  [FAIL] sudoers use_pty override invalid: $SUDO_HELPER_USEPTY_DROPIN"
     VERIFY_OK=0
   fi
 else

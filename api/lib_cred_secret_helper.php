@@ -577,7 +577,7 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
         $hintsRun[] = 'sudo rejected the exact argv (policy). As root run: sudo -l -U ' . ($poolUser ?? 'www-data') . ' — confirm one NOPASSWD line matches: ' . $sudoBin . ' -n -u surveytrace -- ' . $phpBin . ' ' . $helper;
         $hintsRun[] = 'Compare /etc/sudoers.d/surveytrace-credential-secret-helper byte-for-byte with the above; fix typos, wrong PHP path (e.g. /usr/bin/php8.5 vs /usr/bin/php), or duplicate DENY rules earlier in sudoers.';
         $hintsRun[] = 'If Defaults requiretty is set for www-data, relax it for this helper or use a policy that allows non-tty sudo for this command only.';
-        $hintsRun[] = 'If shell tests as www-data succeed but mod_php fails: check /etc/sudoers for "Defaults use_pty" and Apache unit PrivateDevices=yes — install /etc/sudoers.d/surveytrace-credential-sudo-usepty with "Defaults:' . ($poolUser ?? 'www-data') . ' !use_pty" (setup.sh/deploy.sh now ship this), then restart Apache.';
+        $hintsRun[] = 'If shell tests as www-data succeed but mod_php fails: check /etc/sudoers for "Defaults use_pty" and Apache unit PrivateDevices=yes — ensure /etc/sudoers.d/surveytrace-credential-secret-helper includes Cmnd_Alias ST_CRED_SECRET_OPS, "Defaults!ST_CRED_SECRET_OPS !use_pty", and NOPASSWD: ST_CRED_SECRET_OPS (setup.sh/deploy.sh), then restart Apache.';
     }
 
     $diagRun = array_merge($baseDiag, [
