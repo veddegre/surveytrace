@@ -404,6 +404,29 @@ if id surveytrace >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# Python cred transport (SSH/SNMP handshake tests): paramiko + pysnmp in app venv
+# Fresh setup.sh installs these; older masters may lack them after manual venv changes.
+# ---------------------------------------------------------------------------
+if id surveytrace >/dev/null 2>&1 && st_sudo test -x "$DEST/venv/bin/python3"; then
+  if ! st_sudo -u surveytrace "$DEST/venv/bin/python3" -c "import paramiko" >/dev/null 2>&1; then
+    echo "  [WARN] paramiko missing in venv — installing (SSH handshake + cred plugins)…"
+    if st_sudo -u surveytrace "$DEST/venv/bin/python3" -m pip install -q "paramiko>=3.0"; then
+      echo "  [OK] paramiko installed in venv"
+    else
+      echo "  [WARN] paramiko install failed — run: sudo -u surveytrace $DEST/venv/bin/python3 -m pip install 'paramiko>=3.0'"
+    fi
+  fi
+  if ! st_sudo -u surveytrace "$DEST/venv/bin/python3" -c "import pysnmp" >/dev/null 2>&1; then
+    echo "  [WARN] pysnmp missing in venv — installing (SNMPv3 handshake)…"
+    if st_sudo -u surveytrace "$DEST/venv/bin/python3" -m pip install -q "pysnmp>=4.4"; then
+      echo "  [OK] pysnmp installed in venv"
+    else
+      echo "  [WARN] pysnmp install failed — run: sudo -u surveytrace $DEST/venv/bin/python3 -m pip install 'pysnmp>=4.4'"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # SQLite migrations (PHP) — idempotent ALTERs in api/db.php
 # Run once as www-data so schema matches before daemons restart (avoids rare races
 # on first writer after deploy). If this fails, migrations still apply on first web hit.

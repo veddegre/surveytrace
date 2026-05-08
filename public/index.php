@@ -11310,7 +11310,8 @@ function stCredHandshakeCodeHint(code) {
         timeout: 'Host did not respond before timeout; verify network/firewall.',
         network_unreachable: 'Verify address and routing.',
         host_key_mismatch: 'Host key changed or policy rejected the host.',
-        dependency_missing: 'Worker is missing required Python/PHP dependency.',
+        dependency_missing:
+            'App venv is missing Python packages for this transport. On the server: sudo -u surveytrace /opt/surveytrace/venv/bin/python3 -m pip install "paramiko>=3.0" "pysnmp>=4.4" (then retry the handshake).',
         encryption_unavailable: 'SURVEYTRACE_CRED_SECRET_KEY is not configured.',
         decrypt_failed: 'Stored secret could not be decrypted; re-enter the secret.',
         invalid_profile: 'Fix principal/secret/profile configuration, then retry.',
