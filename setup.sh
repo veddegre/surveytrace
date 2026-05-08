@@ -999,6 +999,7 @@ check_file "$INSTALL_DIR/daemon/scheduler_daemon.py" "scheduler_daemon.py exists
 check_file "$INSTALL_DIR/daemon/collector_ingest_worker.py" "collector_ingest_worker.py exists"
 check_file "$INSTALL_DIR/daemon/collector_ingest_mirror.py" "collector_ingest_mirror.py exists"
 check_file "$INSTALL_DIR/daemon/credential_check_worker.py" "credential_check_worker.py exists"
+check_file "$INSTALL_DIR/daemon/cred_ssh_probe_cli.py" "cred_ssh_probe_cli.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_run.py" "cred_check_run.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_ssh_os_release.py" "cred_check_ssh_os_release.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_ssh_packages.py" "cred_check_ssh_packages.py exists"
