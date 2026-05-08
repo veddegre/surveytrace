@@ -109,9 +109,20 @@ echo "Deploying SurveyTrace collector files..."
 # are surveytrace:surveytrace under $DEST/daemon and $DEST/sql only.
 sudo mkdir -p "$DEST/daemon" "$DEST/sql" "$DEST/daemon/sources"
 
-for f in sqlite_pragmas.py surveytrace_paths.py surveytrace_version.py scanner_daemon.py change_detection.py asset_lifecycle.py finding_triage.py fingerprint.py profiles.py ai_cloud_client.py collector_agent.py collector_parity_runner.py; do
-  sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
-done
+COLLECTOR_DAEMON_LIST="$SRC/collector/collector_daemon_py_files.txt"
+if [[ ! -f "$COLLECTOR_DAEMON_LIST" ]]; then
+  die_collector_deploy "missing $COLLECTOR_DAEMON_LIST (repo checkout incomplete?)"
+fi
+while IFS= read -r _daemon_py || [[ -n "$_daemon_py" ]]; do
+  _daemon_py="${_daemon_py%%#*}"
+  _daemon_py="${_daemon_py#"${_daemon_py%%[![:space:]]*}"}"
+  _daemon_py="${_daemon_py%"${_daemon_py##*[![:space:]]}"}"
+  [[ -z "$_daemon_py" ]] && continue
+  if [[ ! -f "$SRC/daemon/$_daemon_py" ]]; then
+    die_collector_deploy "missing $SRC/daemon/$_daemon_py (update collector_daemon_py_files.txt?)"
+  fi
+  sudo cp "$SRC/daemon/$_daemon_py" "$DEST/daemon/"
+done < "$COLLECTOR_DAEMON_LIST"
 [ -f "$SRC/VERSION" ] && sudo cp "$SRC/VERSION" "$DEST/"
 sudo cp "$SRC/sql/schema.sql" "$DEST/sql/"
 for f in "$SRC"/daemon/sources/*.py; do
@@ -142,9 +153,13 @@ check_dir "$DEST/data" "collector data directory exists"
 check_dir "/etc/surveytrace" "collector config directory exists"
 check_file "/etc/surveytrace/collector.json" "collector config file exists"
 check_file "/etc/systemd/system/surveytrace-collector.service" "collector systemd unit exists"
-check_file "$DEST/daemon/collector_agent.py" "collector_agent.py exists"
-check_file "$DEST/daemon/collector_parity_runner.py" "collector_parity_runner.py exists"
-check_file "$DEST/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+while IFS= read -r _daemon_py || [[ -n "$_daemon_py" ]]; do
+  _daemon_py="${_daemon_py%%#*}"
+  _daemon_py="${_daemon_py#"${_daemon_py%%[![:space:]]*}"}"
+  _daemon_py="${_daemon_py%"${_daemon_py##*[![:space:]]}"}"
+  [[ -z "$_daemon_py" ]] && continue
+  check_file "$DEST/daemon/$_daemon_py" "daemon/$_daemon_py exists"
+done < "$COLLECTOR_DAEMON_LIST"
 check_file "$DEST/sql/schema.sql" "schema.sql exists"
 check_owner_group "$DEST/daemon" "surveytrace:surveytrace" "collector daemon owner/group"
 check_owner_group "/etc/surveytrace/collector.json" "root:surveytrace" "collector config owner/group"

@@ -5,6 +5,9 @@
 # Run as root:  sudo bash setup.sh
 # You will be asked: full server (1) or collector-only (2). Non-interactive:
 #   SURVEYTRACE_SETUP=master|collector
+#
+# Web stack: Apache + php-fpm + mod_proxy_fcgi (not mod_php). Brownfield hosts
+# still on libapache2-mod-php: scripts/migrate_apache_modphp_to_phpfpm.sh (see docs/wiki/deployment.md).
 # =============================================================================
 set -euo pipefail
 
@@ -668,6 +671,18 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         apt-get install -y --no-install-recommends "php${PHP_VER}-fpm" || \
             warn "Could not install php${PHP_VER}-fpm"
     fi
+    # FPM pool: SURVEYTRACE_INSTALL_DIR for workers (same drop-in as migrate_apache_modphp_to_phpfpm.sh).
+    FPM_POOL_D="/etc/php/${PHP_VER}/fpm/pool.d"
+    if [[ -d "$FPM_POOL_D" ]]; then
+        install -m 0644 /dev/null "${FPM_POOL_D}/zzz-surveytrace-install-dir.conf"
+        cat > "${FPM_POOL_D}/zzz-surveytrace-install-dir.conf" <<POOL
+; SurveyTrace — env for PHP-FPM workers (setup.sh).
+[www]
+env[SURVEYTRACE_INSTALL_DIR] = ${INSTALL_DIR}
+POOL
+    else
+        warn "php-fpm pool.d missing at $FPM_POOL_D — skipping SURVEYTRACE_INSTALL_DIR drop-in"
+    fi
     # FPM must be listening before Apache proxies (socket below).
     if systemctl list-unit-files "php${PHP_VER}-fpm.service" &>/dev/null; then
         systemctl enable "php${PHP_VER}-fpm" && systemctl start "php${PHP_VER}-fpm" || \
@@ -675,7 +690,21 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
     else
         warn "php${PHP_VER}-fpm unit missing — install php${PHP_VER}-fpm (must match: php -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;')"
     fi
-    a2dismod php${PHP_VER} 2>/dev/null || true
+    # Disable all libapache2-mod-php* modules; prefer mpm_event for proxy_fcgi.
+    shopt -s nullglob
+    for _php_mod in /etc/apache2/mods-enabled/php*.load; do
+        a2dismod -f "$(basename "$_php_mod" .load)" 2>/dev/null || true
+    done
+    shopt -u nullglob
+    if a2query -q -m mpm_prefork 2>/dev/null; then
+        a2dismod mpm_prefork || warn "a2dismod mpm_prefork failed — fix Apache MPM manually"
+    fi
+    if a2query -q -m mpm_worker 2>/dev/null; then
+        a2dismod mpm_worker 2>/dev/null || true
+    fi
+    if ! a2query -q -m mpm_event 2>/dev/null; then
+        a2enmod mpm_event || warn "a2enmod mpm_event failed — Apache may not proxy to php-fpm"
+    fi
     a2enmod proxy proxy_fcgi setenvif rewrite 2>/dev/null || true
     APACHE_CONF="/etc/apache2/sites-available/surveytrace.conf"
     cat > "$APACHE_CONF" <<APACHE
@@ -688,6 +717,7 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         Options -Indexes
         AllowOverride None
         Require all granted
+        CGIPassAuth On
         <FilesMatch "\.php\$">
             SetHandler "proxy:unix:/run/php/php${PHP_VER}-fpm.sock|fcgi://localhost"
         </FilesMatch>
@@ -697,6 +727,7 @@ elif [[ "$WEB_SERVER" == "apache2" ]]; then
         Options -Indexes
         AllowOverride All
         Require all granted
+        CGIPassAuth On
         <FilesMatch "\.php\$">
             SetHandler "proxy:unix:/run/php/php${PHP_VER}-fpm.sock|fcgi://localhost"
         </FilesMatch>

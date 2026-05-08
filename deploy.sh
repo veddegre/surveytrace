@@ -318,6 +318,16 @@ for f in "${SCRIPTS_PHP[@]}"; do
   sudo cp "$SRC/scripts/$f" "$DEST/scripts/"
 done
 
+mapfile -t SCRIPTS_SH < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" scripts_sh)
+for f in "${SCRIPTS_SH[@]}"; do
+  if [[ ! -f "$SRC/scripts/$f" ]]; then
+    echo "  [FAIL] missing scripts/$f (manifest scripts_sh — fix checkout or manifest)"
+    exit 1
+  fi
+  sudo cp "$SRC/scripts/$f" "$DEST/scripts/"
+  sudo chmod 755 "$DEST/scripts/$f"
+done
+
 echo "  Daemon files deployed"
 
 # ---------------------------------------------------------------------------
@@ -637,6 +647,9 @@ check_file "$DEST/daemon/worker_jobs.py" "worker_jobs.py (worker execution subst
 check_file "$DEST/daemon/cred_decrypt_cli.php" "cred_decrypt_cli.php"
 check_dir "$DEST/scripts" "scripts dir (maintenance + selftests)"
 for _st_scr in "${SCRIPTS_PHP[@]}"; do
+  check_file "$DEST/scripts/$_st_scr" "scripts/$_st_scr"
+done
+for _st_scr in "${SCRIPTS_SH[@]}"; do
   check_file "$DEST/scripts/$_st_scr" "scripts/$_st_scr"
 done
 check_file "$DEST/data/surveytrace.db" "surveytrace.db"

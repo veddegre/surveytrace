@@ -423,6 +423,13 @@ sudo systemctl restart surveytrace-scheduler
   2. **Narrow override:** `sudo systemctl edit apache2` and set `[Service]` **`RestrictSUIDSGID=no`**, then `daemon-reload` + restart Apache. Understand this weakens setuid blocking for **all** Apache children.
 - Verify: `systemctl show apache2 --no-pager | grep RestrictSUIDSGID`
 
+#### Migrating an existing host from `mod_php` to php-fpm
+
+- On Debian/Ubuntu, run as **root**: **`sudo bash /opt/surveytrace/scripts/migrate_apache_modphp_to_phpfpm.sh`** (or from a checkout: **`sudo bash scripts/migrate_apache_modphp_to_phpfpm.sh`**). Optional **`--dry-run`**. Override install root with **`SURVEYTRACE_INSTALL_DIR`** if not **`/opt/surveytrace`**.
+- The script installs **`php${VER}-fpm`**, **`libapache2-mod-proxy-fcgi`**, disables **`libapache2-mod-php*`** Apache modules, switches to **`mpm_event`**, writes **`/etc/apache2/sites-available/surveytrace.conf`**, drops **`env[SURVEYTRACE_INSTALL_DIR]`** into **`/etc/php/${VER}/fpm/pool.d/zzz-surveytrace-install-dir.conf`**, and restarts **php-fpm** + **apache2**. Backups under **`/root/surveytrace-migrate-fpm-*`**.
+- **`setup.sh`** (Apache branch) uses the **same** choices: **`CGIPassAuth On`** on **`/api`** and **`public`**, **`proxy:unix:…fpm.sock`**, **`zzz-surveytrace-install-dir.conf`**, **`mpm_event`**, and disabling all **`php*.load`** modules. Greenfield installs and the migration script stay aligned; brownfield **`mod_php`** hosts should run the migration script rather than re-running the full **`setup.sh`** just for Apache.
+- After migration, confirm **`sudo -l -U www-data`** still matches the credential helper (pool user is usually still **`www-data`**).
+
 ---
 
 ### `Defaults use_pty` + Apache `PrivateDevices=yes` (web sudo fails, shell `www-data` works)

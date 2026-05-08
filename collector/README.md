@@ -113,6 +113,10 @@ After pulling new code on collector host:
 bash collector/deploy.sh
 ```
 
+Collectors do **not** run the SurveyTrace web stack (no Apache, php-fpm, or credential-helper sudoers). Master-only changes such as **`mod_php` → php-fpm** do not apply here.
+
+If **`scanner_daemon.py`** (or collector parity) gains new **same-directory** Python imports, add the new basename to **`collector/collector_daemon_py_files.txt`** so **`collector/setup.sh`** and **`collector/deploy.sh`** stay aligned.
+
 ## Hardening
 
 Apply baseline hardening:

@@ -72,6 +72,12 @@ foreach ($m['scripts_php'] ?? [] as $bn) {
         $errors[] = 'manifest lists missing file (scripts_php): ' . $bn;
     }
 }
+foreach ($m['scripts_sh'] ?? [] as $bn) {
+    $p = $repo . '/scripts/' . $bn;
+    if (!is_readable($p)) {
+        $errors[] = 'manifest lists missing file (scripts_sh): ' . $bn;
+    }
+}
 foreach ($m['public_files'] ?? [] as $rel) {
     $p = $repo . '/' . $rel;
     if (!is_readable($p)) {
@@ -133,6 +139,7 @@ foreach ($daemonPy as $full) {
 
 // --- scripts ---
 $scriptsWant = array_flip($m['scripts_php']);
+$scriptsShWant = array_flip($m['scripts_sh'] ?? []);
 $scriptsDev = array_flip($m['scripts_dev_only'] ?? []);
 $scriptPhp = [];
 st_collect_paths($repo . '/scripts', '*.php', $scriptPhp);
@@ -163,9 +170,13 @@ foreach (glob($repo . '/scripts/*', GLOB_NOSORT) ?: [] as $p) {
         continue;
     }
     $bn = basename($p);
-    if (!isset($scriptsDev[$bn])) {
-        $scriptExtras[] = $bn;
+    if (isset($scriptsDev[$bn])) {
+        continue;
     }
+    if ($ext === 'sh' && isset($scriptsShWant[$bn])) {
+        continue;
+    }
+    $scriptExtras[] = $bn;
 }
 if ($scriptExtras !== []) {
     $warn[] = 'non-PHP files under scripts/ (ensure intentional / allowlist if dev-only): ' . implode(', ', $scriptExtras);

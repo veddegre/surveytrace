@@ -89,13 +89,16 @@ usermod -aG netdev "$APP_USER" 2>/dev/null || true
 # No master api/ tree on collectors (no Zabbix API workers); only daemon + sql + data.
 mkdir -p "$INSTALL_DIR/daemon" "$INSTALL_DIR/sql" "$INSTALL_DIR/data"
 printf '%s\n' collector > "$INSTALL_ROLE_FILE"
-cp "$SRC_DIR/daemon/scanner_daemon.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/change_detection.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/fingerprint.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/profiles.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/ai_cloud_client.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/collector_agent.py" "$INSTALL_DIR/daemon/"
-cp "$SRC_DIR/daemon/collector_parity_runner.py" "$INSTALL_DIR/daemon/"
+COLLECTOR_DAEMON_LIST="$SRC_DIR/collector/collector_daemon_py_files.txt"
+[[ -f "$COLLECTOR_DAEMON_LIST" ]] || die "missing $COLLECTOR_DAEMON_LIST (repo checkout incomplete?)"
+while IFS= read -r _daemon_py || [[ -n "$_daemon_py" ]]; do
+  _daemon_py="${_daemon_py%%#*}"
+  _daemon_py="${_daemon_py#"${_daemon_py%%[![:space:]]*}"}"
+  _daemon_py="${_daemon_py%"${_daemon_py##*[![:space:]]}"}"
+  [[ -z "$_daemon_py" ]] && continue
+  [[ -f "$SRC_DIR/daemon/$_daemon_py" ]] || die "missing daemon/$_daemon_py (update collector_daemon_py_files.txt?)"
+  cp "$SRC_DIR/daemon/$_daemon_py" "$INSTALL_DIR/daemon/"
+done < "$COLLECTOR_DAEMON_LIST"
 cp "$SRC_DIR/sql/schema.sql" "$INSTALL_DIR/sql/"
 mkdir -p "$INSTALL_DIR/daemon/sources"
 cp "$SRC_DIR/daemon/sources/"*.py "$INSTALL_DIR/daemon/sources/" 2>/dev/null || true
@@ -166,9 +169,13 @@ check_dir "$INSTALL_DIR/data" "collector data directory exists"
 check_dir "$CFG_DIR" "collector config directory exists"
 check_file "$CFG_FILE" "collector config file exists"
 check_file "/etc/systemd/system/surveytrace-collector.service" "collector systemd unit exists"
-check_file "$INSTALL_DIR/daemon/collector_agent.py" "collector_agent.py exists"
-check_file "$INSTALL_DIR/daemon/collector_parity_runner.py" "collector_parity_runner.py exists"
-check_file "$INSTALL_DIR/daemon/scanner_daemon.py" "scanner_daemon.py exists"
+while IFS= read -r _daemon_py || [[ -n "$_daemon_py" ]]; do
+  _daemon_py="${_daemon_py%%#*}"
+  _daemon_py="${_daemon_py#"${_daemon_py%%[![:space:]]*}"}"
+  _daemon_py="${_daemon_py%"${_daemon_py##*[![:space:]]}"}"
+  [[ -z "$_daemon_py" ]] && continue
+  check_file "$INSTALL_DIR/daemon/$_daemon_py" "daemon/$_daemon_py exists"
+done < "$COLLECTOR_DAEMON_LIST"
 check_file "$INSTALL_DIR/sql/schema.sql" "schema.sql exists"
 
 check_owner_group "$INSTALL_DIR/daemon" "$APP_USER:$GROUP" "collector daemon owner/group"
