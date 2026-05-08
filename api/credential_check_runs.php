@@ -85,12 +85,27 @@ if ($action === 'cancel') {
     if ($runId < 1) {
         st_json(['ok' => false, 'error' => 'run_id required'], 400);
     }
-    [$ok, $err] = st_cc_run_cancel($db, $runId, $actorName);
+    [$ok, $err, $cmeta] = st_cc_run_cancel($db, $runId, $actorName);
     if (! $ok) {
         st_json(['ok' => false, 'error' => $err ?? 'Cancel failed'], 400);
     }
     st_audit_log('credential_check.run_cancelled', $actorId, $actorName, null, null, ['run_id' => $runId]);
-    st_json(['ok' => true, 'run' => ['id' => $runId, 'status' => 'cancelled']]);
+    $prior = is_array($cmeta) ? (string) ($cmeta['prior_status'] ?? '') : '';
+    $wj = is_array($cmeta) ? (int) ($cmeta['worker_job_id'] ?? 0) : 0;
+    $mode = $prior === 'running' ? 'running_inflight' : 'queued_or_waiting';
+    st_json([
+        'ok'   => true,
+        'run'  => [
+            'id'             => $runId,
+            'status'         => 'cancelled',
+            'prior_status'   => $prior !== '' ? $prior : null,
+            'worker_job_id'  => $wj > 0 ? $wj : null,
+            'cancel_mode'    => $mode,
+            'cancel_note'    => $mode === 'running_inflight'
+                ? 'Run was in progress; worker is asked to stop. Targets already completed remain recorded.'
+                : 'Run was queued or not yet executing; pending targets were marked cancelled.',
+        ],
+    ]);
 }
 
 st_json(['ok' => false, 'error' => 'Unknown action'], 400);

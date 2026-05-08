@@ -3,6 +3,8 @@
  * SurveyTrace — application credential secret envelope (authenticated encryption).
  *
  * Key material: **environment only** — `SURVEYTRACE_CRED_SECRET_KEY` (never stored in SQLite).
+ * On hardened installs the key lives in `/etc/surveytrace/surveytrace.env` (readable by `surveytrace`, not the web pool);
+ * the web UI uses **`daemon/cred_secret_ops_cli.php` via sudo** for encrypt/handshake paths instead of loading the key in php-fpm.
  * Accepts: base64-encoded 32 raw bytes, 64-char hex (32 bytes), or any string (SHA-256 → 32-byte key).
  * Prefer: `openssl rand -base64 32` for production.
  *

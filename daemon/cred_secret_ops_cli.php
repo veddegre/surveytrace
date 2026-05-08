@@ -10,6 +10,17 @@ require_once __DIR__ . '/../api/lib_credential_profile_transport_test.php';
 const ST_CRED_OPS_ENV_FILE = '/etc/surveytrace/surveytrace.env';
 
 /**
+ * Only these keys from surveytrace.env are applied into the helper process (defense in depth).
+ * Do not broaden: arbitrary SURVEYTRACE_* values could alter DB paths or other runtime behavior.
+ */
+const ST_CRED_OPS_ENV_ALLOW = [
+    'SURVEYTRACE_CRED_SECRET_KEY',
+    'SURVEYTRACE_CRED_SECRET_KEY_STRICT',
+    'SURVEYTRACE_SQLITE_BUSY_TIMEOUT_MS',
+    'SURVEYTRACE_SQLITE_MMAP_BYTES',
+];
+
+/**
  * @return array{env_file:string,env_file_present:bool,env_file_readable:bool,key_loaded:bool}
  */
 function st_load_runtime_env_file(string $path = ST_CRED_OPS_ENV_FILE): array
@@ -40,7 +51,7 @@ function st_load_runtime_env_file(string $path = ST_CRED_OPS_ENV_FILE): array
             continue;
         }
         $k = trim(substr($s, 0, $eq));
-        if (!preg_match('/^SURVEYTRACE_[A-Z0-9_]+$/', $k)) {
+        if (! in_array($k, ST_CRED_OPS_ENV_ALLOW, true)) {
             continue;
         }
         $v = trim(substr($s, $eq + 1));

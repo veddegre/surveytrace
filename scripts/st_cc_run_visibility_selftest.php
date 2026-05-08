@@ -28,10 +28,12 @@ $pdo->exec(
     "CREATE TABLE worker_jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         job_type TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'queued'
+        status TEXT NOT NULL DEFAULT 'queued',
+        entity_type TEXT,
+        entity_id INTEGER
     )"
 );
-$pdo->exec("INSERT INTO worker_jobs (id, job_type, status) VALUES (1, 'credentialed_check', 'completed')");
+$pdo->exec("INSERT INTO worker_jobs (id, job_type, status, entity_type, entity_id) VALUES (1, 'credentialed_check', 'completed', 'credential_check_run', 7)");
 
 $pdo->exec(
     "CREATE TABLE worker_job_events (
@@ -116,6 +118,38 @@ $sum = st_cc_plugin_selection_summary(json_encode([
 ], JSON_THROW_ON_ERROR));
 if (strpos($sum, '+') === false) {
     fwrite(STDERR, "FAIL: plugin_summary expected overflow hint, got {$sum}\n");
+    exit(1);
+}
+
+if (st_cc_timeline_redact_sensitive_string('x password=secret', 99) !== '[redacted]') {
+    fwrite(STDERR, "FAIL: redact password pattern\n");
+    exit(1);
+}
+$pemCode = json_encode(['run_id' => 7, 'code' => "-----BEGIN RSA PRIVATE KEY-----\nABC"], JSON_THROW_ON_ERROR);
+$pubPem = st_cc_timeline_audit_details_public($pemCode);
+if (($pubPem['code'] ?? '') !== '[redacted]') {
+    fwrite(STDERR, 'FAIL: audit code field should redact PEM-like value, got ' . json_encode($pubPem) . "\n");
+    exit(1);
+}
+
+$longPlugs = [];
+for ($i = 0; $i < 30; ++$i) {
+    $longPlugs[] = ['plugin_key' => 'ssh.linux.p_' . str_repeat('x', 40), 'version' => '1.0.0'];
+}
+$sumLong = st_cc_plugin_selection_summary(json_encode($longPlugs, JSON_THROW_ON_ERROR));
+if (strlen($sumLong) > 280) {
+    fwrite(STDERR, 'FAIL: plugin_summary length cap, len=' . strlen($sumLong) . "\n");
+    exit(1);
+}
+
+$pdo->exec('DELETE FROM user_audit_log');
+$pdo->exec('DELETE FROM worker_job_events');
+$insW->execute([1, 1, 'e1', 'info', 'first', null, '2021-06-01 12:00:00']);
+$insW->execute([1, 1, 'e2', 'info', 'second', null, '2021-06-01 12:00:00']);
+$tl2 = st_cc_run_timeline_public($pdo, 7, 1);
+$labs = array_map(static fn (array $e): string => (string) ($e['label'] ?? ''), $tl2['events']);
+if ($labs !== ['first', 'second']) {
+    fwrite(STDERR, 'FAIL: stable chronological order for same-timestamp worker events, got ' . json_encode($labs) . "\n");
     exit(1);
 }
 

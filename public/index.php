@@ -2422,7 +2422,7 @@ if (!headers_sent()) {
       <div class="st-settings-col-title">Credentialed checks — profiles</div>
       <div class="card st-settings-card" id="st-cred-profiles-card">
         <div class="ct">Credential profiles</div>
-        <p class="help-line mb10 text-dim">Define reusable credential metadata per transport using structured fields (plus optional advanced JSON). Principals never contain passwords or keys — those go into encrypted secrets via <code class="code-accent">SURVEYTRACE_CRED_SECRET_KEY</code>. Without that key you can still save profiles, but storing secrets, handshake tests, and executions that need decryption fail safely. Handshake tests are available for <strong>SSH</strong> and <strong>SNMPv3</strong>; WinRM handshake is deferred.</p>
+        <p class="help-line mb10 text-dim">Define reusable credential metadata per transport using structured fields (plus optional advanced JSON). Principals never contain passwords or keys — those are stored as encrypted envelopes. The encryption key is set in <code class="code-accent">/etc/surveytrace/surveytrace.env</code> (readable by the <code class="code-accent">surveytrace</code> user, not the web pool); the web UI invokes <code class="code-accent">daemon/cred_secret_ops_cli.php</code> via a narrow sudo rule to encrypt secrets and run handshake tests. Without a working helper you can still save profile metadata, but storing secrets, handshake tests, and credentialed runs that need decryption fail safely. Handshake tests are available for <strong>SSH</strong> and <strong>SNMPv3</strong>; WinRM handshake is deferred.</p>
         <p class="hint-micro text-dim mb10" id="st-cred-profiles-encryption-line">Encryption status: —</p>
         <div class="row-wrap gap6 mb10">
           <button type="button" class="btnp" onclick="void stCredProfileOpenModal(null)">Add profile</button>
@@ -4482,6 +4482,7 @@ function stSettingsInitSubtabs() {
 }
 
 function goTab(name) {
+    const prevTab = typeof currentTab === 'string' ? currentTab : '';
     if (name === 'access' && !stRoleIsAdmin()) {
         toast('Access control is available to admin users only.', 'err');
         name = 'dash';
@@ -4509,6 +4510,13 @@ function goTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
     document.getElementById('t-' + name).classList.add('on');
     currentTab = name;
+    if (prevTab === 'settings' && name !== 'settings') {
+        try {
+            stCcStopRunPoll();
+        } catch (e) {
+            /* ignore */
+        }
+    }
     try { sessionStorage.setItem('st_tab', name); } catch(e) {}
     stScrollMainToTop();
     if (name === 'dash')     loadDashboard();
@@ -11349,7 +11357,7 @@ function stCredHandshakeCodeHint(code) {
         host_key_mismatch: 'Host key changed or policy rejected the host.',
         dependency_missing:
             'App venv is missing Python packages for this transport. On the server: sudo -u surveytrace /opt/surveytrace/venv/bin/python3 -m pip install "paramiko>=3.0" "pysnmp>=4.4" (then retry the handshake).',
-        encryption_unavailable: 'SURVEYTRACE_CRED_SECRET_KEY is not configured.',
+        encryption_unavailable: 'Credential encryption key is not available (check /etc/surveytrace/surveytrace.env and sudo helper).',
         decrypt_failed: 'Stored secret could not be decrypted; re-enter the secret.',
         invalid_profile: 'Fix principal/secret/profile configuration, then retry.',
         busy: 'Another test is already running on the server; wait a few seconds and retry.',
@@ -11606,7 +11614,7 @@ async function loadCredentialProfiles() {
         } else if (stCredEncryptionAvailable()) {
             encLine.textContent = 'Credential encryption: configured (preferred ' + String(e.preferred_alg || 'n/a') + ').';
         } else {
-            encLine.textContent = 'Credential encryption: not configured — set SURVEYTRACE_CRED_SECRET_KEY on the server to store profile secrets.';
+            encLine.textContent = 'Credential encryption: not configured — place SURVEYTRACE_CRED_SECRET_KEY in /etc/surveytrace/surveytrace.env (surveytrace-readable) and ensure the sudo helper to cred_secret_ops_cli.php works from the web pool.';
         }
     }
     const rows = r.profiles || [];
@@ -11880,7 +11888,7 @@ function stCredProfileSyncSecretPanel(p) {
     if (encHint) {
         encHint.textContent = avail
             ? 'Secrets are encrypted at rest. They are never returned by the API. Credentialed checks use the stored envelope server-side.'
-            : 'Credential encryption is not configured on this server (missing SURVEYTRACE_CRED_SECRET_KEY). Save profile metadata now; you cannot store secrets until the key is set.';
+            : 'Credential encryption is not configured on this server (helper cannot load the key from /etc/surveytrace/surveytrace.env, or sudo helper is unavailable). Save profile metadata now; you cannot store secrets until encryption is working.';
     }
     if (saveHint) {
         if (editId < 1) {
@@ -12459,17 +12467,22 @@ function stCcMaybeStartRunPoll() {
 
 async function stCcPollRunsTick() {
     const hint = document.getElementById('st-cc-runs-poll-hint');
-    if (hint) hint.textContent = 'Refreshing…';
-    await stCcLoadJobsAndRuns();
-    if (hint) {
-        hint.textContent = stCcRunsListHasActive()
-            ? 'Auto-refresh every 4s · last ' + new Date().toLocaleTimeString()
-            : '';
-    }
-    const bg = document.getElementById('st-cc-run-modal-bg');
-    const modalOpen = bg && bg.style.display === 'flex' && __stCcRunModalId > 0;
-    if (modalOpen) {
-        await stCcRunOpenModal(__stCcRunModalId);
+    try {
+        if (hint) hint.textContent = 'Refreshing…';
+        await stCcLoadJobsAndRuns();
+        if (hint) {
+            hint.textContent = stCcRunsListHasActive()
+                ? 'Auto-refresh every 4s · last ' + new Date().toLocaleTimeString()
+                : '';
+        }
+        const bg = document.getElementById('st-cc-run-modal-bg');
+        const rid = __stCcRunModalId;
+        const modalOpen = bg && bg.style.display === 'flex' && rid > 0;
+        if (modalOpen) {
+            await stCcRunOpenModal(rid);
+        }
+    } catch (e) {
+        if (hint) hint.textContent = 'Refresh failed — will retry on next interval';
     }
 }
 
@@ -12531,6 +12544,8 @@ function stCcRunStatusBadgeHtml(status) {
 async function stCcRunOpenModal(runId) {
     if (!stRoleIsAdmin() || runId < 1) return;
     __stCcRunModalId = runId;
+    window.__stCcRunFetchGen = (window.__stCcRunFetchGen || 0) + 1;
+    const fetchGen = window.__stCcRunFetchGen;
     const bg = document.getElementById('st-cc-run-modal-bg');
     const box = document.getElementById('st-cc-run-detail');
     const btn = document.getElementById('st-cc-run-btn-cancel');
@@ -12541,6 +12556,9 @@ async function stCcRunOpenModal(runId) {
     const r = await api(
         '/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)) + dbg + '&events=1'
     );
+    if (fetchGen !== window.__stCcRunFetchGen) {
+        return;
+    }
     if (!r || !r.ok || !r.run) {
         box.innerHTML = '<p class="text-dim mb0">Could not load run.</p>';
         if (btn) btn.style.display = 'none';
@@ -12708,7 +12726,8 @@ async function stCcRunCancelCurrent() {
     if (!okCancel) return;
     const r = await apiPost('/api/credential_check_runs.php', { action: 'cancel', run_id: id });
     if (r && r.ok) {
-        toast('Cancelled', 'ok');
+        const note = r.run && r.run.cancel_note ? String(r.run.cancel_note) : 'Cancelled.';
+        toast(note, 'ok');
         await stCcRunOpenModal(id);
         await stCcLoadJobsAndRuns();
     } else {
@@ -12728,8 +12747,13 @@ async function stCcRunCancelFromList(runId) {
     const r = await apiPost('/api/credential_check_runs.php', { action: 'cancel', run_id: id });
     if (r && r.ok) {
         const fb = document.getElementById('st-cc-launch-feedback');
+        const mode = r.run && r.run.cancel_mode ? String(r.run.cancel_mode) : '';
+        const line =
+            mode === 'running_inflight'
+                ? 'Run #' + esc(String(id)) + ' — cancel sent while <strong>running</strong>; worker will stop in-flight work when it observes cancellation.'
+                : 'Run #' + esc(String(id)) + ' — cancelled while <strong>queued / not executing</strong>; pending targets marked skipped.';
         if (fb) {
-            fb.innerHTML = '<span class="text-dim">Run <span class="mono-sm">#' + esc(String(id)) + '</span> cancellation requested.</span>';
+            fb.innerHTML = '<span class="text-dim">' + line + '</span>';
         }
         await stCcLoadJobsAndRuns();
         if (__stCcRunModalId === id) {

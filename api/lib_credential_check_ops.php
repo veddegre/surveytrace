@@ -639,22 +639,22 @@ function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acc
 }
 
 /**
- * @return array{0: bool, 1: ?string}
+ * @return array{0: bool, 1: ?string, 2: ?array<string, mixed>}
  */
 function st_cc_run_cancel(PDO $pdo, int $runId, string $actorUsername): array
 {
     if (! st_cc_ops_tables_ready($pdo) || $runId < 1) {
-        return [false, 'Run not found'];
+        return [false, 'Run not found', null];
     }
     $st = $pdo->prepare('SELECT id, job_id, worker_job_id, status FROM credential_check_runs WHERE id = ? LIMIT 1');
     $st->execute([$runId]);
     $r = $st->fetch(PDO::FETCH_ASSOC);
     if (! is_array($r)) {
-        return [false, 'Run not found'];
+        return [false, 'Run not found', null];
     }
     $stRun = (string) ($r['status'] ?? '');
     if (! in_array($stRun, ['queued', 'resolving_targets', 'ready', 'running'], true)) {
-        return [false, 'Run cannot be cancelled in status ' . $stRun];
+        return [false, 'Run cannot be cancelled in status ' . $stRun, null];
     }
     $actor = trim($actorUsername) !== '' ? substr(trim($actorUsername), 0, 200) : 'unknown';
     $wjid = isset($r['worker_job_id']) ? (int) $r['worker_job_id'] : 0;
@@ -668,7 +668,7 @@ function st_cc_run_cancel(PDO $pdo, int $runId, string $actorUsername): array
         if ($upd->rowCount() !== 1) {
             $pdo->exec('ROLLBACK');
 
-            return [false, 'Run cannot be cancelled (already finished or concurrent update)'];
+            return [false, 'Run cannot be cancelled (already finished or concurrent update)', null];
         }
         $pdo->prepare(
             "UPDATE credential_check_run_targets SET status = 'skipped', error_code = 'user_cancelled', error_message_safe = 'cancelled', finished_at = datetime('now')
@@ -681,14 +681,14 @@ function st_cc_run_cancel(PDO $pdo, int $runId, string $actorUsername): array
         }
         $pdo->exec('COMMIT');
 
-        return [true, null];
+        return [true, null, ['prior_status' => $stRun, 'worker_job_id' => $wjid]];
     } catch (Throwable $e) {
         try {
             $pdo->exec('ROLLBACK');
         } catch (Throwable) {
         }
 
-        return [false, 'Cancel failed'];
+        return [false, 'Cancel failed', null];
     }
 }
 
@@ -1195,6 +1195,46 @@ function st_cc_snmp_identity_summary_from_normalized(string $normalizedJson, str
 }
 
 /**
+ * Redact high-risk substrings from timeline-bound strings (defense in depth on top of allowlists).
+ */
+function st_cc_timeline_redact_sensitive_string(string $s, int $maxLen): string
+{
+    $t = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', ' ', $s) ?? $s;
+    $t = trim($t);
+    if ($t === '') {
+        return '';
+    }
+    if (preg_match('/BEGIN\\s+[A-Z0-9\\s]+PRIVATE\\s+KEY/si', $t) || strpos($t, '-----BEGIN') !== false) {
+        return '[redacted]';
+    }
+    if (preg_match('/(?i)(password|passwd|passphrase|api[_-]?key|secret|token|private[_-]?key)\\s*[:=]/', $t)) {
+        return '[redacted]';
+    }
+    if (strlen($t) > $maxLen) {
+        return substr($t, 0, $maxLen) . '…';
+    }
+
+    return $t;
+}
+
+/**
+ * Scalar for timeline detail objects: no arrays/objects; strings redacted + capped.
+ *
+ * @return int|float|string|bool|null
+ */
+function st_cc_timeline_detail_scalar(mixed $v, int $maxStr): int|float|string|bool|null
+{
+    if ($v === null || is_bool($v) || is_int($v) || is_float($v)) {
+        return $v;
+    }
+    if (is_string($v)) {
+        return st_cc_timeline_redact_sensitive_string($v, $maxStr);
+    }
+
+    return null;
+}
+
+/**
  * Short label for Recent runs table (no raw selection blob).
  */
 function st_cc_plugin_selection_summary(?string $pluginJson): string
@@ -1219,7 +1259,15 @@ function st_cc_plugin_selection_summary(?string $pluginJson): string
         if ($pk === '') {
             continue;
         }
+        $pk = st_cc_timeline_redact_sensitive_string($pk, 80);
+        if ($pk === '[redacted]') {
+            continue;
+        }
         $ver = isset($row['version']) ? trim((string) $row['version']) : '';
+        $ver = $ver !== '' ? st_cc_timeline_redact_sensitive_string($ver, 32) : '';
+        if ($ver === '[redacted]') {
+            $ver = '';
+        }
         $labels[] = $ver !== '' ? $pk . '@' . $ver : $pk;
         if (count($labels) >= 4) {
             break;
@@ -1231,10 +1279,10 @@ function st_cc_plugin_selection_summary(?string $pluginJson): string
     $n = count($tmp);
     $head = implode(', ', $labels);
     if ($n > count($labels)) {
-        return $head . ' +' . (string) ($n - count($labels)) . ' more';
+        $head .= ' +' . (string) ($n - count($labels)) . ' more';
     }
 
-    return $head;
+    return strlen($head) > 280 ? substr($head, 0, 277) . '…' : $head;
 }
 
 /**
@@ -1262,15 +1310,13 @@ function st_cc_timeline_audit_details_public(?string $detailsJson): array
     ];
     $out = [];
     foreach ($allow as $k) {
-        if (! array_key_exists($k, $d)) {
+        if (! is_string($k) || ! array_key_exists($k, $d)) {
             continue;
         }
         $v = $d[$k];
-        if ($v === null || is_int($v) || is_float($v) || is_bool($v)) {
-            $out[$k] = $v;
-        } elseif (is_string($v)) {
-            $s = trim($v);
-            $out[$k] = strlen($s) > 200 ? substr($s, 0, 200) . '…' : $s;
+        $sc = st_cc_timeline_detail_scalar($v, 200);
+        if ($sc !== null) {
+            $out[$k] = $sc;
         }
     }
 
@@ -1298,15 +1344,13 @@ function st_cc_timeline_worker_details_public(?string $detailsJson): array
     $allow = ['credential_check_run_id', 'run_id', 'actor', 'entity', 'entity_id', 'phase', 'code', 'plugin_key', 'plugin_version'];
     $out = [];
     foreach ($allow as $k) {
-        if (! array_key_exists($k, $d)) {
+        if (! is_string($k) || ! array_key_exists($k, $d)) {
             continue;
         }
         $v = $d[$k];
-        if ($v === null || is_int($v) || is_float($v) || is_bool($v)) {
-            $out[$k] = $v;
-        } elseif (is_string($v)) {
-            $s = trim($v);
-            $out[$k] = strlen($s) > 160 ? substr($s, 0, 160) . '…' : $s;
+        $sc = st_cc_timeline_detail_scalar($v, 160);
+        if ($sc !== null) {
+            $out[$k] = $sc;
         }
     }
 
@@ -1331,7 +1375,8 @@ function st_cc_timeline_audit_action_label(string $action): string
 }
 
 /**
- * Bounded merged timeline (audit + worker_job_events) for one run, oldest-first, max 50 entries.
+ * Bounded merged timeline (audit + worker_job_events): merge all sources, sort chronologically,
+ * then keep the latest 50 entries (tail window). Per-event detail objects are allowlisted scalars only.
  *
  * @return array{events: list<array<string, mixed>>, truncated: bool, total_before_cap: int}
  */
@@ -1347,7 +1392,7 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
              FROM user_audit_log
              WHERE action LIKE 'credential_check.%'
              ORDER BY datetime(created_at) DESC, id DESC
-             LIMIT 500"
+             LIMIT 300"
         );
         if ($st !== false) {
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $ar) {
@@ -1372,12 +1417,12 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
                 $action = (string) ($ar['action'] ?? '');
                 $at = (string) ($ar['created_at'] ?? '');
                 $merged[] = [
-                    'sort_key' => $at . "\t" . 'a' . (string) ($ar['id'] ?? '0'),
+                    'sort_key' => $at . "\t" . 'a' . str_pad((string) ($ar['id'] ?? '0'), 12, '0', STR_PAD_LEFT),
                     'at'       => $at,
                     'source'   => 'audit',
                     'label'    => st_cc_timeline_audit_action_label($action),
                     'action'   => $action,
-                    'actor'    => (string) ($ar['actor_username'] ?? ''),
+                    'actor'    => st_cc_timeline_redact_sensitive_string((string) ($ar['actor_username'] ?? ''), 120),
                     'detail'   => st_cc_timeline_audit_details_public($dj),
                 ];
             }
@@ -1388,6 +1433,16 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
 
     if ($workerJobId > 0 && st_worker_tables_ready($pdo)) {
         try {
+            $chk = $pdo->prepare(
+                'SELECT entity_type, entity_id FROM worker_jobs WHERE id = ? LIMIT 1'
+            );
+            $chk->execute([$workerJobId]);
+            $cj = $chk->fetch(PDO::FETCH_ASSOC);
+            $eType = is_array($cj) ? strtolower(trim((string) ($cj['entity_type'] ?? ''))) : '';
+            $eId = is_array($cj) ? (int) ($cj['entity_id'] ?? 0) : 0;
+            if ($eType !== ST_CC_WORKER_ENTITY_TYPE || $eId !== $runId) {
+                @error_log('SurveyTrace st_cc_run_timeline_public: worker_job ' . $workerJobId . ' does not match run ' . $runId . '; skipping worker_job_events');
+            } else {
             $ev = $pdo->prepare(
                 'SELECT id, event_type, level, message, details_json, attempt_id, created_at
                  FROM worker_job_events WHERE job_id = ? ORDER BY datetime(created_at) ASC, id ASC LIMIT 200'
@@ -1400,12 +1455,12 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
                 $at = (string) ($wr['created_at'] ?? '');
                 $msg = isset($wr['message']) ? trim((string) $wr['message']) : '';
                 $et = (string) ($wr['event_type'] ?? '');
-                $label = $msg !== '' ? $msg : ($et !== '' ? $et : 'worker event');
+                $label = $msg !== '' ? st_cc_timeline_redact_sensitive_string($msg, 220) : ($et !== '' ? $et : 'worker event');
                 if (strlen($label) > 220) {
                     $label = substr($label, 0, 220) . '…';
                 }
                 $merged[] = [
-                    'sort_key' => $at . "\t" . 'w' . (string) ($wr['id'] ?? '0'),
+                    'sort_key' => $at . "\t" . 'w' . str_pad((string) ($wr['id'] ?? '0'), 12, '0', STR_PAD_LEFT),
                     'at'       => $at,
                     'source'   => 'worker',
                     'label'    => $label,
@@ -1415,6 +1470,7 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
                         ? (int) $wr['attempt_id'] : null,
                     'detail'   => st_cc_timeline_worker_details_public(isset($wr['details_json']) ? (string) $wr['details_json'] : null),
                 ];
+            }
             }
         } catch (Throwable $e) {
             @error_log('SurveyTrace st_cc_run_timeline_public worker: ' . $e->getMessage());
@@ -1518,6 +1574,7 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         isset($run['finished_at']) ? (string) $run['finished_at'] : null
     );
     $run['job_plugins_planned'] = st_cc_parse_plugin_labels((string) ($run['job_plugin_selection_json'] ?? ''));
+    unset($run['job_plugin_selection_json']);
 
     $run['observations_written'] = [];
     require_once __DIR__ . '/lib_reconciliation.php';
@@ -1585,8 +1642,6 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
 
     $run['retention_note'] = 'Results and artifacts are bounded per run; long-term retention is operational — prune old runs if SQLite grows.';
 
-    $run['timeline'] = null;
-    $run['timeline_meta'] = null;
     if ($includeTimeline) {
         $wjidT = isset($run['worker_job_id']) ? (int) $run['worker_job_id'] : 0;
         $tl = st_cc_run_timeline_public($pdo, $runId, $wjidT);
@@ -1595,7 +1650,10 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
             'truncated'        => $tl['truncated'],
             'total_before_cap' => $tl['total_before_cap'],
             'max_events'       => 50,
+            'ordering'         => 'chronological_within_window',
         ];
+    } else {
+        unset($run['timeline'], $run['timeline_meta']);
     }
 
     return $run;
@@ -1676,6 +1734,9 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         )->fetchColumn();
         $out['approx_result_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_results')->fetchColumn();
         $out['approx_artifact_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_artifacts')->fetchColumn();
+        if (((int) $out['queued_or_active']) < 1) {
+            $out['longest_active_run_age_sec'] = null;
+        }
         $ageS = $out['longest_active_run_age_sec'];
         $ageNote = is_int($ageS) && $ageS > 0 ? '; oldest active age ~' . (string) (int) round($ageS) . 's' : '';
         $out['summary'] = 'Queued/active runs: ' . $out['queued_or_active'] . '; running: ' . $out['running']
