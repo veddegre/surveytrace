@@ -2475,6 +2475,7 @@ if (!headers_sent()) {
           <button type="button" class="btnp" onclick="stCcJobOpenModal(null)">New job</button>
           <button type="button" class="tbtn" onclick="stCcLoadJobsAndRuns()">Refresh</button>
           <span class="hint-micro text-dim" id="st-cc-jobs-status"></span>
+          <span class="hint-micro ml8" id="st-cc-launch-feedback" aria-live="polite"></span>
         </div>
         <div class="flbl mb4">Jobs</div>
         <div class="table-wrap mb10" style="overflow:auto;max-width:100%">
@@ -2514,11 +2515,12 @@ if (!headers_sent()) {
             <input class="finp" id="st-cc-runs-filter-plugin" type="text" placeholder="e.g. package_inventory" style="flex:1;min-width:0" onchange="stCcLoadJobsAndRuns()">
           </label>
           <button type="button" class="tbtn btn-xs" onclick="stCcRunsClearFilters()">Clear filters</button>
+          <span class="hint-micro text-dim ml6" id="st-cc-runs-poll-hint" aria-live="polite"></span>
         </div>
         <div class="table-wrap" style="overflow:auto;max-width:100%">
-          <table class="data-table st-cc-runs-table" style="min-width:920px">
-            <thead><tr><th>Run</th><th>Job</th><th>Transport</th><th>Status</th><th>Targets</th><th>Duration</th><th>Worker job</th><th>Started</th><th></th></tr></thead>
-            <tbody id="st-cc-runs-tbody"><tr><td colspan="9" class="text-dim">—</td></tr></tbody>
+          <table class="data-table st-cc-runs-table" style="min-width:1040px">
+            <thead><tr><th>Run</th><th>Job</th><th>Profile</th><th>Plugins</th><th>Status</th><th>Targets</th><th>Duration</th><th>Worker job</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+            <tbody id="st-cc-runs-tbody"><tr><td colspan="11" class="text-dim">—</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -5663,11 +5665,20 @@ function renderHealthHtml(h, zbxResp) {
         const adminRet = stRoleIsAdmin()
             ? ' <span class="st-health-cc-ret-hint text-dim">Results and artifacts are bounded per run; long-term retention is operational.</span>'
             : '';
+        const longestAR =
+            ccRuns.longest_active_run_age_sec != null
+                ? parseInt(String(ccRuns.longest_active_run_age_sec), 10) || 0
+                : 0;
+        const runActive = parseInt(String(ccRuns.running ?? 0), 10) || 0;
+        const longestLine =
+            longestAR > 0 && runActive > 0
+                ? ` Longest active run age ~${esc(fmtDuration(longestAR))}.`
+                : '';
         const line1 = `<p class="hint-micro text-dim st-health-cc-runs-summary mb0">Credentialed check runs: <span class="mono-sm">${esc(
             String(ccRuns.queued_or_active ?? 0)
         )}</span> queued/active · <span class="mono-sm">${esc(String(ccRuns.running ?? 0))}</span> running · <span class="mono-sm">${esc(
             String(ccRuns.completed_recent_24h ?? 0)
-        )}</span> successful (24h) · <span class="mono-sm">${esc(String(ccRuns.failed_recent_24h ?? 0))}</span> failed (24h). ${esc(
+        )}</span> successful (24h) · <span class="mono-sm">${esc(String(ccRuns.failed_recent_24h ?? 0))}</span> failed (24h).${longestLine} ${esc(
             String(ccRuns.summary || '')
         )}${adminRet}</p>`;
         const partial = parseInt(String(ccRuns.partial_results_recent_24h ?? 0), 10) || 0;
@@ -12418,6 +12429,50 @@ async function stCcJobDelete(id) {
     }
 }
 
+function stCcRunsListHasActive() {
+    const runs = window.__stCcRunsListCache || [];
+    return runs.some((u) => {
+        const s = String(u.status || '').toLowerCase();
+        return s === 'queued' || s === 'resolving_targets' || s === 'ready' || s === 'running';
+    });
+}
+
+function stCcStopRunPoll() {
+    if (window.__stCcPollTimer) {
+        clearInterval(window.__stCcPollTimer);
+        window.__stCcPollTimer = null;
+    }
+}
+
+function stCcMaybeStartRunPoll() {
+    if (!stRoleIsAdmin()) return;
+    stCcStopRunPoll();
+    if (!stCcRunsListHasActive()) {
+        const h = document.getElementById('st-cc-runs-poll-hint');
+        if (h) h.textContent = '';
+        return;
+    }
+    window.__stCcPollTimer = setInterval(function () {
+        void stCcPollRunsTick();
+    }, 4000);
+}
+
+async function stCcPollRunsTick() {
+    const hint = document.getElementById('st-cc-runs-poll-hint');
+    if (hint) hint.textContent = 'Refreshing…';
+    await stCcLoadJobsAndRuns();
+    if (hint) {
+        hint.textContent = stCcRunsListHasActive()
+            ? 'Auto-refresh every 4s · last ' + new Date().toLocaleTimeString()
+            : '';
+    }
+    const bg = document.getElementById('st-cc-run-modal-bg');
+    const modalOpen = bg && bg.style.display === 'flex' && __stCcRunModalId > 0;
+    if (modalOpen) {
+        await stCcRunOpenModal(__stCcRunModalId);
+    }
+}
+
 async function stCcLaunchRun(jobId) {
     const tryPost = async (accept) =>
         apiPost('/api/credential_check_runs.php', { action: 'launch', job_id: jobId, accept_experimental: !!accept });
@@ -12432,8 +12487,23 @@ async function stCcLaunchRun(jobId) {
         r = await tryPost(true);
     }
     if (r && r.ok) {
-        toast('Run queued', 'ok');
+        const run = r.run || {};
+        const rid = run.id != null ? parseInt(String(run.id), 10) : 0;
+        const wjid = run.worker_job_id != null ? parseInt(String(run.worker_job_id), 10) : 0;
+        const fb = document.getElementById('st-cc-launch-feedback');
+        if (fb) {
+            fb.innerHTML =
+                '<span class="text-strong">Queued</span> · run <span class="mono-sm">#' +
+                esc(String(rid)) +
+                '</span>' +
+                (wjid > 0 ? ' · worker job <span class="mono-sm">#' + esc(String(wjid)) + '</span>' : '') +
+                ' <span class="text-dim">Starting…</span>';
+        }
         await stCcLoadJobsAndRuns();
+        stCcMaybeStartRunPoll();
+        if (rid > 0) {
+            void stCcRunOpenModal(rid);
+        }
     } else {
         toast((r && r.error) ? r.error : 'Launch failed', 'err');
     }
@@ -12468,7 +12538,9 @@ async function stCcRunOpenModal(runId) {
     box.innerHTML = '<p class="text-dim mb0">Loading…</p>';
     bg.style.display = 'flex';
     const dbg = stRoleIsAdmin() ? '&debug=1' : '';
-    const r = await api('/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)) + dbg);
+    const r = await api(
+        '/api/credential_check_runs.php?id=' + encodeURIComponent(String(runId)) + dbg + '&events=1'
+    );
     if (!r || !r.ok || !r.run) {
         box.innerHTML = '<p class="text-dim mb0">Could not load run.</p>';
         if (btn) btn.style.display = 'none';
@@ -12493,6 +12565,32 @@ async function stCcRunOpenModal(runId) {
     const errHint = failN > 0 || String(st) === 'failed'
         ? `<p class="hint-micro st-cc-run-err-hint mt6 mb0">Some targets or plugins reported failure or partial data — inspect per-target messages and normalized previews (bounded; no raw artifact bodies).</p>`
         : '';
+
+    const tlm = run.timeline && Array.isArray(run.timeline) ? run.timeline : [];
+    const tlmMeta = run.timeline_meta && typeof run.timeline_meta === 'object' ? run.timeline_meta : null;
+    let tlmBlock = '';
+    if (tlm.length) {
+        const rows = tlm
+            .map((ev) => {
+                const src = esc(String(ev.source || ''));
+                const at = ev.at ? esc(localTime(String(ev.at))) : '—';
+                const lbl = esc(String(ev.label || ''));
+                const det =
+                    ev.detail && typeof ev.detail === 'object' && Object.keys(ev.detail).length
+                        ? `<div class="mono-sm text-dim mt2">${esc(JSON.stringify(ev.detail))}</div>`
+                        : '';
+                const lvl = ev.level ? `<span class="text-dim">[${esc(String(ev.level))}]</span> ` : '';
+                return `<li class="mb6"><div class="text-dim mono-sm">${at} · ${src}</div><div>${lvl}${lbl}</div>${det}</li>`;
+            })
+            .join('');
+        const trunc =
+            tlmMeta && tlmMeta.truncated
+                ? '<p class="hint-micro text-dim mb0">Showing the latest 50 events (merged audit log + worker job events).</p>'
+                : '';
+        tlmBlock = `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Activity timeline</div>${trunc}<ol class="mb0 mt6" style="padding-left:1.2rem">${rows}</ol></div>`;
+    } else {
+        tlmBlock = `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Activity timeline</div><p class="text-dim hint-micro mb0">No timeline entries yet (audit + worker events appear as the run progresses).</p></div>`;
+    }
 
     const tgtRows = (Array.isArray(run.targets) ? run.targets : []).map((t) => {
         const safeErr = t.error_message_safe != null && String(t.error_message_safe).trim()
@@ -12584,11 +12682,12 @@ async function stCcRunOpenModal(runId) {
       </div>
       <p class="hint-micro text-dim mb0 mt4">${esc(String(run.job_name || ''))}${run.profile_name != null ? ` · ${esc(String(run.profile_name))}` : ''}${run.profile_transport != null ? ` <span class="mono-sm">(${esc(String(run.profile_transport))})</span>` : ''}</p>
       <p class="hint-micro text-dim mb0 mt4">Planned plugins: ${plannedLine}</p>
-      <p class="hint-micro text-dim mb0">Targets: pending ${esc(String(tc.pending ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}
+      <p class="hint-micro text-dim mb0">Started ${run.started_at ? esc(localTime(String(run.started_at))) : '—'} · Finished ${run.finished_at ? esc(localTime(String(run.finished_at))) : '—'}</p>
+      <p class="hint-micro text-dim mb0">Targets: pending ${esc(String(tc.pending ?? 0))} · running ${esc(String(tc.running ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}
         · Results: ok ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}</p>
       ${errHint}
       ${sumHtml ? `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Run summary (JSON)</div>${sumHtml}</div>` : ''}
-
+      ${tlmBlock}
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Targets</div>${tgtBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Normalized previews</div>${resBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Observations written (reconciliation)</div>${obsBlock}</div>
@@ -12617,6 +12716,30 @@ async function stCcRunCancelCurrent() {
     }
 }
 
+async function stCcRunCancelFromList(runId) {
+    const id = parseInt(String(runId), 10);
+    if (!stRoleIsAdmin() || id < 1) return;
+    const okCancel = await showConfirmModal('Cancel this run? Pending targets stop when the worker observes cancellation; completed targets stay recorded.', {
+        title: 'Cancel run',
+        okText: 'Cancel run',
+        cancelText: 'Keep running',
+    });
+    if (!okCancel) return;
+    const r = await apiPost('/api/credential_check_runs.php', { action: 'cancel', run_id: id });
+    if (r && r.ok) {
+        const fb = document.getElementById('st-cc-launch-feedback');
+        if (fb) {
+            fb.innerHTML = '<span class="text-dim">Run <span class="mono-sm">#' + esc(String(id)) + '</span> cancellation requested.</span>';
+        }
+        await stCcLoadJobsAndRuns();
+        if (__stCcRunModalId === id) {
+            await stCcRunOpenModal(id);
+        }
+    } else {
+        toast((r && r.error) ? r.error : 'Cancel failed', 'err');
+    }
+}
+
 function stCcRunsClearFilters() {
     const a = document.getElementById('st-cc-runs-filter-status');
     const b = document.getElementById('st-cc-runs-filter-transport');
@@ -12634,7 +12757,10 @@ async function stCcLoadJobsAndRuns() {
     const tbJ = document.getElementById('st-cc-jobs-tbody');
     const tbR = document.getElementById('st-cc-runs-tbody');
     const fpSel = document.getElementById('st-cc-runs-filter-profile');
-    if (!stRoleIsAdmin() || !tbJ || !tbR) return;
+    if (!stRoleIsAdmin() || !tbJ || !tbR) {
+        stCcStopRunPoll();
+        return;
+    }
     if (st) st.textContent = '';
     if (fpSel && fpSel.dataset.loaded !== '1') {
         const pr = await api('/api/credential_profiles.php');
@@ -12690,22 +12816,30 @@ async function stCcLoadJobsAndRuns() {
         }
     }
     if (!rr || !rr.ok) {
-        tbR.innerHTML = '<tr><td colspan="9" class="text-dim">Could not load runs.</td></tr>';
+        tbR.innerHTML = '<tr><td colspan="11" class="text-dim">Could not load runs.</td></tr>';
     } else {
         const runs = rr.runs || [];
         window.__stCcRunsListCache = runs;
         stCcRenderOperationalSummary();
         if (!runs.length) {
-            tbR.innerHTML = '<tr><td colspan="9" class="text-dim">No runs match filters.</td></tr>';
+            tbR.innerHTML = '<tr><td colspan="11" class="text-dim">No runs match filters.</td></tr>';
         } else {
             tbR.innerHTML = runs
                 .map((u) => {
                     const id = Number(u.id);
                     const wj = u.worker_job_id != null ? esc(String(u.worker_job_id)) : '—';
-                    const tr = esc(String(u.profile_transport || '—'));
+                    const prof = esc(String(u.profile_name || '—'));
+                    const tr = esc(String(u.profile_transport || ''));
+                    const profCell =
+                        tr !== ''
+                            ? `${prof} <span class="mono-sm text-dim">(${tr})</span>`
+                            : prof;
+                    const plug = esc(String(u.plugin_summary || '—'));
                     const tot = parseInt(String(u.targets_total ?? 0), 10) || 0;
                     const done = parseInt(String(u.targets_completed ?? 0), 10) || 0;
                     const failT = parseInt(String(u.targets_failed ?? 0), 10) || 0;
+                    const runT = parseInt(String(u.targets_running ?? 0), 10) || 0;
+                    const pend = parseInt(String(u.targets_pending ?? 0), 10) || 0;
                     const partialR = parseInt(String(u.result_partial_count ?? 0), 10) || 0;
                     const failR = parseInt(String(u.result_failed_count ?? 0), 10) || 0;
                     const dur = stFmtDurationMs(u.duration_ms);
@@ -12714,21 +12848,35 @@ async function stCcLoadJobsAndRuns() {
                         ? '<span class="st-cc-pill st-cc-pill--bad" title="Target or plugin failures">err</span>'
                         : '';
                     const partVis = partialR > 0 ? '<span class="st-cc-pill st-cc-pill--warn" title="Partial plugin results">partial</span>' : '';
+                    let tgtExtra = '';
+                    if (runT > 0) {
+                        tgtExtra += ` <span class="st-cc-pill st-cc-pill--act" title="Target in progress">${runT} active</span>`;
+                    }
+                    if (pend > 0 && stLow !== 'completed' && stLow !== 'failed' && stLow !== 'cancelled') {
+                        tgtExtra += ` <span class="text-dim">${pend} pending</span>`;
+                    }
+                    const canCancel = stLow === 'queued' || stLow === 'resolving_targets' || stLow === 'ready' || stLow === 'running';
+                    const cancelBtn = canCancel
+                        ? `<button type="button" class="tbtn btn-xs" onclick="stCcRunCancelFromList(${id})">Cancel</button>`
+                        : '';
                     return `<tr>
             <td class="mono-sm">${id}</td>
             <td>${esc(String(u.job_name || ''))}</td>
-            <td class="mono-sm">${tr}</td>
+            <td class="row-wrap">${profCell}</td>
+            <td class="mono-sm row-wrap">${plug}</td>
             <td class="row-wrap gap4">${stCcRunStatusBadgeHtml(u.status)} ${errVis} ${partVis}</td>
-            <td class="mono-sm">${esc(String(done))}/${esc(String(tot))}${failT > 0 ? ` <span class="text-dim">(${esc(String(failT))} fail)</span>` : ''}</td>
+            <td class="mono-sm">${esc(String(done))}/${esc(String(tot))}${failT > 0 ? ` <span class="text-dim">(${esc(String(failT))} fail)</span>` : ''}${tgtExtra}</td>
             <td class="mono-sm">${esc(dur)}</td>
             <td class="mono-sm">${wj}</td>
             <td class="text-dim mono-sm">${esc(String(u.started_at || ''))}</td>
-            <td><button type="button" class="tbtn btn-xs" onclick="stCcRunOpenModal(${id})">Detail</button></td>
+            <td class="text-dim mono-sm">${u.finished_at ? esc(localTime(String(u.finished_at))) : '—'}</td>
+            <td class="row-wrap gap4" style="white-space:nowrap"><button type="button" class="tbtn btn-xs" onclick="stCcRunOpenModal(${id})">Detail</button> ${cancelBtn}</td>
           </tr>`;
                 })
                 .join('');
         }
     }
+    stCcMaybeStartRunPoll();
 }
 
 function stCcSummaryTile(label, value, subtext, tone, titleAttr) {
@@ -12761,6 +12909,8 @@ function stCcRenderOperationalSummary() {
     const partial24 = parseInt(String(cc.partial_results_recent_24h ?? 0), 10) || 0;
     const queuedActive = parseInt(String(cc.queued_or_active ?? 0), 10) || 0;
     const oldestQueuedSec = ws.oldest_queued_age_sec != null ? (parseInt(String(ws.oldest_queued_age_sec), 10) || 0) : 0;
+    const longestActiveRunSec =
+        cc.longest_active_run_age_sec != null ? parseInt(String(cc.longest_active_run_age_sec), 10) || 0 : 0;
     const staleActive = parseInt(String(cc.stale_active_runs ?? 0), 10) || 0;
     const staleWorkerJobs = parseInt(String(maint.stale_worker_job_candidates ?? 0), 10) || 0;
     const lastOk = cc.last_successful_run_at ? stFmtUtcTs(cc.last_successful_run_at) : '—';
@@ -12772,7 +12922,12 @@ function stCcRenderOperationalSummary() {
     }
 
     const stuckQueued = queuedActive > 0 && oldestQueuedSec >= 10800;
-    const queueSub = oldestQueuedSec > 0 ? `oldest queued ${fmtDuration(oldestQueuedSec)}` : '—';
+    let queueSub = '—';
+    if (queuedActive > 0 && longestActiveRunSec > 0) {
+        queueSub = `oldest active run ${fmtDuration(longestActiveRunSec)}`;
+    } else if (oldestQueuedSec > 0) {
+        queueSub = `oldest queued ${fmtDuration(oldestQueuedSec)}`;
+    }
     const runsTone = failed24 > 0 ? 'bad' : partial24 > 0 ? 'warn' : '';
     const runsSub = `${failed24} failed · ${partial24} partial`;
     const profTone = profilesTotal > 0 && profilesSecrets === 0 ? 'warn' : '';

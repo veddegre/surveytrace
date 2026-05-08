@@ -30,7 +30,8 @@ if ($method === 'GET') {
     $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
     if ($id > 0) {
         $wantDebug = isset($_GET['debug']) && (string) $_GET['debug'] === '1';
-        $det = st_cc_run_get_detail($db, $id, $wantDebug);
+        $wantTimeline = isset($_GET['events']) && (string) $_GET['events'] === '1';
+        $det = st_cc_run_get_detail($db, $id, $wantDebug, $wantTimeline);
         if ($det === null) {
             st_json(['ok' => false, 'error' => 'Run not found'], 404);
         }
@@ -89,7 +90,7 @@ if ($action === 'cancel') {
         st_json(['ok' => false, 'error' => $err ?? 'Cancel failed'], 400);
     }
     st_audit_log('credential_check.run_cancelled', $actorId, $actorName, null, null, ['run_id' => $runId]);
-    st_json(['ok' => true]);
+    st_json(['ok' => true, 'run' => ['id' => $runId, 'status' => 'cancelled']]);
 }
 
 st_json(['ok' => false, 'error' => 'Unknown action'], 400);

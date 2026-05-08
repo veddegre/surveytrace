@@ -166,6 +166,7 @@ return [
         'st_software_inventory_diagnostics_selftest.php',
         'st_recon_trusted_data_selftest.php',
         'st_cc_normalized_preview_selftest.php',
+        'st_cc_run_visibility_selftest.php',
         'st_assets_quick_search_selftest.php',
         'diagnose_collector_ingest_queue.php',
         'check_deploy_coverage.php',

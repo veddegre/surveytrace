@@ -750,12 +750,13 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
         $where[] = 'COALESCE(j.plugin_selection_json, \'\') LIKE ?';
         $params[] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $plugF) . '%';
     }
-    $sql = 'SELECT r.*, j.name AS job_name, j.credential_profile_id,
+    $sql = 'SELECT r.*, j.name AS job_name, j.credential_profile_id, j.plugin_selection_json AS job_plugin_selection_json,
                     COALESCE(p.transport, \'\') AS profile_transport, COALESCE(p.name, \'\') AS profile_name,
                     COALESCE(tc.targets_total, 0) AS targets_total,
                     COALESCE(tc.targets_completed, 0) AS targets_completed,
                     COALESCE(tc.targets_failed, 0) AS targets_failed,
                     COALESCE(tc.targets_pending, 0) AS targets_pending,
+                    COALESCE(tc.targets_running, 0) AS targets_running,
                     COALESCE(tc.targets_skipped, 0) AS targets_skipped,
                     COALESCE(rc.partial_n, 0) AS result_partial_count,
                     COALESCE(rc.failed_n, 0) AS result_failed_count
@@ -768,6 +769,7 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
                     SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) AS targets_completed,
                     SUM(CASE WHEN status = \'failed\' THEN 1 ELSE 0 END) AS targets_failed,
                     SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) AS targets_pending,
+                    SUM(CASE WHEN status = \'running\' THEN 1 ELSE 0 END) AS targets_running,
                     SUM(CASE WHEN status = \'skipped\' THEN 1 ELSE 0 END) AS targets_skipped
                 FROM credential_check_run_targets GROUP BY run_id
              ) tc ON tc.run_id = r.id
@@ -789,6 +791,8 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
         }
         // List API: omit per-run summary blob (unbounded growth; detail endpoint serves it).
         unset($row['summary_json']);
+        $row['plugin_summary'] = st_cc_plugin_selection_summary(isset($row['job_plugin_selection_json']) ? (string) $row['job_plugin_selection_json'] : null);
+        unset($row['job_plugin_selection_json']);
         $row['duration_ms'] = st_cc_run_duration_ms_approx(
             isset($row['started_at']) ? (string) $row['started_at'] : null,
             isset($row['finished_at']) ? (string) $row['finished_at'] : null
@@ -1191,9 +1195,252 @@ function st_cc_snmp_identity_summary_from_normalized(string $normalizedJson, str
 }
 
 /**
+ * Short label for Recent runs table (no raw selection blob).
+ */
+function st_cc_plugin_selection_summary(?string $pluginJson): string
+{
+    if ($pluginJson === null || trim($pluginJson) === '') {
+        return '—';
+    }
+    try {
+        $tmp = json_decode($pluginJson, true, 48, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return '—';
+    }
+    if (! is_array($tmp) || $tmp === []) {
+        return '—';
+    }
+    $labels = [];
+    foreach ($tmp as $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        $pk = isset($row['plugin_key']) ? trim((string) $row['plugin_key']) : '';
+        if ($pk === '') {
+            continue;
+        }
+        $ver = isset($row['version']) ? trim((string) $row['version']) : '';
+        $labels[] = $ver !== '' ? $pk . '@' . $ver : $pk;
+        if (count($labels) >= 4) {
+            break;
+        }
+    }
+    if ($labels === []) {
+        return '—';
+    }
+    $n = count($tmp);
+    $head = implode(', ', $labels);
+    if ($n > count($labels)) {
+        return $head . ' +' . (string) ($n - count($labels)) . ' more';
+    }
+
+    return $head;
+}
+
+/**
+ * Allowlisted audit `details_json` fields for run timeline API (no secrets).
+ *
+ * @return array<string, int|float|string|bool|null>
+ */
+function st_cc_timeline_audit_details_public(?string $detailsJson): array
+{
+    if ($detailsJson === null || trim($detailsJson) === '') {
+        return [];
+    }
+    try {
+        $d = json_decode($detailsJson, true, 32, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return [];
+    }
+    if (! is_array($d)) {
+        return [];
+    }
+    $allow = [
+        'run_id', 'job_id', 'worker_job_id', 'target_row_id', 'asset_id', 'code', 'outcome',
+        'observation_type', 'rows_written', 'pending_targets_cancelled',
+        'targets_skipped', 'targets_completed', 'targets_failed',
+    ];
+    $out = [];
+    foreach ($allow as $k) {
+        if (! array_key_exists($k, $d)) {
+            continue;
+        }
+        $v = $d[$k];
+        if ($v === null || is_int($v) || is_float($v) || is_bool($v)) {
+            $out[$k] = $v;
+        } elseif (is_string($v)) {
+            $s = trim($v);
+            $out[$k] = strlen($s) > 200 ? substr($s, 0, 200) . '…' : $s;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Allowlisted worker_job_events.details_json for timeline (bounded scalars only).
+ *
+ * @return array<string, int|float|string|bool|null>
+ */
+function st_cc_timeline_worker_details_public(?string $detailsJson): array
+{
+    if ($detailsJson === null || trim($detailsJson) === '') {
+        return [];
+    }
+    try {
+        $d = json_decode($detailsJson, true, 24, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return [];
+    }
+    if (! is_array($d)) {
+        return [];
+    }
+    $allow = ['credential_check_run_id', 'run_id', 'actor', 'entity', 'entity_id', 'phase', 'code', 'plugin_key', 'plugin_version'];
+    $out = [];
+    foreach ($allow as $k) {
+        if (! array_key_exists($k, $d)) {
+            continue;
+        }
+        $v = $d[$k];
+        if ($v === null || is_int($v) || is_float($v) || is_bool($v)) {
+            $out[$k] = $v;
+        } elseif (is_string($v)) {
+            $s = trim($v);
+            $out[$k] = strlen($s) > 160 ? substr($s, 0, 160) . '…' : $s;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Human label for credential_check.* audit actions in timeline UI.
+ */
+function st_cc_timeline_audit_action_label(string $action): string
+{
+    return match ($action) {
+        'credential_check.run_started'        => 'Run launched (queued)',
+        'credential_check.run_cancelled'      => 'Run cancelled (operator)',
+        'credential_check.target_started'     => 'Target started',
+        'credential_check.target_failed'      => 'Target failed',
+        'credential_check.target_completed'   => 'Target finished',
+        'credential_check.observation_written'=> 'Observation written',
+        'credential_check.run_completed'    => 'Run completed (worker)',
+        default                               => $action,
+    };
+}
+
+/**
+ * Bounded merged timeline (audit + worker_job_events) for one run, oldest-first, max 50 entries.
+ *
+ * @return array{events: list<array<string, mixed>>, truncated: bool, total_before_cap: int}
+ */
+function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): array
+{
+    $merged = [];
+    if ($runId < 1) {
+        return ['events' => [], 'truncated' => false, 'total_before_cap' => 0];
+    }
+    try {
+        $st = $pdo->query(
+            "SELECT id, action, actor_username, details_json, created_at
+             FROM user_audit_log
+             WHERE action LIKE 'credential_check.%'
+             ORDER BY datetime(created_at) DESC, id DESC
+             LIMIT 500"
+        );
+        if ($st !== false) {
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $ar) {
+                if (! is_array($ar)) {
+                    continue;
+                }
+                $dj = isset($ar['details_json']) ? (string) $ar['details_json'] : '';
+                $rid = 0;
+                if ($dj !== '') {
+                    try {
+                        $tmp = json_decode($dj, true, 24, JSON_THROW_ON_ERROR);
+                        if (is_array($tmp) && isset($tmp['run_id'])) {
+                            $rid = (int) $tmp['run_id'];
+                        }
+                    } catch (Throwable) {
+                        continue;
+                    }
+                }
+                if ($rid !== $runId) {
+                    continue;
+                }
+                $action = (string) ($ar['action'] ?? '');
+                $at = (string) ($ar['created_at'] ?? '');
+                $merged[] = [
+                    'sort_key' => $at . "\t" . 'a' . (string) ($ar['id'] ?? '0'),
+                    'at'       => $at,
+                    'source'   => 'audit',
+                    'label'    => st_cc_timeline_audit_action_label($action),
+                    'action'   => $action,
+                    'actor'    => (string) ($ar['actor_username'] ?? ''),
+                    'detail'   => st_cc_timeline_audit_details_public($dj),
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_cc_run_timeline_public audit: ' . $e->getMessage());
+    }
+
+    if ($workerJobId > 0 && st_worker_tables_ready($pdo)) {
+        try {
+            $ev = $pdo->prepare(
+                'SELECT id, event_type, level, message, details_json, attempt_id, created_at
+                 FROM worker_job_events WHERE job_id = ? ORDER BY datetime(created_at) ASC, id ASC LIMIT 200'
+            );
+            $ev->execute([$workerJobId]);
+            foreach ($ev->fetchAll(PDO::FETCH_ASSOC) ?: [] as $wr) {
+                if (! is_array($wr)) {
+                    continue;
+                }
+                $at = (string) ($wr['created_at'] ?? '');
+                $msg = isset($wr['message']) ? trim((string) $wr['message']) : '';
+                $et = (string) ($wr['event_type'] ?? '');
+                $label = $msg !== '' ? $msg : ($et !== '' ? $et : 'worker event');
+                if (strlen($label) > 220) {
+                    $label = substr($label, 0, 220) . '…';
+                }
+                $merged[] = [
+                    'sort_key' => $at . "\t" . 'w' . (string) ($wr['id'] ?? '0'),
+                    'at'       => $at,
+                    'source'   => 'worker',
+                    'label'    => $label,
+                    'event_type'=> $et,
+                    'level'    => (string) ($wr['level'] ?? ''),
+                    'attempt_id'=> isset($wr['attempt_id']) && $wr['attempt_id'] !== null && $wr['attempt_id'] !== ''
+                        ? (int) $wr['attempt_id'] : null,
+                    'detail'   => st_cc_timeline_worker_details_public(isset($wr['details_json']) ? (string) $wr['details_json'] : null),
+                ];
+            }
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_cc_run_timeline_public worker: ' . $e->getMessage());
+        }
+    }
+
+    usort($merged, static function (array $a, array $b): int {
+        return strcmp((string) ($a['sort_key'] ?? ''), (string) ($b['sort_key'] ?? ''));
+    });
+    $total = count($merged);
+    $truncated = $total > 50;
+    if ($truncated) {
+        $merged = array_slice($merged, -50);
+    }
+    foreach ($merged as &$row) {
+        unset($row['sort_key']);
+    }
+    unset($row);
+
+    return ['events' => $merged, 'truncated' => $truncated, 'total_before_cap' => $total];
+}
+
+/**
  * @return array<string, mixed>|null
  */
-function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = false): ?array
+function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = false, bool $includeTimeline = false): ?array
 {
     if (! st_cc_ops_tables_ready($pdo) || $runId < 1) {
         return null;
@@ -1226,7 +1473,7 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
             $targets[] = $tr;
         }
     }
-    $c = ['pending' => 0, 'skipped' => 0, 'completed' => 0, 'failed' => 0, 'other' => 0];
+    $c = ['pending' => 0, 'running' => 0, 'skipped' => 0, 'completed' => 0, 'failed' => 0, 'other' => 0];
     foreach ($targets as $tr) {
         $s = strtolower(trim((string) ($tr['status'] ?? '')));
         if (isset($c[$s])) {
@@ -1338,6 +1585,19 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
 
     $run['retention_note'] = 'Results and artifacts are bounded per run; long-term retention is operational — prune old runs if SQLite grows.';
 
+    $run['timeline'] = null;
+    $run['timeline_meta'] = null;
+    if ($includeTimeline) {
+        $wjidT = isset($run['worker_job_id']) ? (int) $run['worker_job_id'] : 0;
+        $tl = st_cc_run_timeline_public($pdo, $runId, $wjidT);
+        $run['timeline'] = $tl['events'];
+        $run['timeline_meta'] = [
+            'truncated'        => $tl['truncated'],
+            'total_before_cap' => $tl['total_before_cap'],
+            'max_events'       => 50,
+        ];
+    }
+
     return $run;
 }
 
@@ -1350,6 +1610,7 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         'tables_ready'                      => st_cc_ops_tables_ready($pdo),
         'queued_or_active'                  => 0,
         'running'                           => 0,
+        'longest_active_run_age_sec'        => null,
         'completed_recent_24h'              => 0,
         'failed_recent_24h'                 => 0,
         'partial_results_recent_24h'        => 0,
@@ -1372,6 +1633,14 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         $out['running'] = (int) $pdo->query(
             "SELECT COUNT(*) FROM credential_check_runs WHERE status = 'running'"
         )->fetchColumn();
+        $ageRow = $pdo->query(
+            "SELECT MAX((julianday('now') - julianday(started_at)) * 86400.0) AS mx
+             FROM credential_check_runs
+             WHERE status IN ('queued','resolving_targets','ready','running') AND started_at IS NOT NULL"
+        )->fetch(PDO::FETCH_ASSOC);
+        if (is_array($ageRow) && isset($ageRow['mx']) && is_numeric($ageRow['mx'])) {
+            $out['longest_active_run_age_sec'] = (int) max(0, floor((float) $ageRow['mx']));
+        }
         $out['completed_recent_24h'] = (int) $pdo->query(
             "SELECT COUNT(*) FROM credential_check_runs WHERE status = 'completed' AND datetime(COALESCE(finished_at, started_at)) >= datetime('now', '-1 day')"
         )->fetchColumn();
@@ -1407,12 +1676,17 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         )->fetchColumn();
         $out['approx_result_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_results')->fetchColumn();
         $out['approx_artifact_rows'] = (int) $pdo->query('SELECT COUNT(*) FROM credential_check_artifacts')->fetchColumn();
+        $ageS = $out['longest_active_run_age_sec'];
+        $ageNote = is_int($ageS) && $ageS > 0 ? '; oldest active age ~' . (string) (int) round($ageS) . 's' : '';
         $out['summary'] = 'Queued/active runs: ' . $out['queued_or_active'] . '; running: ' . $out['running']
             . '; completed (24h): ' . $out['completed_recent_24h']
             . '; failed (24h): ' . $out['failed_recent_24h']
-            . '; partial results (24h): ' . $out['partial_results_recent_24h'];
+            . '; partial results (24h): ' . $out['partial_results_recent_24h'] . $ageNote;
         if ($out['stale_active_runs'] > 0) {
             $out['warning_hints'][] = (string) $out['stale_active_runs'] . ' credentialed run(s) active >3h — check worker connectivity.';
+        }
+        if (is_int($ageS) && $ageS >= 3600 && $out['running'] > 0) {
+            $out['warning_hints'][] = 'Longest active credentialed run age ~' . (string) (int) round($ageS) . 's — confirm worker is draining the queue.';
         }
         if ($out['enabled_jobs_on_disabled_profiles'] > 0) {
             $out['warning_hints'][] = (string) $out['enabled_jobs_on_disabled_profiles'] . ' enabled job(s) reference disabled/archived credential profiles.';

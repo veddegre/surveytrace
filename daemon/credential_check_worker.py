@@ -213,6 +213,15 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
 
     st = str(row["status"])
     if st == "cancelled":
+        wj.log_event(
+            conn,
+            job_id=jid,
+            attempt_id=attempt_id,
+            event_type="cred_check_run_aborted",
+            level="info",
+            message="Run already cancelled before execution",
+            details_json={"credential_check_run_id": run_id},
+        )
         try:
             conn.execute(
                 """UPDATE credential_check_run_targets SET status = 'skipped', error_code = 'user_cancelled',
@@ -234,6 +243,15 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
         (run_id,),
     )
     conn.commit()
+    wj.log_event(
+        conn,
+        job_id=jid,
+        attempt_id=attempt_id,
+        event_type="cred_check_run_executing",
+        level="info",
+        message="Run marked running; processing targets",
+        details_json={"credential_check_run_id": run_id},
+    )
 
     counts = process_cred_check_run(
         conn,
@@ -294,6 +312,20 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
         (sum_s, run_id),
     )
     conn.commit()
+    wj.log_event(
+        conn,
+        job_id=jid,
+        attempt_id=attempt_id,
+        event_type="cred_check_run_finishing",
+        level="info",
+        message="Run targets finished; finalizing worker attempt",
+        details_json={
+            "credential_check_run_id": run_id,
+            "targets_completed": int(summary.get("targets_completed") or 0),
+            "targets_failed": int(summary.get("targets_failed") or 0),
+            "targets_skipped": int(summary.get("targets_skipped") or 0),
+        },
+    )
 
     wj.finish_attempt(
         conn,
