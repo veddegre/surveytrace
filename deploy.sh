@@ -512,6 +512,16 @@ for rel in "${SQL_REL[@]}"; do
 done
 echo "  SQL reference files updated"
 
+# deploy.sh is not part of deploy_file_manifest.php — copy it so /opt/surveytrace/deploy.sh
+# matches this run (e.g. sudo bash /opt/surveytrace/deploy.sh --cleanup-stale after git pull via checkout deploy).
+if [[ -f "$SRC/deploy.sh" ]]; then
+  if ! st_deploy_skip_same "$SRC/deploy.sh" "$DEST/deploy.sh"; then
+    sudo cp "$SRC/deploy.sh" "$DEST/deploy.sh"
+  fi
+  sudo chmod 755 "$DEST/deploy.sh" 2>/dev/null || true
+  echo "  deploy.sh synced to $DEST/deploy.sh"
+fi
+
 # ---------------------------------------------------------------------------
 # Master: collector ingest worker (systemd unit)
 # ---------------------------------------------------------------------------

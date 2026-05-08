@@ -66,7 +66,9 @@ sudo bash deploy.sh --cleanup-stale
 
 `--cleanup-stale` may appear in **any** position among the arguments (so wrappers can prepend flags). If you see **Deploying SurveyTrace from /opt/surveytrace to /opt/surveytrace** and `cp` errors, the **`deploy.sh` on disk is still an older copy** — run **`sudo bash ~/surveytrace/deploy.sh --cleanup-stale`** once from your **git checkout** so the updated script is used, or copy `deploy.sh` from the checkout onto `/opt/surveytrace` first.
 
-When you invoke **`/opt/surveytrace/deploy.sh`** with **`--cleanup-stale`**, `SRC` is `/opt/surveytrace`. For **`docs/`** stale detection vs a fresher tree, set **`SURVEYTRACE_REPO_SRC=/path/to/git/checkout`** for that run (optional). **Syncing application files from git** still means running **`deploy.sh` from the checkout** (so `SRC` is the checkout, `DEST` is `/opt/surveytrace`).
+When you invoke **`/opt/surveytrace/deploy.sh`**, that file is only as current as your **last `deploy.sh` run from a checkout** — each successful master deploy **copies** `deploy.sh` from the checkout into **`/opt/surveytrace/deploy.sh`**. Until you run **`sudo bash ./deploy.sh`** from **`~/surveytrace`** once after upgrading, **`/opt/surveytrace/deploy.sh` can be stale** (missing flags like `--cleanup-stale` handling).
+
+With **`SRC` = `/opt/surveytrace`**, set **`SURVEYTRACE_REPO_SRC=/path/to/git/checkout`** for **`docs/`** stale detection vs a fresher tree (optional). **Syncing application files from git** means running **`deploy.sh` from the checkout** (so `SRC` is the checkout, `DEST` is `/opt/surveytrace`).
 
 That invokes **`scripts/cleanup_deployed_stale_files.php`** with the **current repo manifest** and **`--repo-src`** set to your checkout so **`docs/`** can be compared safely. Default is **dry-run** (prints candidates only). To delete the listed files:
 
