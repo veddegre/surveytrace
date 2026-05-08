@@ -916,7 +916,6 @@ if [[ -n "$PHP_BIN_REAL" ]]; then
     cat > "$SUDO_HELPER_DROPIN" <<EOF
 # SurveyTrace credential secret helper (least-privilege).
 www-data ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
-Defaults!${PHP_BIN_REAL} !requiretty
 
 EOF
     if visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
