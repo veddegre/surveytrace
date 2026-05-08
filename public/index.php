@@ -2943,6 +2943,7 @@ if (!headers_sent()) {
       <label class="flbl" for="st-cred-pf-test-port">Port (0 = default: 22 SSH / 161 SNMP)</label>
       <input class="finp w100 mb6" id="st-cred-pf-test-port" type="number" min="0" max="65535" value="0" oninput="stCredProfileOnTestTargetInput()">
       <p class="hint-micro mb6" id="st-cred-pf-handshake-status" aria-live="polite"></p>
+      <p class="hint-micro text-dim mb6" id="st-cred-pf-test-readiness" aria-live="polite"></p>
       <div class="row-wrap gap6 mb6">
         <button type="button" class="btnp" id="st-cred-pf-btn-transport-test" onclick="stCredProfileRunTransportTest()">Run handshake test</button>
         <span class="hint-micro text-dim hide" id="st-cred-pf-test-progress">Testing…</span>
@@ -10767,14 +10768,19 @@ async function copyAiInstallHelp() {
 window.__stCredPfAssetPick = window.__stCredPfAssetPick || [];
 window.__stCcJobAssetPick = window.__stCcJobAssetPick || [];
 
+function stCredNormalizeEncryptionStatus(encRaw) {
+    const src = encRaw && typeof encRaw === 'object' && !Array.isArray(encRaw) ? { ...encRaw } : {};
+    const availRaw = src.available;
+    const available = availRaw === true || availRaw === 1 || availRaw === '1' || String(availRaw).toLowerCase() === 'true';
+    const preferredAlg = src.preferred_alg || src.preferredAlg || src.alg || '';
+    src.available = !!available;
+    src.preferred_alg = String(preferredAlg || '');
+    return src;
+}
+
 function stCredEncryptionAvailable() {
-    const enc = window.__stCredEncryption && typeof window.__stCredEncryption === 'object' && !Array.isArray(window.__stCredEncryption)
-        ? window.__stCredEncryption
-        : {};
-    const v = enc.available;
-    if (v === true || v === 1) return true;
-    if (v === '1' || String(v).toLowerCase() === 'true') return true;
-    return false;
+    const enc = stCredNormalizeEncryptionStatus(window.__stCredEncryption || {});
+    return !!enc.available;
 }
 
 async function stCredRefreshEncryptionFromServer() {
@@ -10785,7 +10791,7 @@ async function stCredRefreshEncryptionFromServer() {
         r = null;
     }
     if (r && r.ok && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
-        window.__stCredEncryption = r.encryption;
+        window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
         return true;
     }
     if (!window.__stCredEncryption || typeof window.__stCredEncryption !== 'object' || Array.isArray(window.__stCredEncryption)) {
@@ -10821,6 +10827,16 @@ function stCredProfileBuildUiState(p) {
     const hs = window.__stCredHandshakeResult;
     const testingHandshake = !!(hs && hs.phase === 'testing');
     const supportsHandshake = t !== 'winrm';
+    const canSetSecret = !!(editId >= 1 && encryptionAvailable && secretPeek.ok);
+    const canClearSecret = !!(editId >= 1 && encryptionAvailable && hasStoredSecret);
+    const canRunTest = !!(editId >= 1 && encryptionAvailable && hasStoredSecret && host !== '' && supportsHandshake && !testingHandshake);
+    let testReason = 'Ready to test.';
+    if (editId < 1) testReason = 'Save profile first.';
+    else if (!encryptionAvailable) testReason = 'Credential encryption is not configured.';
+    else if (!hasStoredSecret) testReason = 'Store a secret first.';
+    else if (host === '') testReason = 'Enter a target host.';
+    else if (!supportsHandshake) testReason = 'Transport does not support handshake tests.';
+    else if (testingHandshake) testReason = 'Testing...';
     return {
         profile,
         transport: t,
@@ -10832,8 +10848,43 @@ function stCredProfileBuildUiState(p) {
         supportsHandshake,
         secretPeek,
         testingHandshake,
+        canSetSecret,
+        canClearSecret,
+        canRunTest,
+        testReason,
     };
 }
+
+function stCredProfileReadinessLine(st) {
+    const yesNo = (v) => (v ? 'yes' : 'no');
+    return [
+        'Test readiness:',
+        'profile id ' + yesNo(st.editId >= 1),
+        'encryption ' + yesNo(st.encryptionAvailable),
+        'stored secret ' + yesNo(st.hasStoredSecret),
+        'target host ' + yesNo(st.hostOk),
+        'transport supported ' + yesNo(st.supportsHandshake),
+        'currently testing ' + yesNo(st.testingHandshake),
+        'reason: ' + st.testReason,
+    ].join(' | ');
+}
+
+window.stCredProfileDebugState = function stCredProfileDebugState() {
+    const st = stCredProfileBuildUiState(window.__stCredProfileModalPayload || null);
+    return {
+        currentProfileId: st.editId,
+        transport: st.transport,
+        encryptionAvailable: st.encryptionAvailable,
+        hasSecret: st.hasStoredSecret,
+        targetHost: st.host,
+        supported: st.supportsHandshake,
+        currentlyTesting: st.testingHandshake,
+        canSetSecret: st.canSetSecret,
+        canClearSecret: st.canClearSecret,
+        canRunTest: st.canRunTest,
+        reason: st.testReason,
+    };
+};
 
 /** @returns {{ ok: boolean, reason: string }} */
 function stCredProfilePeekSecretMaterialOk() {
@@ -11502,7 +11553,7 @@ async function loadCredentialProfiles() {
         tbody.innerHTML = '<tr><td colspan="8" class="text-dim">Could not load profiles (admin only).</td></tr>';
         return;
     }
-    window.__stCredEncryption = r.encryption && typeof r.encryption === 'object' ? r.encryption : {};
+    window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption || {});
     const encLine = document.getElementById('st-cred-profiles-encryption-line');
     if (encLine) {
         const e = window.__stCredEncryption;
@@ -11601,9 +11652,11 @@ function stCredProfileSyncTransportTestPanel(p) {
     const panel = document.getElementById('st-cred-pf-transport-test-panel');
     const btn = document.getElementById('st-cred-pf-btn-transport-test');
     const statEl = document.getElementById('st-cred-pf-handshake-status');
+    const readyEl = document.getElementById('st-cred-pf-test-readiness');
     const hostEl = document.getElementById('st-cred-pf-test-host');
     if (!panel || !btn) return;
     const st = stCredProfileBuildUiState(p);
+    if (readyEl) readyEl.textContent = stCredProfileReadinessLine(st);
     if (!st.supportsHandshake) {
         panel.classList.add('hide');
         btn.disabled = true;
@@ -11622,23 +11675,16 @@ function stCredProfileSyncTransportTestPanel(p) {
     const encOk = st.encryptionAvailable;
     const secOk = st.hasStoredSecret;
     const hostOk = st.hostOk;
-    let stat = '';
-    if (!encOk) {
-        stat = 'Credential encryption is not configured.';
-    } else if (!secOk) {
-        stat = 'Stored secret required.';
-    } else if (!hostOk) {
-        stat = 'Secret stored. Enter a target host to test.';
-    } else {
-        stat = 'Ready to test.';
-    }
+    const stat = st.testReason;
     if (statEl) {
         statEl.textContent = stat;
-        statEl.className = 'hint-micro mb6 ' + (encOk && secOk && hostOk ? 'text-secondary' : 'text-dim');
+        statEl.className = 'hint-micro mb6 ' + (st.canRunTest ? 'text-secondary' : 'text-dim');
     }
-    const canClick = !!(encOk && secOk && hostOk && !st.testingHandshake);
+    const canClick = !!st.canRunTest;
     btn.disabled = !canClick;
-    if (!encOk) {
+    if (st.testingHandshake) {
+        btn.title = 'Handshake test is currently running.';
+    } else if (!encOk) {
         btn.title = 'Credential encryption is not configured on the server.';
     } else if (!secOk) {
         btn.title = 'Set / replace secret above before testing.';
@@ -11683,7 +11729,7 @@ async function stCredProfileRunTransportTest() {
                 stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload);
             }
             if (r.encryption && typeof r.encryption === 'object') {
-                window.__stCredEncryption = r.encryption;
+                window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
             }
             await loadCredentialProfiles();
         } else {
@@ -11693,9 +11739,14 @@ async function stCredProfileRunTransportTest() {
             const failCode = r && r.code ? String(r.code) : 'protocol_error';
             stCredHandshakeFinishFromResponse(r || { ok: false, error: err, code: failCode }, id, transport, target, port);
             if (r && r.encryption && typeof r.encryption === 'object' && !Array.isArray(r.encryption)) {
-                window.__stCredEncryption = r.encryption;
+                window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
             }
         }
+    } catch (e) {
+        const err = e && e.message ? String(e.message) : 'Transport test request failed';
+        if (hint) hint.textContent = err;
+        toast(err, 'err');
+        stCredHandshakeFinishFromResponse({ ok: false, error: err, code: 'request_failed' }, id, transport, target, port);
     } finally {
         if (prog) prog.classList.add('hide');
         stCredProfileSyncTransportTestPanel(window.__stCredProfileModalPayload || null);
@@ -11900,7 +11951,7 @@ async function stCredProfileOpenModalById(id) {
         return;
     }
     if (r.encryption && typeof r.encryption === 'object') {
-        window.__stCredEncryption = r.encryption;
+        window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
     }
     await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
 }
@@ -11929,7 +11980,7 @@ async function stCredProfileSubmitSecret() {
         if (hint) hint.textContent = '';
         toast('Secret saved (value not shown again)', 'ok');
         if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = r.encryption;
+            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
         }
         stCredHandshakeClearState();
         await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
@@ -11958,7 +12009,7 @@ async function stCredProfileClearSecret() {
         if (hint) hint.textContent = '';
         toast('Secret cleared', 'ok');
         if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = r.encryption;
+            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
         }
         stCredHandshakeClearState();
         await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
@@ -12003,7 +12054,7 @@ async function stCredProfileSave() {
     const r = await apiPost('/api/credential_profiles.php', body);
     if (r && r.ok) {
         if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = r.encryption;
+            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
         }
         toast('Profile saved — set or confirm secret, then run a handshake test.', 'ok');
         stCredHandshakeClearState();
