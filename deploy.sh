@@ -662,10 +662,12 @@ if sudo -u www-data test -r /etc/surveytrace/surveytrace.env >/dev/null 2>&1; th
 else
   echo "  [OK] www-data cannot read /etc/surveytrace/surveytrace.env"
 fi
-if sudo -u www-data sudo -n -u surveytrace -- "$PHP_BIN_REAL" "$DEST/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' >/dev/null 2>&1; then
-  echo "  [OK] www-data can invoke credential secret helper via sudo"
+_st_helper_status="$(sudo -u www-data sudo -n -u surveytrace -- "$PHP_BIN_REAL" "$DEST/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
+if [[ -n "$_st_helper_status" ]] && php -r '$j=json_decode(stream_get_contents(STDIN),true); exit((is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"])&&!empty($j["status"]["key_loaded"]))?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
+  echo "  [OK] www-data helper sudo path can load credential key"
 else
-  check_warn_msg "www-data cannot invoke credential secret helper via sudo (check $SUDO_HELPER_DROPIN)"
+  echo "  [FAIL] www-data helper sudo path cannot load credential key"
+  VERIFY_OK=0
 fi
 
 if command -v zabbix_sender >/dev/null 2>&1; then

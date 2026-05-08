@@ -936,10 +936,11 @@ if runuser -u "$WEB_GROUP" -- test -r /etc/surveytrace/surveytrace.env >/dev/nul
 else
     check_ok "www-data cannot read /etc/surveytrace/surveytrace.env"
 fi
-if sudo -u "$WEB_GROUP" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' >/dev/null 2>&1; then
-    check_ok "www-data can invoke credential secret helper via sudo"
+_st_helper_status="$(sudo -u "$WEB_GROUP" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
+if [[ -n "$_st_helper_status" ]] && php -r '$j=json_decode(stream_get_contents(STDIN),true); exit((is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"])&&!empty($j["status"]["key_loaded"]))?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
+    check_ok "www-data helper sudo path can load credential key"
 else
-    check_warn "www-data cannot invoke credential secret helper via sudo (check $SUDO_HELPER_DROPIN)"
+    check_fail "www-data helper sudo path cannot load credential key (check sudoers/env file)"
 fi
 if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/collector_ingest_worker.py" --check-db-open >/dev/null 2>&1; then
     check_ok "collector ingest runtime DB-open check"

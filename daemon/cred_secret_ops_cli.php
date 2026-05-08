@@ -7,6 +7,73 @@ require_once __DIR__ . '/../api/lib_secrets.php';
 require_once __DIR__ . '/../api/lib_credential_profiles.php';
 require_once __DIR__ . '/../api/lib_credential_profile_transport_test.php';
 
+const ST_CRED_OPS_ENV_FILE = '/etc/surveytrace/surveytrace.env';
+
+/**
+ * @return array{env_file:string,env_file_present:bool,env_file_readable:bool,key_loaded:bool}
+ */
+function st_load_runtime_env_file(string $path = ST_CRED_OPS_ENV_FILE): array
+{
+    $meta = [
+        'env_file' => $path,
+        'env_file_present' => is_file($path),
+        'env_file_readable' => is_readable($path),
+        'key_loaded' => false,
+    ];
+    if (!$meta['env_file_present'] || !$meta['env_file_readable']) {
+        return $meta;
+    }
+    $lines = @file($path, FILE_IGNORE_NEW_LINES);
+    if (!is_array($lines)) {
+        return $meta;
+    }
+    foreach ($lines as $line) {
+        $s = trim((string) $line);
+        if ($s === '' || str_starts_with($s, '#')) {
+            continue;
+        }
+        if (str_starts_with($s, 'export ')) {
+            $s = trim(substr($s, 7));
+        }
+        $eq = strpos($s, '=');
+        if ($eq === false) {
+            continue;
+        }
+        $k = trim(substr($s, 0, $eq));
+        if (!preg_match('/^SURVEYTRACE_[A-Z0-9_]+$/', $k)) {
+            continue;
+        }
+        $v = trim(substr($s, $eq + 1));
+        if ((str_starts_with($v, '"') && str_ends_with($v, '"')) || (str_starts_with($v, "'") && str_ends_with($v, "'"))) {
+            $v = substr($v, 1, -1);
+        }
+        putenv($k . '=' . $v);
+        $_ENV[$k] = $v;
+        $_SERVER[$k] = $v;
+        if ($k === 'SURVEYTRACE_CRED_SECRET_KEY' && $v !== '') {
+            $meta['key_loaded'] = true;
+        }
+    }
+    if (!$meta['key_loaded']) {
+        $kv = getenv('SURVEYTRACE_CRED_SECRET_KEY');
+        $meta['key_loaded'] = is_string($kv) && trim($kv) !== '';
+    }
+    return $meta;
+}
+
+function st_cred_ops_running_user(): string
+{
+    if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+        $uid = (int) posix_geteuid();
+        $pw = @posix_getpwuid($uid);
+        if (is_array($pw) && isset($pw['name']) && trim((string) $pw['name']) !== '') {
+            return (string) $pw['name'];
+        }
+        return (string) $uid;
+    }
+    return (string) get_current_user();
+}
+
 /**
  * @param array<string,mixed> $data
  */
@@ -34,10 +101,17 @@ if (!is_array($in)) {
     st_cred_ops_out(['ok' => false, 'code' => 'invalid_request', 'error' => 'invalid_shape'], 1);
 }
 $action = strtolower(trim((string) ($in['action'] ?? '')));
+$envMeta = st_load_runtime_env_file();
 if ($action === 'status') {
+    $status = st_secret_status();
+    $status['env_file'] = $envMeta['env_file'];
+    $status['env_file_present'] = $envMeta['env_file_present'];
+    $status['env_file_readable'] = $envMeta['env_file_readable'];
+    $status['key_loaded'] = $envMeta['key_loaded'];
+    $status['running_user'] = st_cred_ops_running_user();
     st_cred_ops_out([
         'ok' => true,
-        'status' => st_secret_status(),
+        'status' => $status,
     ]);
 }
 

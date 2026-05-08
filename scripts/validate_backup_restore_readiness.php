@@ -51,6 +51,45 @@ function st_brr_q_count(PDO $pdo, string $sql): int
 }
 
 /**
+ * @return array{ok:bool,status?:array<string,mixed>}
+ */
+function st_brr_helper_status(): array
+{
+    $php = PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $cli = dirname(__DIR__) . '/daemon/cred_secret_ops_cli.php';
+    if (!is_file($cli) || !is_executable($php)) {
+        return ['ok' => false];
+    }
+    $desc = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $proc = @proc_open([$php, $cli], $desc, $pipes, dirname(__DIR__), [], ['bypass_shell' => true]);
+    if (!is_resource($proc)) {
+        return ['ok' => false];
+    }
+    fwrite($pipes[0], '{"action":"status"}');
+    fclose($pipes[0]);
+    $out = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($proc);
+    if (!is_string($out) || trim($out) === '') {
+        return ['ok' => false];
+    }
+    try {
+        $j = json_decode($out, true, 32, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return ['ok' => false];
+    }
+    if (!is_array($j) || empty($j['ok']) || !is_array($j['status'] ?? null)) {
+        return ['ok' => false];
+    }
+    return ['ok' => true, 'status' => $j['status']];
+}
+
+/**
  * @return array{pass:bool,warn:bool}
  */
 function st_brr_emit(string $level, string $msg): array
@@ -124,17 +163,26 @@ $passes++;
 
 $secretAvail = st_secret_available();
 $secretStatus = st_secret_status();
-if ($profilesWithSecrets > 0 && ! $secretAvail) {
+$helper = st_brr_helper_status();
+$helperAvail = $helper['ok'] && !empty($helper['status']['available']);
+if ($profilesWithSecrets > 0 && ! $secretAvail && ! $helperAvail) {
     st_brr_emit('FAIL', 'SURVEYTRACE_CRED_SECRET_KEY is unavailable while encrypted credential profiles exist.');
     $fails++;
-} elseif ($profilesWithSecrets === 0 && ! $secretAvail) {
+} elseif ($profilesWithSecrets === 0 && ! $secretAvail && ! $helperAvail) {
     st_brr_emit('WARN', 'SURVEYTRACE_CRED_SECRET_KEY is unavailable (no stored credential profiles detected).');
     $warns++;
 } else {
-    st_brr_emit('PASS', 'Credential secret key appears available for decrypt operations.');
+    st_brr_emit('PASS', 'Credential secret key appears available for decrypt operations (direct or helper).');
     $passes++;
 }
-if ($secretAvail) {
+if ($helperAvail) {
+    $hs = is_array($helper['status']) ? $helper['status'] : [];
+    st_brr_emit('PASS', 'Secret helper status: available=yes env_file_present=' . (!empty($hs['env_file_present']) ? 'yes' : 'no')
+        . ' env_file_readable=' . (!empty($hs['env_file_readable']) ? 'yes' : 'no')
+        . ' key_loaded=' . (!empty($hs['key_loaded']) ? 'yes' : 'no')
+        . ' running_user=' . (string) ($hs['running_user'] ?? 'unknown'));
+    $passes++;
+} elseif ($secretAvail) {
     $fp = (string) ($secretStatus['key_fingerprint'] ?? '');
     $alg = (string) ($secretStatus['preferred_alg'] ?? '');
     st_brr_emit('PASS', 'Secret env visibility: available=yes source=' . (string) ($secretStatus['source'] ?? 'unknown')
