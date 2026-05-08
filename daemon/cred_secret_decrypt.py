@@ -79,11 +79,28 @@ def decrypt_profile_secret(
         err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()[:500]
         diag["returncode"] = int(proc.returncode)
         diag["stderr_preview"] = _stderr_preview_safe(proc.stderr or b"", cap=220)
-        if "encryption_unavailable" in err or "not configured" in err.lower() or "Credential encryption is not configured" in err:
+        token = (err.splitlines()[0].strip() if err else "") or ""
+        # cred_decrypt_cli.php emits single-line tokens (see st_cred_decrypt_cli_error_token).
+        _detail_codes = frozenset(
+            {
+                "wrong_key_or_corrupt",
+                "envelope_context_mismatch",
+                "invalid_envelope_encoding",
+                "invalid_envelope",
+                "invalid_gcm_tag",
+                "unsupported_envelope_algorithm",
+                "envelope_json_invalid",
+                "context_json_invalid",
+                "decrypt_unknown",
+            }
+        )
+        if token == "encryption_unavailable" or "encryption_unavailable" in err:
             return None, "encryption_unavailable", diag
-        if "dependency_missing" in err:
+        if token == "dependency_missing" or "dependency_missing" in err:
             return None, "dependency_missing", diag
-        # Do not log stderr — may contain sensitive hints from PHP/OpenSSL in some builds.
+        if token in _detail_codes:
+            return None, ("decrypt_failed" if token == "decrypt_unknown" else token), diag
+        # Legacy PHP wrote the literal string "decrypt_failed" for all failures.
         return None, "decrypt_failed", diag
     out = (proc.stdout or b"").decode("utf-8", errors="replace")
     return out, None, {}

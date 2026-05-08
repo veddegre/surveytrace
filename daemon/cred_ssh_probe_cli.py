@@ -307,6 +307,17 @@ def main() -> int:
                     "PHP CLI missing or not executable for decrypt. Set SURVEYTRACE_PHP_CLI_BIN in "
                     "/etc/surveytrace/surveytrace.env (same path as sudoers for cred_secret_ops) or ensure php is on PATH."
                 )
+            elif derr == "wrong_key_or_corrupt":
+                err_doc["hint"] = (
+                    "SURVEYTRACE_CRED_SECRET_KEY on this machine does not match the key used when the profile secret "
+                    "was saved (or the ciphertext is corrupt). Compare the key in /etc/surveytrace/surveytrace.env with "
+                    "the web/API host that performs set_secret."
+                )
+            elif derr == "envelope_context_mismatch":
+                err_doc["hint"] = (
+                    "The envelope was encrypted with a different binding than credential_profile_id in the decrypt "
+                    "context. Ensure the profile row matches the ciphertext (re-save secret from the UI if needed)."
+                )
             elif derr == "decrypt_failed":
                 err_doc["hint"] = (
                     "cred_decrypt_cli.php failed (see decrypt_diagnostic: php binary, returncode, stderr_preview). "

@@ -543,6 +543,16 @@ def process_cred_check_run(
                     safe = "encryption not configured on worker host"
                 elif code == "dependency_missing":
                     safe = "decrypt dependency missing on worker host"
+                elif code == "wrong_key_or_corrupt":
+                    safe = "decrypt failed: wrong key or corrupt envelope (align SURVEYTRACE_CRED_SECRET_KEY with host that encrypted the profile)"
+                elif code == "envelope_context_mismatch":
+                    safe = "decrypt failed: envelope does not match this profile binding (wrong profile id or algorithm)"
+                elif code in ("invalid_envelope", "invalid_envelope_encoding", "invalid_gcm_tag", "envelope_json_invalid"):
+                    safe = "decrypt failed: stored envelope is invalid or unreadable"
+                elif code == "unsupported_envelope_algorithm":
+                    safe = "decrypt failed: unsupported envelope algorithm"
+                elif code == "context_json_invalid":
+                    safe = "decrypt failed: internal context json invalid"
                 else:
                     safe = "could not decrypt secret"
                 conn.execute(

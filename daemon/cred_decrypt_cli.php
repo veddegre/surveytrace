@@ -24,24 +24,68 @@ if (! is_string($envelope) || trim($envelope) === '') {
 
 require_once __DIR__ . '/../api/lib_secrets.php';
 
+/**
+ * Map decrypt failure to a single-line stderr token (no secret material; operators + Python probe).
+ */
+function st_cred_decrypt_cli_error_token(Throwable $e): string
+{
+    $m = strtolower((string) $e->getMessage());
+    if ($m !== '' && str_contains($m, 'not configured')) {
+        return 'encryption_unavailable';
+    }
+    if ($m !== '' && (str_contains($m, 'libsodium not available') || str_contains($m, 'openssl not available'))) {
+        return 'dependency_missing';
+    }
+    if (str_contains($m, 'envelope context mismatch')) {
+        return 'envelope_context_mismatch';
+    }
+    if (str_contains($m, 'wrong key or corrupt') || str_contains($m, 'decryption failed')) {
+        return 'wrong_key_or_corrupt';
+    }
+    if (str_contains($m, 'invalid envelope encoding')) {
+        return 'invalid_envelope_encoding';
+    }
+    if (str_contains($m, 'invalid gcm tag')) {
+        return 'invalid_gcm_tag';
+    }
+    if (str_contains($m, 'invalid envelope')) {
+        return 'invalid_envelope';
+    }
+    if (str_contains($m, 'unsupported envelope algorithm')) {
+        return 'unsupported_envelope_algorithm';
+    }
+
+    return 'decrypt_unknown';
+}
+
 try {
     $ctx = json_decode($contextJson, true, 512, JSON_THROW_ON_ERROR);
-    if (! is_array($ctx)) {
-        $ctx = [];
-    }
+} catch (Throwable $e) {
+    fwrite(STDERR, 'context_json_invalid');
+    exit(1);
+}
+if (! is_array($ctx)) {
+    $ctx = [];
+}
+
+try {
     $plain = st_secret_decrypt($envelope, $ctx);
     echo $plain;
     exit(0);
 } catch (Throwable $e) {
-    $m = strtolower(trim((string) $e->getMessage()));
-    if ($m !== '' && str_contains($m, 'not configured')) {
+    if ($e instanceof JsonException) {
+        fwrite(STDERR, 'envelope_json_invalid');
+        exit(1);
+    }
+    $token = st_cred_decrypt_cli_error_token($e);
+    if ($token === 'encryption_unavailable') {
         fwrite(STDERR, 'encryption_unavailable');
         exit(1);
     }
-    if ($m !== '' && (str_contains($m, 'libsodium not available') || str_contains($m, 'openssl not available'))) {
+    if ($token === 'dependency_missing') {
         fwrite(STDERR, 'dependency_missing');
         exit(1);
     }
-    fwrite(STDERR, 'decrypt_failed');
+    fwrite(STDERR, $token);
     exit(1);
 }
