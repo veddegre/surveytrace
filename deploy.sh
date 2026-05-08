@@ -5,7 +5,7 @@
 # After setup.sh, the same script is used everywhere: it detects master vs collector
 # and either syncs the full app or runs collector/deploy.sh.
 # Run from the repo:  bash deploy.sh
-# Optional: bash deploy.sh --cleanup-stale [--apply ...] — manifest-driven removal of obsolete paths under /opt/surveytrace (dry-run by default; pass flags through to scripts/cleanup_deployed_stale_files.php). --cleanup-stale must be the first argument. Prefer: sudo bash /path/to/git/checkout/deploy.sh --cleanup-stale (SRC=checkout, DEST=/opt/surveytrace). Running deploy.sh from /opt/surveytrace skips redundant self-copies (SRC=DEST) but cannot sync newer files from a git checkout unless you run from that checkout.
+# Optional: bash deploy.sh ... --cleanup-stale ... [--apply] — manifest-driven removal under /opt/surveytrace (dry-run by default). --cleanup-stale is detected in any argv position (CR in flags stripped). Prefer: sudo bash /path/to/git/checkout/deploy.sh --cleanup-stale so SRC is the checkout. SURVEYTRACE_REPO_SRC=/path/to/checkout when running cleanup from /opt only (SRC=DEST) enables docs/ diff vs checkout.
 # Non-interactive / automation: SURVEYTRACE_DEPLOY=master|collector forces the mode
 # when the host could be ambiguous (rare). SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1
 # ignores .install_role vs chosen mode mismatches (emergency only).
@@ -18,9 +18,19 @@ INSTALL_ROLE_FILE="$DEST/data/.install_role"
 # Forward stderr for real failures (probes use explicit 2>/dev/null on the test line).
 st_sudo() { sudo "$@"; }
 
-# True when paths are the same inode (e.g. SRC and DEST both /opt/surveytrace — skip cp to avoid "same file" errors).
+# Strip CR from CRLF line endings (common when editing on Windows) so flags like --cleanup-stale match.
+st_deploy_strip_cr() {
+  printf '%s' "${1//$'\r'/}"
+}
+
+# True when copy would be a no-op: same resolved path, or same inode (SRC=DEST install tree).
 st_deploy_skip_same() {
-  local a="$1" b="$2"
+  local a="$1" b="$2" ra rb
+  ra="$(readlink -f "$a" 2>/dev/null || printf '%s' "$a")"
+  rb="$(readlink -f "$b" 2>/dev/null || printf '%s' "$b")"
+  if [[ -n "$ra" && "$ra" == "$rb" ]]; then
+    return 0
+  fi
   [[ -e "$a" && -e "$b" && "$a" -ef "$b" ]]
 }
 
@@ -213,17 +223,32 @@ if [[ "${SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK:-}" != 1 ]]; then
   fi
 fi
 
-if [[ "${1:-}" == "--cleanup-stale" ]]; then
+# Accept --cleanup-stale in any position (not only $1) and tolerate CR in argv (CRLF scripts / env).
+_deploy_cleanup_stale=0
+_deploy_cleanup_tail=()
+for _deploy_arg in "$@"; do
+  _deploy_clean="$(st_deploy_strip_cr "$_deploy_arg")"
+  if [[ "$_deploy_clean" == "--cleanup-stale" ]]; then
+    _deploy_cleanup_stale=1
+  else
+    _deploy_cleanup_tail+=("$_deploy_arg")
+  fi
+done
+if [[ "$_deploy_cleanup_stale" == 1 ]]; then
   if [[ "$MODE" != "master" ]]; then
     die_deploy "--cleanup-stale is only supported on master installs (detected mode: ${MODE:-unknown})"
   fi
-  shift
   command -v php >/dev/null 2>&1 || die_deploy "php required for --cleanup-stale"
+  _deploy_manifest="$SRC/scripts/deploy_file_manifest.php"
+  _deploy_reposrc="$SRC"
+  if [[ "$(readlink -f "$SRC" 2>/dev/null || printf '%s' "$SRC")" == "$(readlink -f "$DEST" 2>/dev/null || printf '%s' "$DEST")" ]] && [[ -n "${SURVEYTRACE_REPO_SRC:-}" ]]; then
+    _deploy_reposrc="$(cd "${SURVEYTRACE_REPO_SRC}" && pwd)"
+  fi
   php "$SRC/scripts/cleanup_deployed_stale_files.php" \
     --install-root="$DEST" \
-    --manifest-path="$SRC/scripts/deploy_file_manifest.php" \
-    --repo-src="$SRC" \
-    "$@"
+    --manifest-path="$_deploy_manifest" \
+    --repo-src="$_deploy_reposrc" \
+    "${_deploy_cleanup_tail[@]}"
   exit $?
 fi
 
