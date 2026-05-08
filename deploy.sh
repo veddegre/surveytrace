@@ -18,6 +18,71 @@ INSTALL_ROLE_FILE="$DEST/data/.install_role"
 # Forward stderr for real failures (probes use explicit 2>/dev/null on the test line).
 st_sudo() { sudo "$@"; }
 
+st_php_cli_is_safe_path() {
+  local p="$1"
+  [[ "$p" =~ ^/(usr/bin|usr/local/bin)/php([0-9.]+)?$ ]]
+}
+
+st_php_cli_is_candidate_ok() {
+  local p="$1"
+  [[ -n "$p" ]] || return 1
+  st_php_cli_is_safe_path "$p" || return 1
+  [[ -x "$p" ]] || return 1
+  local sapi
+  sapi="$("$p" -r 'echo PHP_SAPI, PHP_EOL;' 2>/dev/null | tr -d '\r\n' || true)"
+  [[ "$sapi" == "cli" ]]
+}
+
+st_detect_php_cli_bin() {
+  local candidate=""
+  if [[ -n "${SURVEYTRACE_PHP_CLI_BIN:-}" ]] && st_php_cli_is_candidate_ok "${SURVEYTRACE_PHP_CLI_BIN}"; then
+    printf '%s\n' "${SURVEYTRACE_PHP_CLI_BIN}"
+    return 0
+  fi
+  candidate="$(command -v php 2>/dev/null || true)"
+  if st_php_cli_is_candidate_ok "$candidate"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  for candidate in /usr/bin/php /usr/local/bin/php; do
+    if st_php_cli_is_candidate_ok "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  local matches=()
+  local f=""
+  shopt -s nullglob
+  matches=(/usr/bin/php[0-9.]*)
+  shopt -u nullglob
+  if [[ "${#matches[@]}" -gt 0 ]]; then
+    IFS=$'\n' matches=($(printf '%s\n' "${matches[@]}" | sort -V -r))
+    unset IFS
+    for f in "${matches[@]}"; do
+      if st_php_cli_is_candidate_ok "$f"; then
+        printf '%s\n' "$f"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+st_upsert_env_kv() {
+  local env_file="$1"
+  local key="$2"
+  local value="$3"
+  st_sudo install -d -m 750 /etc/surveytrace
+  st_sudo test -f "$env_file" || st_sudo install -m 600 /dev/null "$env_file"
+  if st_sudo grep -Eq "^${key}=" "$env_file"; then
+    st_sudo sed -i "s|^${key}=.*$|${key}=${value}|" "$env_file"
+  else
+    printf '%s=%s\n' "$key" "$value" | st_sudo tee -a "$env_file" >/dev/null
+  fi
+  st_sudo chown root:root "$env_file"
+  st_sudo chmod 600 "$env_file"
+}
+
 read_install_role() {
   local r=""
   if sudo test -f "$INSTALL_ROLE_FILE" 2>/dev/null; then
@@ -634,8 +699,10 @@ else
   VERIFY_OK=0
 fi
 SUDO_HELPER_DROPIN="/etc/sudoers.d/surveytrace-credential-secret-helper"
-PHP_BIN_REAL="$(command -v php || true)"
+ENV_FILE="/etc/surveytrace/surveytrace.env"
+PHP_BIN_REAL="$(st_detect_php_cli_bin || true)"
 if [[ -n "$PHP_BIN_REAL" ]]; then
+  st_upsert_env_kv "$ENV_FILE" "SURVEYTRACE_PHP_CLI_BIN" "$PHP_BIN_REAL"
   sudo install -m 440 /dev/null "$SUDO_HELPER_DROPIN"
   sudo sh -c "cat > '$SUDO_HELPER_DROPIN' <<'EOF'
 # SurveyTrace credential secret helper (least-privilege).
@@ -649,24 +716,36 @@ EOF"
     VERIFY_OK=0
   fi
 else
-  echo "  [FAIL] php binary not found for sudoers helper rule"
+  echo "  [FAIL] no CLI-capable php binary found for sudoers helper rule"
   VERIFY_OK=0
 fi
-if sudo test -f /etc/surveytrace/surveytrace.env; then
-  echo "  [OK] env file present: /etc/surveytrace/surveytrace.env"
+if sudo test -f "$ENV_FILE"; then
+  echo "  [OK] env file present: $ENV_FILE"
 else
-  check_warn_msg "env file missing: /etc/surveytrace/surveytrace.env (set SURVEYTRACE_CRED_SECRET_KEY)"
+  check_warn_msg "env file missing: $ENV_FILE (set SURVEYTRACE_CRED_SECRET_KEY)"
 fi
-if sudo -u www-data test -r /etc/surveytrace/surveytrace.env >/dev/null 2>&1; then
-  check_warn_msg "www-data can read /etc/surveytrace/surveytrace.env (not recommended)"
+if sudo -u www-data test -r "$ENV_FILE" >/dev/null 2>&1; then
+  check_warn_msg "www-data can read $ENV_FILE (not recommended)"
 else
-  echo "  [OK] www-data cannot read /etc/surveytrace/surveytrace.env"
+  echo "  [OK] www-data cannot read $ENV_FILE"
 fi
 _st_helper_status="$(sudo -u www-data sudo -n -u surveytrace -- "$PHP_BIN_REAL" "$DEST/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
-if [[ -n "$_st_helper_status" ]] && php -r '$j=json_decode(stream_get_contents(STDIN),true); exit((is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"])&&!empty($j["status"]["key_loaded"]))?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
-  echo "  [OK] www-data helper sudo path can load credential key"
+_st_key_is_configured=0
+if sudo test -f "$ENV_FILE" && sudo grep -Eq '^SURVEYTRACE_CRED_SECRET_KEY=' "$ENV_FILE"; then
+  _st_key_is_configured=1
+fi
+if [[ -n "$_st_helper_status" ]] && ST_EXPECT_KEY="$_st_key_is_configured" php -r '$j=json_decode(stream_get_contents(STDIN),true); $ok=is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"]); $need=(getenv("ST_EXPECT_KEY")==="1"); if($need){$ok=$ok&&!empty($j["status"]["key_loaded"]);} exit($ok?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
+  if [[ "$_st_key_is_configured" -eq 1 ]]; then
+    echo "  [OK] www-data helper sudo path can load credential key"
+  else
+    echo "  [OK] www-data helper sudo path reachable (no credential key configured)"
+  fi
 else
-  echo "  [FAIL] www-data helper sudo path cannot load credential key"
+  if [[ "$_st_key_is_configured" -eq 1 ]]; then
+    echo "  [FAIL] www-data helper sudo path cannot load credential key"
+  else
+    echo "  [FAIL] www-data helper sudo path unavailable"
+  fi
   VERIFY_OK=0
 fi
 

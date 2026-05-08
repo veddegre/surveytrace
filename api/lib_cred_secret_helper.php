@@ -12,13 +12,87 @@ function st_cred_secret_helper_install_root(): string
     return dirname(__DIR__);
 }
 
+function st_cred_secret_helper_is_safe_php_path(string $path): bool
+{
+    if ($path === '' || $path[0] !== '/') {
+        return false;
+    }
+    if (!preg_match('#^/(usr/bin|usr/local/bin)/php([0-9.]+)?$#', $path)) {
+        return false;
+    }
+    return is_executable($path);
+}
+
+function st_cred_secret_helper_is_cli_php(string $candidate): bool
+{
+    if (!st_cred_secret_helper_is_safe_php_path($candidate)) {
+        return false;
+    }
+    if (!function_exists('proc_open') || !function_exists('proc_close')) {
+        return false;
+    }
+    $desc = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $proc = @proc_open(
+        [$candidate, '-r', 'echo PHP_SAPI, PHP_EOL;'],
+        $desc,
+        $pipes,
+        null,
+        null,
+        ['bypass_shell' => true]
+    );
+    if (!is_resource($proc)) {
+        return false;
+    }
+    fclose($pipes[0]);
+    $out = trim((string) stream_get_contents($pipes[1]));
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($proc);
+    return $exit === 0 && strtolower($out) === 'cli';
+}
+
+/**
+ * @return array{bin:string,source:string}
+ */
+function st_cred_secret_helper_php_bin_detect(): array
+{
+    $envNames = ['SURVEYTRACE_PHP_CLI_BIN', 'SURVEYTRACE_PHP_CLI'];
+    foreach ($envNames as $envName) {
+        $env = getenv($envName);
+        if (!is_string($env)) {
+            continue;
+        }
+        $candidate = trim($env);
+        if ($candidate !== '' && st_cred_secret_helper_is_cli_php($candidate)) {
+            return ['bin' => $candidate, 'source' => 'env:' . $envName];
+        }
+    }
+    if (st_cred_secret_helper_is_cli_php('/usr/bin/php')) {
+        return ['bin' => '/usr/bin/php', 'source' => 'fallback:/usr/bin/php'];
+    }
+    if (st_cred_secret_helper_is_cli_php('/usr/local/bin/php')) {
+        return ['bin' => '/usr/local/bin/php', 'source' => 'fallback:/usr/local/bin/php'];
+    }
+    $versioned = glob('/usr/bin/php[0-9.]*');
+    if (is_array($versioned)) {
+        rsort($versioned, SORT_NATURAL);
+        foreach ($versioned as $candidate) {
+            if (is_string($candidate) && st_cred_secret_helper_is_cli_php($candidate)) {
+                return ['bin' => $candidate, 'source' => 'fallback:versioned_usr_bin'];
+            }
+        }
+    }
+    return ['bin' => '/usr/bin/php', 'source' => 'fallback:default'];
+}
+
 function st_cred_secret_helper_php_bin(): string
 {
-    $env = getenv('SURVEYTRACE_PHP_CLI');
-    if (is_string($env) && trim($env) !== '') {
-        return trim($env);
-    }
-    return 'php';
+    $detected = st_cred_secret_helper_php_bin_detect();
+    return $detected['bin'];
 }
 
 function st_cred_secret_helper_path(): string
@@ -43,7 +117,9 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
         return ['ok' => false, 'error_code' => 'protocol_error', 'error' => 'encode_failed'];
     }
     $root = st_cred_secret_helper_install_root();
-    $cmd = ['sudo', '-n', '-u', 'surveytrace', '--', st_cred_secret_helper_php_bin(), $helper];
+    $phpBinDetected = st_cred_secret_helper_php_bin_detect();
+    $phpBin = $phpBinDetected['bin'];
+    $cmd = ['sudo', '-n', '-u', 'surveytrace', '--', $phpBin, $helper];
     $desc = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
@@ -59,7 +135,14 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
     $env['SURVEYTRACE_INSTALL_DIR'] = $root;
     $proc = @proc_open($cmd, $desc, $pipes, $root, $env, ['bypass_shell' => true]);
     if (!is_resource($proc)) {
-        return ['ok' => false, 'error_code' => 'helper_unavailable', 'error' => 'proc_open_failed'];
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'proc_open_failed',
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
     }
     fwrite($pipes[0], $stdin);
     fclose($pipes[0]);
@@ -88,31 +171,68 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
     fclose($pipes[2]);
     proc_close($proc);
     if ($exit === -1) {
-        return ['ok' => false, 'error_code' => 'helper_timeout', 'error' => 'helper timeout'];
+        return [
+            'ok' => false,
+            'error_code' => 'helper_timeout',
+            'error' => 'helper timeout',
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => -1,
+        ];
     }
     $out = trim($out);
     if ($out === '') {
-        return ['ok' => false, 'error_code' => 'helper_unavailable', 'error' => 'empty helper output'];
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'empty helper output',
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => $exit,
+        ];
     }
     try {
         $decoded = json_decode($out, true, 16, JSON_THROW_ON_ERROR);
     } catch (Throwable) {
-        return ['ok' => false, 'error_code' => 'protocol_error', 'error' => 'invalid helper json'];
+        return [
+            'ok' => false,
+            'error_code' => 'protocol_error',
+            'error' => 'invalid helper json',
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => $exit,
+        ];
     }
     if (!is_array($decoded)) {
-        return ['ok' => false, 'error_code' => 'protocol_error', 'error' => 'invalid helper shape'];
+        return [
+            'ok' => false,
+            'error_code' => 'protocol_error',
+            'error' => 'invalid helper shape',
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => $exit,
+        ];
     }
     if (!empty($decoded['ok'])) {
-        return ['ok' => true, 'payload' => $decoded];
+        return [
+            'ok' => true,
+            'payload' => $decoded,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => $exit,
+        ];
     }
     $code = isset($decoded['code']) ? (string) $decoded['code'] : 'helper_error';
-    $msg = isset($decoded['error']) ? (string) $decoded['error'] : 'helper error';
-    $msg = substr(preg_replace('/\s+/', ' ', $msg) ?? 'helper error', 0, 200);
-    $errSafe = trim((string) $err);
-    if ($errSafe !== '') {
-        $msg = substr($msg . ' (' . substr($errSafe, 0, 80) . ')', 0, 200);
-    }
-    return ['ok' => false, 'error_code' => $code, 'error' => $msg];
+    $msg = substr(preg_replace('/\s+/', ' ', (string) ($decoded['error'] ?? 'helper error')) ?? 'helper error', 0, 200);
+    return [
+        'ok' => false,
+        'error_code' => $code,
+        'error' => $msg,
+        'php_cli_bin_used' => $phpBin,
+        'php_cli_detect_source' => $phpBinDetected['source'],
+        'sudo_exit_code' => $exit,
+        'helper_error_code' => $code,
+    ];
 }
 
 /**
@@ -132,6 +252,9 @@ function st_cred_secret_status_via_helper(): array
     $res = st_cred_secret_helper_call(['action' => 'status'], 8);
     if (!$res['ok']) {
         $base['helper_error_code'] = (string) ($res['error_code'] ?? 'helper_unavailable');
+        $base['php_cli_bin_used'] = isset($res['php_cli_bin_used']) ? (string) $res['php_cli_bin_used'] : null;
+        $base['php_cli_detect_source'] = isset($res['php_cli_detect_source']) ? (string) $res['php_cli_detect_source'] : null;
+        $base['sudo_exit_code'] = isset($res['sudo_exit_code']) ? (int) $res['sudo_exit_code'] : null;
         return $base;
     }
     $p = is_array($res['payload'] ?? null) ? $res['payload'] : [];
@@ -143,5 +266,8 @@ function st_cred_secret_status_via_helper(): array
     $base['libsodium_loaded'] = !empty($s['libsodium_loaded']);
     $base['openssl_cipher'] = isset($s['openssl_cipher']) ? (string) $s['openssl_cipher'] : null;
     $base['helper_available'] = true;
+    $base['php_cli_bin_used'] = isset($res['php_cli_bin_used']) ? (string) $res['php_cli_bin_used'] : null;
+    $base['php_cli_detect_source'] = isset($res['php_cli_detect_source']) ? (string) $res['php_cli_detect_source'] : null;
+    $base['sudo_exit_code'] = isset($res['sudo_exit_code']) ? (int) $res['sudo_exit_code'] : null;
     return $base;
 }

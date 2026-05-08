@@ -150,9 +150,17 @@ After a successful deploy:
 
 ---
 
-## Credentialed checks — profile secret encryption (optional)
+## Credentialed checks — helper PHP CLI + secret encryption (optional)
 
-To allow admins to **store encrypted SSH / SNMPv3 credential secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in the **PHP/web server environment** (same pattern as other SurveyTrace env vars: e.g. systemd `Environment=` on the unit that runs PHP-FPM or Apache, or your reverse-proxy–passed config — not inside SQLite).
+SurveyTrace runs credential secret operations through a narrow sudo helper command:
+
+- `www-data ALL=(surveytrace) NOPASSWD: <detected-php-cli> /opt/surveytrace/daemon/cred_secret_ops_cli.php`
+- The PHP CLI path is detected during `setup.sh` / `deploy.sh` and persisted as `SURVEYTRACE_PHP_CLI_BIN` in `/etc/surveytrace/surveytrace.env`.
+- Detection order is: existing `SURVEYTRACE_PHP_CLI_BIN` (if valid CLI binary), `command -v php`, `/usr/bin/php`, `/usr/local/bin/php`, then versioned `/usr/bin/php*` CLI candidates.
+- PHP-FPM/CGI binaries are rejected for helper use; sudoers remains intentionally narrow and exact-path.
+- `www-data` should **not** be able to read `/etc/surveytrace/surveytrace.env`.
+
+To allow admins to **store encrypted SSH / SNMPv3 credential secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in `/etc/surveytrace/surveytrace.env` (not inside SQLite).
 
 - **Format:** trimmed string. Best: `openssl rand -base64 32` (32 raw bytes as base64). Also accepted: 64 hex chars (32 bytes), or any string (implementation derives a 32-byte key with SHA-256 — weaker if short/predictable).
 - **Strict mode (recommended):** set `SURVEYTRACE_CRED_SECRET_KEY_STRICT=1` to require only strong key formats (base64-32-byte or 64-hex). In strict mode, short passphrases are rejected.
