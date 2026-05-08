@@ -11,7 +11,8 @@ with the same SURVEYTRACE_INSTALL_DIR / SURVEYTRACE_DB_PATH as the unit.
 Decrypt uses the same PHP helper as the worker; **SURVEYTRACE_CRED_SECRET_KEY** must be in the
 environment (systemd loads **EnvironmentFile=-/etc/surveytrace/surveytrace.env**). This CLI applies
 that file automatically when present (unless **--no-env-file**), or use **--env-file** /
-**SURVEYTRACE_ENV_FILE** for a custom path.
+**SURVEYTRACE_ENV_FILE** for a custom path. **SURVEYTRACE_CRED_SECRET_KEY** and **SURVEYTRACE_PHP_CLI_BIN**
+from the file always override the process (so a bad value leaked in via ``sudo`` from your shell is replaced).
 
 The **handshake** step sets ``SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`` (AutoAddPolicy), matching the UI
 transport test. **os_release_collect** uses **SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY** when set,
@@ -81,10 +82,23 @@ def _probe_hints(*, handshake: dict[str, Any], os_out: dict[str, Any], effective
     return hints
 
 
+# Always take these from a loaded env file when present (sudo often preserves the invoker's broken values).
+_ENV_ALWAYS_FROM_FILE = frozenset(
+    {
+        "SURVEYTRACE_PHP_CLI_BIN",
+        "SURVEYTRACE_PHP_CLI",
+        "SURVEYTRACE_CRED_SECRET_KEY",
+        "SURVEYTRACE_CRED_SECRET_KEY_STRICT",
+    }
+)
+
+
 def _apply_simple_env_file(path: Path) -> tuple[list[str], bool]:
     """
-    Merge KEY=VALUE lines into os.environ (does not overwrite non-empty existing values).
-    Returns (list of key names newly set or changed from empty, file_was_read).
+    Merge KEY=VALUE lines into os.environ.
+
+    Most keys: set only when missing or empty in the process. Keys in ``_ENV_ALWAYS_FROM_FILE``:
+    always overwritten when the file defines a non-empty value (matches worker unit file as source of truth).
     """
     applied: list[str] = []
     if not path.is_file():
@@ -101,12 +115,18 @@ def _apply_simple_env_file(path: Path) -> tuple[list[str], bool]:
         key = key.strip()
         if not key:
             continue
-        existing = str(os.environ.get(key, "")).strip()
-        if existing != "":
-            continue
         val = val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
             val = val[1:-1]
+        if key in _ENV_ALWAYS_FROM_FILE:
+            if val == "":
+                continue
+            os.environ[key] = val
+            applied.append(key)
+            continue
+        existing = str(os.environ.get(key, "")).strip()
+        if existing != "":
+            continue
         os.environ[key] = val
         applied.append(key)
     return applied, True
@@ -264,13 +284,16 @@ def main() -> int:
     envelope = str(row["secret_ciphertext"] or "")
     secret_obj: dict[str, Any] = {}
     if envelope.strip():
-        plain, derr = decrypt_profile_secret(envelope=envelope, profile_id=int(args.profile_id), install_root=inst)
+        plain, derr, dec_diag = decrypt_profile_secret(
+            envelope=envelope, profile_id=int(args.profile_id), install_root=inst
+        )
         if plain is None:
             err_doc: dict[str, Any] = {
                 "ok": False,
                 "error": "decrypt_failed",
                 "code": derr or "unknown",
                 "env_bootstrap": env_meta,
+                "decrypt_diagnostic": dec_diag,
             }
             if derr == "encryption_unavailable":
                 err_doc["hint"] = (
@@ -278,6 +301,17 @@ def main() -> int:
                     "surveytrace-credential-check-worker.service uses EnvironmentFile=-/etc/surveytrace/surveytrace.env. "
                     "Re-run without --no-env-file so this CLI can load that file, or: "
                     "set -a && source /etc/surveytrace/surveytrace.env && set +a && python3 …"
+                )
+            elif derr == "dependency_missing":
+                err_doc["hint"] = (
+                    "PHP CLI missing or not executable for decrypt. Set SURVEYTRACE_PHP_CLI_BIN in "
+                    "/etc/surveytrace/surveytrace.env (same path as sudoers for cred_secret_ops) or ensure php is on PATH."
+                )
+            elif derr == "decrypt_failed":
+                err_doc["hint"] = (
+                    "cred_decrypt_cli.php failed (see decrypt_diagnostic: php binary, returncode, stderr_preview). "
+                    "Often: SURVEYTRACE_CRED_SECRET_KEY differs from the host that encrypted the profile, or the PHP "
+                    "binary lacks required extensions compared to the web stack."
                 )
             print(json.dumps(err_doc, indent=2, ensure_ascii=False))
             return 1

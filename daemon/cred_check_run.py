@@ -536,7 +536,7 @@ def process_cred_check_run(
         envelope = str(prof["secret_ciphertext"] or "")
         secret_obj: dict[str, Any] = {}
         if envelope.strip():
-            plain, derr = decrypt_profile_secret(envelope=envelope, profile_id=profile_id, install_root=inst)
+            plain, derr, _dec_diag = decrypt_profile_secret(envelope=envelope, profile_id=profile_id, install_root=inst)
             if plain is None:
                 code = derr or "decrypt_failed"
                 if code == "encryption_unavailable":
