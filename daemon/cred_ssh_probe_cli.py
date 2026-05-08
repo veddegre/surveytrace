@@ -28,11 +28,16 @@ venv as **surveytrace-credential-check-worker** (not system ``python3``):
   /opt/surveytrace/venv/bin/python3 daemon/cred_ssh_probe_cli.py --db=/path/to/surveytrace.db --profile-id=12 --host=10.0.0.5 --port=2222
 
 Use **--quiet** to suppress WARNING lines on stderr from cred SSH helpers (stdout JSON only).
+
+**--inspect-envelope-only** loads ``secret_ciphertext`` for the profile and prints safe JSON metadata
+(``alg``, ``v``, ``ctxh`` length, whether ``ctxh`` matches this profile id) without Paramiko, SSH, or decrypt.
+Use when debugging **wrong_key_or_corrupt** (JSON parse vs context vs crypto).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -166,6 +171,48 @@ def _bootstrap_surveytrace_env(*, extra_files: list[Path], no_auto: bool) -> dic
     return meta
 
 
+def _inspect_envelope_row(envelope: str, profile_id: int) -> dict[str, Any]:
+    """Safe metadata for stored secret_ciphertext (no plaintext, no raw base64 bodies)."""
+    raw = (envelope or "").strip()
+    out: dict[str, Any] = {
+        "envelope_stripped_len": len(raw),
+        "leading_non_json": None,
+    }
+    if not raw.startswith("{"):
+        out["envelope_json_ok"] = False
+        out["error"] = "envelope does not start with { (check for SQL/HTML wrapping or wrong column)"
+        return out
+    try:
+        doc = json.loads(raw)
+    except json.JSONDecodeError as e:
+        out["envelope_json_ok"] = False
+        out["error"] = str(e)[:240]
+        return out
+    if not isinstance(doc, dict):
+        out["envelope_json_ok"] = False
+        out["error"] = "envelope JSON is not an object"
+        return out
+    ctx_json = json.dumps({"credential_profile_id": int(profile_id)}, separators=(",", ":"), ensure_ascii=False)
+    expected_ctxh = hashlib.sha256(ctx_json.encode("utf-8")).hexdigest()
+    stored = doc.get("ctxh")
+    stored_s = str(stored) if stored is not None else ""
+    out.update(
+        {
+            "envelope_json_ok": True,
+            "v": doc.get("v"),
+            "alg": doc.get("alg"),
+            "has_ctxh": "ctxh" in doc,
+            "ctxh_len": len(stored_s),
+            "stored_ctxh_matches_profile": (stored_s == expected_ctxh) if stored_s != "" else None,
+            "nonce_b64_chars": len(str(doc.get("nonce", "") or "")),
+            "ciphertext_b64_chars": len(str(doc.get("ciphertext", "") or "")),
+            "has_tag": "tag" in doc,
+            "has_aad": "aad" in doc,
+        }
+    )
+    return out
+
+
 def _php_secret_status_probe(install_root: Path, php_bin: str) -> dict[str, Any] | None:
     """Run api/lib_secrets.php st_secret_status() with the current process env (same key view as cred_decrypt_cli)."""
     root = str(install_root.resolve())
@@ -203,7 +250,11 @@ def _silence_cred_probe_loggers() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="SSH cred probe (DB profile + target host)")
     ap.add_argument("--profile-id", type=int, required=True)
-    ap.add_argument("--host", required=True, help="Target IPv4/IPv6 or hostname")
+    ap.add_argument(
+        "--host",
+        default="",
+        help="Target IPv4/IPv6 or hostname (required unless --inspect-envelope-only)",
+    )
     ap.add_argument("--port", type=int, default=0, help="SSH port (0 = use principal_json port or 22)")
     ap.add_argument("--db", default="", help="SQLite path (default: SURVEYTRACE_DB_PATH or install data dir)")
     ap.add_argument("--timeout-sec", type=float, default=15.0)
@@ -224,7 +275,13 @@ def main() -> int:
         action="store_true",
         help="Disable WARNING logs from cred SSH/decrypt helpers on stderr (JSON remains on stdout).",
     )
+    ap.add_argument(
+        "--inspect-envelope-only",
+        action="store_true",
+        help="Load secret_ciphertext for --profile-id and print safe envelope metadata only (no SSH, no decrypt).",
+    )
     args = ap.parse_args()
+    inspect_only = bool(getattr(args, "inspect_envelope_only", False))
 
     if bool(getattr(args, "quiet", False)):
         _silence_cred_probe_loggers()
@@ -235,32 +292,37 @@ def main() -> int:
     )
 
     inst = install_root()
-    pi_err = _paramiko_import_error()
-    if pi_err is not None:
-        script_path = Path(__file__).resolve()
-        vpy = inst / "venv" / "bin" / "python3"
-        suggested = (
-            f"sudo -u surveytrace SURVEYTRACE_INSTALL_DIR={inst} "
-            f"{vpy} {script_path} --profile-id={args.profile_id} --host={args.host}"
-        )
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error": "dependency_missing",
-                    "missing": "paramiko",
-                    "python_interpreter": sys.executable,
-                    "venv_python_exists": vpy.is_file(),
-                    "venv_python": str(vpy),
-                    "import_error": str(pi_err)[:300],
-                    "hint": "Paramiko is required for SSH in this process. The cred worker uses the SurveyTrace venv; run this probe with that interpreter (see venv_python).",
-                    "suggested_command": suggested if vpy.is_file() else None,
-                    "env_bootstrap": env_meta,
-                },
-                indent=2,
-                ensure_ascii=False,
+    if not inspect_only:
+        pi_err = _paramiko_import_error()
+        if pi_err is not None:
+            script_path = Path(__file__).resolve()
+            vpy = inst / "venv" / "bin" / "python3"
+            suggested = (
+                f"sudo -u surveytrace SURVEYTRACE_INSTALL_DIR={inst} "
+                f"{vpy} {script_path} --profile-id={args.profile_id} --host={args.host}"
             )
-        )
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "dependency_missing",
+                        "missing": "paramiko",
+                        "python_interpreter": sys.executable,
+                        "venv_python_exists": vpy.is_file(),
+                        "venv_python": str(vpy),
+                        "import_error": str(pi_err)[:300],
+                        "hint": "Paramiko is required for SSH in this process. The cred worker uses the SurveyTrace venv; run this probe with that interpreter (see venv_python).",
+                        "suggested_command": suggested if vpy.is_file() else None,
+                        "env_bootstrap": env_meta,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 1
+
+    if not inspect_only and not str(args.host or "").strip():
+        print(json.dumps({"ok": False, "error": "host_required", "hint": "Pass --host or use --inspect-envelope-only"}))
         return 1
 
     db_path = Path(args.db).expanduser().resolve() if str(args.db).strip() else main_db_path()
@@ -289,6 +351,26 @@ def main() -> int:
     if transport != "ssh":
         print(json.dumps({"ok": False, "error": "not_ssh_profile", "transport": transport}))
         return 1
+
+    if inspect_only:
+        env_meta_ins = env_meta
+        envelope_ins = str(row["secret_ciphertext"] or "")
+        meta = _inspect_envelope_row(envelope_ins, int(args.profile_id))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "mode": "inspect_envelope_only",
+                    "profile_id": int(args.profile_id),
+                    "db_path": str(db_path),
+                    "env_bootstrap": env_meta_ins,
+                    "envelope": meta,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
 
     try:
         principal = json.loads(str(row["principal_json"] or "{}"))
