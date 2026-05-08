@@ -157,8 +157,10 @@ st_upsert_env_kv() {
     else
         printf '%s=%s\n' "$key" "$value" >> "$env_file"
     fi
-    chown root:root "$env_file"
-    chmod 600 "$env_file"
+    chown root:surveytrace /etc/surveytrace
+    chmod 750 /etc/surveytrace
+    chown root:surveytrace "$env_file"
+    chmod 640 "$env_file"
 }
 
 # ---- Must be root -----------------------------------------------------------
@@ -999,16 +1001,21 @@ else
     check_warn "env file missing: $ENV_FILE (set SURVEYTRACE_CRED_SECRET_KEY)"
 fi
 if runuser -u "$WEB_GROUP" -- test -r "$ENV_FILE" >/dev/null 2>&1; then
-    check_warn "www-data can read $ENV_FILE (not recommended)"
+    check_fail "www-data can read $ENV_FILE (must not be readable by www-data)"
 else
     check_ok "www-data cannot read $ENV_FILE"
+fi
+if runuser -u "$APP_USER" -- test -r "$ENV_FILE" >/dev/null 2>&1; then
+    check_ok "surveytrace can read $ENV_FILE"
+else
+    check_fail "surveytrace can read $ENV_FILE"
 fi
 _st_helper_status="$(sudo -u "$WEB_GROUP" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
 _st_key_is_configured=0
 if [[ -f "$ENV_FILE" ]] && grep -Eq '^SURVEYTRACE_CRED_SECRET_KEY=' "$ENV_FILE"; then
     _st_key_is_configured=1
 fi
-if [[ -n "$_st_helper_status" ]] && ST_EXPECT_KEY="$_st_key_is_configured" php -r '$j=json_decode(stream_get_contents(STDIN),true); $ok=is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"]); $need=(getenv("ST_EXPECT_KEY")==="1"); if($need){$ok=$ok&&!empty($j["status"]["key_loaded"]);} exit($ok?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
+if [[ -n "$_st_helper_status" ]] && ST_EXPECT_KEY="$_st_key_is_configured" php -r '$j=json_decode(stream_get_contents(STDIN),true); $ok=is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"])&&!empty($j["status"]["env_file_present"])&&!empty($j["status"]["env_file_readable"]); $need=(getenv("ST_EXPECT_KEY")==="1"); if($need){$ok=$ok&&!empty($j["status"]["key_loaded"]);} exit($ok?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
     if [[ "$_st_key_is_configured" -eq 1 ]]; then
         check_ok "www-data helper sudo path can load credential key"
     else

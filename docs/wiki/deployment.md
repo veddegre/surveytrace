@@ -158,7 +158,12 @@ SurveyTrace runs credential secret operations through a narrow sudo helper comma
 - The PHP CLI path is detected during `setup.sh` / `deploy.sh` and persisted as `SURVEYTRACE_PHP_CLI_BIN` in `/etc/surveytrace/surveytrace.env`.
 - Detection order is: existing `SURVEYTRACE_PHP_CLI_BIN` (if valid CLI binary), `command -v php`, `/usr/bin/php`, `/usr/local/bin/php`, then versioned `/usr/bin/php*` CLI candidates.
 - PHP-FPM/CGI binaries are rejected for helper use; sudoers remains intentionally narrow and exact-path.
-- `www-data` should **not** be able to read `/etc/surveytrace/surveytrace.env`.
+- Runtime secret permissions must be:
+  - `/etc/surveytrace` -> `root:surveytrace` mode `750`
+  - `/etc/surveytrace/surveytrace.env` -> `root:surveytrace` mode `640`
+- `www-data` cannot read `/etc/surveytrace/surveytrace.env` directly.
+- `surveytrace` can read `/etc/surveytrace/surveytrace.env`, so the helper can load the key.
+- Web requests reach key operations only through the narrow sudo helper path (`www-data -> sudo -u surveytrace -> cred_secret_ops_cli.php`).
 
 To allow admins to **store encrypted SSH / SNMPv3 credential secrets** on credential profiles (Settings → Credentialed checks — profiles), set **`SURVEYTRACE_CRED_SECRET_KEY`** in `/etc/surveytrace/surveytrace.env` (not inside SQLite).
 
@@ -285,7 +290,7 @@ Important:
 
 ### Recommended EnvironmentFile pattern
 
-For systemd-managed deployments, keep runtime secrets in a root-owned env file and reference it from all relevant services:
+For systemd-managed deployments, keep runtime secrets in an env file readable by `surveytrace` (not `www-data`) and reference it from all relevant services:
 
 ```ini
 # /etc/surveytrace/surveytrace.env
@@ -293,7 +298,9 @@ SURVEYTRACE_CRED_SECRET_KEY=<generated-random-key>
 SURVEYTRACE_CRED_SECRET_KEY_STRICT=1
 ```
 
-- Set permissions to `root:root` and mode `0600`.
+- Set permissions to:
+  - directory `/etc/surveytrace` as `root:surveytrace` mode `0750`
+  - file `/etc/surveytrace/surveytrace.env` as `root:surveytrace` mode `0640`
 - Add `EnvironmentFile=/etc/surveytrace/surveytrace.env` to the units that run PHP and the credential-check worker (or equivalent override files), then restart those services.
 - Validate with one handshake test from Settings and one small credentialed run before declaring production-ready.
 
@@ -383,6 +390,24 @@ Fix:
 ```bash
 sudo systemctl restart surveytrace-scheduler
 ```
+
+---
+
+### UI says credential encryption is not configured
+
+- Symptom:
+  - UI shows `Credential encryption is not configured`
+  - helper status returns `env_file_present=false` and/or `env_file_readable=false`
+- Cause:
+  - `/etc/surveytrace` is not traversable by `surveytrace` (wrong owner/group or mode)
+  - or `/etc/surveytrace/surveytrace.env` owner/group/mode blocks `surveytrace` reads
+- Fix:
+  - `sudo chown root:surveytrace /etc/surveytrace && sudo chmod 750 /etc/surveytrace`
+  - `sudo chown root:surveytrace /etc/surveytrace/surveytrace.env && sudo chmod 640 /etc/surveytrace/surveytrace.env`
+  - verify:
+    - `sudo -u www-data test -r /etc/surveytrace/surveytrace.env && echo BAD || echo OK`
+    - `sudo -u surveytrace test -r /etc/surveytrace/surveytrace.env && echo SURVEYTRACE_CAN_READ || echo SURVEYTRACE_CANNOT_READ`
+    - `sudo -u www-data sudo -n -u surveytrace -- <detected_php_cli> /opt/surveytrace/daemon/cred_secret_ops_cli.php <<< '{"action":"status"}'`
 
 ---
 
