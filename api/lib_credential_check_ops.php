@@ -1489,6 +1489,14 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
                 $at = (string) ($ar['created_at'] ?? '');
                 $detailPub = st_cc_timeline_audit_details_public($dj);
                 $label = st_cc_timeline_audit_action_label($action);
+                if ($action === 'credential_check.run_completed') {
+                    $ro = isset($detailPub['run_outcome']) ? strtolower(trim((string) $detailPub['run_outcome'])) : '';
+                    if ($ro === 'failed') {
+                        $label = 'Run finished (worker): all plugin checks failed';
+                    } elseif ($ro === 'partial') {
+                        $label = 'Run finished (worker): mixed plugin outcomes';
+                    }
+                }
                 if (
                     ($action === 'credential_check.target_completed' || $action === 'credential_check.target_failed')
                     && isset($detailPub['plugin_failed'])

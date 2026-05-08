@@ -347,6 +347,7 @@ def fail_job(
     *,
     error_code: str = "internal_error",
     error_message: Optional[str] = None,
+    result_summary_json: Optional[Mapping[str, Any]] = None,
 ) -> None:
     if not tables_ready(conn) or job_id < 1:
         return
@@ -354,13 +355,15 @@ def fail_job(
     if not error_code_valid(ec):
         ec = "internal_error"
     em = _safe_message(error_message) if error_message else ""
+    sm = _json_dumps(dict(result_summary_json) if result_summary_json else None)
     try:
         conn.execute(
             """UPDATE worker_jobs SET status = 'failed', finished_at = datetime('now'), updated_at = datetime('now'),
                 error_code = ?, error_message = ?,
+                result_summary_json = COALESCE(?, result_summary_json),
                 lease_node_id = NULL, lease_token = NULL, leased_at = NULL, lease_expires_at = NULL
              WHERE id = ?""",
-            (ec, em, job_id),
+            (ec, em, sm, job_id),
         )
         conn.commit()
     except sqlite3.Error:

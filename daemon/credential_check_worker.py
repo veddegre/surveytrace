@@ -349,16 +349,23 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
             "result_partial_count": int(summary.get("result_partial_count") or 0),
         },
     )
-    wj.finish_job(
-        conn,
-        jid,
-        result_summary_json={
-            "credential_check_run_id": run_id,
-            "status": run_status,
-            "run_outcome": run_outcome,
-            "slice": 9,
-        },
-    )
+    job_summary = {
+        "credential_check_run_id": run_id,
+        "status": run_status,
+        "run_outcome": run_outcome,
+        "slice": 9,
+    }
+    if run_outcome == "failed":
+        # Mirror run failure on worker_jobs (finish_job always marks completed).
+        wj.fail_job(
+            conn,
+            jid,
+            error_code="transport_error",
+            error_message="All targets failed plugin checks (no successful plugin rows).",
+            result_summary_json=summary,
+        )
+    else:
+        wj.finish_job(conn, jid, result_summary_json={**summary, **job_summary})
     _audit(
         conn,
         "credential_check.run_completed",
