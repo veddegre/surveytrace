@@ -3441,6 +3441,7 @@ body.light-mode .host-inner-surface{box-shadow:0 1px 2px rgba(15,23,42,0.04)}
   background:color-mix(in srgb,var(--surface) 90%,transparent);
 }
 .st-cc-run-badge--ok{border-color:color-mix(in srgb,var(--green) 40%,var(--border));color:color-mix(in srgb,var(--green) 88%,var(--tx))}
+.st-cc-run-badge--warn{border-color:color-mix(in srgb,var(--amber) 38%,var(--border));color:color-mix(in srgb,var(--amber) 82%,var(--tx))}
 .st-cc-run-badge--bad{border-color:color-mix(in srgb,var(--red) 35%,var(--border));color:color-mix(in srgb,var(--red) 85%,var(--tx))}
 .st-cc-run-badge--act{border-color:color-mix(in srgb,var(--blue) 32%,var(--border));color:color-mix(in srgb,var(--blue) 82%,var(--tx))}
 .st-cc-run-err-hint{color:color-mix(in srgb,var(--amber) 75%,var(--tx2))}

@@ -236,6 +236,60 @@ def _mark_all_pending(
     return n
 
 
+def _aggregate_target_plugin_results(conn: sqlite3.Connection, run_id: int, tid: int) -> tuple[int, int, int, str | None]:
+    """Count credential_check_results rows for one target; first failed plugin error_code from normalized_json."""
+    ok = partial = failed = 0
+    first_failed_code: str | None = None
+    cur = conn.execute(
+        "SELECT status, normalized_json FROM credential_check_results WHERE run_id = ? AND target_id = ?",
+        (run_id, tid),
+    )
+    for row in cur.fetchall():
+        st = str(row["status"] if isinstance(row, sqlite3.Row) else row[0])
+        nj = row["normalized_json"] if isinstance(row, sqlite3.Row) else row[1]
+        if st == "success":
+            ok += 1
+        elif st == "partial":
+            partial += 1
+        elif st == "failed":
+            failed += 1
+            if first_failed_code is None:
+                try:
+                    doc = json.loads(str(nj or "{}"))
+                    if isinstance(doc, dict):
+                        ec = doc.get("error_code")
+                        if ec is not None and str(ec).strip():
+                            first_failed_code = str(ec).strip()[:120]
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    pass
+                if first_failed_code is None:
+                    first_failed_code = "failed"
+    return ok, partial, failed, first_failed_code
+
+
+def _target_finalize_plugin_outcome(
+    ok: int, partial: int, failed: int, first_failed_code: str | None
+) -> tuple[str, str | None, str | None]:
+    """
+    Map per-target plugin aggregates to credential_check_run_targets row.
+    Returns (status, error_code, error_message_safe).
+    """
+    total = ok + partial + failed
+    if total == 0:
+        return "completed", None, None
+    if ok == 0 and partial == 0 and failed > 0:
+        fc = first_failed_code or "failed"
+        ecode = fc if failed == 1 else "all_plugins_failed"
+        if len(ecode) > 120:
+            ecode = ecode[:120]
+        msg = f"ok 0 · failed {failed} · partial 0 ({fc})"
+        return "failed", ecode, msg[:500]
+    if failed > 0:
+        msg = f"ok {ok} · failed {failed} · partial {partial}"
+        return "completed", "plugin_partial_failures", msg[:500]
+    return "completed", None, None
+
+
 def process_cred_check_run(
     conn: sqlite3.Connection,
     *,
@@ -985,18 +1039,58 @@ def process_cred_check_run(
                         )
                     counts["snmp_identity_ok"] += 1
 
+        p_ok, p_partial, p_failed, first_fc = _aggregate_target_plugin_results(conn, run_id, tid)
+        tstatus, ecode, emsg = _target_finalize_plugin_outcome(p_ok, p_partial, p_failed, first_fc)
+        msg_col = emsg[:500] if emsg else None
         conn.execute(
-            """UPDATE credential_check_run_targets SET status = 'completed', error_code = NULL, error_message_safe = NULL,
+            """UPDATE credential_check_run_targets SET status = ?, error_code = ?, error_message_safe = ?,
                 finished_at = datetime('now') WHERE id = ?""",
-            (tid,),
+            (tstatus, ecode, msg_col, tid),
         )
-        counts["targets_completed"] += 1
+        if tstatus == "failed":
+            counts["targets_failed"] += 1
+        else:
+            counts["targets_completed"] += 1
         conn.commit()
-        audit(
-            conn,
-            "credential_check.target_completed",
-            {"run_id": run_id, "target_row_id": tid, "asset_id": aid, "outcome": "completed"},
-        )
+        audit_detail: dict[str, Any] = {
+            "run_id": run_id,
+            "target_row_id": tid,
+            "asset_id": aid,
+            "plugin_ok": p_ok,
+            "plugin_failed": p_failed,
+            "plugin_partial": p_partial,
+        }
+        if tstatus == "failed":
+            audit_detail["outcome"] = "failed"
+            audit_detail["code"] = ecode or "failed"
+            audit(conn, "credential_check.target_failed", audit_detail)
+        else:
+            audit_detail["outcome"] = "completed_with_plugin_failures" if ecode else "completed"
+            audit(conn, "credential_check.target_completed", audit_detail)
+
+    crow = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS rs,
+            COALESCE(SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END), 0) AS rp,
+            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS rf
+        FROM credential_check_results WHERE run_id = ?
+        """,
+        (run_id,),
+    ).fetchone()
+    rs = int(crow["rs"] or 0) if crow else 0
+    rp = int(crow["rp"] or 0) if crow else 0
+    rf = int(crow["rf"] or 0) if crow else 0
+    if rs == 0 and rp == 0 and rf > 0:
+        run_outcome = "failed"
+    elif rf > 0 and (rs > 0 or rp > 0):
+        run_outcome = "partial"
+    else:
+        run_outcome = "success"
+    counts["result_success_count"] = rs
+    counts["result_partial_count"] = rp
+    counts["result_failed_count"] = rf
+    counts["run_outcome"] = run_outcome
 
     counts["executor"] = "credential_check_worker"
     counts["slice"] = 9

@@ -4103,17 +4103,8 @@ def _schedule_retry(conn: sqlite3.Connection, job: dict, error: str) -> None:
     if retry_count <= max_retries:
         log.info("Job #%d scheduling retry %d/%d in %ds",
                  job["id"], retry_count, max_retries, RETRY_DELAY_S)
-        conn.execute("""
-            UPDATE scan_jobs
-            SET status='queued', retry_count=?, error_msg=?,
-                started_at=NULL,
-                created_at=datetime('now', '+%d seconds')
-            WHERE id=?
-        """ % (RETRY_DELAY_S, "?"),   # SQLite datetime offset
-            (retry_count, f"Retry {retry_count}/{max_retries}: {error}"[:200],
-             job["id"])
-        )
-        # Fix: use proper approach for delayed retry
+        # Re-queue after RETRY_DELAY_S via main-loop retry_timers (see main()).
+        # Do not embed Python %-formatting into SQL: it breaks retries (TypeError) and stalls the daemon.
         conn.execute("""
             UPDATE scan_jobs
             SET status='retrying', retry_count=?, error_msg=?,

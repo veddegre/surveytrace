@@ -153,4 +153,59 @@ if ($labs !== ['first', 'second']) {
     exit(1);
 }
 
+if (st_cc_run_outcome_from_result_counts(0, 0, 3) !== 'failed') {
+    fwrite(STDERR, "FAIL: outcome all failed\n");
+    exit(1);
+}
+if (st_cc_run_outcome_from_result_counts(1, 0, 1) !== 'partial') {
+    fwrite(STDERR, "FAIL: outcome mixed success+failed\n");
+    exit(1);
+}
+if (st_cc_run_outcome_from_result_counts(2, 1, 0) !== 'success') {
+    fwrite(STDERR, "FAIL: outcome no failed rows\n");
+    exit(1);
+}
+if (st_cc_run_outcome_from_result_counts(0, 2, 1) !== 'partial') {
+    fwrite(STDERR, "FAIL: outcome partial+failed\n");
+    exit(1);
+}
+$hFail = st_cc_run_headline_public('failed', 'failed', 0, 0, 8);
+if (strpos($hFail, 'all plugin') === false) {
+    fwrite(STDERR, 'FAIL: headline all-plugin fail, got ' . $hFail . "\n");
+    exit(1);
+}
+$hPart = st_cc_run_headline_public('completed', 'partial', 1, 0, 1);
+if (strpos($hPart, 'failures') === false) {
+    fwrite(STDERR, 'FAIL: headline partial, got ' . $hPart . "\n");
+    exit(1);
+}
+$hLegacy = st_cc_run_headline_public('completed', 'failed', 0, 0, 4);
+if (strpos($hLegacy, 'all plugin') === false) {
+    fwrite(STDERR, 'FAIL: headline legacy completed+failed plugins, got ' . $hLegacy . "\n");
+    exit(1);
+}
+
+$plugAudit = json_encode(
+    [
+        'run_id'         => 7,
+        'target_row_id'  => 2,
+        'asset_id'       => 9,
+        'plugin_ok'      => 0,
+        'plugin_failed'  => 2,
+        'plugin_partial' => 0,
+        'outcome'        => 'failed',
+        'stderr'         => 'secret token=abc',
+    ],
+    JSON_THROW_ON_ERROR
+);
+$pubPlug = st_cc_timeline_audit_details_public($plugAudit);
+if (($pubPlug['plugin_failed'] ?? null) !== 2) {
+    fwrite(STDERR, 'FAIL: timeline should expose plugin_failed count, got ' . json_encode($pubPlug) . "\n");
+    exit(1);
+}
+if (isset($pubPlug['stderr'])) {
+    fwrite(STDERR, "FAIL: timeline must not pass through raw stderr key\n");
+    exit(1);
+}
+
 echo "OK st_cc_run_visibility_selftest\n";

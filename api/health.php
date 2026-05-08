@@ -585,6 +585,8 @@ $health = [
         'queued' => 0,
         'running' => 0,
         'retrying' => 0,
+        'failed_recent_24h' => 0,
+        'stale_running_long' => 0,
     ],
     'last_completed_scan' => null,
     'schedules' => [
@@ -669,6 +671,18 @@ try {
     $health['scans']['queued'] = (int)$db->query("SELECT COUNT(*) FROM scan_jobs WHERE status = 'queued'")->fetchColumn();
     $health['scans']['running'] = (int)$db->query("SELECT COUNT(*) FROM scan_jobs WHERE status = 'running'")->fetchColumn();
     $health['scans']['retrying'] = (int)$db->query("SELECT COUNT(*) FROM scan_jobs WHERE status = 'retrying'")->fetchColumn();
+    $health['scans']['failed_recent_24h'] = (int)$db->query(
+        "SELECT COUNT(*) FROM scan_jobs
+         WHERE status = 'failed'
+           AND deleted_at IS NULL
+           AND datetime(COALESCE(finished_at, started_at, created_at)) >= datetime('now', '-1 day')"
+    )->fetchColumn();
+    $health['scans']['stale_running_long'] = (int)$db->query(
+        "SELECT COUNT(*) FROM scan_jobs
+         WHERE status = 'running'
+           AND deleted_at IS NULL
+           AND datetime(COALESCE(started_at, created_at)) < datetime('now', '-4 hours')"
+    )->fetchColumn();
 } catch (Throwable $e) {
     // keep zeros
 }
@@ -718,13 +732,31 @@ try {
     // collectors not yet initialized.
 }
 
-$row = $db->query("
-    SELECT id, status, target_cidr, label, created_at, started_at, finished_at
-    FROM scan_jobs
-    WHERE status IN ('done', 'failed', 'aborted')
-    ORDER BY id DESC
-    LIMIT 1
-")->fetch(PDO::FETCH_ASSOC);
+$row = null;
+try {
+    $row = $db->query("
+        SELECT id, status, target_cidr, label, created_at, started_at, finished_at,
+               COALESCE(error_msg, '') AS error_msg,
+               COALESCE(failure_reason, '') AS failure_reason
+        FROM scan_jobs
+        WHERE status IN ('done', 'failed', 'aborted')
+        ORDER BY id DESC
+        LIMIT 1
+    ")->fetch(PDO::FETCH_ASSOC);
+} catch (Throwable) {
+    try {
+        $row = $db->query("
+            SELECT id, status, target_cidr, label, created_at, started_at, finished_at,
+                   COALESCE(error_msg, '') AS error_msg
+            FROM scan_jobs
+            WHERE status IN ('done', 'failed', 'aborted')
+            ORDER BY id DESC
+            LIMIT 1
+        ")->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable) {
+        $row = null;
+    }
+}
 if (is_array($row)) {
     $health['last_completed_scan'] = $row;
 }

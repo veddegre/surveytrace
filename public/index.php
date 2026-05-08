@@ -5495,6 +5495,12 @@ function renderHealthHtml(h, zbxResp) {
     const integrationRows = [];
     integrationRows.push(`<tr><td class="tbl-cell-primary">Enabled schedules</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(sched.table_ok ? (sched.enabled_active != null ? sched.enabled_active : '—') : '—'))}</td><td class="tbl-cell-muted">${sched.table_ok ? 'Active and not paused' : 'Schedule table not available'}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Feed sync</td><td class="tbl-cell-muted"><span class="${feedStatusClass}">${esc(feedStatusLabel)}</span></td><td class="tbl-cell-muted">${feedRunning ? esc(String(feeds.job_target || '—')) : (feedLast && feedLast.target ? esc(String(feedLast.target)) : '—')}</td></tr>`);
+    const scanQ = parseInt(String(scans.queued || 0), 10) || 0;
+    const scanR = parseInt(String(scans.running || 0), 10) || 0;
+    const scanRetry = parseInt(String(scans.retrying || 0), 10) || 0;
+    const scanFail24 = parseInt(String(scans.failed_recent_24h || 0), 10) || 0;
+    const scanStaleRun = parseInt(String(scans.stale_running_long || 0), 10) || 0;
+    integrationRows.push(`<tr><td class="tbl-cell-primary">Scan queue</td><td class="tbl-cell-mono tbl-cell-muted">queued ${esc(String(scanQ))} · running ${esc(String(scanR))} · retrying ${esc(String(scanRetry))}</td><td class="tbl-cell-muted">failed (24h) ${esc(String(scanFail24))} · running over 4h ${esc(String(scanStaleRun))}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Collector ingest queue</td><td class="tbl-cell-mono tbl-cell-muted">pending ${esc(String(queueCount))} · processing ${esc(String(processingCount))} · retrying ${esc(String(retryCount))} · failed ${esc(String(failCount))}</td><td class="tbl-cell-muted">oldest pending ${esc(fmtDuration(oldestPendingSec))} · oldest failed ${esc(fmtDuration(oldestFailedSec))}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Pending eligibility</td><td class="tbl-cell-mono tbl-cell-muted">eligible now ${esc(String(eligiblePendingCount))} · blocked until next_attempt_at ${esc(String(blockedPendingCount))}</td><td class="tbl-cell-muted">oldest eligible pending ${esc(fmtDuration(oldestEligiblePendingSec))}</td></tr>`);
     integrationRows.push(`<tr><td class="tbl-cell-primary">Collector online</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String(parseInt(String(collectors.online_recent_2m || 0), 10) || 0))} / ${esc(String(parseInt(String(collectors.total || 0), 10) || 0))}</td><td class="tbl-cell-muted">recent heartbeat within 2 minutes</td></tr>`);
@@ -5600,6 +5606,12 @@ function renderHealthHtml(h, zbxResp) {
     if (processingCount > 0 && queueCount === 0) warnings.push(`${processingCount} collector chunk(s) are currently processing on master ingest worker.`);
     if (retryCount > 0) warnings.push(`${retryCount} collector chunk(s) are retrying ingest.`);
     if (failCount > 0) warnings.push(`${failCount} collector chunk(s) are in failed state.`);
+    if (scanFail24 > 0) {
+        warnings.push(`${scanFail24} scan job(s) failed in the last 24h — open Scan history and run php scripts/diagnose_scan_failure.php --job=<id> on the server.`);
+    }
+    if (scanStaleRun > 0) {
+        warnings.push(`${scanStaleRun} scan job(s) have been running more than 4 hours — check surveytrace-daemon logs or restart the service if stuck.`);
+    }
     if (disk.data_dir_free_bytes && disk.data_dir_free_bytes < 100 * 1024 * 1024) warnings.push('Data directory free space is low.');
     if (feedLast && !feedLastOk && !feedLast.cancelled) warnings.push('Last feed sync failed.');
     if (aiConfigured && !aiRunning) warnings.push('AI is configured but runtime is not reachable.');
@@ -5790,7 +5802,11 @@ function renderHealthHtml(h, zbxResp) {
     advancedRows.push(`<tr><td class="tbl-cell-primary">PHP runtime</td><td class="tbl-cell-mono tbl-cell-muted">${esc(String((h.php && h.php.sapi) ? h.php.sapi : '—'))}</td></tr>`);
     if (h.last_completed_scan) {
         const s = h.last_completed_scan;
-        advancedRows.push(`<tr><td class="tbl-cell-primary">Last finished scan</td><td class="tbl-cell-mono tbl-cell-muted">${esc(`${s.status || '—'} · ${s.target_cidr || '—'} · ${healthFmtTime(s.finished_at)}`)}</td></tr>`);
+        const stL = String(s.status || '').toLowerCase();
+        const errTail = stL === 'failed' && (s.error_msg || s.failure_reason)
+            ? ` · ${esc(String(s.error_msg || s.failure_reason || '').slice(0, 120))}`
+            : '';
+        advancedRows.push(`<tr><td class="tbl-cell-primary">Last finished scan</td><td class="tbl-cell-mono tbl-cell-muted">${esc(`${s.status || '—'} · ${s.target_cidr || '—'} · ${healthFmtTime(s.finished_at)}`)}${errTail}</td></tr>`);
     } else {
         advancedRows.push('<tr><td class="tbl-cell-primary">Last finished scan</td><td class="tbl-cell-muted">No scan data available yet.</td></tr>');
     }
@@ -9974,24 +9990,58 @@ function stScanHistDetailStatCardsHtml(j) {
     </div>${collectorIngest}`;
 }
 
+function stScanHistFailureReasonLabel(code) {
+    const c = String(code || '').trim().toLowerCase();
+    if (!c) return '';
+    const map = {
+        max_retries_exceeded: 'Exceeded automatic retry limit',
+        database_locked: 'Database was temporarily locked',
+        dependency_missing: 'A required dependency was missing',
+    };
+    return map[c] || c;
+}
+
 function stScanHistDetailProgressHtml(j) {
     const phases = Array.isArray(j.phases) && j.phases.length ? esc(j.phases.join(', ')) : '\u2014';
     const scanned = j.hosts_scanned != null ? j.hosts_scanned : 0;
     const found = j.hosts_found != null ? j.hosts_found : 0;
+    const st = String(j.status || '').toLowerCase();
     let err = '';
-    if (String(j.status || '').toLowerCase() === 'failed' && j.error_msg) {
-        err = `<div class="scan-hist-detail-callout scan-hist-detail-callout--err mt6"><strong>Error</strong> \u2014 ${esc(String(j.error_msg))}</div>`;
+    const msg = j.error_msg != null && String(j.error_msg).trim() ? String(j.error_msg) : '';
+    const fr = j.failure_reason != null && String(j.failure_reason).trim() ? String(j.failure_reason) : '';
+    const frLabel = stScanHistFailureReasonLabel(fr);
+    if ((st === 'failed' || st === 'aborted' || st === 'retrying') && (msg || fr)) {
+        const bits = [];
+        if (frLabel) bits.push(`<div class="text-micro text-dim mt2"><strong>Reason</strong> \u2014 ${esc(frLabel)}</div>`);
+        if (msg) bits.push(`<div class="mt2"><strong>Message</strong> \u2014 ${esc(msg)}</div>`);
+        err = `<div class="scan-hist-detail-callout scan-hist-detail-callout--err mt6"><strong>${st === 'retrying' ? 'Retry' : 'Issue'}</strong>${bits.join('')}</div>`;
+    } else if (st === 'done' && msg) {
+        err = `<div class="scan-hist-detail-callout scan-hist-detail-callout--warn mt6"><strong>Note</strong> \u2014 ${esc(msg)}</div>`;
+    }
+    let phaseBox = '';
+    const pp = j.phase_status_parsed && typeof j.phase_status_parsed === 'object' ? j.phase_status_parsed : null;
+    if (pp && Object.keys(pp).length) {
+        const lines = Object.keys(pp).slice(0, 12).map((k) => {
+            const v = pp[k];
+            const vs = typeof v === 'object' ? JSON.stringify(v).slice(0, 120) : String(v);
+            return `<div class="mono-sm text-dim">${esc(k)}: ${esc(vs)}</div>`;
+        });
+        phaseBox = `<div class="mt6 text-micro"><strong>Phase status</strong> (bounded)</div><div class="mt2">${lines.join('')}</div>`;
     }
     const trashed = j.deleted_at ? `<div class="text-micro text-dim mt4">Trashed ${esc(localTime(j.deleted_at))}</div>` : '';
     const batch = Number(j.batch_total || 0) > 1
         ? `<div class="text-micro text-dim mt4">Batch ${esc(String(j.batch_index || 0))} / ${esc(String(j.batch_total))}</div>`
+        : '';
+    const hints = Array.isArray(j.diagnostic_hints) ? j.diagnostic_hints : [];
+    const hintBlock = hints.length
+        ? `<div class="scan-hist-detail-callout mt6"><strong>Diagnostics</strong><ul class="mb0 mt4" style="padding-left:1.1rem">${hints.map((h) => `<li class="text-micro">${esc(String(h))}</li>`).join('')}</ul></div>`
         : '';
     return `<div class="scan-hist-detail-meta-grid text-micro">
       <div><span class="text-dim">Profile</span> <span class="text-primary">${esc(String((j.profile || '').replace(/_/g, ' ') || '\u2014'))}</span></div>
       <div><span class="text-dim">Mode</span> <span class="text-primary">${esc(String(j.scan_mode || '\u2014'))}</span></div>
       <div><span class="text-dim">Hosts scanned</span> <b>${esc(String(scanned))}</b> <span class="text-dim">/</span> <span class="text-dim">found</span> <b>${esc(String(found))}</b></div>
       <div><span class="text-dim">Steps run</span> <span class="mono-sm">${phases}</span></div>
-    </div>${batch}${trashed}${err}`;
+    </div>${batch}${trashed}${err}${phaseBox}${hintBlock}`;
 }
 
 function stScanHistDetailHeaderSubHtml(j) {
@@ -10032,6 +10082,8 @@ function stScanHistDetailLogHtml(j, logTail) {
         profile: j.profile,
         scan_mode: j.scan_mode,
         error_msg: j.error_msg || null,
+        failure_reason: j.failure_reason || null,
+        phase_status: j.phase_status || null,
         collector_submission_status: j.collector_submission_status || null,
         collector_chunks_expected: Number(j.collector_chunks_expected || 0),
         collector_chunks_received: Number(j.collector_chunks_received || 0),
@@ -12532,13 +12584,26 @@ function stCcParseRunSummaryJson(raw) {
     }
 }
 
-function stCcRunStatusBadgeHtml(status) {
+function stCcRunStatusBadgeHtml(status, opts) {
+    opts = opts && typeof opts === 'object' ? opts : {};
+    const ro = String(opts.run_outcome || '');
     const st = String(status || '').toLowerCase();
     let cls = 'st-cc-run-badge';
-    if (st === 'completed') cls += ' st-cc-run-badge--ok';
-    else if (st === 'failed' || st === 'cancelled') cls += ' st-cc-run-badge--bad';
-    else if (st === 'running' || st === 'queued' || st === 'ready' || st === 'resolving_targets') cls += ' st-cc-run-badge--act';
-    return `<span class="${cls}">${esc(String(status || '—'))}</span>`;
+    let label = String(status || '—');
+    if (st === 'completed' && ro === 'partial') {
+        cls += ' st-cc-run-badge--warn';
+        label = 'completed (partial)';
+    } else if (st === 'completed' && ro === 'failed') {
+        cls += ' st-cc-run-badge--bad';
+        label = 'all plugins failed';
+    } else if (st === 'completed') {
+        cls += ' st-cc-run-badge--ok';
+    } else if (st === 'failed' || st === 'cancelled') {
+        cls += ' st-cc-run-badge--bad';
+    } else if (st === 'running' || st === 'queued' || st === 'ready' || st === 'resolving_targets') {
+        cls += ' st-cc-run-badge--act';
+    }
+    return `<span class="${cls}">${esc(label)}</span>`;
 }
 
 async function stCcRunOpenModal(runId) {
@@ -12580,9 +12645,13 @@ async function stCcRunOpenModal(runId) {
         const rows = Object.keys(sumObj).map((k) => `<tr><td class="text-dim mono-sm">${esc(k)}</td><td class="st-host-evidence-cell-raw">${esc(JSON.stringify(sumObj[k]))}</td></tr>`).join('');
         sumHtml = rows ? `<div class="tbl-wrap tbl-wrap--compact mt6"><table class="tbl tbl--compact st-cc-run-sum-tbl"><tbody>${rows}</tbody></table></div>` : '';
     }
-    const errHint = failN > 0 || String(st) === 'failed'
-        ? `<p class="hint-micro st-cc-run-err-hint mt6 mb0">Some targets or plugins reported failure or partial data — inspect per-target messages and normalized previews (bounded; no raw artifact bodies).</p>`
+    const headline = run.run_headline != null && String(run.run_headline).trim()
+        ? `<p class="text-strong mb0 mt6">${esc(String(run.run_headline))}</p>`
         : '';
+    const errHint =
+        failN > 0 || String(st) === 'failed' || String(run.run_outcome || '') === 'failed' || String(run.run_outcome || '') === 'partial'
+            ? `<p class="hint-micro st-cc-run-err-hint mt6 mb0">Inspect per-target plugin summaries and bounded normalized previews (no raw stderr or artifact bodies).</p>`
+            : '';
 
     const tlm = run.timeline && Array.isArray(run.timeline) ? run.timeline : [];
     const tlmMeta = run.timeline_meta && typeof run.timeline_meta === 'object' ? run.timeline_meta : null;
@@ -12615,20 +12684,24 @@ async function stCcRunOpenModal(runId) {
             ? `<div class="text-dim mono-sm">${esc(String(t.error_message_safe))}</div>`
             : '';
         const ec = t.error_code ? `<span class="mono-sm">${esc(String(t.error_code))}</span>` : '';
+        const plugSum = t.plugin_result_summary != null && String(t.plugin_result_summary).trim()
+            ? `<span class="mono-sm text-dim">${esc(String(t.plugin_result_summary))}</span>`
+            : '<span class="text-dim">—</span>';
         return `<tr>
           <td class="mono-sm">${esc(String(t.id))}</td>
           <td class="mono-sm">${esc(String(t.asset_id))}</td>
           <td class="mono-sm">${esc(String(t.asset_ip || ''))}</td>
           <td>${stCcRunStatusBadgeHtml(t.status)}</td>
+          <td>${plugSum}</td>
           <td>${ec}</td>
           <td class="st-host-evidence-cell-raw">${safeErr || '—'}</td>
         </tr>`;
     }).join('');
     const tgtBlock = tgtRows
-        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Asset</th><th>IP</th><th>Status</th><th>Code</th><th>Safe error</th></tr></thead><tbody>${tgtRows}</tbody></table></div>`
+        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Asset</th><th>IP</th><th>Status</th><th>Plugins</th><th>Code</th><th>Safe error</th></tr></thead><tbody>${tgtRows}</tbody></table></div>`
         : '<p class="text-dim mb0">No targets.</p>';
 
-    const resRows = (Array.isArray(run.results) ? run.results : []).map((x) => {
+    const oneResRow = (x) => {
         const stB = String(x.status || '').toLowerCase() === 'partial'
             ? `${stCcRunStatusBadgeHtml(x.status)} <span class="st-cc-pill st-cc-pill--warn">partial</span>`
             : stCcRunStatusBadgeHtml(x.status);
@@ -12638,10 +12711,32 @@ async function stCcRunOpenModal(runId) {
           <td>${stB}</td>
           <td class="st-cc-norm-prev mono-sm">${pv}</td>
         </tr>`;
-    }).join('');
-    const resBlock = resRows
-        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Plugin</th><th>Status</th><th>Normalized preview</th></tr></thead><tbody>${resRows}</tbody></table></div>`
-        : '<p class="text-dim mb0">No result rows.</p>';
+    };
+    const rbT = Array.isArray(run.results_by_target) ? run.results_by_target : [];
+    let resBlock = '';
+    if (rbT.length) {
+        resBlock = rbT
+            .map((grp) => {
+                const host =
+                    (grp.asset_hostname && String(grp.asset_hostname).trim()) ||
+                    (grp.asset_ip && String(grp.asset_ip).trim()) ||
+                    'target ' + String(grp.target_id || '');
+                const subRows = (Array.isArray(grp.rows) ? grp.rows : []).map(oneResRow).join('');
+                const sumG = grp.plugin_result_summary ? esc(String(grp.plugin_result_summary)) : '';
+                const tbl = subRows
+                    ? `<table class="tbl tbl--compact st-cc-run-detail-tbl mt4"><thead><tr><th>Plugin</th><th>Status</th><th>Normalized preview</th></tr></thead><tbody>${subRows}</tbody></table>`
+                    : '<p class="text-dim hint-micro mb0 mt4">No plugin rows for this target.</p>';
+                return `<div class="st-cc-run-target-prev mb10 pb10" style="border-bottom:1px solid var(--border)"><div class="mono-sm">${esc(
+                    host,
+                )}${sumG ? ` <span class="text-dim">· ${sumG}</span>` : ''}</div>${tbl}</div>`;
+            })
+            .join('');
+    } else {
+        const resRows = (Array.isArray(run.results) ? run.results : []).map(oneResRow).join('');
+        resBlock = resRows
+            ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Plugin</th><th>Status</th><th>Normalized preview</th></tr></thead><tbody>${resRows}</tbody></table></div>`
+            : '<p class="text-dim mb0">No result rows.</p>';
+    }
 
     const obs = Array.isArray(run.observations_written) ? run.observations_written : [];
     const obsRows = obs.map((o) => `<tr>
@@ -12693,11 +12788,12 @@ async function stCcRunOpenModal(runId) {
     box.innerHTML = `
       <div class="st-cc-run-head row-wrap gap8 align-center">
         <span class="text-strong">Run #${esc(String(run.id))}</span>
-        ${stCcRunStatusBadgeHtml(run.status)}
+        ${stCcRunStatusBadgeHtml(run.status, { run_outcome: String(run.run_outcome || '') })}
         <span class="text-dim mono-sm">job ${esc(String(run.job_id || '—'))}</span>
         <span class="text-dim">duration ${esc(dur)}</span>
         ${partialN > 0 ? '<span class="st-cc-pill st-cc-pill--warn">partial results</span>' : ''}
       </div>
+      ${headline}
       <p class="hint-micro text-dim mb0 mt4">${esc(String(run.job_name || ''))}${run.profile_name != null ? ` · ${esc(String(run.profile_name))}` : ''}${run.profile_transport != null ? ` <span class="mono-sm">(${esc(String(run.profile_transport))})</span>` : ''}</p>
       <p class="hint-micro text-dim mb0 mt4">Planned plugins: ${plannedLine}</p>
       <p class="hint-micro text-dim mb0">Started ${run.started_at ? esc(localTime(String(run.started_at))) : '—'} · Finished ${run.finished_at ? esc(localTime(String(run.finished_at))) : '—'}</p>
@@ -12864,14 +12960,20 @@ async function stCcLoadJobsAndRuns() {
                     const failT = parseInt(String(u.targets_failed ?? 0), 10) || 0;
                     const runT = parseInt(String(u.targets_running ?? 0), 10) || 0;
                     const pend = parseInt(String(u.targets_pending ?? 0), 10) || 0;
+                    const succR = parseInt(String(u.result_success_count ?? 0), 10) || 0;
                     const partialR = parseInt(String(u.result_partial_count ?? 0), 10) || 0;
                     const failR = parseInt(String(u.result_failed_count ?? 0), 10) || 0;
                     const dur = stFmtDurationMs(u.duration_ms);
                     const stLow = String(u.status || '').toLowerCase();
-                    const errVis = (stLow === 'failed' || failT > 0 || failR > 0)
-                        ? '<span class="st-cc-pill st-cc-pill--bad" title="Target or plugin failures">err</span>'
-                        : '';
-                    const partVis = partialR > 0 ? '<span class="st-cc-pill st-cc-pill--warn" title="Partial plugin results">partial</span>' : '';
+                    const ro = String(u.run_outcome || '');
+                    const errVis =
+                        stLow === 'failed' || ro === 'failed' || failT > 0 || (failR > 0 && succR === 0 && partialR === 0)
+                            ? '<span class="st-cc-pill st-cc-pill--bad" title="Target or plugin failures">err</span>'
+                            : '';
+                    const partVis =
+                        (ro === 'partial' || (partialR > 0 && succR > 0) || (failR > 0 && succR + partialR > 0)) && stLow !== 'failed'
+                            ? '<span class="st-cc-pill st-cc-pill--warn" title="Mixed plugin outcomes">partial</span>'
+                            : '';
                     let tgtExtra = '';
                     if (runT > 0) {
                         tgtExtra += ` <span class="st-cc-pill st-cc-pill--act" title="Target in progress">${runT} active</span>`;
@@ -12888,7 +12990,7 @@ async function stCcLoadJobsAndRuns() {
             <td>${esc(String(u.job_name || ''))}</td>
             <td class="row-wrap">${profCell}</td>
             <td class="mono-sm row-wrap">${plug}</td>
-            <td class="row-wrap gap4">${stCcRunStatusBadgeHtml(u.status)} ${errVis} ${partVis}</td>
+            <td class="row-wrap gap4">${stCcRunStatusBadgeHtml(u.status, { run_outcome: ro })} ${errVis} ${partVis}</td>
             <td class="mono-sm">${esc(String(done))}/${esc(String(tot))}${failT > 0 ? ` <span class="text-dim">(${esc(String(failT))} fail)</span>` : ''}${tgtExtra}</td>
             <td class="mono-sm">${esc(dur)}</td>
             <td class="mono-sm">${wj}</td>

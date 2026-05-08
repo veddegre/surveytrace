@@ -306,10 +306,13 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
             return
 
     summary = dict(counts)
+    run_outcome = str(summary.get("run_outcome") or "success")
+    run_status = "failed" if run_outcome == "failed" else "completed"
+    attempt_status = "failed" if run_outcome == "failed" else "completed"
     sum_s = json.dumps(summary, separators=(",", ":"), ensure_ascii=False)
     conn.execute(
-        "UPDATE credential_check_runs SET status = 'completed', finished_at = datetime('now'), summary_json = ? WHERE id = ?",
-        (sum_s, run_id),
+        "UPDATE credential_check_runs SET status = ?, finished_at = datetime('now'), summary_json = ? WHERE id = ?",
+        (run_status, sum_s, run_id),
     )
     conn.commit()
     wj.log_event(
@@ -324,21 +327,38 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
             "targets_completed": int(summary.get("targets_completed") or 0),
             "targets_failed": int(summary.get("targets_failed") or 0),
             "targets_skipped": int(summary.get("targets_skipped") or 0),
+            "run_outcome": run_outcome,
+            "result_success_count": int(summary.get("result_success_count") or 0),
+            "result_failed_count": int(summary.get("result_failed_count") or 0),
+            "result_partial_count": int(summary.get("result_partial_count") or 0),
         },
     )
 
     wj.finish_attempt(
         conn,
         attempt_id,
-        status="completed",
+        status=attempt_status,
         metrics_json={
             "credential_check_run_id": run_id,
             "targets_skipped": int(summary.get("targets_skipped") or 0),
             "targets_completed": int(summary.get("targets_completed") or 0),
             "targets_failed": int(summary.get("targets_failed") or 0),
+            "run_outcome": run_outcome,
+            "result_success_count": int(summary.get("result_success_count") or 0),
+            "result_failed_count": int(summary.get("result_failed_count") or 0),
+            "result_partial_count": int(summary.get("result_partial_count") or 0),
         },
     )
-    wj.finish_job(conn, jid, result_summary_json={"credential_check_run_id": run_id, "status": "completed", "slice": 9})
+    wj.finish_job(
+        conn,
+        jid,
+        result_summary_json={
+            "credential_check_run_id": run_id,
+            "status": run_status,
+            "run_outcome": run_outcome,
+            "slice": 9,
+        },
+    )
     _audit(
         conn,
         "credential_check.run_completed",
@@ -348,6 +368,10 @@ def _process_one(conn: sqlite3.Connection, *, node_id: int, job: Mapping[str, An
             "targets_skipped": int(summary.get("targets_skipped") or 0),
             "targets_completed": int(summary.get("targets_completed") or 0),
             "targets_failed": int(summary.get("targets_failed") or 0),
+            "run_outcome": run_outcome,
+            "result_success_count": int(summary.get("result_success_count") or 0),
+            "result_failed_count": int(summary.get("result_failed_count") or 0),
+            "result_partial_count": int(summary.get("result_partial_count") or 0),
         },
     )
 

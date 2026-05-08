@@ -45,12 +45,15 @@ $scanJobMigrations = [
     'batch_index' => "INTEGER DEFAULT 0",
     'batch_total' => "INTEGER DEFAULT 0",
     'collector_id' => "INTEGER DEFAULT 0",
+    'failure_reason' => 'TEXT',
+    'phase_status'   => "TEXT DEFAULT '{}'",
 ];
 foreach ($scanJobMigrations as $col => $defn) {
     if (!in_array($col, $scanJobCols, true)) {
         $db->exec("ALTER TABLE scan_jobs ADD COLUMN $col $defn");
     }
 }
+$scanJobCols = array_column($db->query("PRAGMA table_info(scan_jobs)")->fetchAll(), 'name');
 
 $existingTables = [];
 try {
@@ -87,7 +90,8 @@ if ($id > 0) {
     $stmt = $db->prepare("
         SELECT j.id, j.status, j.target_cidr, j.label, j.exclusions, j.phases, j.rate_pps, j.inter_delay,
                j.created_at, j.started_at, j.finished_at, j.hosts_found, j.hosts_scanned,
-               j.error_msg, COALESCE(j.profile, 'standard_inventory') AS profile,
+               j.error_msg, j.failure_reason, j.phase_status,
+               COALESCE(j.profile, 'standard_inventory') AS profile,
                COALESCE(j.collector_id, 0) AS collector_id,
                COALESCE(j.scan_mode, 'auto') AS scan_mode,
                COALESCE(j.batch_id, 0) AS batch_id,
@@ -139,6 +143,29 @@ if ($id > 0) {
         $job['summary'] = is_array($decoded) ? $decoded : null;
     }
     unset($job['summary_json']);
+
+    $job['phase_status_parsed'] = null;
+    $psRaw = trim((string) ($job['phase_status'] ?? ''));
+    if ($psRaw !== '') {
+        $tmpPs = json_decode($psRaw, true, 64, JSON_INVALID_UTF8_SUBSTITUTE);
+        if (is_array($tmpPs)) {
+            $job['phase_status_parsed'] = $tmpPs;
+        }
+    }
+
+    $diagScript = dirname(__DIR__) . '/scripts/diagnose_scan_failure.php';
+    $hints = [
+        'Read-only: php ' . $diagScript . ' --job=' . (int) $id,
+    ];
+    if ((int) ($job['collector_id'] ?? 0) > 0) {
+        $hints[] = 'Collector scan: verify agent heartbeat, surveytrace-collector-ingest.service, and chunk files under data/collector_ingest/.';
+    } else {
+        $hints[] = 'Master scan: verify surveytrace-daemon.service, SQLite/NVD paths in System health, and data directory write access.';
+    }
+    if ((int) ($job['collector_ingest_failed_count'] ?? 0) > 0 || trim((string) ($job['collector_ingest_error'] ?? '')) !== '') {
+        $hints[] = 'Collector ingest reported failures; the scan may still finish if chunks later apply successfully.';
+    }
+    $job['diagnostic_hints'] = $hints;
 
     $assets = [];
     if ($hasTable('scan_asset_snapshots')) {

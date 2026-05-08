@@ -217,5 +217,17 @@ if (! is_array($r4) || (string) ($r4['status'] ?? '') !== 'failed' || (int) ($r4
     cifail('malformed row did not transition to failed retry state');
 }
 
+$scannerPy = dirname(__DIR__) . '/daemon/scanner_daemon.py';
+$scannerSrc = (string) @file_get_contents($scannerPy);
+if ($scannerSrc === '') {
+    cifail('scanner_daemon.py missing');
+}
+if (str_contains($scannerSrc, '""" % (RETRY_DELAY_S, "?")') || str_contains($scannerSrc, "''' % (RETRY_DELAY_S, \"?\")")) {
+    cifail('scanner_daemon must not use broken printf-style SQL string for retries');
+}
+if (! str_contains($scannerSrc, "SET status='retrying'")) {
+    cifail('scanner_daemon expected retrying status update');
+}
+
 fwrite(STDERR, "OK st_collector_ingest_worker_hardening_selftest\n");
 exit(0);

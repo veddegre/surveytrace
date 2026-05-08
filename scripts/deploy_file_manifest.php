@@ -169,6 +169,7 @@ return [
         'st_cc_run_visibility_selftest.php',
         'st_assets_quick_search_selftest.php',
         'diagnose_collector_ingest_queue.php',
+        'diagnose_scan_failure.php',
         'check_deploy_coverage.php',
         'security_runtime_audit.php',
         'cleanup_deployed_stale_files.php',

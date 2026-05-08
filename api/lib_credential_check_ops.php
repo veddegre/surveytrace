@@ -35,6 +35,62 @@ function st_cc_ops_tables_ready(PDO $pdo): bool
 }
 
 /**
+ * Classify aggregate plugin result rows for a run (aligned with daemon `cred_check_run.py` run_outcome).
+ *
+ * @return 'failed'|'partial'|'success'
+ */
+function st_cc_run_outcome_from_result_counts(int $success, int $partial, int $failed): string
+{
+    if ($failed > 0 && $success === 0 && $partial === 0) {
+        return 'failed';
+    }
+    if ($failed > 0 && ($success > 0 || $partial > 0)) {
+        return 'partial';
+    }
+
+    return 'success';
+}
+
+/**
+ * Short headline for run detail UI (no raw stderr or secrets).
+ */
+function st_cc_run_headline_public(
+    string $runStatus,
+    string $runOutcome,
+    int $resultSuccess,
+    int $resultPartial,
+    int $resultFailed,
+): string {
+    $st = strtolower(trim($runStatus));
+    if ($st === 'cancelled') {
+        return 'Cancelled';
+    }
+    if ($st === 'failed' && $runOutcome === 'failed' && $resultSuccess === 0 && $resultPartial === 0 && $resultFailed > 0) {
+        return 'Failed: all plugin checks failed';
+    }
+    if ($st === 'failed') {
+        return 'Failed';
+    }
+    if ($st === 'completed' && $runOutcome === 'failed') {
+        return 'Failed: all plugin checks failed';
+    }
+    if ($st === 'completed' && $runOutcome === 'partial') {
+        return 'Completed with failures';
+    }
+    if ($st === 'completed' && $runOutcome === 'success') {
+        return 'Completed successfully';
+    }
+    if ($st === 'completed') {
+        return 'Completed';
+    }
+    if ($st === 'running' || $st === 'queued' || $st === 'ready' || $st === 'resolving_targets') {
+        return ucfirst($st);
+    }
+
+    return $runStatus !== '' ? $runStatus : 'Run';
+}
+
+/**
  * @param array<string, mixed>|null $raw
  *
  * @return array{0:?string,1:?string}
@@ -758,6 +814,7 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
                     COALESCE(tc.targets_pending, 0) AS targets_pending,
                     COALESCE(tc.targets_running, 0) AS targets_running,
                     COALESCE(tc.targets_skipped, 0) AS targets_skipped,
+                    COALESCE(rc.success_n, 0) AS result_success_count,
                     COALESCE(rc.partial_n, 0) AS result_partial_count,
                     COALESCE(rc.failed_n, 0) AS result_failed_count
              FROM credential_check_runs r
@@ -775,6 +832,7 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
              ) tc ON tc.run_id = r.id
              LEFT JOIN (
                 SELECT run_id,
+                    SUM(CASE WHEN status = \'success\' THEN 1 ELSE 0 END) AS success_n,
                     SUM(CASE WHEN status = \'partial\' THEN 1 ELSE 0 END) AS partial_n,
                     SUM(CASE WHEN status = \'failed\' THEN 1 ELSE 0 END) AS failed_n
                 FROM credential_check_results GROUP BY run_id
@@ -797,6 +855,13 @@ function st_cc_run_list(PDO $pdo, ?int $jobId = null, int $limit = 100, array $f
             isset($row['started_at']) ? (string) $row['started_at'] : null,
             isset($row['finished_at']) ? (string) $row['finished_at'] : null
         );
+        $rsC = (int) ($row['result_success_count'] ?? 0);
+        $rpC = (int) ($row['result_partial_count'] ?? 0);
+        $rfC = (int) ($row['result_failed_count'] ?? 0);
+        $stRun = strtolower(trim((string) ($row['status'] ?? '')));
+        $row['run_outcome'] = $stRun === 'failed'
+            ? 'failed'
+            : st_cc_run_outcome_from_result_counts($rsC, $rpC, $rfC);
         $out[] = $row;
     }
 
@@ -1307,6 +1372,8 @@ function st_cc_timeline_audit_details_public(?string $detailsJson): array
         'run_id', 'job_id', 'worker_job_id', 'target_row_id', 'asset_id', 'code', 'outcome',
         'observation_type', 'rows_written', 'pending_targets_cancelled',
         'targets_skipped', 'targets_completed', 'targets_failed',
+        'plugin_ok', 'plugin_failed', 'plugin_partial',
+        'run_outcome', 'result_success_count', 'result_failed_count', 'result_partial_count',
     ];
     $out = [];
     foreach ($allow as $k) {
@@ -1341,7 +1408,11 @@ function st_cc_timeline_worker_details_public(?string $detailsJson): array
     if (! is_array($d)) {
         return [];
     }
-    $allow = ['credential_check_run_id', 'run_id', 'actor', 'entity', 'entity_id', 'phase', 'code', 'plugin_key', 'plugin_version'];
+    $allow = [
+        'credential_check_run_id', 'run_id', 'actor', 'entity', 'entity_id', 'phase', 'code', 'plugin_key', 'plugin_version',
+        'targets_completed', 'targets_failed', 'targets_skipped',
+        'run_outcome', 'result_success_count', 'result_failed_count', 'result_partial_count',
+    ];
     $out = [];
     foreach ($allow as $k) {
         if (! is_string($k) || ! array_key_exists($k, $d)) {
@@ -1416,14 +1487,28 @@ function st_cc_run_timeline_public(PDO $pdo, int $runId, int $workerJobId): arra
                 }
                 $action = (string) ($ar['action'] ?? '');
                 $at = (string) ($ar['created_at'] ?? '');
+                $detailPub = st_cc_timeline_audit_details_public($dj);
+                $label = st_cc_timeline_audit_action_label($action);
+                if (
+                    ($action === 'credential_check.target_completed' || $action === 'credential_check.target_failed')
+                    && isset($detailPub['plugin_failed'])
+                ) {
+                    $pf = (int) $detailPub['plugin_failed'];
+                    if ($pf > 0) {
+                        $po = isset($detailPub['plugin_ok']) ? (int) $detailPub['plugin_ok'] : 0;
+                        $pp = isset($detailPub['plugin_partial']) ? (int) $detailPub['plugin_partial'] : 0;
+                        $suffix = ' · ok ' . $po . ', failed ' . $pf . ', partial ' . $pp;
+                        $label = strlen($label . $suffix) <= 280 ? $label . $suffix : $label;
+                    }
+                }
                 $merged[] = [
                     'sort_key' => $at . "\t" . 'a' . str_pad((string) ($ar['id'] ?? '0'), 12, '0', STR_PAD_LEFT),
                     'at'       => $at,
                     'source'   => 'audit',
-                    'label'    => st_cc_timeline_audit_action_label($action),
+                    'label'    => $label,
                     'action'   => $action,
                     'actor'    => st_cc_timeline_redact_sensitive_string((string) ($ar['actor_username'] ?? ''), 120),
-                    'detail'   => st_cc_timeline_audit_details_public($dj),
+                    'detail'   => $detailPub,
                 ];
             }
         }
@@ -1569,6 +1654,86 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         }
     }
     $run['result_counts'] = $rc;
+    $tidCounts = [];
+    try {
+        $agg = $pdo->prepare(
+            'SELECT target_id, status, COUNT(*) AS n FROM credential_check_results WHERE run_id = ? AND target_id IS NOT NULL GROUP BY target_id, status'
+        );
+        $agg->execute([$runId]);
+        foreach ($agg->fetchAll(PDO::FETCH_ASSOC) ?: [] as $ar) {
+            if (! is_array($ar)) {
+                continue;
+            }
+            $tidAgg = (int) ($ar['target_id'] ?? 0);
+            if ($tidAgg < 1) {
+                continue;
+            }
+            if (! isset($tidCounts[$tidAgg])) {
+                $tidCounts[$tidAgg] = ['success' => 0, 'partial' => 0, 'failed' => 0];
+            }
+            $stAgg = strtolower(trim((string) ($ar['status'] ?? '')));
+            $nAgg = (int) ($ar['n'] ?? 0);
+            if ($stAgg === 'success') {
+                $tidCounts[$tidAgg]['success'] += $nAgg;
+            } elseif ($stAgg === 'partial') {
+                $tidCounts[$tidAgg]['partial'] += $nAgg;
+            } elseif ($stAgg === 'failed') {
+                $tidCounts[$tidAgg]['failed'] += $nAgg;
+            }
+        }
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_cc_run_get_detail plugin counts: ' . $e->getMessage());
+    }
+    foreach ($run['targets'] as &$tRowMerge) {
+        if (! is_array($tRowMerge)) {
+            continue;
+        }
+        $tidM = (int) ($tRowMerge['id'] ?? 0);
+        $pc = $tidCounts[$tidM] ?? ['success' => 0, 'partial' => 0, 'failed' => 0];
+        $tRowMerge['plugin_result_counts'] = $pc;
+        $tRowMerge['plugin_result_summary'] = 'ok ' . (string) $pc['success'] . ' · failed ' . (string) $pc['failed'] . ' · partial ' . (string) $pc['partial'];
+    }
+    unset($tRowMerge);
+
+    $rsRun = (int) ($rc['success'] ?? 0);
+    $rpRun = (int) ($rc['partial'] ?? 0);
+    $rfRun = (int) ($rc['failed'] ?? 0);
+    $stRun = strtolower(trim((string) ($run['status'] ?? '')));
+    $runOutcome = $stRun === 'failed'
+        ? 'failed'
+        : st_cc_run_outcome_from_result_counts($rsRun, $rpRun, $rfRun);
+    $run['run_outcome'] = $runOutcome;
+    $run['run_headline'] = st_cc_run_headline_public((string) ($run['status'] ?? ''), $runOutcome, $rsRun, $rpRun, $rfRun);
+
+    $byTarget = [];
+    foreach ($run['targets'] as $tRowBt) {
+        if (! is_array($tRowBt)) {
+            continue;
+        }
+        $tidBt = (int) ($tRowBt['id'] ?? 0);
+        if ($tidBt < 1) {
+            continue;
+        }
+        $byTarget[$tidBt] = [
+            'target_id'             => $tidBt,
+            'asset_id'              => (int) ($tRowBt['asset_id'] ?? 0),
+            'asset_ip'              => (string) ($tRowBt['asset_ip'] ?? ''),
+            'asset_hostname'        => (string) ($tRowBt['asset_hostname'] ?? ''),
+            'plugin_result_summary' => (string) ($tRowBt['plugin_result_summary'] ?? ''),
+            'rows'                  => [],
+        ];
+    }
+    foreach ($results as $rrBt) {
+        if (! is_array($rrBt)) {
+            continue;
+        }
+        $tidR = (int) ($rrBt['target_id'] ?? 0);
+        if ($tidR > 0 && isset($byTarget[$tidR])) {
+            $byTarget[$tidR]['rows'][] = $rrBt;
+        }
+    }
+    $run['results_by_target'] = array_values($byTarget);
+
     $run['duration_ms'] = st_cc_run_duration_ms_approx(
         isset($run['started_at']) ? (string) $run['started_at'] : null,
         isset($run['finished_at']) ? (string) $run['finished_at'] : null
