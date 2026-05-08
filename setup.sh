@@ -1030,6 +1030,21 @@ EOF
     else
         check_fail "sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
     fi
+    # Global "Defaults use_pty" + Apache PrivateDevices=yes: sudo cannot allocate a PTY in the worker
+    # namespace; NOPASSWD still fails with a generic policy denial from the web. Disable use_pty for the
+    # pool user only (same user as NOPASSWD line above).
+    SUDO_HELPER_USEPTY_DROPIN="/etc/sudoers.d/surveytrace-credential-sudo-usepty"
+    install -m 440 /dev/null "$SUDO_HELPER_USEPTY_DROPIN"
+    cat > "$SUDO_HELPER_USEPTY_DROPIN" <<EOF
+# SurveyTrace — sudo use_pty vs Apache PrivateDevices (see docs/wiki/deployment.md).
+Defaults:${CRED_HELPER_WEB_USER} !use_pty
+
+EOF
+    if visudo -cf "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null 2>&1; then
+        check_ok "sudoers use_pty override valid: $SUDO_HELPER_USEPTY_DROPIN"
+    else
+        check_fail "sudoers use_pty override invalid: $SUDO_HELPER_USEPTY_DROPIN"
+    fi
 else
     check_fail "no CLI-capable php binary found for sudoers helper rule"
 fi

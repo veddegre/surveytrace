@@ -752,6 +752,19 @@ EOF
     echo "  [FAIL] sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
     VERIFY_OK=0
   fi
+  SUDO_HELPER_USEPTY_DROPIN="/etc/sudoers.d/surveytrace-credential-sudo-usepty"
+  sudo install -m 440 /dev/null "$SUDO_HELPER_USEPTY_DROPIN"
+  sudo tee "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null <<EOF
+# SurveyTrace — sudo use_pty vs Apache PrivateDevices (see docs/wiki/deployment.md).
+Defaults:${CRED_HELPER_WEB_USER} !use_pty
+
+EOF
+  if sudo visudo -cf "$SUDO_HELPER_USEPTY_DROPIN" >/dev/null 2>&1; then
+    echo "  [OK] sudoers use_pty override valid: $SUDO_HELPER_USEPTY_DROPIN"
+  else
+    echo "  [FAIL] sudoers use_pty override invalid: $SUDO_HELPER_USEPTY_DROPIN"
+    VERIFY_OK=0
+  fi
 else
   echo "  [FAIL] no CLI-capable php binary found for sudoers helper rule"
   VERIFY_OK=0

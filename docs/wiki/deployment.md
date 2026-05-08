@@ -425,6 +425,19 @@ sudo systemctl restart surveytrace-scheduler
 
 ---
 
+### `Defaults use_pty` + Apache `PrivateDevices=yes` (web sudo fails, shell `www-data` works)
+
+- Symptom: **`sudo -l`** shows the correct **`NOPASSWD`** line; **`sudo -u www-data env -i … sudo -n …`** from SSH **succeeds**; browser / **`mod_php`** still gets **`sudo: I'm sorry www-data. I'm afraid I can't do that`** and empty helper stdout.
+- Cause: **`/etc/sudoers`** often has **`Defaults use_pty`**, which makes **`sudo`** allocate a **pseudo-TTY**. **`apache2.service`** on recent Ubuntu may set **`PrivateDevices=yes`**, which **restricts `/dev`** in the worker — **PTY allocation can fail** inside that namespace, and **`sudo`** can surface a **generic policy denial** even when **`NOPASSWD`** is correct.
+- Fix: install **`/etc/sudoers.d/surveytrace-credential-sudo-usepty`** (created by current **`setup.sh`** / **`deploy.sh`**) containing:
+
+  `Defaults:www-data !use_pty`
+
+  (use your real php-fpm / **`mod_php`** pool user if not **`www-data`**). Then **`sudo visudo -cf`** that file and **`sudo systemctl restart apache2`**.
+- Alternative: migrate SurveyTrace to **php-fpm + `proxy_fcgi`** (recommended stack in **`setup.sh`**) and re-evaluate whether you still need the **`!use_pty`** drop-in.
+
+---
+
 ### `stderr_sanitized` contains “I’m afraid I can’t do that” (sudo policy denial)
 
 - Meaning: **sudo** refused the command for **`www-data`** (or your pool user). This is **not** encryption misconfiguration; the argv did not match an allowed **`NOPASSWD`** rule (or another **`Defaults`** rule blocked it).
