@@ -425,6 +425,20 @@ sudo systemctl restart surveytrace-scheduler
 
 ---
 
+### `stderr_sanitized` contains “I’m afraid I can’t do that” (sudo policy denial)
+
+- Meaning: **sudo** refused the command for **`www-data`** (or your pool user). This is **not** encryption misconfiguration; the argv did not match an allowed **`NOPASSWD`** rule (or another **`Defaults`** rule blocked it).
+- As root, list effective rules: `sudo -l -U www-data` (replace `www-data` with your php pool user).
+- Open `/etc/sudoers.d/surveytrace-credential-secret-helper` and confirm **one** line matches **exactly** (paths, no extra args):
+
+  `www-data ALL=(surveytrace) NOPASSWD: /usr/bin/php /opt/surveytrace/daemon/cred_secret_ops_cli.php`
+
+  If your CLI is **`/usr/bin/php8.5`**, the sudoers line must use that same binary path.
+- Check for **`Defaults requiretty`** (or similar) affecting `www-data`; non-interactive `sudo -n` from the web needs a rule that does not require a TTY for this command.
+- After edits: `sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper`
+
+---
+
 ### Collector and master mismatch
 
 - Cause:

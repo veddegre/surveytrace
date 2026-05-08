@@ -139,6 +139,9 @@ function st_cred_secret_helper_classify_stderr(string $err): string
     if ($e === '') {
         return 'unknown';
     }
+    if (str_contains($e, "i'm afraid i can't do that") || str_contains($e, "i'm sorry")) {
+        return 'sudo_policy_denied';
+    }
     if (str_contains($e, 'not in the sudoers file')) {
         return 'sudo_permission_denied';
     }
@@ -547,6 +550,11 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
     }
     if ($exit === 1 && $errTrim === '' && $outTrimEarly === '' && ! $timedOut) {
         $hintsRun[] = 'sudo exit 1 with empty stderr: confirm /etc/sudoers.d/surveytrace-credential-secret-helper lists user "' . ($poolUser ?? '(unknown)') . '" (php_pool_user), not only www-data; check SELinux/AppArmor audit if user matches.';
+    }
+    if ($errClass === 'sudo_policy_denied' || str_contains(strtolower($errTrim), "can't do that")) {
+        $hintsRun[] = 'sudo rejected the exact argv (policy). As root run: sudo -l -U ' . ($poolUser ?? 'www-data') . ' — confirm one NOPASSWD line matches: ' . $sudoBin . ' -n -u surveytrace -- ' . $phpBin . ' ' . $helper;
+        $hintsRun[] = 'Compare /etc/sudoers.d/surveytrace-credential-secret-helper byte-for-byte with the above; fix typos, wrong PHP path (e.g. /usr/bin/php8.5 vs /usr/bin/php), or duplicate DENY rules earlier in sudoers.';
+        $hintsRun[] = 'If Defaults requiretty is set for www-data, relax it for this helper or use a policy that allows non-tty sudo for this command only.';
     }
 
     $diagRun = array_merge($baseDiag, [
