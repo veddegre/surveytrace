@@ -111,20 +111,32 @@ st_php_cli_is_candidate_ok() {
     [[ "$sapi" == "cli" ]]
 }
 
+# Debian /usr/bin/php is often a symlink via /etc/alternatives; sudo may match the real path only.
+st_canonicalize_php_cli_path() {
+    local p="$1"
+    local rp=""
+    rp="$(readlink -f "$p" 2>/dev/null || true)"
+    if [[ -n "$rp" && -x "$rp" ]] && st_php_cli_is_safe_path "$rp"; then
+        printf '%s\n' "$rp"
+    else
+        printf '%s\n' "$p"
+    fi
+}
+
 st_detect_php_cli_bin() {
     local candidate=""
     if [[ -n "${SURVEYTRACE_PHP_CLI_BIN:-}" ]] && st_php_cli_is_candidate_ok "${SURVEYTRACE_PHP_CLI_BIN}"; then
-        printf '%s\n' "${SURVEYTRACE_PHP_CLI_BIN}"
+        st_canonicalize_php_cli_path "${SURVEYTRACE_PHP_CLI_BIN}"
         return 0
     fi
     candidate="$(command -v php 2>/dev/null || true)"
     if st_php_cli_is_candidate_ok "$candidate"; then
-        printf '%s\n' "$candidate"
+        st_canonicalize_php_cli_path "$candidate"
         return 0
     fi
     for candidate in /usr/bin/php /usr/local/bin/php; do
         if st_php_cli_is_candidate_ok "$candidate"; then
-            printf '%s\n' "$candidate"
+            st_canonicalize_php_cli_path "$candidate"
             return 0
         fi
     done
@@ -138,7 +150,7 @@ st_detect_php_cli_bin() {
         unset IFS
         for f in "${matches[@]}"; do
             if st_php_cli_is_candidate_ok "$f"; then
-                printf '%s\n' "$f"
+                st_canonicalize_php_cli_path "$f"
                 return 0
             fi
         done

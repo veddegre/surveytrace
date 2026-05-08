@@ -262,6 +262,19 @@ function st_cred_secret_helper_runtime_diagnostics(): array
     ];
 }
 
+/**
+ * Resolve Debian alternatives (/usr/bin/php -> …/php8.x) so argv matches sudoers and sudo's command check.
+ */
+function st_cred_secret_helper_canonical_php_bin(string $bin): string
+{
+    if ($bin === '' || $bin[0] !== '/') {
+        return $bin;
+    }
+    $r = @realpath($bin);
+
+    return ($r !== false && $r !== '') ? $r : $bin;
+}
+
 function st_cred_secret_helper_is_safe_php_path(string $path): bool
 {
     if ($path === '' || $path[0] !== '/') {
@@ -312,6 +325,15 @@ function st_cred_secret_helper_is_cli_php(string $candidate): bool
  */
 function st_cred_secret_helper_php_bin_detect(): array
 {
+    $finalize = static function (string $candidate, string $source): array {
+        $canon = st_cred_secret_helper_canonical_php_bin($candidate);
+        if ($canon !== $candidate && st_cred_secret_helper_is_cli_php($canon)) {
+            return ['bin' => $canon, 'source' => $source . '+realpath'];
+        }
+
+        return ['bin' => $candidate, 'source' => $source];
+    };
+
     $envNames = ['SURVEYTRACE_PHP_CLI_BIN', 'SURVEYTRACE_PHP_CLI'];
     foreach ($envNames as $envName) {
         $env = getenv($envName);
@@ -320,26 +342,26 @@ function st_cred_secret_helper_php_bin_detect(): array
         }
         $candidate = trim($env);
         if ($candidate !== '' && st_cred_secret_helper_is_cli_php($candidate)) {
-            return ['bin' => $candidate, 'source' => 'env:' . $envName];
+            return $finalize($candidate, 'env:' . $envName);
         }
     }
     if (st_cred_secret_helper_is_cli_php('/usr/bin/php')) {
-        return ['bin' => '/usr/bin/php', 'source' => 'fallback:/usr/bin/php'];
+        return $finalize('/usr/bin/php', 'fallback:/usr/bin/php');
     }
     if (st_cred_secret_helper_is_cli_php('/usr/local/bin/php')) {
-        return ['bin' => '/usr/local/bin/php', 'source' => 'fallback:/usr/local/bin/php'];
+        return $finalize('/usr/local/bin/php', 'fallback:/usr/local/bin/php');
     }
     $versioned = glob('/usr/bin/php[0-9.]*');
     if (is_array($versioned)) {
         rsort($versioned, SORT_NATURAL);
         foreach ($versioned as $candidate) {
             if (is_string($candidate) && st_cred_secret_helper_is_cli_php($candidate)) {
-                return ['bin' => $candidate, 'source' => 'fallback:versioned_usr_bin'];
+                return $finalize($candidate, 'fallback:versioned_usr_bin');
             }
         }
     }
 
-    return ['bin' => '/usr/bin/php', 'source' => 'fallback:default'];
+    return $finalize('/usr/bin/php', 'fallback:default');
 }
 
 function st_cred_secret_helper_php_bin(): string

@@ -433,7 +433,7 @@ sudo systemctl restart surveytrace-scheduler
 
   `www-data ALL=(surveytrace) NOPASSWD: /usr/bin/php /opt/surveytrace/daemon/cred_secret_ops_cli.php`
 
-  If your CLI is **`/usr/bin/php8.5`**, the sudoers line must use that same binary path.
+  On Debian/Ubuntu, **`/usr/bin/php`** is often a symlink via **`/etc/alternatives`** to **`/usr/bin/php8.x`**. Sudo may validate the **resolved** path; if the web helper invokes **`/usr/bin/php8.5`** but sudoers only list **`/usr/bin/php`**, you can get a policy denial. Use the **same path** in sudoers, **`SURVEYTRACE_PHP_CLI_BIN`**, and the helper (current `setup.sh` / `deploy.sh` / `lib_cred_secret_helper.php` canonicalize to **`readlink -f` / `realpath`**).
 - Check for **`Defaults requiretty`** (or similar) affecting `www-data`; non-interactive `sudo -n` from the web needs a rule that does not require a TTY for this command.
 - After edits: `sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper`
 
