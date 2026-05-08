@@ -11557,7 +11557,9 @@ async function loadCredentialProfiles() {
     const encLine = document.getElementById('st-cred-profiles-encryption-line');
     if (encLine) {
         const e = window.__stCredEncryption;
-        if (stCredEncryptionAvailable()) {
+        if (e && e.helper_available === false) {
+            encLine.textContent = 'Credential helper unavailable; configure sudoers helper for www-data -> surveytrace secret operations.';
+        } else if (stCredEncryptionAvailable()) {
             encLine.textContent = 'Credential encryption: configured (preferred ' + String(e.preferred_alg || 'n/a') + ').';
         } else {
             encLine.textContent = 'Credential encryption: not configured — set SURVEYTRACE_CRED_SECRET_KEY on the server to store profile secrets.';

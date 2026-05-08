@@ -14,6 +14,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_secrets.php';
 require_once __DIR__ . '/lib_credential_profiles.php';
+require_once __DIR__ . '/lib_cred_secret_helper.php';
 
 st_auth();
 st_require_role(['admin']);
@@ -31,7 +32,7 @@ $actorName = trim((string) ($actor['username'] ?? '')) !== '' ? trim((string) $a
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
-    $enc = st_secret_status();
+    $enc = st_cred_secret_status_via_helper();
     $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
     if ($id > 0) {
         $one = st_cred_profile_get_active($db, $id);
@@ -98,7 +99,7 @@ if ($action === 'create') {
         'transport'               => $transport,
     ]);
     $row = st_cred_profile_get_active($db, $newId);
-    st_json(['ok' => true, 'profile' => $row, 'encryption' => st_secret_status()]);
+    st_json(['ok' => true, 'profile' => $row, 'encryption' => st_cred_secret_status_via_helper()]);
 }
 
 if ($action === 'update') {
@@ -155,7 +156,7 @@ if ($action === 'update') {
         'name'                    => $name,
         'transport'               => $transport,
     ]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_secret_status()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
 }
 
 if ($action === 'set_secret') {
@@ -163,8 +164,9 @@ if ($action === 'set_secret') {
     if ($id < 1) {
         st_json(['ok' => false, 'error' => 'id required'], 400);
     }
-    if (! st_secret_available()) {
-        st_json(['ok' => false, 'error' => 'Credential encryption is not configured.'], 503);
+    $enc = st_cred_secret_status_via_helper();
+    if (empty($enc['available'])) {
+        st_json(['ok' => false, 'error' => 'Credential helper unavailable; configure sudoers helper.'], 503);
     }
     $cur = st_cred_profile_get_active($db, $id);
     if ($cur === null) {
@@ -187,14 +189,6 @@ if ($action === 'set_secret') {
         ]);
         st_json(['ok' => false, 'error' => $normErr ?? 'Invalid secret material'], 400);
     }
-    $plain = json_encode($norm, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($plain === false) {
-        st_audit_log('credential_profile.secret_set_failed', $actorId, $actorName, null, null, [
-            'credential_profile_id' => $id,
-            'reason'                => 'encode_failed',
-        ]);
-        st_json(['ok' => false, 'error' => 'Could not encode secret payload'], 500);
-    }
     $hadSecret = false;
     try {
         $chk = $db->prepare('SELECT length(COALESCE(secret_ciphertext, \'\')) AS n FROM credential_profiles WHERE id = ? AND deleted_at IS NULL LIMIT 1');
@@ -203,20 +197,26 @@ if ($action === 'set_secret') {
     } catch (Throwable) {
         // treat as no prior secret
     }
-    try {
-        $envelope = st_secret_encrypt($plain, ['credential_profile_id' => $id]);
-    } catch (Throwable $e) {
-        $msg = trim($e->getMessage());
-        if ($msg === '') {
-            $msg = 'encrypt_failed';
-        }
+    $h = st_cred_secret_helper_call([
+        'action' => 'encrypt_for_profile',
+        'profile_id' => $id,
+        'transport' => $transport,
+        'secret_material' => $norm,
+    ], 12);
+    if (!$h['ok']) {
+        $hc = (string) ($h['error_code'] ?? 'helper_error');
         st_audit_log('credential_profile.secret_set_failed', $actorId, $actorName, null, null, [
             'credential_profile_id' => $id,
-            'reason'                => 'encrypt_exception',
-            'detail'                => $msg === 'Credential encryption is not configured.' ? $msg : 'encrypt_failed',
+            'reason'                => 'helper_encrypt_failed',
+            'detail'                => $hc,
         ]);
-        $safe = $msg === 'Credential encryption is not configured.' ? $msg : 'Could not encrypt secret.';
-        st_json(['ok' => false, 'error' => $safe], 500);
+        $safe = $hc === 'helper_unavailable' ? 'Credential helper unavailable; configure sudoers helper.' : 'Could not encrypt secret.';
+        st_json(['ok' => false, 'error' => $safe, 'code' => $hc], 500);
+    }
+    $hp = is_array($h['payload'] ?? null) ? $h['payload'] : [];
+    $envelope = isset($hp['envelope']) ? (string) $hp['envelope'] : '';
+    if ($envelope === '') {
+        st_json(['ok' => false, 'error' => 'Could not encrypt secret.', 'code' => 'protocol_error'], 500);
     }
     try {
         $up = $db->prepare('UPDATE credential_profiles SET secret_ciphertext = ?, updated_at = datetime(\'now\') WHERE id = ? AND deleted_at IS NULL');
@@ -233,7 +233,7 @@ if ($action === 'set_secret') {
         'credential_profile_id' => $id,
         'transport'             => $transport,
     ]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_secret_status()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
 }
 
 if ($action === 'clear_secret') {
@@ -262,7 +262,7 @@ if ($action === 'clear_secret') {
             'credential_profile_id' => $id,
         ]);
     }
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_secret_status()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
 }
 
 if ($action === 'test') {
@@ -287,7 +287,7 @@ if ($action === 'set_enabled') {
     }
     $logAction = $en ? 'credential_profile.enabled' : 'credential_profile.disabled';
     st_audit_log($logAction, $actorId, $actorName, null, null, ['credential_profile_id' => $id]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_secret_status()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
 }
 
 if ($action === 'delete') {

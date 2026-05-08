@@ -123,6 +123,7 @@ st_brr_emit('PASS', 'Credential profiles with stored secrets: ' . $profilesWithS
 $passes++;
 
 $secretAvail = st_secret_available();
+$secretStatus = st_secret_status();
 if ($profilesWithSecrets > 0 && ! $secretAvail) {
     st_brr_emit('FAIL', 'SURVEYTRACE_CRED_SECRET_KEY is unavailable while encrypted credential profiles exist.');
     $fails++;
@@ -132,6 +133,17 @@ if ($profilesWithSecrets > 0 && ! $secretAvail) {
 } else {
     st_brr_emit('PASS', 'Credential secret key appears available for decrypt operations.');
     $passes++;
+}
+if ($secretAvail) {
+    $fp = (string) ($secretStatus['key_fingerprint'] ?? '');
+    $alg = (string) ($secretStatus['preferred_alg'] ?? '');
+    st_brr_emit('PASS', 'Secret env visibility: available=yes source=' . (string) ($secretStatus['source'] ?? 'unknown')
+        . ($alg !== '' ? ' preferred_alg=' . $alg : '')
+        . ($fp !== '' ? ' key_fp=' . $fp : ''));
+    $passes++;
+} else {
+    st_brr_emit('WARN', 'Secret env visibility: available=no source=' . (string) ($secretStatus['source'] ?? 'missing'));
+    $warns++;
 }
 
 if ($profilesWithSecrets > 0) {

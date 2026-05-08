@@ -909,6 +909,39 @@ check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^Group=surve
 check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^SupplementaryGroups=www-data$' "collector-ingest unit has SupplementaryGroups=www-data"
 check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^WorkingDirectory=/opt/surveytrace/daemon$' "collector-ingest unit has WorkingDirectory"
 check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^Restart=on-failure$' "collector-ingest unit has Restart=on-failure"
+SUDO_HELPER_DROPIN="/etc/sudoers.d/surveytrace-credential-secret-helper"
+PHP_BIN_REAL="$(command -v php || true)"
+if [[ -n "$PHP_BIN_REAL" ]]; then
+    install -m 440 /dev/null "$SUDO_HELPER_DROPIN"
+    cat > "$SUDO_HELPER_DROPIN" <<EOF
+# SurveyTrace credential secret helper (least-privilege).
+www-data ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
+Defaults!${PHP_BIN_REAL} !requiretty
+
+EOF
+    if visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
+        check_ok "sudoers helper drop-in valid: $SUDO_HELPER_DROPIN"
+    else
+        check_fail "sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
+    fi
+else
+    check_fail "php binary not found for sudoers helper rule"
+fi
+if [[ -f /etc/surveytrace/surveytrace.env ]]; then
+    check_ok "env file present: /etc/surveytrace/surveytrace.env"
+else
+    check_warn "env file missing: /etc/surveytrace/surveytrace.env (set SURVEYTRACE_CRED_SECRET_KEY)"
+fi
+if runuser -u "$WEB_GROUP" -- test -r /etc/surveytrace/surveytrace.env >/dev/null 2>&1; then
+    check_warn "www-data can read /etc/surveytrace/surveytrace.env (not recommended)"
+else
+    check_ok "www-data cannot read /etc/surveytrace/surveytrace.env"
+fi
+if sudo -u "$WEB_GROUP" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' >/dev/null 2>&1; then
+    check_ok "www-data can invoke credential secret helper via sudo"
+else
+    check_warn "www-data cannot invoke credential secret helper via sudo (check $SUDO_HELPER_DROPIN)"
+fi
 if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/collector_ingest_worker.py" --check-db-open >/dev/null 2>&1; then
     check_ok "collector ingest runtime DB-open check"
 else

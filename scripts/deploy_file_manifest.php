@@ -39,6 +39,7 @@ return [
         'lib_collectors.php',
         'lib_credentialed_checks.php',
         'lib_secrets.php',
+        'lib_cred_secret_helper.php',
         'lib_credential_profiles.php',
         'lib_credential_check_ops.php',
         'lib_credential_profile_transport_test.php',
@@ -139,6 +140,7 @@ return [
         'backup_db.sh',
         'restore_db.sh',
         'cred_decrypt_cli.php',
+        'cred_secret_ops_cli.php',
     ],
 
     // scripts/*.php shipped to /opt/surveytrace/scripts (maintenance + production selftests).
@@ -157,6 +159,7 @@ return [
         'st_software_inventory_diagnostics_selftest.php',
         'st_recon_trusted_data_selftest.php',
         'st_cc_normalized_preview_selftest.php',
+        'st_assets_quick_search_selftest.php',
         'diagnose_collector_ingest_queue.php',
         'check_deploy_coverage.php',
         'cleanup_deployed_stale_files.php',

@@ -980,9 +980,15 @@ if ($sort_col === 'hostname' && $stReconJoinSql !== '') {
 // ---------------------------------------------------------------------------
 // Count
 // ---------------------------------------------------------------------------
-$count_stmt = $db->prepare("SELECT COUNT(*) FROM assets a WHERE $where_sql");
-$count_stmt->execute($params);
-$total = (int)$count_stmt->fetchColumn();
+try {
+    $count_sql = "SELECT COUNT(*) FROM assets a " . $stReconJoinSql . " " . $scopeJoinSql . " WHERE $where_sql";
+    $count_stmt = $db->prepare($count_sql);
+    $count_stmt->execute($params);
+    $total = (int) $count_stmt->fetchColumn();
+} catch (Throwable $e) {
+    @error_log('SurveyTrace assets.php count query failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+    st_json(['ok' => false, 'error' => 'Asset search query unavailable'], 500);
+}
 
 // ---------------------------------------------------------------------------
 // Rows
@@ -1001,14 +1007,21 @@ $sql = "
     LIMIT :lim OFFSET :off
 ";
 
-$stmt = $db->prepare($sql);
-foreach ($params as $k => $v) $stmt->bindValue($k, $v);
-$stmt->bindValue(':lim', $per_page, PDO::PARAM_INT);
-$stmt->bindValue(':off', $offset,   PDO::PARAM_INT);
-$stmt->execute();
-$rows = [];
-foreach ($stmt->fetchAll() as $raw) {
-    $rows[] = st_recon_augment_asset_row_with_trusted_operational_fields(decode_asset($raw));
+try {
+    $stmt = $db->prepare($sql);
+    foreach ($params as $k => $v) {
+        $stmt->bindValue($k, $v);
+    }
+    $stmt->bindValue(':lim', $per_page, PDO::PARAM_INT);
+    $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = [];
+    foreach ($stmt->fetchAll() as $raw) {
+        $rows[] = st_recon_augment_asset_row_with_trusted_operational_fields(decode_asset($raw));
+    }
+} catch (Throwable $e) {
+    @error_log('SurveyTrace assets.php rows query failed: ' . preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $e->getMessage()));
+    st_json(['ok' => false, 'error' => 'Asset search query unavailable'], 500);
 }
 
 $asset_scope_filter_options = [];

@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_credential_profiles.php';
 require_once __DIR__ . '/lib_secrets.php';
+require_once __DIR__ . '/lib_cred_secret_helper.php';
 
 /** @return array{0:bool,1:?string} */
 function st_cred_transport_proc_available(): array
@@ -363,50 +364,8 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
     if ($cipher === '' || strlen($cipher) < 10) {
         return $fail(400, 'Profile has no stored secret; set a secret before testing', 'invalid_profile', $id);
     }
-    if (! st_secret_available()) {
-        return $fail(503, 'Credential encryption is not configured.', 'encryption_unavailable', $id);
-    }
-    $plain = null;
-    try {
-        $plain = st_secret_decrypt($cipher, ['credential_profile_id' => $id]);
-    } catch (Throwable) {
-        return $fail(500, 'Could not decrypt stored secret', 'decrypt_failed', $id);
-    }
-    $secret = [];
-    try {
-        $tmp = json_decode((string) $plain, true, 16, JSON_THROW_ON_ERROR);
-        if (is_array($tmp)) {
-            foreach ($tmp as $k => $v) {
-                if (is_string($k) && is_string($v)) {
-                    $secret[$k] = $v;
-                }
-            }
-        }
-    } catch (Throwable) {
-        $plain = null;
-
-        return $fail(500, 'Stored secret payload is invalid', 'decrypt_failed', $id);
-    }
-    $plain = null;
-
-    $principal = st_cred_profile_decode_json(isset($row['principal_json']) ? (string) $row['principal_json'] : null);
-    $timeoutSec = 15;
-    if (isset($in['timeout_sec'])) {
-        $timeoutSec = (int) $in['timeout_sec'];
-    }
+    $timeoutSec = isset($in['timeout_sec']) ? (int) $in['timeout_sec'] : 15;
     $timeoutSec = max(5, min(25, $timeoutSec));
-
-    [$stdinPayload, $buildErr] = st_cred_transport_build_stdin_payload(
-        $transport,
-        $host,
-        $port,
-        $timeoutSec,
-        $principal,
-        $secret
-    );
-    if ($stdinPayload === null) {
-        return $fail(400, $buildErr ?? 'Invalid profile for test', 'invalid_profile', $id);
-    }
 
     $lock = st_cred_transport_lock_acquire();
     if ($lock === false) {
@@ -418,12 +377,27 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
             'transport'               => $transport,
             'target_host'             => $host,
         ]);
-        $run = st_cred_transport_run_cli($stdinPayload);
-        $code = in_array($run['code'], $allowedCodes, true) ? $run['code'] : 'protocol_error';
-        if (! empty($run['runner_error'])) {
-            $code = 'protocol_error';
+        $call = st_cred_secret_helper_call([
+            'action' => 'transport_test_for_profile',
+            'profile_id' => $id,
+            'target_host' => $host,
+            'port' => $port,
+            'timeout_sec' => $timeoutSec,
+        ], 30);
+        if (!$call['ok']) {
+            $hc = (string) ($call['error_code'] ?? 'helper_error');
+            $msg = $hc === 'helper_unavailable'
+                ? 'Credential helper unavailable; configure sudoers helper.'
+                : 'Credential test helper failed';
+            return $fail(503, $msg, $hc, $id);
         }
+        $cp = is_array($call['payload'] ?? null) ? $call['payload'] : [];
+        $run = is_array($cp['test'] ?? null) ? $cp['test'] : [];
+        $code = in_array((string) ($run['code'] ?? ''), $allowedCodes, true) ? (string) $run['code'] : 'protocol_error';
         $ok = $run['ok'] && $code === 'ok';
+        if (array_key_exists('success', $run)) {
+            $ok = (bool) $run['success'] && $code === 'ok';
+        }
         $dur = max(0, (int) ($run['duration_ms'] ?? 0));
         $status = $ok ? 'ok' : 'failed';
         $errCol = $ok ? null : $code;
@@ -470,12 +444,12 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
                 'code'        => $code,
                 'duration_ms' => $dur,
                 'transport'   => $transport,
-                'target_host' => $host,
-                'port'        => $effPort,
+                'target_host' => isset($run['target_host']) ? (string) $run['target_host'] : $host,
+                'port'        => isset($run['port']) ? (int) $run['port'] : $effPort,
                 'hint'        => $hint,
             ],
             'profile'     => $profile,
-            'encryption'  => st_secret_status(),
+            'encryption'  => st_cred_secret_status_via_helper(),
         ];
 
         return ['http_status' => 200, 'payload' => $payload];

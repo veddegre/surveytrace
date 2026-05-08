@@ -633,6 +633,41 @@ else
   echo "  [FAIL] collector ingest runtime DB-open check"
   VERIFY_OK=0
 fi
+SUDO_HELPER_DROPIN="/etc/sudoers.d/surveytrace-credential-secret-helper"
+PHP_BIN_REAL="$(command -v php || true)"
+if [[ -n "$PHP_BIN_REAL" ]]; then
+  sudo install -m 440 /dev/null "$SUDO_HELPER_DROPIN"
+  sudo sh -c "cat > '$SUDO_HELPER_DROPIN' <<'EOF'
+# SurveyTrace credential secret helper (least-privilege).
+www-data ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${DEST}/daemon/cred_secret_ops_cli.php
+Defaults!${PHP_BIN_REAL} !requiretty
+
+EOF"
+  if sudo visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
+    echo "  [OK] sudoers helper drop-in valid: $SUDO_HELPER_DROPIN"
+  else
+    echo "  [FAIL] sudoers helper drop-in invalid: $SUDO_HELPER_DROPIN"
+    VERIFY_OK=0
+  fi
+else
+  echo "  [FAIL] php binary not found for sudoers helper rule"
+  VERIFY_OK=0
+fi
+if sudo test -f /etc/surveytrace/surveytrace.env; then
+  echo "  [OK] env file present: /etc/surveytrace/surveytrace.env"
+else
+  check_warn_msg "env file missing: /etc/surveytrace/surveytrace.env (set SURVEYTRACE_CRED_SECRET_KEY)"
+fi
+if sudo -u www-data test -r /etc/surveytrace/surveytrace.env >/dev/null 2>&1; then
+  check_warn_msg "www-data can read /etc/surveytrace/surveytrace.env (not recommended)"
+else
+  echo "  [OK] www-data cannot read /etc/surveytrace/surveytrace.env"
+fi
+if sudo -u www-data sudo -n -u surveytrace -- "$PHP_BIN_REAL" "$DEST/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' >/dev/null 2>&1; then
+  echo "  [OK] www-data can invoke credential secret helper via sudo"
+else
+  check_warn_msg "www-data cannot invoke credential secret helper via sudo (check $SUDO_HELPER_DROPIN)"
+fi
 
 if command -v zabbix_sender >/dev/null 2>&1; then
   echo "  [OK] zabbix_sender available"
