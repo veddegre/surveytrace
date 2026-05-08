@@ -28,7 +28,12 @@ $encryptionDebugGet = $method === 'GET'
     && (string) $_GET['encryption_debug'] === '1';
 
 if (! st_cred_profile_tables_ready($db)) {
-    st_json(['ok' => false, 'error' => 'Credential profiles schema not available'], 503);
+    st_json([
+        'ok'    => false,
+        'error' => 'Credential profiles schema not available',
+        'code'  => 'credential_profiles_schema_unavailable',
+        'hint'  => 'If you just deployed or switched to php-fpm: migrations run per api/db.php revision; try reloading the page. If this persists, restart php-fpm and confirm data/surveytrace.db is readable by the pool user.',
+    ], 503);
 }
 
 $actor = st_current_user();

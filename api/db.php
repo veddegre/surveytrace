@@ -63,11 +63,13 @@ function st_db(): PDO {
 
     st_sqlite_runtime_pragmas($pdo);
 
-    // Heavy ALTER/CREATE bootstrap runs once per PHP worker (Apache child / FPM worker), not on every
-    // new PDO. Otherwise reconnecting during long AI calls replays hundreds of exec()s and locks SQLite.
-    // After a deploy that adds migrations: restart Apache/php-fpm so all workers re-run bootstrap once.
-    static $st_db_worker_migrations_done = false;
-    if ($st_db_worker_migrations_done) {
+    // Heavy ALTER/CREATE bootstrap runs once per PHP worker per deployed api/db.php revision (file mtime),
+    // not on every new PDO. Otherwise reconnecting during long AI calls replays hundreds of exec()s and
+    // locks SQLite. Mtime invalidation avoids long-lived php-fpm workers skipping new migrations after deploy
+    // (symptom: 503 "Credential profiles schema not available" until manual php-fpm restart).
+    static $st_db_migration_cache_mtime = null;
+    $dbPhpMtime = @filemtime(__FILE__) ?: 0;
+    if ($st_db_migration_cache_mtime === $dbPhpMtime) {
         $GLOBALS['st_surveytrace_pdo'] = $pdo;
         return $pdo;
     }
@@ -414,7 +416,7 @@ function st_db(): PDO {
         st_cred_seed_builtin_plugins($pdo);
     }
 
-    $st_db_worker_migrations_done = true;
+    $st_db_migration_cache_mtime = $dbPhpMtime;
     } finally {
         if ($bootstrapLockFh !== false) {
             flock($bootstrapLockFh, LOCK_UN);
@@ -428,7 +430,7 @@ function st_db(): PDO {
 
 /**
  * Drop the shared PDO so another connection can write during long local I/O in the same request.
- * The next st_db() opens a new PDO (PRAGMAs only — migrations skipped after first connect in this worker).
+ * The next st_db() opens a new PDO (PRAGMAs only — migrations skipped until api/db.php is replaced).
  */
 function st_db_release_connection(): void {
     unset($GLOBALS['st_surveytrace_pdo']);
