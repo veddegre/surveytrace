@@ -206,15 +206,10 @@ if ($action === 'transport_test_for_profile') {
     if ($stdinPayload === null) {
         st_cred_ops_out(['ok' => false, 'code' => 'invalid_profile', 'error' => (string) ($buildErr ?: 'invalid profile for test')], 1);
     }
-    $lock = st_cred_transport_lock_acquire();
-    if ($lock === false) {
-        st_cred_ops_out(['ok' => false, 'code' => 'busy', 'error' => 'Another credential test is already running'], 1);
-    }
-    try {
-        $run = st_cred_transport_run_cli($stdinPayload);
-    } finally {
-        st_cred_transport_lock_release($lock);
-    }
+    // Do not call st_cred_transport_lock_acquire() here. The web API already holds
+    // data/cred_profile_transport_test.lock (www-data) for the whole sudo+helper call; this CLI runs as
+    // surveytrace and would always see "busy" (same path, non-blocking flock).
+    $run = st_cred_transport_run_cli($stdinPayload);
     $allowedCodes = [
         'ok', 'auth_failed', 'timeout', 'network_unreachable', 'host_key_mismatch',
         'protocol_error', 'unsupported_transport', 'encryption_unavailable', 'decrypt_failed',

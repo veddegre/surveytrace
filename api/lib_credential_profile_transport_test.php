@@ -384,12 +384,16 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
             'port' => $port,
             'timeout_sec' => $timeoutSec,
         ], 30);
-        if (!$call['ok']) {
+        if (! $call['ok']) {
             $hc = (string) ($call['error_code'] ?? 'helper_error');
-            $msg = $hc === 'helper_unavailable'
-                ? 'Credential helper unavailable; configure sudoers helper.'
-                : 'Credential test helper failed';
-            return $fail(503, $msg, $hc, $id);
+            if ($hc === 'helper_unavailable') {
+                return $fail(503, 'Credential helper unavailable; configure sudoers helper.', $hc, $id);
+            }
+            if ($hc === 'busy') {
+                return $fail(429, 'Another credential test is already running. Try again shortly.', 'busy', $id);
+            }
+
+            return $fail(503, 'Credential test helper failed', $hc, $id);
         }
         $cp = is_array($call['payload'] ?? null) ? $call['payload'] : [];
         $run = is_array($cp['test'] ?? null) ? $cp['test'] : [];
