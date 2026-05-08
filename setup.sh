@@ -1025,6 +1025,7 @@ if [[ -n "$PHP_BIN_REAL" ]]; then
 # Cmnd_Alias + Defaults! avoids global "Defaults use_pty" + Apache PrivateDevices PTY failures (see docs).
 Cmnd_Alias ST_CRED_SECRET_OPS = ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
 Defaults!ST_CRED_SECRET_OPS !use_pty
+Defaults:${CRED_HELPER_WEB_USER} !use_pty
 ${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ST_CRED_SECRET_OPS
 
 EOF
