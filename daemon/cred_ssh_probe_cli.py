@@ -37,6 +37,8 @@ Use when debugging **wrong_key_or_corrupt** (JSON parse vs context vs crypto).
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -210,6 +212,25 @@ def _inspect_envelope_row(envelope: str, profile_id: int) -> dict[str, Any]:
             "has_aad": "aad" in doc,
         }
     )
+    # Libsodium secretbox: 24-byte nonce, ciphertext includes 16-byte MAC (no decrypt here).
+    _sodium_nonce = 24
+    _sodium_mac = 16
+    nonce_b64 = str(doc.get("nonce", "") or "")
+    ct_b64 = str(doc.get("ciphertext", "") or "")
+    b64: dict[str, Any] = {}
+    try:
+        nb = base64.b64decode(nonce_b64, validate=True)
+        b64["nonce_decode_bytes"] = len(nb)
+        b64["nonce_len_ok_for_sodium_secretbox"] = len(nb) == _sodium_nonce
+    except (binascii.Error, ValueError) as e:
+        b64["nonce_base64_error"] = type(e).__name__
+    try:
+        cb = base64.b64decode(ct_b64, validate=True)
+        b64["ciphertext_decode_bytes"] = len(cb)
+        b64["ciphertext_len_ok_for_secretbox_mac"] = len(cb) >= _sodium_mac
+    except (binascii.Error, ValueError) as e:
+        b64["ciphertext_base64_error"] = type(e).__name__
+    out["binary_fields"] = b64
     return out
 
 
