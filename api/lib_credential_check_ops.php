@@ -965,6 +965,23 @@ function st_cc_normalized_preview_public(string $pluginKey, string $normalizedJs
 
             return strlen($normalizedJson) > 400 ? $preview . '…' : $preview;
         }
+        if (isset($d['error_code']) && (string) $d['error_code'] !== '') {
+            $det = isset($d['error_detail_safe']) ? (string) $d['error_detail_safe'] : '';
+            $prevErr = [
+                'error_code'        => $d['error_code'],
+                'error_detail_safe' => $det !== '' ? substr($det, 0, 280) : null,
+                'source'            => $d['source'] ?? null,
+            ];
+            $encErr = json_encode($prevErr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (! is_string($encErr)) {
+                return '…';
+            }
+            if (strlen($encErr) > 1200) {
+                return substr($encErr, 0, 1200) . '…';
+            }
+
+            return $encErr;
+        }
         $pkgs = isset($d['packages']) && is_array($d['packages']) ? $d['packages'] : [];
         $sample = array_slice($pkgs, 0, 5);
         $prev = [
@@ -984,6 +1001,37 @@ function st_cc_normalized_preview_public(string $pluginKey, string $normalizedJs
         }
 
         return $enc;
+    }
+    if ($pluginKey === 'ssh.linux.os_release' && $normalizedJson !== '') {
+        try {
+            $d = json_decode($normalizedJson, true, 24, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            $preview = substr($normalizedJson, 0, 400);
+
+            return strlen($normalizedJson) > 400 ? $preview . '…' : $preview;
+        }
+        if (! is_array($d)) {
+            $preview = substr($normalizedJson, 0, 400);
+
+            return strlen($normalizedJson) > 400 ? $preview . '…' : $preview;
+        }
+        if (isset($d['error_code']) && (string) $d['error_code'] !== '') {
+            $det = isset($d['error_detail_safe']) ? (string) $d['error_detail_safe'] : '';
+            $prev = [
+                'error_code'        => $d['error_code'],
+                'error_detail_safe' => $det !== '' ? substr($det, 0, 280) : null,
+                'source'            => $d['source'] ?? null,
+            ];
+            $enc = json_encode($prev, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (! is_string($enc)) {
+                return '…';
+            }
+            if (strlen($enc) > 1200) {
+                return substr($enc, 0, 1200) . '…';
+            }
+
+            return $enc;
+        }
     }
     $preview = $normalizedJson !== '' ? substr($normalizedJson, 0, 400) : '';
     if (strlen($normalizedJson) > 400) {

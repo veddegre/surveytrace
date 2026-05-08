@@ -10,9 +10,12 @@ Tries dpkg first; on failure / empty / missing, tries rpm. Same SSH connect + ho
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from cred_check_ssh_os_release import _connect_client, read_exec_stdout_bounded
 
@@ -148,7 +151,7 @@ def collect_package_inventory(
     max_stdout_bytes = int(max(4096, min(6_291_456, max_stdout_bytes)))
     max_stderr_bytes = int(max(256, min(65_536, max_stderr_bytes)))
 
-    client, err = _connect_client(
+    client, err, connect_detail = _connect_client(
         host=host,
         port=port,
         username=username,
@@ -159,7 +162,17 @@ def collect_package_inventory(
     )
     if client is None:
         out["code"] = err or "protocol_error"
+        if connect_detail:
+            out["connect_detail_safe"] = connect_detail
         out["duration_ms"] = int((time.monotonic() - t0) * 1000)
+        log.warning(
+            "cred_check ssh package_inventory: connect failed host=%s port=%s user=%s code=%s detail=%s",
+            host,
+            port,
+            username,
+            out["code"],
+            connect_detail or "",
+        )
         return out
 
     def try_cmd(cmd: str) -> tuple[bytes | None, int | None, str | None, int, bool]:

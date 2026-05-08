@@ -5,6 +5,11 @@ Leases worker_jobs with job_type credentialed_check, executes ssh.linux.os_relea
 the job selects that plugin (bounded SFTP/exec read of /etc/os-release only). Other plugins stay
 skipped/not_implemented. Optional SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1 forces placeholder-mode skips
 (smoke tests). Writes credential_check_results, small stdout artifacts, and os_version_observations.
+
+SSH connect failures log a WARNING from cred_check_ssh_os_release / cred_check_ssh_packages
+(host, port, user, code, sanitized detail). Failed plugin rows may include error_detail_safe
+(PHP/UI preview). On the worker host, run: python3 daemon/cred_ssh_probe_cli.py --profile-id=… --host=…
+with the same SURVEYTRACE_INSTALL_DIR / SURVEYTRACE_DB_PATH as this process.
 """
 
 from __future__ import annotations

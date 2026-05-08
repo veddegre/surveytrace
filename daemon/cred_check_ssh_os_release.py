@@ -11,11 +11,27 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import socket
 import time
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+_DIAG_INLINE_SECRET = re.compile(r"(?i)(password|passphrase|secret)\s*[:=]\s*\S+")
+
+
+def sanitize_ssh_diag_message(msg: object) -> str:
+    """Single-line, bounded text safe for logs and normalized_json (no PEM blocks)."""
+    if msg is None:
+        return ""
+    s = str(msg).strip().replace("\r", " ").replace("\n", " ")
+    s = _DIAG_INLINE_SECRET.sub(r"\1=[redacted]", s)
+    if "-----BEGIN" in s and ("PRIVATE KEY" in s or "CERTIFICATE" in s):
+        return "[redacted PEM]"
+    if len(s) > 220:
+        s = s[:219] + "…"
+    return s
 
 # Allowlisted remote read (must match plugin manifest).
 REMOTE_PATH = "/etc/os-release"
@@ -42,6 +58,7 @@ def _connect_client(
     passphrase: str | None,
     timeout_sec: float,
 ):
+    """Returns (client_or_none, error_code_or_none, detail_safe_or_none)."""
     import paramiko
 
     pkey = None
@@ -61,9 +78,10 @@ def _connect_client(
                 last_err = e
                 pkey = None
         if pkey is None:
-            return None, "auth_failed"
+            le = sanitize_ssh_diag_message(last_err) if last_err else ""
+            return None, "auth_failed", (le or None)
     if not password and pkey is None:
-        return None, "auth_failed"
+        return None, "auth_failed", None
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(_policy_from_env())
@@ -80,19 +98,19 @@ def _connect_client(
             allow_agent=False,
             look_for_keys=False,
         )
-        return client, None
-    except paramiko.AuthenticationException:
-        return None, "auth_failed"
-    except paramiko.BadHostKeyException:
-        return None, "host_key_mismatch"
-    except paramiko.SSHException:
-        return None, "protocol_error"
+        return client, None, None
+    except paramiko.AuthenticationException as e:
+        return None, "auth_failed", sanitize_ssh_diag_message(e) or None
+    except paramiko.BadHostKeyException as e:
+        return None, "host_key_mismatch", sanitize_ssh_diag_message(e) or None
+    except paramiko.SSHException as e:
+        return None, "protocol_error", sanitize_ssh_diag_message(e) or None
     except socket.timeout:
-        return None, "timeout"
-    except OSError:
-        return None, "network_unreachable"
-    except Exception:
-        return None, "protocol_error"
+        return None, "timeout", None
+    except OSError as e:
+        return None, "network_unreachable", sanitize_ssh_diag_message(e) or None
+    except Exception as e:
+        return None, "protocol_error", sanitize_ssh_diag_message(f"{type(e).__name__}: {e}") or None
 
 
 def _read_sftp_max(client: Any, *, max_bytes: int) -> tuple[bytes | None, str | None]:
@@ -233,7 +251,7 @@ def collect_os_release(
     max_stdout_bytes = int(max(1024, min(2_097_152, max_stdout_bytes)))
     max_stderr_bytes = int(max(256, min(65_536, max_stderr_bytes)))
 
-    client, err = _connect_client(
+    client, err, connect_detail = _connect_client(
         host=host,
         port=port,
         username=username,
@@ -245,6 +263,16 @@ def collect_os_release(
     out["duration_ms"] = int((time.monotonic() - t0) * 1000)
     if client is None:
         out["code"] = err or "protocol_error"
+        if connect_detail:
+            out["connect_detail_safe"] = connect_detail
+        log.warning(
+            "cred_check ssh os_release: connect failed host=%s port=%s user=%s code=%s detail=%s",
+            host,
+            port,
+            username,
+            out["code"],
+            connect_detail or "",
+        )
         return out
 
     try:

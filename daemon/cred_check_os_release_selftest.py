@@ -20,7 +20,9 @@ from cred_check_run import (
     _os_release_display,
     _parse_os_release_text,
     _sanitize_os_release_for_result,
+    _ssh_plugin_fail_normalized,
 )
+from cred_check_ssh_os_release import sanitize_ssh_diag_message
 
 
 def _fail(msg: str) -> None:
@@ -65,6 +67,16 @@ def main() -> None:
         _fail("expected empty parse failure")
     if e3 != "normalize_error":
         _fail("empty parse error code")
+
+    s1 = sanitize_ssh_diag_message("Error: password=secret tail")
+    if "secret" in s1.lower() and "=" in s1 and "redacted" not in s1.lower():
+        _fail("sanitize should redact password= value: " + repr(s1))
+    s2 = sanitize_ssh_diag_message("x\n-----BEGIN RSA PRIVATE KEY-----\nZZ\n-----END RSA PRIVATE KEY-----\n")
+    if "BEGIN" in s2 or "ZZ" in s2:
+        _fail("sanitize should collapse PEM: " + repr(s2))
+    fn = _ssh_plugin_fail_normalized("protocol_error", {"connect_detail_safe": "Incompatible ssh peer"})
+    if fn.get("error_detail_safe") != "Incompatible ssh peer":
+        _fail("ssh fail normalized detail: " + repr(fn))
 
     print("OK cred_check_os_release_selftest")
 

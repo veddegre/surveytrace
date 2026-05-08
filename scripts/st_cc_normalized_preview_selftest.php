@@ -61,4 +61,17 @@ if (! is_array($d2) || array_key_exists('packages', $d2)) {
     exit(1);
 }
 
+$osFail = json_encode([
+    'source'            => 'credentialed_check',
+    'error_code'        => 'protocol_error',
+    'error_detail_safe' => 'Incompatible ssh peer (example)',
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+$pos = st_cc_normalized_preview_public('ssh.linux.os_release', is_string($osFail) ? $osFail : '');
+$decOs = json_decode($pos, true);
+if (! is_array($decOs) || ($decOs['error_code'] ?? '') !== 'protocol_error'
+    || strpos((string) ($decOs['error_detail_safe'] ?? ''), 'Incompatible') === false) {
+    fwrite(STDERR, 'FAIL: os_release failure preview: ' . substr($pos, 0, 400) . "\n");
+    exit(1);
+}
+
 echo "OK st_cc_normalized_preview_selftest\n";

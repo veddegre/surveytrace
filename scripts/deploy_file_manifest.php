@@ -131,6 +131,7 @@ return [
         'cred_check_os_release_selftest.py',
         'cred_check_package_inventory_selftest.py',
         'cred_check_snmp_identity_selftest.py',
+        'cred_ssh_probe_cli.py',
         'st_software_observation_selftest.py',
     ],
 

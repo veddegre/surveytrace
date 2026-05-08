@@ -136,6 +136,15 @@ def _load_plugin_caps(conn: sqlite3.Connection, plugin_key: str, plugin_version:
     return timeout_ms, out_max
 
 
+def _ssh_plugin_fail_normalized(code: str, ssh_out: dict[str, Any]) -> dict[str, Any]:
+    """Bounded failure row for SSH plugins (no secrets)."""
+    doc: dict[str, Any] = {"source": "credentialed_check", "error_code": code}
+    det = str(ssh_out.get("connect_detail_safe") or "").strip()
+    if det:
+        doc["error_detail_safe"] = det[:240]
+    return doc
+
+
 def _json_pair(norm: dict[str, Any], met: dict[str, Any]) -> tuple[str, str]:
     try:
         return (
@@ -618,7 +627,7 @@ def process_cred_check_run(
                     OS_RELEASE_KEY,
                     OS_RELEASE_VER,
                     "failed",
-                    {"source": "credentialed_check", "error_code": code},
+                    _ssh_plugin_fail_normalized(code, ssh_out),
                     {
                         "plugin_key": OS_RELEASE_KEY,
                         "plugin_version": OS_RELEASE_VER,
@@ -767,7 +776,7 @@ def process_cred_check_run(
                         PKG_KEY,
                         PKG_VER,
                         "failed",
-                        {"source": "credentialed_check", "error_code": code},
+                        _ssh_plugin_fail_normalized(code, pkg_out),
                         {
                             "plugin_key": PKG_KEY,
                             "plugin_version": PKG_VER,
