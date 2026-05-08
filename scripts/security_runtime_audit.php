@@ -289,9 +289,8 @@ function st_sra_expected_rel_paths(array $manifest): array
     foreach ($manifest['sql_files'] ?? [] as $rel) {
         $set[$rel] = true;
     }
-    foreach ($manifest['service_units'] ?? [] as $bn) {
-        $set[$bn] = true;
-    }
+    // service_units live in the repo root and are installed to /etc/systemd/system/ — not under the
+    // install tree. Presence is validated separately via systemctl cat in this script.
     $set['VERSION'] = true;
 
     return $set;
