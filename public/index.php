@@ -2436,7 +2436,33 @@ if (!headers_sent()) {
           </table>
         </div>
         <div class="mt8">
-          <button type="button" class="tbtn" onclick="stCredProfileCardTestHint()" title="Save profile → set secret → target host → run test → read the result panel in the modal">How to run handshake test</button>
+          <button
+            type="button"
+            class="tbtn"
+            id="st-cred-profiles-handshake-help-btn"
+            aria-expanded="false"
+            aria-controls="st-cred-profiles-handshake-help"
+            onclick="stCredProfileCardTestHint()"
+            title="Show or hide steps (no popup)"
+          >
+            How to run handshake test
+          </button>
+          <div
+            id="st-cred-profiles-handshake-help"
+            class="hide mt6 hint-micro text-dim"
+            style="border:1px solid var(--border-subtle, #2a3340);border-radius:6px;padding:10px;line-height:1.45"
+            role="region"
+            aria-label="Handshake test steps"
+            tabindex="-1"
+          >
+            <ol class="mb0 mt0" style="padding-left:1.25rem;margin:0">
+              <li>Save profile</li>
+              <li>Set secret</li>
+              <li>Enter target host/IP</li>
+              <li>Run handshake</li>
+              <li>Read result panel below the test controls in the modal</li>
+            </ol>
+          </div>
         </div>
       </div>
       </div>
@@ -11629,12 +11655,21 @@ function stCredProfileClearSecretInputs() {
 }
 
 function stCredProfileCardTestHint() {
-    const el = document.getElementById('st-cred-profiles-card');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    toast(
-        'Handshake: 1) Save the profile. 2) Set the secret. 3) Enter target host/IP (and port if needed). 4) Run handshake test. 5) Read the persistent result panel under the test controls in the modal (not only the toast).',
-        'ok'
-    );
+    const card = document.getElementById('st-cred-profiles-card');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const help = document.getElementById('st-cred-profiles-handshake-help');
+    const btn = document.getElementById('st-cred-profiles-handshake-help-btn');
+    if (!help || !btn) return;
+    help.classList.toggle('hide');
+    const visible = !help.classList.contains('hide');
+    btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+    if (visible) {
+        try {
+            help.focus();
+        } catch (e) {
+            /* ignore */
+        }
+    }
 }
 
 function stCredProfileSecretTransportChanged() {
