@@ -114,6 +114,7 @@ def run_test(payload: dict[str, Any]) -> dict[str, Any]:
                 "code": "protocol_error",
                 "transport": transport,
                 "duration_ms": int((time.monotonic() - t0) * 1000),
+                "hint": f"Remote exec returned exit status {int(rc)} (expected 0 for true)",
             }
         hint = ""
         try:
@@ -143,12 +144,14 @@ def run_test(payload: dict[str, Any]) -> dict[str, Any]:
             "transport": transport,
             "duration_ms": int((time.monotonic() - t0) * 1000),
         }
-    except paramiko.SSHException:
+    except paramiko.SSHException as e:
+        msg = str(e).strip().replace("\n", " ")[:200]
         return {
             "ok": False,
             "code": "protocol_error",
             "transport": transport,
             "duration_ms": int((time.monotonic() - t0) * 1000),
+            "hint": f"SSHException: {msg}" if msg else "SSHException",
         }
     except socket.timeout:
         return {
@@ -164,12 +167,14 @@ def run_test(payload: dict[str, Any]) -> dict[str, Any]:
             "transport": transport,
             "duration_ms": int((time.monotonic() - t0) * 1000),
         }
-    except Exception:
+    except Exception as e:
+        msg = str(e).strip().replace("\n", " ")[:200]
         return {
             "ok": False,
             "code": "protocol_error",
             "transport": transport,
             "duration_ms": int((time.monotonic() - t0) * 1000),
+            "hint": f"{type(e).__name__}: {msg}" if msg else type(e).__name__,
         }
     finally:
         try:

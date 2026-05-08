@@ -268,24 +268,32 @@ function st_cred_transport_run_cli(array $stdinPayload): array
     }
     proc_close($proc);
     $stdout = trim($stdout);
+    $stderrTrim = trim($stderr);
     if ($stdout === '') {
+        $re = 'empty_stdout';
+        if ($stderrTrim !== '') {
+            $re .= ': ' . substr(preg_replace('/\s+/', ' ', $stderrTrim) ?? '', 0, 400);
+        }
+
         return [
             'ok'            => false,
             'code'          => 'protocol_error',
             'transport'     => (string) ($stdinPayload['transport'] ?? ''),
             'duration_ms'   => 0,
-            'runner_error'  => 'empty_stdout',
+            'runner_error'  => $re,
         ];
     }
     try {
         $out = json_decode($stdout, true, 16, JSON_THROW_ON_ERROR);
     } catch (Throwable) {
+        $clip = substr(preg_replace('/\s+/', ' ', $stdout) ?? '', 0, 160);
+
         return [
             'ok'            => false,
             'code'          => 'protocol_error',
             'transport'     => (string) ($stdinPayload['transport'] ?? ''),
             'duration_ms'   => 0,
-            'runner_error'  => 'bad_json',
+            'runner_error'  => 'bad_json stdout=' . $clip,
         ];
     }
     if (! is_array($out)) {
@@ -440,6 +448,12 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
         }
         $profile = st_cred_profile_get_active($db, $id);
         $hint = isset($run['hint']) && is_string($run['hint']) ? substr($run['hint'], 0, 256) : null;
+        if (($hint === null || $hint === '') && isset($run['runner_error']) && is_string($run['runner_error'])) {
+            $re = trim((string) $run['runner_error']);
+            if ($re !== '') {
+                $hint = substr(preg_replace('/\s+/', ' ', $re) ?? '', 0, 256);
+            }
+        }
         $effPort = $port > 0 ? $port : ($transport === 'snmpv3' ? 161 : 22);
         $payload = [
             'ok'          => true,

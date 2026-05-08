@@ -11317,7 +11317,7 @@ function stCredHandshakeCodeHint(code) {
         busy: 'Another test is already running on the server; wait a few seconds and retry.',
         unsupported_transport: 'This transport is not supported for handshake in this release.',
         protocol_error: 'Handshake failed at the protocol layer; check port, service, and server logs.',
-        runner_error: 'Test runner failed; see server logs.',
+        runner_error: 'Test runner crashed or misconfigured; see Result / Message for detail and server logs.',
         ok: '',
     };
     return map[c] || 'Review the error code and server/worker logs.';

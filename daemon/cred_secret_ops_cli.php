@@ -219,6 +219,12 @@ if ($action === 'transport_test_for_profile') {
     $ok = !empty($run['ok']) && $code === 'ok';
     $dur = max(0, (int) ($run['duration_ms'] ?? 0));
     $hint = isset($run['hint']) && is_string($run['hint']) ? substr(preg_replace('/\s+/', ' ', $run['hint']) ?? '', 0, 256) : null;
+    if (($hint === null || $hint === '') && isset($run['runner_error']) && is_string($run['runner_error'])) {
+        $re = trim((string) $run['runner_error']);
+        if ($re !== '') {
+            $hint = substr(preg_replace('/\s+/', ' ', $re) ?? '', 0, 256);
+        }
+    }
     st_cred_ops_out([
         'ok' => true,
         'test' => [
