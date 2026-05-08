@@ -142,6 +142,13 @@ function st_cred_secret_helper_classify_stderr(string $err): string
     if (str_contains($e, 'not in the sudoers file')) {
         return 'sudo_permission_denied';
     }
+    if (str_contains($e, 'no tty present')
+        || str_contains($e, 'must have a tty')
+        || str_contains($e, 'a terminal is required')
+        || str_contains($e, 'no askpass program')
+        || str_contains($e, 'askpass')) {
+        return 'sudo_password_required';
+    }
     if (str_contains($e, 'password is required')
         || str_contains($e, 'a terminal is required to read the password')
         || str_contains($e, 'a password is required')) {
@@ -153,6 +160,12 @@ function st_cred_secret_helper_classify_stderr(string $err): string
     if ((str_contains($e, 'not allowed') || str_contains($e, 'not permitted')) && str_contains($e, 'sudo')) {
         return 'sudoers_command_mismatch';
     }
+    if (str_contains($e, 'unable to execute') && str_contains($e, 'operation not permitted')) {
+        return 'sudo_permission_denied';
+    }
+    if (str_contains($e, 'operation not permitted')) {
+        return 'sudo_permission_denied';
+    }
     if (str_contains($e, 'no new privileges') || (str_contains($e, 'operation not permitted') && str_contains($e, 'sudo'))) {
         return 'sudo_permission_denied';
     }
@@ -161,6 +174,12 @@ function st_cred_secret_helper_classify_stderr(string $err): string
     }
     if (str_contains($e, 'command not found') && str_contains($e, 'sudo')) {
         return 'sudo_not_found';
+    }
+    if (str_contains($e, 'pam_') || str_contains($e, 'authentication failure')) {
+        return 'sudo_password_required';
+    }
+    if (str_contains($e, 'fatal error') || str_contains($e, 'parse error') || str_contains($e, 'uncaught ')) {
+        return 'helper_php_stderr';
     }
 
     return 'unknown';
@@ -190,7 +209,8 @@ function st_cred_secret_helper_public_diagnostics(?array $diag, bool $verbose): 
             $out[$k] = $diag[$k];
         }
     }
-    if ($verbose && isset($diag['stderr_sanitized']) && is_string($diag['stderr_sanitized'])) {
+    // Always expose sanitized stderr when non-empty so operators see sudo/php errors without ?encryption_debug=1.
+    if (isset($diag['stderr_sanitized']) && is_string($diag['stderr_sanitized']) && $diag['stderr_sanitized'] !== '') {
         $out['stderr_sanitized'] = $diag['stderr_sanitized'];
     }
 

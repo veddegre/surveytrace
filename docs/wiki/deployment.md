@@ -411,6 +411,20 @@ sudo systemctl restart surveytrace-scheduler
 
 ---
 
+### Credential helper fails in browser but `sudo` works from SSH (`sudo_exit_code: 1`)
+
+- Symptom:
+  - `encryption.helper_available === false`, `helper_error_code` / `helper_invoke.sudo_exit_code` is `1`
+  - `sudo -u www-data sudo -n -u surveytrace -- /usr/bin/php …/cred_secret_ops_cli.php` from a shell succeeds
+- Cause (Ubuntu, Apache with hardened `apache2.service`):
+  - `systemctl show apache2` includes **`RestrictSUIDSGID=yes`**. That blocks **setuid** executables (including **`/usr/bin/sudo`**) from processes started under the Apache unit — e.g. **`mod_php`**. CLI tests are not subject to that cgroup, so they lie.
+- Fix (pick one):
+  1. **Recommended:** Serve SurveyTrace PHP via **php-fpm + `proxy_fcgi`** (as in `setup.sh` Apache vhost), not **`mod_php`**. PHP then runs under **`php8.x-fpm.service`**, which does not use Apache’s `RestrictSUIDSGID` sandbox for the interpreter.
+  2. **Narrow override:** `sudo systemctl edit apache2` and set `[Service]` **`RestrictSUIDSGID=no`**, then `daemon-reload` + restart Apache. Understand this weakens setuid blocking for **all** Apache children.
+- Verify: `systemctl show apache2 --no-pager | grep RestrictSUIDSGID`
+
+---
+
 ### Collector and master mismatch
 
 - Cause:
