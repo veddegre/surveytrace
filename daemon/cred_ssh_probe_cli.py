@@ -13,10 +13,13 @@ environment (systemd loads **EnvironmentFile=-/etc/surveytrace/surveytrace.env**
 that file automatically when present (unless **--no-env-file**), or use **--env-file** /
 **SURVEYTRACE_ENV_FILE** for a custom path.
 
-  SURVEYTRACE_INSTALL_DIR=/opt/surveytrace \\
-    python3 daemon/cred_ssh_probe_cli.py --profile-id=12 --host=192.168.23.10
+SSH checks need **Paramiko** in the Python interpreter you use. On production hosts, use the same
+venv as **surveytrace-credential-check-worker** (not system ``python3``):
 
-  python3 daemon/cred_ssh_probe_cli.py --db=/path/to/surveytrace.db --profile-id=12 --host=10.0.0.5 --port=2222
+  sudo -u surveytrace SURVEYTRACE_INSTALL_DIR=/opt/surveytrace \\
+    /opt/surveytrace/venv/bin/python3 /opt/surveytrace/daemon/cred_ssh_probe_cli.py --profile-id=12 --host=192.168.23.10
+
+  /opt/surveytrace/venv/bin/python3 daemon/cred_ssh_probe_cli.py --db=/path/to/surveytrace.db --profile-id=12 --host=10.0.0.5 --port=2222
 """
 
 from __future__ import annotations
@@ -78,6 +81,14 @@ def _apply_simple_env_file(path: Path) -> tuple[list[str], bool]:
     return applied, True
 
 
+def _paramiko_import_error() -> BaseException | None:
+    try:
+        import paramiko  # noqa: F401
+    except ImportError as e:
+        return e
+    return None
+
+
 def _bootstrap_surveytrace_env(*, extra_files: list[Path], no_auto: bool) -> dict[str, Any]:
     """Load same-style env files as systemd units so PHP decrypt sees SURVEYTRACE_CRED_SECRET_KEY."""
     meta: dict[str, Any] = {"files_tried": [], "keys_set": []}
@@ -128,6 +139,35 @@ def main() -> int:
         no_auto=bool(args.no_env_file),
     )
 
+    inst = install_root()
+    pi_err = _paramiko_import_error()
+    if pi_err is not None:
+        script_path = Path(__file__).resolve()
+        vpy = inst / "venv" / "bin" / "python3"
+        suggested = (
+            f"sudo -u surveytrace SURVEYTRACE_INSTALL_DIR={inst} "
+            f"{vpy} {script_path} --profile-id={args.profile_id} --host={args.host}"
+        )
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "dependency_missing",
+                    "missing": "paramiko",
+                    "python_interpreter": sys.executable,
+                    "venv_python_exists": vpy.is_file(),
+                    "venv_python": str(vpy),
+                    "import_error": str(pi_err)[:300],
+                    "hint": "Paramiko is required for SSH in this process. The cred worker uses the SurveyTrace venv; run this probe with that interpreter (see venv_python).",
+                    "suggested_command": suggested if vpy.is_file() else None,
+                    "env_bootstrap": env_meta,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 1
+
     db_path = Path(args.db).expanduser().resolve() if str(args.db).strip() else main_db_path()
     if not db_path.is_file():
         print(json.dumps({"ok": False, "error": "db_not_found", "path": str(db_path)}))
@@ -176,7 +216,6 @@ def main() -> int:
         except (TypeError, ValueError):
             pass
 
-    inst = install_root()
     envelope = str(row["secret_ciphertext"] or "")
     secret_obj: dict[str, Any] = {}
     if envelope.strip():
