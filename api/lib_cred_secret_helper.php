@@ -3,6 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
+/** Visible sudo path for proc_open — must match sudoers first argv after USER privilege. */
+function st_cred_secret_helper_sudo_bin(): string
+{
+    return '/usr/bin/sudo';
+}
+
 function st_cred_secret_helper_install_root(): string
 {
     $e = getenv('SURVEYTRACE_INSTALL_DIR');
@@ -12,23 +18,193 @@ function st_cred_secret_helper_install_root(): string
     return dirname(__DIR__);
 }
 
+function st_cred_secret_helper_ini_proc_open_disabled(): bool
+{
+    $df = ini_get('disable_functions');
+    if (! is_string($df) || $df === '') {
+        return false;
+    }
+    foreach (explode(',', $df) as $fn) {
+        if (strtolower(trim($fn)) === 'proc_open') {
+            return true;
+        }
+        if (strtolower(trim($fn)) === 'proc_close') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * When proc_open receives a non-null env array, PHP replaces the child environment.
+ * PHP-FPM often omits PATH/HOME from getenv(); without defaults, `sudo` resolution / libc helpers break.
+ *
+ * @return array<string,string>
+ */
+function st_cred_secret_helper_child_env(string $installRoot): array
+{
+    $path = getenv('PATH');
+    $path = (is_string($path) && trim($path) !== '')
+        ? trim($path)
+        : '/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin';
+
+    $home = getenv('HOME');
+    if (! is_string($home) || trim($home) === '') {
+        $home = '';
+        if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+            $pw = @posix_getpwuid(posix_geteuid());
+            if (is_array($pw) && ! empty($pw['dir'])) {
+                $home = (string) $pw['dir'];
+            }
+        }
+        if ($home === '') {
+            $home = '/var/www';
+        }
+    }
+
+    $env = [
+        'PATH'    => $path,
+        'HOME'    => $home,
+        'SURVEYTRACE_INSTALL_DIR' => $installRoot,
+    ];
+    foreach (['LANG', 'LC_ALL', 'LC_CTYPE'] as $k) {
+        $v = getenv($k);
+        if (is_string($v) && $v !== '') {
+            $env[$k] = $v;
+        }
+    }
+
+    return $env;
+}
+
+function st_cred_secret_helper_sanitize_stderr(string $err, int $max = 280): string
+{
+    $err = trim(preg_replace('/\s+/', ' ', $err) ?? '');
+    if (strlen($err) > $max) {
+        return substr($err, 0, $max) . '…';
+    }
+
+    return $err;
+}
+
+function st_cred_secret_helper_classify_stderr(string $err): string
+{
+    $e = strtolower($err);
+    if ($e === '') {
+        return 'unknown';
+    }
+    if (str_contains($e, 'password is required')
+        || str_contains($e, 'a terminal is required to read the password')
+        || str_contains($e, 'a password is required')) {
+        return 'sudo_password_required';
+    }
+    if (str_contains($e, 'sorry, user') && str_contains($e, 'not allowed')) {
+        return 'sudoers_command_mismatch';
+    }
+    if ((str_contains($e, 'not allowed') || str_contains($e, 'not permitted')) && str_contains($e, 'sudo')) {
+        return 'sudoers_command_mismatch';
+    }
+    if (str_contains($e, 'no new privileges') || (str_contains($e, 'operation not permitted') && str_contains($e, 'sudo'))) {
+        return 'sudo_permission_denied';
+    }
+    if (str_contains($e, 'effective uid is not 0') || str_contains($e, 'must be owned by uid')) {
+        return 'sudo_permission_denied';
+    }
+    if (str_contains($e, 'command not found') && str_contains($e, 'sudo')) {
+        return 'sudo_not_found';
+    }
+
+    return 'unknown';
+}
+
+/**
+ * Safe subset for JSON responses (no raw stderr unless verbose wrapper adds sanitized copy).
+ *
+ * @param array<string,mixed>|null $diag
+ * @return array<string,mixed>
+ */
+function st_cred_secret_helper_public_diagnostics(?array $diag, bool $verbose): array
+{
+    if (! is_array($diag)) {
+        return [];
+    }
+    $keys = [
+        'sudo_path', 'php_path', 'helper_path', 'cwd', 'argv_count', 'bypass_shell',
+        'sudo_exit_code', 'stderr_class', 'json_parse_ok', 'open_basedir',
+        'stdout_byte_length', 'stderr_byte_length', 'timed_out', 'hints',
+        'proc_open_returned', 'invoke_failure', 'proc_open_ini_block',
+    ];
+    $out = [];
+    foreach ($keys as $k) {
+        if (array_key_exists($k, $diag)) {
+            $out[$k] = $diag[$k];
+        }
+    }
+    if ($verbose && isset($diag['stderr_sanitized']) && is_string($diag['stderr_sanitized'])) {
+        $out['stderr_sanitized'] = $diag['stderr_sanitized'];
+    }
+
+    return $out;
+}
+
+/**
+ * Read-only snapshot for admin debug / parity scripts (no secrets).
+ *
+ * @return array<string,mixed>
+ */
+function st_cred_secret_helper_runtime_diagnostics(): array
+{
+    $helper = st_cred_secret_helper_path();
+    $sudo = st_cred_secret_helper_sudo_bin();
+    $phpd = st_cred_secret_helper_php_bin_detect();
+
+    return [
+        'proc_open_exists'       => function_exists('proc_open'),
+        'proc_close_exists'      => function_exists('proc_close'),
+        'proc_open_ini_disabled' => st_cred_secret_helper_ini_proc_open_disabled(),
+        'open_basedir'           => (string) (ini_get('open_basedir') ?: ''),
+        'sudo_path'              => $sudo,
+        'sudo_executable'        => is_executable($sudo),
+        'install_root'           => st_cred_secret_helper_install_root(),
+        'helper_path'            => $helper,
+        'helper_readable'        => @is_readable($helper),
+        'php_detected_bin'       => $phpd['bin'],
+        'php_detect_source'      => $phpd['source'],
+        'posix_euid'             => function_exists('posix_geteuid') ? posix_geteuid() : null,
+        'posix_process_user'     => (function (): ?string {
+            if (! function_exists('posix_geteuid') || ! function_exists('posix_getpwuid')) {
+                return null;
+            }
+            $pw = @posix_getpwuid(posix_geteuid());
+
+            return is_array($pw) && isset($pw['name']) ? (string) $pw['name'] : null;
+        })(),
+        'hints'                  => [
+            'If helper works from CLI but not web: compare PATH/HOME in php-fpm pool vs CLI; proc_open replaces env when an env array is passed.',
+            'If stderr mentions no new privileges: check systemd NoNewPrivileges / php-fpm unit hardening.',
+            'sudoers must match argv exactly: www-data ALL=(surveytrace) NOPASSWD: <php-cli> <install>/daemon/cred_secret_ops_cli.php',
+        ],
+    ];
+}
+
 function st_cred_secret_helper_is_safe_php_path(string $path): bool
 {
     if ($path === '' || $path[0] !== '/') {
         return false;
     }
-    if (!preg_match('#^/(usr/bin|usr/local/bin)/php([0-9.]+)?$#', $path)) {
+    if (! preg_match('#^/(usr/bin|usr/local/bin)/php([0-9.]+)?$#', $path)) {
         return false;
     }
+
     return is_executable($path);
 }
 
 function st_cred_secret_helper_is_cli_php(string $candidate): bool
 {
-    if (!st_cred_secret_helper_is_safe_php_path($candidate)) {
+    if (! st_cred_secret_helper_is_safe_php_path($candidate)) {
         return false;
     }
-    if (!function_exists('proc_open') || !function_exists('proc_close')) {
+    if (! function_exists('proc_open') || ! function_exists('proc_close')) {
         return false;
     }
     $desc = [
@@ -44,7 +220,7 @@ function st_cred_secret_helper_is_cli_php(string $candidate): bool
         null,
         ['bypass_shell' => true]
     );
-    if (!is_resource($proc)) {
+    if (! is_resource($proc)) {
         return false;
     }
     fclose($pipes[0]);
@@ -52,6 +228,7 @@ function st_cred_secret_helper_is_cli_php(string $candidate): bool
     fclose($pipes[1]);
     fclose($pipes[2]);
     $exit = proc_close($proc);
+
     return $exit === 0 && strtolower($out) === 'cli';
 }
 
@@ -63,7 +240,7 @@ function st_cred_secret_helper_php_bin_detect(): array
     $envNames = ['SURVEYTRACE_PHP_CLI_BIN', 'SURVEYTRACE_PHP_CLI'];
     foreach ($envNames as $envName) {
         $env = getenv($envName);
-        if (!is_string($env)) {
+        if (! is_string($env)) {
             continue;
         }
         $candidate = trim($env);
@@ -86,12 +263,14 @@ function st_cred_secret_helper_php_bin_detect(): array
             }
         }
     }
+
     return ['bin' => '/usr/bin/php', 'source' => 'fallback:default'];
 }
 
 function st_cred_secret_helper_php_bin(): string
 {
     $detected = st_cred_secret_helper_php_bin_detect();
+
     return $detected['bin'];
 }
 
@@ -101,44 +280,144 @@ function st_cred_secret_helper_path(): string
 }
 
 /**
- * @return array{ok:bool,payload?:array<string,mixed>,error_code?:string,error?:string}
+ * Invoke credential secret helper via fixed argv (no shell): /usr/bin/sudo -n -u surveytrace -- <php> <helper.php>
+ *
+ * @return array{
+ *   ok:bool,
+ *   payload?:array<string,mixed>,
+ *   error_code?:string,
+ *   error?:string,
+ *   diagnostics?:array<string,mixed>,
+ *   php_cli_bin_used?:string,
+ *   php_cli_detect_source?:string,
+ *   sudo_exit_code?:int|null,
+ *   helper_error_code?:string
+ * }
  */
 function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
 {
-    if (!function_exists('proc_open') || !function_exists('proc_close')) {
-        return ['ok' => false, 'error_code' => 'helper_unavailable', 'error' => 'proc_open unavailable'];
-    }
-    $helper = st_cred_secret_helper_path();
-    if (!is_file($helper)) {
-        return ['ok' => false, 'error_code' => 'helper_unavailable', 'error' => 'helper missing'];
-    }
-    $stdin = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($stdin)) {
-        return ['ok' => false, 'error_code' => 'protocol_error', 'error' => 'encode_failed'];
-    }
+    $sudoBin = st_cred_secret_helper_sudo_bin();
     $root = st_cred_secret_helper_install_root();
+    $helper = st_cred_secret_helper_path();
     $phpBinDetected = st_cred_secret_helper_php_bin_detect();
     $phpBin = $phpBinDetected['bin'];
-    $cmd = ['sudo', '-n', '-u', 'surveytrace', '--', $phpBin, $helper];
+
+    $baseDiag = [
+        'sudo_path'           => $sudoBin,
+        'php_path'            => $phpBin,
+        'helper_path'         => $helper,
+        'cwd'                 => $root,
+        'argv_count'          => 7,
+        'bypass_shell'        => true,
+        'open_basedir'        => (string) (ini_get('open_basedir') ?: ''),
+        'proc_open_ini_block' => st_cred_secret_helper_ini_proc_open_disabled(),
+    ];
+
+    if (! function_exists('proc_open') || ! function_exists('proc_close')) {
+        $d = array_merge($baseDiag, [
+            'stderr_class' => 'proc_open_disabled',
+            'sudo_exit_code' => null,
+            'json_parse_ok' => null,
+        ]);
+        @error_log('SurveyTrace cred_secret_helper: proc_open/proc_close missing — ' . json_encode(st_cred_secret_helper_public_diagnostics($d, false), JSON_UNESCAPED_SLASHES));
+
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'proc_open unavailable',
+            'diagnostics' => $d,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
+    }
+    if (st_cred_secret_helper_ini_proc_open_disabled()) {
+        $d = array_merge($baseDiag, [
+            'stderr_class' => 'proc_open_disabled',
+            'sudo_exit_code' => null,
+            'json_parse_ok' => null,
+        ]);
+        @error_log('SurveyTrace cred_secret_helper: proc_open disabled in ini — ' . json_encode(st_cred_secret_helper_public_diagnostics($d, false), JSON_UNESCAPED_SLASHES));
+
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'proc_open disabled by PHP configuration',
+            'diagnostics' => $d,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
+    }
+    if (! is_file($helper)) {
+        $d = array_merge($baseDiag, ['stderr_class' => 'unknown', 'sudo_exit_code' => null, 'json_parse_ok' => null]);
+
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'helper missing',
+            'diagnostics' => $d,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
+    }
+    if (! is_executable($sudoBin)) {
+        $d = array_merge($baseDiag, [
+            'stderr_class' => 'sudo_not_found',
+            'sudo_exit_code' => null,
+            'json_parse_ok' => null,
+        ]);
+
+        return [
+            'ok' => false,
+            'error_code' => 'helper_unavailable',
+            'error' => 'sudo not executable at ' . $sudoBin,
+            'diagnostics' => $d,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
+    }
+
+    $stdin = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (! is_string($stdin)) {
+        $d = array_merge($baseDiag, ['stderr_class' => 'unknown', 'sudo_exit_code' => null, 'json_parse_ok' => false]);
+
+        return [
+            'ok' => false,
+            'error_code' => 'protocol_error',
+            'error' => 'encode_failed',
+            'diagnostics' => $d,
+            'php_cli_bin_used' => $phpBin,
+            'php_cli_detect_source' => $phpBinDetected['source'],
+            'sudo_exit_code' => null,
+        ];
+    }
+
+    $cmd = [$sudoBin, '-n', '-u', 'surveytrace', '--', $phpBin, $helper];
     $desc = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
         2 => ['pipe', 'w'],
     ];
-    $env = [];
-    foreach (['PATH', 'HOME', 'SURVEYTRACE_INSTALL_DIR'] as $k) {
-        $v = getenv($k);
-        if (is_string($v) && $v !== '') {
-            $env[$k] = $v;
-        }
-    }
-    $env['SURVEYTRACE_INSTALL_DIR'] = $root;
+    $env = st_cred_secret_helper_child_env($root);
     $proc = @proc_open($cmd, $desc, $pipes, $root, $env, ['bypass_shell' => true]);
-    if (!is_resource($proc)) {
+    if (! is_resource($proc)) {
+        $d = array_merge($baseDiag, [
+            'stderr_class' => 'unknown',
+            'sudo_exit_code' => null,
+            'json_parse_ok' => null,
+            'proc_open_returned' => false,
+            'invoke_failure' => 'proc_open_false',
+        ]);
+        @error_log('SurveyTrace cred_secret_helper: proc_open failed — ' . json_encode(st_cred_secret_helper_public_diagnostics($d, false), JSON_UNESCAPED_SLASHES));
+
         return [
             'ok' => false,
             'error_code' => 'helper_unavailable',
             'error' => 'proc_open_failed',
+            'diagnostics' => $d,
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
             'sudo_exit_code' => null,
@@ -151,72 +430,105 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
     $out = '';
     $err = '';
     $start = time();
-    $exit = null;
+    $timedOut = false;
     while (true) {
         $out .= (string) stream_get_contents($pipes[1]);
         $err .= (string) stream_get_contents($pipes[2]);
         $s = proc_get_status($proc);
         if (($s['running'] ?? false) !== true) {
-            $exit = (int) ($s['exitcode'] ?? 1);
             break;
         }
         if ((time() - $start) >= max(5, min(60, $timeoutSec))) {
             proc_terminate($proc, 15);
-            $exit = -1;
+            $timedOut = true;
             break;
         }
         usleep(50_000);
     }
+    $out .= (string) stream_get_contents($pipes[1]);
+    $err .= (string) stream_get_contents($pipes[2]);
     fclose($pipes[1]);
     fclose($pipes[2]);
-    proc_close($proc);
-    if ($exit === -1) {
+    $exit = proc_close($proc);
+
+    $errTrim = trim($err);
+    $errClass = $timedOut ? 'helper_timeout' : st_cred_secret_helper_classify_stderr($errTrim);
+    $stderrSan = st_cred_secret_helper_sanitize_stderr($errTrim);
+
+    $diagRun = array_merge($baseDiag, [
+        'sudo_exit_code'       => $exit,
+        'stderr_class'         => $errClass,
+        'stderr_sanitized'     => $stderrSan,
+        'stdout_byte_length'   => strlen($out),
+        'stderr_byte_length'   => strlen($err),
+        'timed_out'            => $timedOut,
+        'proc_open_returned'   => true,
+        'hints'                => $errClass === 'sudo_permission_denied' && str_contains(strtolower($errTrim), 'no new privileges')
+            ? ['php-fpm / Apache unit may use NoNewPrivileges=yes — sudo cannot raise privileges.']
+            : [],
+    ]);
+
+    if ($timedOut) {
+        @error_log('SurveyTrace cred_secret_helper: timeout — ' . json_encode(st_cred_secret_helper_public_diagnostics($diagRun, false), JSON_UNESCAPED_SLASHES));
+
         return [
             'ok' => false,
             'error_code' => 'helper_timeout',
             'error' => 'helper timeout',
+            'diagnostics' => $diagRun,
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
-            'sudo_exit_code' => -1,
+            'sudo_exit_code' => $exit,
         ];
     }
+
     $out = trim($out);
     if ($out === '') {
+        @error_log('SurveyTrace cred_secret_helper: empty stdout stderr_class=' . $errClass . ' stderr=' . $stderrSan);
+
         return [
             'ok' => false,
             'error_code' => 'helper_unavailable',
             'error' => 'empty helper output',
+            'diagnostics' => array_merge($diagRun, ['json_parse_ok' => false]),
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
             'sudo_exit_code' => $exit,
         ];
     }
+
     try {
         $decoded = json_decode($out, true, 16, JSON_THROW_ON_ERROR);
     } catch (Throwable) {
+        @error_log('SurveyTrace cred_secret_helper: invalid helper JSON len=' . strlen($out) . ' stderr_class=' . $errClass);
+
         return [
             'ok' => false,
-            'error_code' => 'protocol_error',
+            'error_code' => 'helper_invalid_json',
             'error' => 'invalid helper json',
+            'diagnostics' => array_merge($diagRun, ['json_parse_ok' => false]),
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
             'sudo_exit_code' => $exit,
         ];
     }
-    if (!is_array($decoded)) {
+    if (! is_array($decoded)) {
         return [
             'ok' => false,
-            'error_code' => 'protocol_error',
+            'error_code' => 'helper_invalid_json',
             'error' => 'invalid helper shape',
+            'diagnostics' => array_merge($diagRun, ['json_parse_ok' => false]),
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
             'sudo_exit_code' => $exit,
         ];
     }
-    if (!empty($decoded['ok'])) {
+
+    if (! empty($decoded['ok'])) {
         return [
             'ok' => true,
             'payload' => $decoded,
+            'diagnostics' => array_merge($diagRun, ['json_parse_ok' => true]),
             'php_cli_bin_used' => $phpBin,
             'php_cli_detect_source' => $phpBinDetected['source'],
             'sudo_exit_code' => $exit,
@@ -224,10 +536,12 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
     }
     $code = isset($decoded['code']) ? (string) $decoded['code'] : 'helper_error';
     $msg = substr(preg_replace('/\s+/', ' ', (string) ($decoded['error'] ?? 'helper error')) ?? 'helper error', 0, 200);
+
     return [
         'ok' => false,
         'error_code' => $code,
         'error' => $msg,
+        'diagnostics' => array_merge($diagRun, ['json_parse_ok' => true]),
         'php_cli_bin_used' => $phpBin,
         'php_cli_detect_source' => $phpBinDetected['source'],
         'sudo_exit_code' => $exit,
@@ -238,7 +552,7 @@ function st_cred_secret_helper_call(array $payload, int $timeoutSec = 20): array
 /**
  * @return array<string,mixed>
  */
-function st_cred_secret_status_via_helper(): array
+function st_cred_secret_status_via_helper(bool $verboseDiagnostics = false): array
 {
     $base = [
         'available' => false,
@@ -250,24 +564,30 @@ function st_cred_secret_status_via_helper(): array
         'helper_available' => false,
     ];
     $res = st_cred_secret_helper_call(['action' => 'status'], 8);
-    if (!$res['ok']) {
+    if (! $res['ok']) {
         $base['helper_error_code'] = (string) ($res['error_code'] ?? 'helper_unavailable');
         $base['php_cli_bin_used'] = isset($res['php_cli_bin_used']) ? (string) $res['php_cli_bin_used'] : null;
         $base['php_cli_detect_source'] = isset($res['php_cli_detect_source']) ? (string) $res['php_cli_detect_source'] : null;
         $base['sudo_exit_code'] = isset($res['sudo_exit_code']) ? (int) $res['sudo_exit_code'] : null;
+        $base['helper_invoke'] = st_cred_secret_helper_public_diagnostics($res['diagnostics'] ?? null, $verboseDiagnostics);
+
         return $base;
     }
     $p = is_array($res['payload'] ?? null) ? $res['payload'] : [];
     $s = is_array($p['status'] ?? null) ? $p['status'] : [];
-    $base['available'] = !empty($s['available']);
+    $base['available'] = ! empty($s['available']);
     $base['key_fingerprint'] = isset($s['key_fingerprint']) ? (string) $s['key_fingerprint'] : null;
     $base['source'] = isset($s['source']) ? (string) $s['source'] : 'helper';
     $base['preferred_alg'] = isset($s['preferred_alg']) ? (string) $s['preferred_alg'] : null;
-    $base['libsodium_loaded'] = !empty($s['libsodium_loaded']);
+    $base['libsodium_loaded'] = ! empty($s['libsodium_loaded']);
     $base['openssl_cipher'] = isset($s['openssl_cipher']) ? (string) $s['openssl_cipher'] : null;
     $base['helper_available'] = true;
     $base['php_cli_bin_used'] = isset($res['php_cli_bin_used']) ? (string) $res['php_cli_bin_used'] : null;
     $base['php_cli_detect_source'] = isset($res['php_cli_detect_source']) ? (string) $res['php_cli_detect_source'] : null;
     $base['sudo_exit_code'] = isset($res['sudo_exit_code']) ? (int) $res['sudo_exit_code'] : null;
+    if ($verboseDiagnostics) {
+        $base['helper_invoke'] = st_cred_secret_helper_public_diagnostics($res['diagnostics'] ?? null, true);
+    }
+
     return $base;
 }

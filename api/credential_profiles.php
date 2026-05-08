@@ -22,6 +22,11 @@ st_ensure_user_audit_schema();
 
 $db = st_db();
 
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$encryptionDebugGet = $method === 'GET'
+    && isset($_GET['encryption_debug'])
+    && (string) $_GET['encryption_debug'] === '1';
+
 if (! st_cred_profile_tables_ready($db)) {
     st_json(['ok' => false, 'error' => 'Credential profiles schema not available'], 503);
 }
@@ -30,9 +35,8 @@ $actor = st_current_user();
 $actorId = (int) ($actor['id'] ?? 0) > 0 ? (int) $actor['id'] : null;
 $actorName = trim((string) ($actor['username'] ?? '')) !== '' ? trim((string) $actor['username']) : null;
 
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
-    $enc = st_cred_secret_status_via_helper();
+    $enc = st_cred_secret_status_via_helper($encryptionDebugGet);
     $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
     if ($id > 0) {
         $one = st_cred_profile_get_active($db, $id);
@@ -99,7 +103,7 @@ if ($action === 'create') {
         'transport'               => $transport,
     ]);
     $row = st_cred_profile_get_active($db, $newId);
-    st_json(['ok' => true, 'profile' => $row, 'encryption' => st_cred_secret_status_via_helper()]);
+    st_json(['ok' => true, 'profile' => $row, 'encryption' => st_cred_secret_status_via_helper(false)]);
 }
 
 if ($action === 'update') {
@@ -156,7 +160,7 @@ if ($action === 'update') {
         'name'                    => $name,
         'transport'               => $transport,
     ]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper(false)]);
 }
 
 if ($action === 'set_secret') {
@@ -164,7 +168,7 @@ if ($action === 'set_secret') {
     if ($id < 1) {
         st_json(['ok' => false, 'error' => 'id required'], 400);
     }
-    $enc = st_cred_secret_status_via_helper();
+    $enc = st_cred_secret_status_via_helper(false);
     if (empty($enc['available'])) {
         st_json(['ok' => false, 'error' => 'Credential helper unavailable; configure sudoers helper.'], 503);
     }
@@ -233,7 +237,7 @@ if ($action === 'set_secret') {
         'credential_profile_id' => $id,
         'transport'             => $transport,
     ]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper(false)]);
 }
 
 if ($action === 'clear_secret') {
@@ -262,7 +266,7 @@ if ($action === 'clear_secret') {
             'credential_profile_id' => $id,
         ]);
     }
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper(false)]);
 }
 
 if ($action === 'test') {
@@ -287,7 +291,7 @@ if ($action === 'set_enabled') {
     }
     $logAction = $en ? 'credential_profile.enabled' : 'credential_profile.disabled';
     st_audit_log($logAction, $actorId, $actorName, null, null, ['credential_profile_id' => $id]);
-    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper()]);
+    st_json(['ok' => true, 'profile' => st_cred_profile_get_active($db, $id), 'encryption' => st_cred_secret_status_via_helper(false)]);
 }
 
 if ($action === 'delete') {
