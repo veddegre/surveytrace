@@ -8,6 +8,11 @@ ssh.linux.os_release collection (production host-key policy from env).
 Does not print passwords or PEM bodies. Run on the same machine as credential_check_worker
 with the same SURVEYTRACE_INSTALL_DIR / SURVEYTRACE_DB_PATH as the unit.
 
+Decrypt uses the same PHP helper as the worker; **SURVEYTRACE_CRED_SECRET_KEY** must be in the
+environment (systemd loads **EnvironmentFile=-/etc/surveytrace/surveytrace.env**). This CLI applies
+that file automatically when present (unless **--no-env-file**), or use **--env-file** /
+**SURVEYTRACE_ENV_FILE** for a custom path.
+
   SURVEYTRACE_INSTALL_DIR=/opt/surveytrace \\
     python3 daemon/cred_ssh_probe_cli.py --profile-id=12 --host=192.168.23.10
 
@@ -42,6 +47,61 @@ def _strip_ssh_out(obj: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _apply_simple_env_file(path: Path) -> tuple[list[str], bool]:
+    """
+    Merge KEY=VALUE lines into os.environ (does not overwrite non-empty existing values).
+    Returns (list of key names newly set or changed from empty, file_was_read).
+    """
+    applied: list[str] = []
+    if not path.is_file():
+        return applied, False
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        existing = str(os.environ.get(key, "")).strip()
+        if existing != "":
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        os.environ[key] = val
+        applied.append(key)
+    return applied, True
+
+
+def _bootstrap_surveytrace_env(*, extra_files: list[Path], no_auto: bool) -> dict[str, Any]:
+    """Load same-style env files as systemd units so PHP decrypt sees SURVEYTRACE_CRED_SECRET_KEY."""
+    meta: dict[str, Any] = {"files_tried": [], "keys_set": []}
+    paths: list[Path] = []
+    for p in extra_files:
+        paths.append(p.expanduser().resolve())
+    raw_ef = (os.environ.get("SURVEYTRACE_ENV_FILE") or "").strip()
+    if raw_ef:
+        paths.append(Path(raw_ef).expanduser().resolve())
+    if not no_auto:
+        paths.append(Path("/etc/surveytrace/surveytrace.env"))
+    seen: set[str] = set()
+    for p in paths:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        meta["files_tried"].append(str(p))
+        keys, ok = _apply_simple_env_file(p)
+        if ok:
+            meta["keys_set"].extend(keys)
+    return meta
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="SSH cred probe (DB profile + target host)")
     ap.add_argument("--profile-id", type=int, required=True)
@@ -49,7 +109,24 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=0, help="SSH port (0 = use principal_json port or 22)")
     ap.add_argument("--db", default="", help="SQLite path (default: SURVEYTRACE_DB_PATH or install data dir)")
     ap.add_argument("--timeout-sec", type=float, default=15.0)
+    ap.add_argument(
+        "--env-file",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Optional env file to load before decrypt (repeatable). Applied before SURVEYTRACE_ENV_FILE and /etc/surveytrace/surveytrace.env unless --no-env-file.",
+    )
+    ap.add_argument(
+        "--no-env-file",
+        action="store_true",
+        help="Do not auto-load /etc/surveytrace/surveytrace.env (only already-exported vars and --env-file).",
+    )
     args = ap.parse_args()
+
+    env_meta = _bootstrap_surveytrace_env(
+        extra_files=[Path(x) for x in (args.env_file or []) if str(x).strip()],
+        no_auto=bool(args.no_env_file),
+    )
 
     db_path = Path(args.db).expanduser().resolve() if str(args.db).strip() else main_db_path()
     if not db_path.is_file():
@@ -105,7 +182,20 @@ def main() -> int:
     if envelope.strip():
         plain, derr = decrypt_profile_secret(envelope=envelope, profile_id=int(args.profile_id), install_root=inst)
         if plain is None:
-            print(json.dumps({"ok": False, "error": "decrypt_failed", "code": derr or "unknown"}))
+            err_doc: dict[str, Any] = {
+                "ok": False,
+                "error": "decrypt_failed",
+                "code": derr or "unknown",
+                "env_bootstrap": env_meta,
+            }
+            if derr == "encryption_unavailable":
+                err_doc["hint"] = (
+                    "PHP decrypt needs SURVEYTRACE_CRED_SECRET_KEY (see api/lib_secrets.php). "
+                    "surveytrace-credential-check-worker.service uses EnvironmentFile=-/etc/surveytrace/surveytrace.env. "
+                    "Re-run without --no-env-file so this CLI can load that file, or: "
+                    "set -a && source /etc/surveytrace/surveytrace.env && set +a && python3 …"
+                )
+            print(json.dumps(err_doc, indent=2, ensure_ascii=False))
             return 1
         try:
             secret_obj = json.loads(plain)
@@ -152,6 +242,8 @@ def main() -> int:
         "port": port,
         "install_root": str(inst),
         "db_path": str(db_path),
+        "env_bootstrap": env_meta,
+        "cred_secret_key_configured": bool(str(os.environ.get("SURVEYTRACE_CRED_SECRET_KEY", "")).strip()),
         "host_key_policy_env": (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip() or "(default accept_new)",
         "handshake_subprocess_style": handshake,
         "os_release_collect": _strip_ssh_out(os_out),

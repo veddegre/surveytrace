@@ -9,7 +9,8 @@ skipped/not_implemented. Optional SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1 forc
 SSH connect failures log a WARNING from cred_check_ssh_os_release / cred_check_ssh_packages
 (host, port, user, code, sanitized detail). Failed plugin rows may include error_detail_safe
 (PHP/UI preview). On the worker host, run: python3 daemon/cred_ssh_probe_cli.py --profile-id=… --host=…
-with the same SURVEYTRACE_INSTALL_DIR / SURVEYTRACE_DB_PATH as this process.
+with the same SURVEYTRACE_INSTALL_DIR / SURVEYTRACE_DB_PATH as this process (the probe auto-loads
+/etc/surveytrace/surveytrace.env when present so PHP decrypt matches this unit's EnvironmentFile).
 """
 
 from __future__ import annotations
