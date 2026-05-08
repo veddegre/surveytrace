@@ -36,7 +36,9 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -162,6 +164,34 @@ def _bootstrap_surveytrace_env(*, extra_files: list[Path], no_auto: bool) -> dic
         if ok:
             meta["keys_set"].extend(keys)
     return meta
+
+
+def _php_secret_status_probe(install_root: Path, php_bin: str) -> dict[str, Any] | None:
+    """Run api/lib_secrets.php st_secret_status() with the current process env (same key view as cred_decrypt_cli)."""
+    root = str(install_root.resolve())
+    req = root + "/api/lib_secrets.php"
+    code = f"chdir({root!r}); require {req!r}; echo json_encode(st_secret_status());"
+    try:
+        proc = subprocess.run(
+            [php_bin, "-r", code],
+            capture_output=True,
+            timeout=15,
+            env=os.environ.copy(),
+            cwd=root,
+            text=True,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"probe_error": str(e)[:220]}
+    if proc.returncode != 0:
+        return {
+            "returncode": proc.returncode,
+            "stderr_preview": (proc.stderr or "").strip().replace("\n", " ")[:220],
+        }
+    try:
+        out = json.loads(proc.stdout or "{}")
+        return out if isinstance(out, dict) else {"raw": str(out)[:120]}
+    except json.JSONDecodeError:
+        return {"stdout_preview": (proc.stdout or "").strip()[:220]}
 
 
 def _silence_cred_probe_loggers() -> None:
@@ -295,6 +325,19 @@ def main() -> int:
                 "env_bootstrap": env_meta,
                 "decrypt_diagnostic": dec_diag,
             }
+            php_try = str(dec_diag.get("php") or "").strip() or shutil.which("php") or ""
+            if php_try:
+                st = _php_secret_status_probe(inst, php_try)
+                if isinstance(st, dict) and ("key_fingerprint" in st or "available" in st):
+                    err_doc["php_secret_status"] = {
+                        "available": st.get("available"),
+                        "key_fingerprint": st.get("key_fingerprint"),
+                        "preferred_alg": st.get("preferred_alg"),
+                        "libsodium_loaded": st.get("libsodium_loaded"),
+                        "source": st.get("source"),
+                    }
+                elif isinstance(st, dict) and st:
+                    err_doc["php_secret_status"] = st
             if derr == "encryption_unavailable":
                 err_doc["hint"] = (
                     "PHP decrypt needs SURVEYTRACE_CRED_SECRET_KEY (see api/lib_secrets.php). "
@@ -309,9 +352,13 @@ def main() -> int:
                 )
             elif derr == "wrong_key_or_corrupt":
                 err_doc["hint"] = (
-                    "SURVEYTRACE_CRED_SECRET_KEY on this machine does not match the key used when the profile secret "
-                    "was saved (or the ciphertext is corrupt). Compare the key in /etc/surveytrace/surveytrace.env with "
-                    "the web/API host that performs set_secret."
+                    "Cryptographic decrypt failed: the derived key does not open this envelope (wrong key, corrupt "
+                    "ciphertext, or wrong SQLite row). On a single host, common causes are: (1) this probe uses a "
+                    "different surveytrace.db than the UI (check SURVEYTRACE_DB_PATH / paths); (2) the profile secret "
+                    "was saved under a different SURVEYTRACE_CRED_SECRET_KEY and the file was partially updated; "
+                    "(3) DB restored from another environment. Compare php_secret_status.key_fingerprint with the "
+                    "encryption status shown in the admin UI; if they differ, keys differ in practice. Easiest fix: "
+                    "re-save the credential secret from the UI after confirming one canonical key in surveytrace.env."
                 )
             elif derr == "envelope_context_mismatch":
                 err_doc["hint"] = (
