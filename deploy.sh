@@ -5,7 +5,7 @@
 # After setup.sh, the same script is used everywhere: it detects master vs collector
 # and either syncs the full app or runs collector/deploy.sh.
 # Run from the repo:  bash deploy.sh
-# Optional: bash deploy.sh --cleanup-stale [--apply ...] — manifest-driven removal of obsolete paths under /opt/surveytrace (dry-run by default; pass flags through to scripts/cleanup_deployed_stale_files.php).
+# Optional: bash deploy.sh --cleanup-stale [--apply ...] — manifest-driven removal of obsolete paths under /opt/surveytrace (dry-run by default; pass flags through to scripts/cleanup_deployed_stale_files.php). --cleanup-stale must be the first argument. Prefer: sudo bash /path/to/git/checkout/deploy.sh --cleanup-stale (SRC=checkout, DEST=/opt/surveytrace). Running deploy.sh from /opt/surveytrace skips redundant self-copies (SRC=DEST) but cannot sync newer files from a git checkout unless you run from that checkout.
 # Non-interactive / automation: SURVEYTRACE_DEPLOY=master|collector forces the mode
 # when the host could be ambiguous (rare). SURVEYTRACE_SKIP_INSTALL_ROLE_CHECK=1
 # ignores .install_role vs chosen mode mismatches (emergency only).
@@ -17,6 +17,12 @@ INSTALL_ROLE_FILE="$DEST/data/.install_role"
 
 # Forward stderr for real failures (probes use explicit 2>/dev/null on the test line).
 st_sudo() { sudo "$@"; }
+
+# True when paths are the same inode (e.g. SRC and DEST both /opt/surveytrace — skip cp to avoid "same file" errors).
+st_deploy_skip_same() {
+  local a="$1" b="$2"
+  [[ -e "$a" && -e "$b" && "$a" -ef "$b" ]]
+}
 
 st_php_cli_is_safe_path() {
   local p="$1"
@@ -241,15 +247,20 @@ fi
 mapfile -t API_FILES < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" api_files)
 [[ "${#API_FILES[@]}" -gt 0 ]] || die_deploy "Manifest api_files empty — fix scripts/deploy_file_manifest.php"
 for f in "${API_FILES[@]}"; do
+  if st_deploy_skip_same "$SRC/api/$f" "$DEST/api/$f"; then
+    continue
+  fi
   sudo cp "$SRC/api/$f" "$DEST/api/"
 done
-[ -f "$SRC/VERSION" ] && sudo cp "$SRC/VERSION" "$DEST/"
+if [[ -f "$SRC/VERSION" ]] && ! st_deploy_skip_same "$SRC/VERSION" "$DEST/VERSION"; then
+  sudo cp "$SRC/VERSION" "$DEST/"
+fi
 echo "  API files deployed"
 
 # ---------------------------------------------------------------------------
 # Starter integrations (Splunk / Grafana) — optional copy for operators
 # ---------------------------------------------------------------------------
-if [[ -d "$SRC/integrations/starter" ]]; then
+if [[ -d "$SRC/integrations/starter" ]] && ! st_deploy_skip_same "$SRC/integrations/starter" "$DEST/integrations-starter"; then
   sudo mkdir -p "$DEST/integrations-starter"
   # -a preserves modes (e.g. +x on bin/surveytrace_events.py) where the filesystem allows.
   sudo cp -a "$SRC/integrations/starter/." "$DEST/integrations-starter/"
@@ -262,7 +273,7 @@ fi
 # ---------------------------------------------------------------------------
 # Docs (operator reference; same tree as setup.sh api/daemon/public/sql/docs)
 # ---------------------------------------------------------------------------
-if [[ -d "$SRC/docs" ]]; then
+if [[ -d "$SRC/docs" ]] && ! st_deploy_skip_same "$SRC/docs" "$DEST/docs"; then
   sudo mkdir -p "$DEST/docs"
   sudo cp -a "$SRC/docs/." "$DEST/docs/"
   echo "  docs deployed"
@@ -274,6 +285,9 @@ fi
 mapfile -t PUBLIC_REL < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" public_files)
 for rel in "${PUBLIC_REL[@]}"; do
   sudo mkdir -p "$DEST/$(dirname "$rel")"
+  if st_deploy_skip_same "$SRC/$rel" "$DEST/$rel"; then
+    continue
+  fi
   sudo cp "$SRC/$rel" "$DEST/$rel"
 done
 echo "  Web UI deployed"
@@ -284,12 +298,18 @@ echo "  Web UI deployed"
 mapfile -t DAEMON_CORE < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_core_py)
 [[ "${#DAEMON_CORE[@]}" -gt 0 ]] || die_deploy "Manifest daemon_core_py empty"
 for f in "${DAEMON_CORE[@]}"; do
+  if st_deploy_skip_same "$SRC/daemon/$f" "$DEST/daemon/$f"; then
+    continue
+  fi
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 
 sudo mkdir -p "$DEST/daemon/sources"
 mapfile -t SOURCE_FILES < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_sources_py)
 for f in "${SOURCE_FILES[@]}"; do
+  if st_deploy_skip_same "$SRC/daemon/sources/$f" "$DEST/daemon/sources/$f"; then
+    continue
+  fi
   sudo cp "$SRC/daemon/sources/$f" "$DEST/daemon/sources/" 2>/dev/null || true
 done
 
@@ -299,12 +319,19 @@ for f in "${DAEMON_OTHER[@]}"; do
     echo "  [FAIL] missing daemon/$f (required by manifest)"
     exit 1
   fi
+  if st_deploy_skip_same "$SRC/daemon/$f" "$DEST/daemon/$f"; then
+    continue
+  fi
   sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 
 mapfile -t DAEMON_OPTIONAL_PY < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" daemon_optional_py)
 for f in "${DAEMON_OPTIONAL_PY[@]}"; do
-  [ -f "$SRC/daemon/$f" ] && sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
+  [[ -f "$SRC/daemon/$f" ]] || continue
+  if st_deploy_skip_same "$SRC/daemon/$f" "$DEST/daemon/$f"; then
+    continue
+  fi
+  sudo cp "$SRC/daemon/$f" "$DEST/daemon/"
 done
 
 sudo mkdir -p "$DEST/scripts"
@@ -315,6 +342,9 @@ for f in "${SCRIPTS_PHP[@]}"; do
     echo "  [FAIL] missing scripts/$f (manifest lists it — fix checkout or manifest)"
     exit 1
   fi
+  if st_deploy_skip_same "$SRC/scripts/$f" "$DEST/scripts/$f"; then
+    continue
+  fi
   sudo cp "$SRC/scripts/$f" "$DEST/scripts/"
 done
 
@@ -323,6 +353,10 @@ for f in "${SCRIPTS_SH[@]}"; do
   if [[ ! -f "$SRC/scripts/$f" ]]; then
     echo "  [FAIL] missing scripts/$f (manifest scripts_sh — fix checkout or manifest)"
     exit 1
+  fi
+  if st_deploy_skip_same "$SRC/scripts/$f" "$DEST/scripts/$f"; then
+    sudo chmod 755 "$DEST/scripts/$f" 2>/dev/null || true
+    continue
   fi
   sudo cp "$SRC/scripts/$f" "$DEST/scripts/"
   sudo chmod 755 "$DEST/scripts/$f"
@@ -446,6 +480,9 @@ sudo mkdir -p "$DEST/sql"
 mapfile -t SQL_REL < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" sql_files)
 for rel in "${SQL_REL[@]}"; do
   sudo mkdir -p "$DEST/$(dirname "$rel")"
+  if st_deploy_skip_same "$SRC/$rel" "$DEST/$rel"; then
+    continue
+  fi
   sudo cp "$SRC/$rel" "$DEST/$rel"
 done
 echo "  SQL reference files updated"

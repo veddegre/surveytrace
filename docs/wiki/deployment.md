@@ -58,11 +58,13 @@ Renamed or retired **`api/`**, **`daemon/`**, **`scripts/`**, **`sql/`**, root *
 
 **This cleanup removes shipped tree cruft only.** It does **not** replace **`prune_operational_history.php`** (SQLite row pruning), **`recover_stale_worker_jobs.php`**, backup tooling, or data retention policy. Always **dry-run first**, keep backups, and treat **`--apply`** as destructive to listed paths.
 
-From the **repo root** on the server (after `git pull`):
+From the **repo root** on the server (after `git pull`) — so the manifest and **`--repo-src`** match your checkout (recommended):
 
 ```bash
 sudo bash deploy.sh --cleanup-stale
 ```
+
+`--cleanup-stale` must be the **first** argument to `deploy.sh`. If you see **Deploying SurveyTrace from /opt/surveytrace to /opt/surveytrace** and file-copy output, cleanup mode did not run (wrong argument order or older `deploy.sh`). You may still run **`sudo bash /opt/surveytrace/deploy.sh --cleanup-stale`** on a current install: current `deploy.sh` avoids self-`cp` errors when source and destination are the same tree, but **file sync from a newer git checkout still requires running `deploy.sh` from that checkout** (not only from `/opt/surveytrace`).
 
 That invokes **`scripts/cleanup_deployed_stale_files.php`** with the **current repo manifest** and **`--repo-src`** set to your checkout so **`docs/`** can be compared safely. Default is **dry-run** (prints candidates only). To delete the listed files:
 
