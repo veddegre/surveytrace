@@ -61,6 +61,10 @@ These documents support planning only until the engine is implemented.
 - [Release readiness checklist](RELEASE_READINESS_CHECKLIST.md) — pre-tag verification for installs, workflows, trusted data, reporting, auth, and UI smoke.
 - [Operational lifecycle and maintenance](OPERATIONAL_LIFECYCLE_MAINTENANCE.md) — manual maintenance workflows, backup/restore expectations, and admin runbooks.
 
+### Runtime security audit (read-only)
+
+- **`scripts/security_runtime_audit.php`** (installed as **`/opt/surveytrace/scripts/security_runtime_audit.php`**) — operator-facing, **read-only** checks for credential-helper layout, sudoers narrowness, manifest file presence, dangerous file permissions, systemd unit expectations, SQLite hygiene hints, and static API/UI hygiene. **Not** a CVE scanner or penetration test. `setup.sh` / `deploy.sh` run it post-install/post-deploy; run manually after upgrades: `sudo php /opt/surveytrace/scripts/security_runtime_audit.php --install-root=/opt/surveytrace`. See [Troubleshooting — security model](wiki/troubleshooting.md#credential-secret-helper--security-model).
+
 ### Device identity
 
 - [Device identity](DEVICE_IDENTITY.md)

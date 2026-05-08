@@ -840,6 +840,19 @@ else
   check_warn_msg "zabbix_sender not found; install zabbix-sender on Debian/Ubuntu to use SurveyTrace -> Zabbix output."
 fi
 
+if command -v php >/dev/null 2>&1 && st_sudo test -f "$DEST/scripts/security_runtime_audit.php"; then
+  echo "  Running security_runtime_audit.php (read-only operational checks)…"
+  if st_sudo php "$DEST/scripts/security_runtime_audit.php" --install-root="$DEST" --env-file="$ENV_FILE"; then
+    echo "  [OK] security_runtime_audit.php (PASS/WARN only)"
+  else
+    _sra_ec=$?
+    echo "  [FAIL] security_runtime_audit.php exited ${_sra_ec} — review output above (use: php $DEST/scripts/security_runtime_audit.php --install-root=$DEST)"
+    VERIFY_OK=0
+  fi
+else
+  echo "  [WARN] security_runtime_audit.php skipped (php missing or script not deployed)"
+fi
+
 if [ "$VERIFY_OK" -eq 1 ]; then
   echo "  Post-deploy checks: PASS (${VERIFY_WARN} warning(s))"
 else

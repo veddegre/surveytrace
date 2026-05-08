@@ -211,6 +211,8 @@ Provide **authenticated encryption** for profile secrets in `credential_profiles
 ### Files involved
 
 - `api/lib_secrets.php` — `st_secret_encrypt`, `st_secret_decrypt`, `st_secret_available`, `st_secret_status`, `st_secret_redact_summary` (libsodium secretbox preferred; OpenSSL AES-256-GCM fallback).
+- `api/lib_cred_secret_helper.php` — **`sudo`**-bounded **`daemon/cred_secret_ops_cli.php`** for **`set_secret`**, **`clear_secret`**, and **`encryption`** status when the hardened model is used.
+- `daemon/cred_secret_ops_cli.php` — CLI entry: allowlisted env from **`surveytrace.env`**, stdin JSON actions (**`status`**, **`encrypt_for_profile`**, **`transport_test_for_profile`**).
 - `api/lib_credential_profiles.php` — transport-specific `st_cred_profile_normalize_secret_material`; list/get selects ciphertext only server-side for envelope summary (never exposed in JSON).
 - `api/credential_profiles.php` — `GET` includes `encryption` status; `POST` actions `set_secret`, `clear_secret`.
 - `public/index.php` — modal: set/replace / clear secret, disabled when encryption unavailable.
@@ -218,12 +220,13 @@ Provide **authenticated encryption** for profile secrets in `credential_profiles
 
 ### Encryption / operations
 
-- **Key:** `SURVEYTRACE_CRED_SECRET_KEY` only (trimmed). Accepts base64 of 32 raw bytes, 64-char hex (32 bytes), or arbitrary string (SHA-256 → 32-byte key). Prefer `openssl rand -base64 32` for production.
+- **Key:** `SURVEYTRACE_CRED_SECRET_KEY` only (trimmed). Accepts base64 of 32 raw bytes, 64-char hex (32 bytes), or arbitrary string (SHA-256 → 32-byte key). Prefer `openssl rand -base64 32` for production. In production hardening, the key is stored in **`/etc/surveytrace/surveytrace.env`** (readable by **`surveytrace`**, not **`www-data`**); **`setup.sh` / `deploy.sh`** configure **`sudoers`** so **`www-data`** may invoke **`daemon/cred_secret_ops_cli.php`** as **`surveytrace`** with a **single fixed** PHP CLI path (**`SURVEYTRACE_PHP_CLI_BIN`** must match sudoers).
+- **PHP-FPM / Apache:** **`SURVEYTRACE_CRED_SECRET_KEY` does not need to appear in the FPM pool or Apache environment** for normal **`set_secret`**, **`clear_secret`**, handshake **`action=test`**, or **`encryption.available`** — those paths use **`api/lib_cred_secret_helper.php`** → **`sudo`** → **`cred_secret_ops_cli.php`**, with JSON on **stdin** (no secrets on argv). The helper applies an **allowlisted** subset of **`SURVEYTRACE_*`** from the env file and returns **safe status / envelopes / test results**, not plaintext secrets.
 - **Strict key mode:** set `SURVEYTRACE_CRED_SECRET_KEY_STRICT=1` to reject weak ad-hoc passphrase formats and require strong key formats.
 - **Missing key:** metadata CRUD unchanged; `set_secret` returns **503** with message `Credential encryption is not configured.`
 - **Key change:** existing envelopes become undecryptable; operators must re-enter secrets (rotation / dual-key not in this slice).
 - **Backup/restore:** DB backup contains ciphertext; **restore on a host without the same key loses secrets** (plaintext not recoverable).
-- **Multi-node parity:** all decrypting nodes/processes (web/PHP and credential-check worker) must use the same key value.
+- **Multi-node parity:** all decrypting nodes (**surveytrace** user + worker + helper) must use the **same** key value; **`php-fpm`** does not need the key in its env when the helper model is in use.
 
 ### API (POST)
 
@@ -251,12 +254,13 @@ Provide **authenticated encryption** for profile secrets in `credential_profiles
 
 ### Purpose
 
-**Handshake-only** validation of credential profiles: **no plugins**, **no worker_jobs**, **no observations/findings**. Admin-only `POST` `action=test` with explicit **target_host** (not persisted) + optional **port**. PHP decrypts the stored envelope once, passes a short-lived JSON payload to a **Python helper** via stdin, and updates `last_test_*` columns only.
+**Handshake-only** validation of credential profiles: **no plugins**, **no worker_jobs**, **no observations/findings**. Admin-only `POST` `action=test` with explicit **target_host** (not persisted) + optional **port**. The **credential secret helper** (**`cred_secret_ops_cli.php`** as **`surveytrace`**) decrypts the stored envelope inside the privileged boundary, runs the **Python transport** subprocess with **stdin JSON**, and returns **safe test metadata** to **`php-fpm`** for **`last_test_*`** updates — **`PHP-FPM` does not need the master key in its environment** when sudoers + helper are configured.
 
 ### Files involved
 
 - `api/credential_profiles.php` — `action=test` (CSRF); body: `id`, `target_host`, optional `port`, optional `timeout_sec` (clamped).
-- `api/lib_credential_profile_transport_test.php` — target validation, flock single-flight lock under `data/cred_profile_transport_test.lock`, `proc_open` runner, safe response shaping, DB + audit orchestration.
+- `api/lib_cred_secret_helper.php` — **`sudo`**-bounded calls to **`daemon/cred_secret_ops_cli.php`** with **`action=transport_test_for_profile`** (stdin JSON; no in-pool decrypt when helper is available).
+- `api/lib_credential_profile_transport_test.php` — target validation, flock single-flight lock under `data/cred_profile_transport_test.lock`, helper invocation + safe response shaping, DB + audit orchestration.
 - `daemon/cred_transport_cli.py` — stdin JSON → stdout JSON (one line).
 - `daemon/cred_transport_ssh.py` — **paramiko**: connect, `exec_command('true')`, optional `uname -s` hint (bounded).
 - `daemon/cred_transport_snmp.py` — **pysnmp**: single GET **sysDescr.0** only.

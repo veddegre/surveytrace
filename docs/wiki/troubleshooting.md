@@ -16,6 +16,47 @@ Common issues and how to diagnose and resolve them.
 
 ---
 
+## Credential secret helper — security model
+
+Hardened installs keep **`SURVEYTRACE_CRED_SECRET_KEY`** out of the **php-fpm / Apache** process environment for normal **profile secret encrypt**, **clear**, and **handshake** flows. The key lives in **`/etc/surveytrace/surveytrace.env`**, readable only by the **`surveytrace`** service user — **not** by **`www-data`**.
+
+| Requirement | Detail |
+|---------------|--------|
+| Directory | **`/etc/surveytrace`** — owner **`root`**, group **`surveytrace`**, mode **`0750`**. |
+| Env file | **`/etc/surveytrace/surveytrace.env`** — **`root:surveytrace`**, mode **`0640`**. **`www-data` must not be able to read this file** (no ACL/grant that adds `www-data`). |
+| SurveyTrace user | The **`surveytrace`** user **must** be able to read **`surveytrace.env`** so **`surveytrace-credential-check-worker`**, **`daemon/cred_decrypt_cli.php`**, and the **CLI helper** can load the key. |
+| Web → helper | The API uses a **narrow sudo** invocation (no shell): **`www-data`** runs **`sudo -n -u surveytrace -- <detected PHP CLI> /opt/surveytrace/daemon/cred_secret_ops_cli.php`**, with JSON on **stdin** only. **Secrets are never passed on argv.** |
+| PHP-FPM / Apache | Pools **do not** need **`SURVEYTRACE_CRED_SECRET_KEY`** exported for **`set_secret`**, **`clear_secret`**, **`action=test`**, or **`encryption.available`** when sudoers + helper are configured. Mis-injecting the key into **`php-fpm`** is unnecessary and widens exposure. |
+| Helper env | **`daemon/cred_secret_ops_cli.php`** loads only an **allowlisted** subset of **`SURVEYTRACE_*`** keys from the env file (not the whole file’s namespace). |
+| Helper output | Responses are **status**, **safe envelopes**, and **handshake test results** — not plaintext secrets, raw key material, or unconstrained stderr/stack traces. |
+| **`SURVEYTRACE_PHP_CLI_BIN`** | **`setup.sh` / `deploy.sh`** detect the PHP CLI and write this into **`surveytrace.env`**; **`/etc/sudoers.d/surveytrace-credential-secret-helper`** must allow **exactly** the same binary path as in sudoers (single fixed command line). |
+
+**Validation (on the installed host):**
+
+```bash
+sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper
+```
+
+```bash
+sudo -u www-data test -r /etc/surveytrace/surveytrace.env && echo BAD || echo OK
+sudo -u surveytrace test -r /etc/surveytrace/surveytrace.env && echo SURVEYTRACE_CAN_READ || echo SURVEYTRACE_CANNOT_READ
+```
+
+```bash
+PHPBIN=$(sudo grep '^SURVEYTRACE_PHP_CLI_BIN=' /etc/surveytrace/surveytrace.env | cut -d= -f2-)
+sudo -u www-data sudo -n -u surveytrace -- "$PHPBIN" /opt/surveytrace/daemon/cred_secret_ops_cli.php <<'JSON'
+{"action":"status"}
+JSON
+```
+
+**Expected:** `visudo` reports no errors; the **`www-data`** read probe prints **`OK`** (not **`BAD`**); the **`surveytrace`** probe prints **`SURVEYTRACE_CAN_READ`**; helper JSON includes **`available": true`** and **`key_loaded": true`** (field names as returned by the helper status payload). **`GET /api/credential_profiles.php`** should show **`encryption.available": true`** when the helper path is healthy.
+
+**Automated read-only audit:** Run **`php /opt/surveytrace/scripts/security_runtime_audit.php --install-root=/opt/surveytrace`** (as root on the server) for a consolidated PASS/WARN/FAIL report covering permissions, sudoers, helper status, manifest completeness, systemd expectations, and related checks. Exit **0** if there are no FAIL lines (WARN allowed unless you pass **`--strict`**). This script performs **no** writes, cleanup, or network probes.
+
+**Stale shipped files after upgrades:** Renames under **`api/`**, **`daemon/`**, or **`scripts/`** can leave old paths on disk. From a fresh **`git pull`**: **`sudo bash deploy.sh --cleanup-stale`** (dry-run), review the list, then **`sudo bash deploy.sh --cleanup-stale --apply`**. The cleanup tool **never** targets **`data/`**, **`backups/`**, env files (**`.env`**, **`surveytrace.env`**), SQLite **WAL/SHM**, **`venv/`**, or log trees — see [Deployment — stale file cleanup](deployment.md#optional-stale-application-file-cleanup).
+
+---
+
 ## Worker substrate (System health — Background jobs preview)
 
 The **Background jobs (preview)** block on **System health** is a read-only view of the SQLite **worker execution substrate** (`worker_jobs`, `worker_nodes`, `worker_heartbeats`, `worker_job_events`). It does **not** drive scanner, collector ingest, or scheduler behavior on its own — legacy queues remain authoritative until future adapters adopt the substrate.

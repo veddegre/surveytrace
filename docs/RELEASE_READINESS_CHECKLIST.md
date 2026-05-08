@@ -14,7 +14,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | **deploy.sh** on existing master | Completes; post-deploy checks **PASS**; **`check_deploy_coverage.php`** ran clean from the repo before copy; shipped trees match **`scripts/deploy_file_manifest.php`**. |
 | Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_observation_selftest.py`, maintenance CLIs + selftests under **`/opt/surveytrace/scripts/`** (see manifest), `scripts/st_software_inventory_summary_selftest.php`, `scripts/st_software_inventory_evidence_selftest.php`, `scripts/st_software_inventory_diagnostics_selftest.php`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
 | Manifest drift guard | From a checkout: `php scripts/check_deploy_coverage.php` exits **0** after edits that add `api/*.php`, `daemon/*.py`, or `scripts/*.php`. |
-| Stale deploy tree (optional) | After upgrades that rename/remove shipped files: `sudo bash deploy.sh --cleanup-stale` (dry-run); review output, backup, then `sudo bash deploy.sh --cleanup-stale --apply`. Not a substitute for DB/history pruning (`prune_operational_history.php`). |
+| Stale deploy tree (optional) | After upgrades that rename/remove shipped files: **`sudo bash deploy.sh --cleanup-stale`** (dry-run from a fresh **`git pull`**); review output, backup, then **`sudo bash deploy.sh --cleanup-stale --apply`**. The underlying **`scripts/cleanup_deployed_stale_files.php`** never deletes **`data/`**, **`backups/`**, **`venv/`**, **`.git/`**, SQLite **`.db-wal` / `.db-shm`**, **`.env`**, **`surveytrace.env`**, or log trees (heuristic). Not a substitute for DB/history pruning (`prune_operational_history.php`). Known renames (e.g. `cred_check_slice7_selftest.py` → `cred_check_os_release_selftest.py`) are listed in **`st_cleanup_known_renamed()`** inside that script — run dry-run after helper/manifest changes to confirm no unexpected leftovers. |
 | Permissions | `api/`: `surveytrace:www-data`, dirs `2750`, files `640`; `data/`: `2770` / `660` on DB; `daemon/`: `surveytrace:surveytrace`. |
 | PHP syntax | `php -l` on changed API files (or run deploy output which includes reconciliation API checks). |
 | Python syntax | `python3 -m py_compile daemon/recon_observations.py` (and deploy validates after copy). Include **`daemon/st_software_observation_selftest.py`** when present (`setup.sh` / `deploy.sh` **`py_compile`** loops). |
@@ -135,17 +135,64 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | [TRUSTED_DATA_MODEL.md](TRUSTED_DATA_MODEL.md) | Matches current observation/assertion behavior. |
 | [CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md) / [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) | Implemented slices and deferred scope are clearly distinguished. |
 | Collector docs | [setup-collector](wiki/setup-collector.md), [troubleshooting](wiki/troubleshooting.md) mention ingest states. |
-| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, and no auto-rotation. |
+| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, no auto-rotation, and **[Troubleshooting — Credential secret helper — security model](wiki/troubleshooting.md#credential-secret-helper--security-model)** (env permissions, sudo helper, no FPM key). |
 | Secret rewrap runbook | `scripts/rewrap_credential_secrets.php` dry-run/apply workflow and failure interpretation are documented. |
 | Operational prune runbook | `scripts/prune_operational_history.php` dry-run/apply, include-runs guardrails, and backup-before-apply guidance are documented. |
 | Stale recovery runbook | `scripts/recover_stale_worker_jobs.php` dry-run/apply, threshold guidance, and collector-ingest caution are documented. |
 | Maintenance pre-release dry-runs | `rewrap_credential_secrets.php`, `prune_operational_history.php --older-than-days=90`, and `recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync` are run (or explicitly waived) before tag. |
 | Backup/restore readiness validation | `scripts/validate_backup_restore_readiness.php` runs cleanly on the target restore set before sign-off. |
-| Key material parity | Restore checklist confirms `SURVEYTRACE_CRED_SECRET_KEY` parity across web/API and worker nodes for credentialed checks. |
+| Key material parity | Restore checklist confirms the **same** `SURVEYTRACE_CRED_SECRET_KEY` value for **`surveytrace`** (env file + **`cred_decrypt_cli.php`**) and all **credential-check worker** hosts; **`php-fpm`** does not require the key in its pool env when the **sudo helper** path is configured. |
+| Runtime security audit (read-only) | On master installs: `sudo php /opt/surveytrace/scripts/security_runtime_audit.php --install-root=/opt/surveytrace` exits **0** (no FAIL lines), or review WARN; **`--strict`** treats WARN as failure. Same script runs from **`setup.sh`** / **`deploy.sh`** post-checks when present. |
 
 ---
 
-## J. Known deferred items (not release blockers)
+## J. Credential secret helper — host validation (production)
+
+Run on the **installed master** (paths assume **`/opt/surveytrace`** and **`/etc/surveytrace/surveytrace.env`**). See [Troubleshooting — security model](wiki/troubleshooting.md#credential-secret-helper--security-model) for the full model.
+
+| Step | Command / check | Expected |
+|------|-------------------|----------|
+| sudoers syntax | `sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper` | Parsed OK (no errors). |
+| **`www-data` cannot read env** | Shell probes below | Prints **`OK`** (not **`BAD`**) when `www-data` cannot read the file. |
+| **`surveytrace` can read env** | Shell probes below | **`SURVEYTRACE_CAN_READ`**. |
+| Helper status (stdin JSON) | Shell probe below | JSON includes **`available": true`** and **`key_loaded": true`** (exact key names per helper payload). |
+| API encryption flag | Admin: **`GET /api/credential_profiles.php`** (or Settings load) — `encryption.available` | **`true`** when helper + key are healthy. |
+
+```bash
+sudo visudo -cf /etc/sudoers.d/surveytrace-credential-secret-helper
+
+sudo -u www-data test -r /etc/surveytrace/surveytrace.env && echo BAD || echo OK
+sudo -u surveytrace test -r /etc/surveytrace/surveytrace.env && echo SURVEYTRACE_CAN_READ || echo SURVEYTRACE_CANNOT_READ
+
+PHPBIN=$(sudo grep '^SURVEYTRACE_PHP_CLI_BIN=' /etc/surveytrace/surveytrace.env | cut -d= -f2-)
+sudo -u www-data sudo -n -u surveytrace -- "$PHPBIN" /opt/surveytrace/daemon/cred_secret_ops_cli.php <<'JSON'
+{"action":"status"}
+JSON
+```
+
+(Same commands are documented in [Troubleshooting — security model](wiki/troubleshooting.md#credential-secret-helper--security-model).)
+
+### Credential helper production validation (release gate)
+
+Before sign-off on a release that ships **cred helper / sudoers** behavior, confirm:
+
+- [ ] **sudoers** valid (`visudo -cf` above).
+- [ ] **`www-data`** cannot read **`surveytrace.env`** (probe prints **`OK`**).
+- [ ] **`surveytrace`** can read **`surveytrace.env`**.
+- [ ] **Helper status** returns available / key loaded as above.
+- [ ] Browser / API: **`encryption.available": true`** on credential profiles.
+- [ ] **Set SSH profile secret** succeeds (admin).
+- [ ] **Wrong password** fails with a **safe** error (no secret echo).
+- [ ] **Successful handshake** persists **`last_test_*`** as expected.
+- [ ] **Job run** + **timeline** show **safe** events only (no raw secrets / unconstrained stderr).
+
+### Stale tree cleanup (post-upgrade)
+
+- [ ] **`sudo bash deploy.sh --cleanup-stale`** — review list; then optionally **`sudo bash deploy.sh --cleanup-stale --apply`** after backup. Confirm output does **not** propose **`data/`**, **`backups/`**, env files, DB WAL/SHM, or logs.
+
+---
+
+## K. Known deferred items (not release blockers)
 
 Document for operators **what is not in this release**:
 

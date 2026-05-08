@@ -1141,6 +1141,21 @@ else
     check_warn "python3 not in PATH — skipped py_compile daemon/*.py"
 fi
 
+if command -v php >/dev/null 2>&1 && [[ -f "$INSTALL_DIR/scripts/security_runtime_audit.php" ]]; then
+    if php "$INSTALL_DIR/scripts/security_runtime_audit.php" --install-root="$INSTALL_DIR" --env-file="$ENV_FILE"; then
+        check_ok "security_runtime_audit.php (read-only operational checks)"
+    else
+        _sra_ec=$?
+        if [[ "$_sra_ec" -eq 1 ]]; then
+            check_fail "security_runtime_audit.php reported FAIL (see stdout above)"
+        else
+            check_fail "security_runtime_audit.php runtime error (exit ${_sra_ec})"
+        fi
+    fi
+else
+    check_warn "security_runtime_audit.php skipped (php missing or script not installed)"
+fi
+
 if [[ "$CHECK_FAIL" -gt 0 ]]; then
     die "Post-install validation failed with $CHECK_FAIL critical issue(s) and $CHECK_WARN warning(s)."
 fi

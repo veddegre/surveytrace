@@ -170,9 +170,11 @@ return [
         'st_assets_quick_search_selftest.php',
         'diagnose_collector_ingest_queue.php',
         'check_deploy_coverage.php',
+        'security_runtime_audit.php',
         'cleanup_deployed_stale_files.php',
         'deploy_manifest_export.php',
         'deploy_file_manifest.php',
+        'st_security_runtime_audit_selftest.php',
     ],
 
     'public_files' => [
