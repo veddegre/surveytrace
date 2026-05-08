@@ -12652,6 +12652,12 @@ async function stCcRunOpenModal(runId) {
         failN > 0 || String(st) === 'failed' || String(run.run_outcome || '') === 'failed' || String(run.run_outcome || '') === 'partial'
             ? `<p class="hint-micro st-cc-run-err-hint mt6 mb0">Inspect per-target plugin summaries and bounded normalized previews (no raw stderr or artifact bodies).</p>`
             : '';
+    const opNotes = Array.isArray(run.run_operational_notes) ? run.run_operational_notes : [];
+    const opNotesHtml = opNotes.length
+        ? `<ul class="hint-micro st-cc-run-op-notes mt4 mb0" style="padding-left:1.2rem">${opNotes
+              .map((n) => `<li class="mb4">${esc(String(n))}</li>`)
+              .join('')}</ul>`
+        : '';
 
     const tlm = run.timeline && Array.isArray(run.timeline) ? run.timeline : [];
     const tlmMeta = run.timeline_meta && typeof run.timeline_meta === 'object' ? run.timeline_meta : null;
@@ -12800,6 +12806,7 @@ async function stCcRunOpenModal(runId) {
       <p class="hint-micro text-dim mb0">Targets: pending ${esc(String(tc.pending ?? 0))} · running ${esc(String(tc.running ?? 0))} · completed ${esc(String(tc.completed ?? 0))} · failed ${esc(String(tc.failed ?? 0))} · skipped ${esc(String(tc.skipped ?? 0))}
         · Results: ok ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}</p>
       ${errHint}
+      ${opNotesHtml}
       ${sumHtml ? `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Run summary (JSON)</div>${sumHtml}</div>` : ''}
       ${tlmBlock}
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Targets</div>${tgtBlock}</div>

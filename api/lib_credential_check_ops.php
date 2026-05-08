@@ -1746,6 +1746,30 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         isset($run['started_at']) ? (string) $run['started_at'] : null,
         isset($run['finished_at']) ? (string) $run['finished_at'] : null
     );
+
+    $run['run_operational_notes'] = [];
+    if ($runOutcome === 'failed' && $rfRun > 0) {
+        try {
+            $protoSt = $pdo->prepare(
+                'SELECT COUNT(*) FROM credential_check_results
+                 WHERE run_id = ? AND status = \'failed\' AND plugin_key = \'ssh.linux.os_release\'
+                   AND lower(trim(coalesce(json_extract(normalized_json, \'$.error_code\'), \'\'))) = \'protocol_error\''
+            );
+            $protoSt->execute([$runId]);
+            $protoOs = (int) $protoSt->fetchColumn();
+            if ($protoOs >= 2) {
+                $run['run_operational_notes'][] = 'Several ssh.linux.os_release checks failed with protocol_error: the SSH client did not complete a normal session (handshake or transport mismatch, wrong port, non-SSH service, or incompatible algorithms). Confirm user, key or password, port, and that targets are reachable Linux SSH from the worker host. If the credential UI handshake worked for one host, compare worker env (for example SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY) and network path.';
+            }
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_cc_run_get_detail run_operational_notes: ' . $e->getMessage());
+        }
+        $durMsOp = isset($run['duration_ms']) ? (int) $run['duration_ms'] : 0;
+        $failTargetsOp = (int) ($c['failed'] ?? 0);
+        if ($durMsOp > 0 && $durMsOp < 20000 && $failTargetsOp >= 3) {
+            $run['run_operational_notes'][] = 'Short wall-clock duration is normal when many targets fail immediately: refused connections and SSH negotiation errors return quickly instead of waiting for a full per-target timeout on every host.';
+        }
+    }
+
     $run['job_plugins_planned'] = st_cc_parse_plugin_labels((string) ($run['job_plugin_selection_json'] ?? ''));
     unset($run['job_plugin_selection_json']);
 
