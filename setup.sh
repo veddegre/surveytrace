@@ -146,6 +146,28 @@ st_detect_php_cli_bin() {
     return 1
 }
 
+# UNIX user that runs php-fpm workers for the web UI — must match sudoers first column for cred_secret helper.
+st_cred_helper_web_unix_user() {
+    if [[ -n "${SURVEYTRACE_CRED_HELPER_WEB_USER:-}" ]]; then
+        printf '%s\n' "${SURVEYTRACE_CRED_HELPER_WEB_USER}"
+        return 0
+    fi
+    local pool line u
+    shopt -s nullglob
+    for pool in /etc/php/*/fpm/pool.d/www.conf /etc/opt/remi/php*/php-fpm.d/www.conf /etc/php-fpm.d/www.conf; do
+        [[ -f "$pool" ]] || continue
+        line="$(grep -E '^[[:space:]]*user[[:space:]]*=' "$pool" 2>/dev/null | grep -v '^[[:space:]]*;' | head -1)"
+        u="$(printf '%s\n' "$line" | sed 's/^[^=]*=[[:space:]]*//;s/[[:space:]]*$//')"
+        if [[ -n "$u" ]]; then
+            printf '%s\n' "$u"
+            shopt -u nullglob
+            return 0
+        fi
+    done
+    shopt -u nullglob
+    printf '%s\n' "www-data"
+}
+
 st_upsert_env_kv() {
     local env_file="$1"
     local key="$2"
@@ -980,13 +1002,15 @@ check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^WorkingDire
 check_systemd_unit_has_line "surveytrace-collector-ingest.service" '^Restart=on-failure$' "collector-ingest unit has Restart=on-failure"
 SUDO_HELPER_DROPIN="/etc/sudoers.d/surveytrace-credential-secret-helper"
 ENV_FILE="/etc/surveytrace/surveytrace.env"
+CRED_HELPER_WEB_USER="$(st_cred_helper_web_unix_user)"
 PHP_BIN_REAL="$(st_detect_php_cli_bin || true)"
 if [[ -n "$PHP_BIN_REAL" ]]; then
     st_upsert_env_kv "$ENV_FILE" "SURVEYTRACE_PHP_CLI_BIN" "$PHP_BIN_REAL"
     install -m 440 /dev/null "$SUDO_HELPER_DROPIN"
     cat > "$SUDO_HELPER_DROPIN" <<EOF
 # SurveyTrace credential secret helper (least-privilege).
-www-data ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
+# Invoking UNIX user: ${CRED_HELPER_WEB_USER} (override with SURVEYTRACE_CRED_HELPER_WEB_USER).
+${CRED_HELPER_WEB_USER} ALL=(surveytrace) NOPASSWD: ${PHP_BIN_REAL} ${INSTALL_DIR}/daemon/cred_secret_ops_cli.php
 
 EOF
     if visudo -cf "$SUDO_HELPER_DROPIN" >/dev/null 2>&1; then
@@ -1002,32 +1026,32 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     check_warn "env file missing: $ENV_FILE (set SURVEYTRACE_CRED_SECRET_KEY)"
 fi
-if runuser -u "$WEB_GROUP" -- test -r "$ENV_FILE" >/dev/null 2>&1; then
-    check_fail "www-data can read $ENV_FILE (must not be readable by www-data)"
+if runuser -u "$CRED_HELPER_WEB_USER" -- test -r "$ENV_FILE" >/dev/null 2>&1; then
+    check_fail "php-fpm pool user ($CRED_HELPER_WEB_USER) can read $ENV_FILE (must not read credential env directly)"
 else
-    check_ok "www-data cannot read $ENV_FILE"
+    check_ok "php-fpm pool user ($CRED_HELPER_WEB_USER) cannot read $ENV_FILE"
 fi
 if runuser -u "$APP_USER" -- test -r "$ENV_FILE" >/dev/null 2>&1; then
     check_ok "surveytrace can read $ENV_FILE"
 else
     check_fail "surveytrace can read $ENV_FILE"
 fi
-_st_helper_status="$(sudo -u "$WEB_GROUP" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
+_st_helper_status="$(sudo -u "$CRED_HELPER_WEB_USER" sudo -n -u "$APP_USER" -- "$PHP_BIN_REAL" "$INSTALL_DIR/daemon/cred_secret_ops_cli.php" <<< '{"action":"status"}' 2>/dev/null || true)"
 _st_key_is_configured=0
 if [[ -f "$ENV_FILE" ]] && grep -Eq '^SURVEYTRACE_CRED_SECRET_KEY=' "$ENV_FILE"; then
     _st_key_is_configured=1
 fi
 if [[ -n "$_st_helper_status" ]] && ST_EXPECT_KEY="$_st_key_is_configured" php -r '$j=json_decode(stream_get_contents(STDIN),true); $ok=is_array($j)&&!empty($j["ok"])&&!empty($j["status"]["available"])&&!empty($j["status"]["env_file_present"])&&!empty($j["status"]["env_file_readable"]); $need=(getenv("ST_EXPECT_KEY")==="1"); if($need){$ok=$ok&&!empty($j["status"]["key_loaded"]);} exit($ok?0:1);' <<<"$_st_helper_status" >/dev/null 2>&1; then
     if [[ "$_st_key_is_configured" -eq 1 ]]; then
-        check_ok "www-data helper sudo path can load credential key"
+        check_ok "php-fpm helper sudo path can load credential key (user ${CRED_HELPER_WEB_USER})"
     else
-        check_ok "www-data helper sudo path reachable (no credential key configured)"
+        check_ok "php-fpm helper sudo path reachable (no credential key configured; user ${CRED_HELPER_WEB_USER})"
     fi
 else
     if [[ "$_st_key_is_configured" -eq 1 ]]; then
-        check_fail "www-data helper sudo path cannot load credential key (check sudoers/env file)"
+        check_fail "php-fpm helper sudo path cannot load credential key (check sudoers/env file; user ${CRED_HELPER_WEB_USER})"
     else
-        check_fail "www-data helper sudo path unavailable (check sudoers/php path)"
+        check_fail "php-fpm helper sudo path unavailable (check sudoers/php path; user ${CRED_HELPER_WEB_USER})"
     fi
 fi
 if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/collector_ingest_worker.py" --check-db-open >/dev/null 2>&1; then
