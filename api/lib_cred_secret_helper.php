@@ -11,11 +11,34 @@ function st_cred_secret_helper_sudo_bin(): string
 
 function st_cred_secret_helper_install_root(): string
 {
+    // This file lives in …/api/. Deployment tree is always dirname(__DIR__) (daemon/, public/, … beside api/).
+    // php-fpm pools often set SURVEYTRACE_INSTALL_DIR to an operator checkout (e.g. ~/surveytrace). That path
+    // is usually NOT the argv listed in sudoers (/opt/surveytrace/daemon/cred_secret_ops_cli.php), so proc_open
+    // sudo fails while `sudo -u www-data php …` from a shell (minimal env) succeeds. Prefer the canonical helper
+    // next to this PHP file when env points at a different cred_secret_ops_cli.php inode.
+    $canonical = dirname(__DIR__);
     $e = getenv('SURVEYTRACE_INSTALL_DIR');
-    if (is_string($e) && trim($e) !== '') {
-        return rtrim(trim($e), '/');
+    if (! is_string($e) || trim($e) === '') {
+        return $canonical;
     }
-    return dirname(__DIR__);
+    $want = rtrim(trim($e), '/');
+    $canHelper = $canonical . '/daemon/cred_secret_ops_cli.php';
+    $wantHelper = $want . '/daemon/cred_secret_ops_cli.php';
+    if (! is_file($canHelper)) {
+        return $want;
+    }
+    if (! is_file($wantHelper)) {
+        return $canonical;
+    }
+    $s1 = @stat($canHelper);
+    $s2 = @stat($wantHelper);
+    if (is_array($s1) && is_array($s2)
+        && isset($s1['ino'], $s1['dev'], $s2['ino'], $s2['dev'])
+        && ($s1['dev'] !== $s2['dev'] || $s1['ino'] !== $s2['ino'])) {
+        return $canonical;
+    }
+
+    return $want;
 }
 
 function st_cred_secret_helper_ini_proc_open_disabled(): bool

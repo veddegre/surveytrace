@@ -10784,6 +10784,12 @@ function stCredEncryptionAvailable() {
 }
 
 async function stCredRefreshEncryptionFromServer() {
+    const prevOk =
+        window.__stCredEncryption &&
+        typeof window.__stCredEncryption === 'object' &&
+        !Array.isArray(window.__stCredEncryption)
+            ? stCredNormalizeEncryptionStatus(window.__stCredEncryption)
+            : null;
     let r = null;
     try {
         r = await api('/api/credential_profiles.php', { quiet: true });
@@ -10795,7 +10801,7 @@ async function stCredRefreshEncryptionFromServer() {
         return true;
     }
     if (!window.__stCredEncryption || typeof window.__stCredEncryption !== 'object' || Array.isArray(window.__stCredEncryption)) {
-        window.__stCredEncryption = {};
+        window.__stCredEncryption = prevOk || {};
     }
     return false;
 }
@@ -11880,8 +11886,16 @@ function stCredProfileSyncSecretPanel(p) {
     }
 }
 
-async function stCredProfileOpenModal(p) {
-    await stCredRefreshEncryptionFromServer();
+/** @param {{ encryptionSnapshot?: object }|null|undefined} opts */
+async function stCredProfileOpenModal(p, opts) {
+    const snap = opts && opts.encryptionSnapshot && typeof opts.encryptionSnapshot === 'object' && !Array.isArray(opts.encryptionSnapshot)
+        ? opts.encryptionSnapshot
+        : null;
+    if (snap) {
+        window.__stCredEncryption = stCredNormalizeEncryptionStatus(snap);
+    } else {
+        await stCredRefreshEncryptionFromServer();
+    }
     await stCredEnsureScopesCatalog();
     const bg = document.getElementById('st-cred-profile-modal-bg');
     const title = document.getElementById('st-cred-profile-modal-title');
@@ -11952,10 +11966,9 @@ async function stCredProfileOpenModalById(id) {
         toast((r && r.error) ? r.error : 'Load failed', 'err');
         return;
     }
-    if (r.encryption && typeof r.encryption === 'object') {
-        window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
-    }
-    await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
+    await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile), {
+        encryptionSnapshot: r.encryption && typeof r.encryption === 'object' ? r.encryption : null,
+    });
 }
 
 async function stCredProfileSubmitSecret() {
@@ -11981,11 +11994,10 @@ async function stCredProfileSubmitSecret() {
         stCredProfileClearSecretInputs();
         if (hint) hint.textContent = '';
         toast('Secret saved (value not shown again)', 'ok');
-        if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
-        }
         stCredHandshakeClearState();
-        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
+        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile), {
+            encryptionSnapshot: r.encryption && typeof r.encryption === 'object' ? r.encryption : null,
+        });
         await loadCredentialProfiles();
     } else {
         const err = (r && r.error) ? String(r.error) : 'Save secret failed';
@@ -12010,11 +12022,10 @@ async function stCredProfileClearSecret() {
         stCredProfileClearSecretInputs();
         if (hint) hint.textContent = '';
         toast('Secret cleared', 'ok');
-        if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
-        }
         stCredHandshakeClearState();
-        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
+        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile), {
+            encryptionSnapshot: r.encryption && typeof r.encryption === 'object' ? r.encryption : null,
+        });
         await loadCredentialProfiles();
     } else {
         const err = (r && r.error) ? String(r.error) : 'Clear failed';
@@ -12055,12 +12066,11 @@ async function stCredProfileSave() {
         : { action: 'create', name: nm.value.trim(), transport: tr.value, principal_json: principalObj, scope_json: scopeObj, enabled: !!en.checked };
     const r = await apiPost('/api/credential_profiles.php', body);
     if (r && r.ok) {
-        if (r.encryption && typeof r.encryption === 'object') {
-            window.__stCredEncryption = stCredNormalizeEncryptionStatus(r.encryption);
-        }
         toast('Profile saved — set or confirm secret, then run a handshake test.', 'ok');
         stCredHandshakeClearState();
-        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile));
+        await stCredProfileOpenModal(stCredProfileNormalizeProfilePayload(r.profile), {
+            encryptionSnapshot: r.encryption && typeof r.encryption === 'object' ? r.encryption : null,
+        });
         await loadCredentialProfiles();
     } else {
         if (hint) hint.textContent = (r && r.error) ? String(r.error) : 'Save failed';
