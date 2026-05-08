@@ -1811,6 +1811,19 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         } catch (Throwable $e) {
             @error_log('SurveyTrace st_cc_run_get_detail run_operational_notes: ' . $e->getMessage());
         }
+        try {
+            $khSt = $pdo->prepare(
+                'SELECT COUNT(*) FROM credential_check_results
+                 WHERE run_id = ? AND status = \'failed\' AND plugin_key = \'ssh.linux.os_release\'
+                   AND normalized_json LIKE ?'
+            );
+            $khSt->execute([$runId, '%known_hosts%']);
+            if ((int) $khSt->fetchColumn() >= 1) {
+                $run['run_operational_notes'][] = 'At least one os_release failure references known_hosts: with SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY=reject (or strict), the surveytrace user must have the server SSH host key in known_hosts before cred checks succeed. The UI transport handshake uses AutoAddPolicy, so it can succeed while cred runs fail until keys are pinned (for example ssh-keyscan as surveytrace).';
+            }
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_cc_run_get_detail known_hosts note: ' . $e->getMessage());
+        }
         $durMsOp = isset($run['duration_ms']) ? (int) $run['duration_ms'] : 0;
         $failTargetsOp = (int) ($c['failed'] ?? 0);
         if ($durMsOp > 0 && $durMsOp < 20000 && $failTargetsOp >= 3) {

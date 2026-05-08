@@ -13,6 +13,11 @@ environment (systemd loads **EnvironmentFile=-/etc/surveytrace/surveytrace.env**
 that file automatically when present (unless **--no-env-file**), or use **--env-file** /
 **SURVEYTRACE_ENV_FILE** for a custom path.
 
+The **handshake** step sets ``SURVEYTRACE_CRED_TRANSPORT_HANDSHAKE`` (AutoAddPolicy), matching the UI
+transport test. **os_release_collect** uses ``SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY`` from the env
+file (for example ``reject``): unknown hosts must already be in **surveytrace**'s ``known_hosts``, or
+the plugin fails even when handshake succeeded.
+
 SSH checks need **Paramiko** in the Python interpreter you use. On production hosts, use the same
 venv as **surveytrace-credential-check-worker** (not system ``python3``):
 
@@ -48,6 +53,28 @@ def _strip_ssh_out(obj: dict[str, Any]) -> dict[str, Any]:
     if isinstance(out.get("stdout"), (bytes, bytearray)):
         out["stdout"] = f"<{len(out['stdout'])} bytes>"
     return out
+
+
+def _probe_hints(*, handshake: dict[str, Any], os_out: dict[str, Any], host_key_policy: str) -> list[str]:
+    """Short operator hints when handshake and plugin disagree (common: host-key policy)."""
+    hints: list[str] = []
+    if not handshake.get("ok") or os_out.get("ok"):
+        return hints
+    det = str(os_out.get("connect_detail_safe") or "")
+    dl = det.lower()
+    pol = (host_key_policy or "").strip().lower()
+    if "known_hosts" in dl and ("not found" in dl or "not in" in dl):
+        hints.append(
+            "Handshake OK but os_release failed: the handshake step uses AutoAddPolicy (unknown host keys allowed). "
+            "The real cred check uses SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY; with reject/strict, the host must "
+            "already be in the surveytrace user's known_hosts (typically ~surveytrace/.ssh/known_hosts). "
+            "Fix: run ssh-keyscan as surveytrace and append the line, or pin keys via your SSH policy."
+        )
+    elif pol in ("reject", "strict", "no") and os_out.get("code") == "protocol_error":
+        hints.append(
+            "SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY is restrictive; confirm this host's key is trusted for user surveytrace."
+        )
+    return hints
 
 
 def _apply_simple_env_file(path: Path) -> tuple[list[str], bool]:
@@ -274,6 +301,7 @@ def main() -> int:
         max_stderr_bytes=8192,
     )
 
+    hk_pol = (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip() or "(default accept_new)"
     report = {
         "ok": bool(handshake.get("ok")) and bool(os_out.get("ok")),
         "profile_id": int(args.profile_id),
@@ -283,7 +311,8 @@ def main() -> int:
         "db_path": str(db_path),
         "env_bootstrap": env_meta,
         "cred_secret_key_configured": bool(str(os.environ.get("SURVEYTRACE_CRED_SECRET_KEY", "")).strip()),
-        "host_key_policy_env": (os.environ.get("SURVEYTRACE_CRED_SSH_TEST_HOST_KEY_POLICY") or "").strip() or "(default accept_new)",
+        "host_key_policy_env": hk_pol,
+        "probe_hints": _probe_hints(handshake=handshake, os_out=os_out, host_key_policy=hk_pol),
         "handshake_subprocess_style": handshake,
         "os_release_collect": _strip_ssh_out(os_out),
     }
