@@ -185,6 +185,16 @@ First-class API-backed enrichment for systems such as:
 - retention/scaling review for observation volume caps and reconciliation churn
 - reconciliation between (future): scan results, enrichment sources, external vulnerability feeds — **today there is no CVE fusion pipeline**
 
+### Package-advisory correlation (future)
+
+Credentialed **`ssh.linux.package_inventory`** can **inform** future vulnerability analysis by correlating bounded installed packages with advisory sources (**NVD**, **OSV**, **Ubuntu/Debian security trackers**, **vendor advisories**, **KEV**, **EPSS**) — only after **software identity normalization** and **advisory match confidence** mature beyond today’s evidence model.
+
+**Scope to evaluate:** cross-distro package identity normalization; name/version/architecture matching; **distro-aware** fixed-version comparison (dpkg/rpm ordering, backports); **source vs binary** package mapping; false-positive classes and suppressions; **layered confidence** (identity vs advisory vs prioritization feeds); **source precedence** (e.g. distro security data over generic NVD when in conflict); **auditable evidence** per match decision; **retention/scale** of match-candidate stores vs bounded `software_observed`; **UI copy** that never equates inventory freshness with compromise.
+
+**Hard constraints:** do **not** generate findings from **raw package names alone**; do **not** treat **`package_inventory_observed`** as vulnerability authority; require **normalized software identity** + **advisory confidence** before **alerts/findings**; keep **remediation** deferred until matching quality is proven. Suggested sequencing: identity v1 → **read-only** correlation job (candidates + evidence only) → OSV + one distro tracker → NVD/KEV/EPSS as **overlays** → governance and findings last.
+
+See [Credentialed checks engine](docs/CREDENTIALED_CHECKS_ENGINE.md) (slice 8 — evidence only) and [Trusted data model](docs/TRUSTED_DATA_MODEL.md) (`software_observed` / `package_inventory_observed` — no CVE authority).
+
 ### Dependencies
 
 - CVE-centric fusion requires multiple active enrichment feeds **and** mature software identity reconciliation; neither is a substitute for the current summary-only inventory assertions

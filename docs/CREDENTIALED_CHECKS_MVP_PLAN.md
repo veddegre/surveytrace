@@ -406,6 +406,7 @@ Also includes **strict validation** on save/launch (profile transport vs plugin 
 ### Explicitly deferred
 
 - WinRM, per-package **`package_installed`** observations at scale, CVE / software reconciliation, findings.
+- **Future investigation (roadmap):** [Package-advisory correlation](../ROADMAP.md#package-advisory-correlation-future) — how bounded inventory could support advisory correlation under explicit non-authority and no-finding-from-names-alone constraints; remediation remains deferred.
 
 ---
 

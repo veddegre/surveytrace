@@ -49,6 +49,7 @@ Covers observations, assertions, assertion sources, and reconciliation runs (OS/
 - [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md) — execution model, transports, credential safety, plugin framework.
 - [Credentialed Checks — MVP implementation plan](CREDENTIALED_CHECKS_MVP_PLAN.md) — staged milestones (planning doc; internal numbering is historical).
 - [Credentialed checks vs collectors & scans (wiki)](wiki/credentialed-checks-integration.md) — where jobs run today; scans and schedules do not auto-invoke cred jobs.
+- [Roadmap — Package-advisory correlation (future)](../ROADMAP.md#package-advisory-correlation-future) — deferred CVE/advisory correlation scope, constraints, and sequencing (inventory evidence is not vuln authority).
 
 Design docs above remain authoritative for intent; the wiki page describes **current** integration boundaries.
 
