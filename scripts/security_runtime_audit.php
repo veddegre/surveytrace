@@ -819,12 +819,54 @@ function st_sra_run(array $opts, array $manifest): int
                     // column differences
                 }
             }
+            $runtimeWarnRows = 200000;
+            foreach (
+                [
+                    'worker_job_events' => 'runtime_worker_job_events_large',
+                    'credential_check_results' => 'runtime_cred_check_results_large',
+                    'credential_check_artifacts' => 'runtime_cred_check_artifacts_large',
+                ] as $tbl => $code
+            ) {
+                $chk = $pdo->prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1");
+                $chk->execute([$tbl]);
+                if ($chk->fetchColumn()) {
+                    $n = (int) $pdo->query('SELECT COUNT(*) FROM ' . $tbl)->fetchColumn();
+                    if ($n > $runtimeWarnRows) {
+                        st_sra_emit($st, 'warn', $code, $tbl . ' row count high: ' . $n . ' (consider prune_operational_history or prune_credential_runtime_history)');
+                    }
+                }
+            }
+            $qpr = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='user_audit_log' LIMIT 1");
+            if ($qpr && $qpr->fetchColumn()) {
+                $stpr = $pdo->prepare(
+                    "SELECT COUNT(*) FROM user_audit_log
+                     WHERE action = 'maintenance.prune_credential_runtime_history'
+                       AND datetime(created_at) > datetime('now', '-40 days')"
+                );
+                $stpr->execute();
+                $npr = (int) $stpr->fetchColumn();
+                if ($npr < 1) {
+                    st_sra_emit(
+                        $st,
+                        'warn',
+                        'prune_credential_runtime_not_recent',
+                        'No maintenance.prune_credential_runtime_history audit in the last 40 days (optional: php scripts/prune_credential_runtime_history.php --apply)'
+                    );
+                }
+            }
         } catch (Throwable $e) {
             st_sra_emit($st, 'warn', 'sqlite_readonly_probe', 'SQLite read-only probe failed: ' . $e->getMessage());
         }
     }
 
-    foreach (['scripts/prune_operational_history.php', 'scripts/recover_stale_worker_jobs.php', 'scripts/validate_backup_restore_readiness.php'] as $rel) {
+    foreach (
+        [
+            'scripts/prune_operational_history.php',
+            'scripts/prune_credential_runtime_history.php',
+            'scripts/recover_stale_worker_jobs.php',
+            'scripts/validate_backup_restore_readiness.php',
+        ] as $rel
+    ) {
         if (! is_file($root . '/' . $rel)) {
             st_sra_emit($st, 'warn', 'maintenance_script_missing', $rel);
         } else {
@@ -876,7 +918,8 @@ function st_sra_run(array $opts, array $manifest): int
     $docChecks = [
         ['rel' => 'docs/wiki/deployment.md', 'needle' => 'cred_secret_ops_cli.php', 'code' => 'doc_deployment_helper'],
         ['rel' => 'docs/wiki/troubleshooting.md', 'needle' => 'Credential secret helper', 'code' => 'doc_troubleshooting_model'],
-        ['rel' => 'docs/RELEASE_READINESS_CHECKLIST.md', 'needle' => 'Credential secret helper', 'code' => 'doc_release_gate'],
+        ['rel' => 'docs/wiki/security_model.md', 'needle' => 'cred_secret_ops_cli.php', 'code' => 'doc_security_model'],
+        ['rel' => 'docs/RELEASE_READINESS_CHECKLIST.md', 'needle' => 'release_security_gate.php', 'code' => 'doc_release_gate'],
     ];
     foreach ($docChecks as $dc) {
         $p = $root . '/' . $dc['rel'];

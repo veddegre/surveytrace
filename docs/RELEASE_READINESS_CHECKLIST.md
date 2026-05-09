@@ -135,14 +135,17 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | [TRUSTED_DATA_MODEL.md](TRUSTED_DATA_MODEL.md) | Matches current observation/assertion behavior. |
 | [CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md) / [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) | Implemented slices and deferred scope are clearly distinguished. |
 | Collector docs | [setup-collector](wiki/setup-collector.md), [troubleshooting](wiki/troubleshooting.md) mention ingest states. |
-| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, no auto-rotation, and **[Troubleshooting — Credential secret helper — security model](wiki/troubleshooting.md#credential-secret-helper--security-model)** (env permissions, sudo helper, no FPM key). |
+| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, no auto-rotation, **[Troubleshooting — Credential secret helper — security model](wiki/troubleshooting.md#credential-secret-helper--security-model)**, and **[Credential secret security model](wiki/security_model.md)** (helper flow, audit/retention, must-not rules). |
 | Secret rewrap runbook | `scripts/rewrap_credential_secrets.php` dry-run/apply workflow and failure interpretation are documented. |
 | Operational prune runbook | `scripts/prune_operational_history.php` dry-run/apply, include-runs guardrails, and backup-before-apply guidance are documented. |
+| Credential runtime prune runbook | `scripts/prune_credential_runtime_history.php` dry-run default, `--apply` / `--days` / `--keep-runs`, preserving active runs and audit integrity; related WARNs in `security_runtime_audit.php`. |
 | Stale recovery runbook | `scripts/recover_stale_worker_jobs.php` dry-run/apply, threshold guidance, and collector-ingest caution are documented. |
 | Maintenance pre-release dry-runs | `rewrap_credential_secrets.php`, `prune_operational_history.php --older-than-days=90`, and `recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync` are run (or explicitly waived) before tag. |
 | Backup/restore readiness validation | `scripts/validate_backup_restore_readiness.php` runs cleanly on the target restore set before sign-off. |
 | Key material parity | Restore checklist confirms the **same** `SURVEYTRACE_CRED_SECRET_KEY` value for **`surveytrace`** (env file + **`cred_decrypt_cli.php`**) and all **credential-check worker** hosts; **`php-fpm`** does not require the key in its pool env when the **sudo helper** path is configured. |
 | Runtime security audit (read-only) | On master installs: `sudo php /opt/surveytrace/scripts/security_runtime_audit.php --install-root=/opt/surveytrace` exits **0** (no FAIL lines), or review WARN; **`--strict`** treats WARN as failure. Same script runs from **`setup.sh`** / **`deploy.sh`** post-checks when present. |
+| Release security gate (aggregated) | From a clean checkout / install tree: `php /opt/surveytrace/scripts/release_security_gate.php` passes; on a sudoers-configured host also run with **`--require-helper-parity`**. |
+| Credential API leak regression | `php /opt/surveytrace/scripts/st_credential_secret_no_leak_selftest.php` passes (blocks PEM/password/token patterns in public shapes). |
 
 ---
 
@@ -185,6 +188,9 @@ Before sign-off on a release that ships **cred helper / sudoers** behavior, conf
 - [ ] **Wrong password** fails with a **safe** error (no secret echo).
 - [ ] **Successful handshake** persists **`last_test_*`** as expected.
 - [ ] **Job run** + **timeline** show **safe** events only (no raw secrets / unconstrained stderr).
+- [ ] **Browser Network tab**: profile list/detail JSON, run detail, and timeline responses contain **no** ciphertext fields, PEM blocks, or `password=` / `Authorization:` bearer material (spot-check after handshake + run).
+- [ ] **`php scripts/st_credential_secret_no_leak_selftest.php`** and **`php scripts/release_security_gate.php`** (plus **`--require-helper-parity`** where applicable) pass from the release tree.
+- [ ] **`php scripts/security_runtime_audit.php --strict`** reviewed clean or WARNs explicitly accepted for this tag.
 
 ### Stale tree cleanup (post-upgrade)
 
@@ -215,6 +221,7 @@ Document for operators **what is not in this release**:
 
 - [ ] Secret rewrap utility validated (`st_cred_secret_rewrap_selftest.php`)
 - [ ] Retention/prune utility validated (`st_operational_prune_selftest.php`)
+- [ ] Credential runtime prune script exercised dry-run (`prune_credential_runtime_history.php`) before any `--apply` on production
 - [ ] Stale worker recovery utility validated (`st_stale_worker_recovery_selftest.php`)
 - [ ] Backup/restore readiness validator validated (`st_backup_restore_readiness_selftest.php`)
 - [ ] Slice 7/8/9 selftests and slice10 reconciliation selftest pass

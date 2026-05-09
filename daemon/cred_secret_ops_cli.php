@@ -143,6 +143,7 @@ if ($action === 'encrypt_for_profile') {
             throw new RuntimeException('encode_failed');
         }
         $env = st_secret_encrypt($plain, ['credential_profile_id' => $id]);
+        unset($plain);
     } catch (Throwable $e) {
         $m = strtolower(trim((string) $e->getMessage()));
         if (str_contains($m, 'not configured')) {
@@ -201,6 +202,7 @@ if ($action === 'transport_test_for_profile') {
     $secret = [];
     try {
         $decoded = json_decode($plain, true, 16, JSON_THROW_ON_ERROR);
+        unset($plain);
         if (is_array($decoded)) {
             foreach ($decoded as $k => $v) {
                 if (is_string($k) && is_string($v)) {
@@ -208,7 +210,9 @@ if ($action === 'transport_test_for_profile') {
                 }
             }
         }
+        unset($decoded);
     } catch (Throwable) {
+        unset($plain);
         st_cred_ops_out(['ok' => false, 'code' => 'decrypt_failed', 'error' => 'Stored secret payload is invalid'], 1);
     }
     $principal = st_cred_profile_decode_json(isset($row['principal_json']) ? (string) $row['principal_json'] : null);
@@ -221,6 +225,7 @@ if ($action === 'transport_test_for_profile') {
     // data/cred_profile_transport_test.lock (www-data) for the whole sudo+helper call; this CLI runs as
     // surveytrace and would always see "busy" (same path, non-blocking flock).
     $run = st_cred_transport_run_cli($stdinPayload);
+    unset($secret, $stdinPayload);
     $allowedCodes = [
         'ok', 'auth_failed', 'timeout', 'network_unreachable', 'host_key_mismatch',
         'protocol_error', 'unsupported_transport', 'encryption_unavailable', 'decrypt_failed',

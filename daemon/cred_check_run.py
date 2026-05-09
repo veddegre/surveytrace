@@ -567,6 +567,7 @@ def process_cred_check_run(
             try:
                 secret_obj = json.loads(plain)
             except (TypeError, ValueError, json.JSONDecodeError):
+                plain = ""
                 conn.execute(
                     """UPDATE credential_check_run_targets SET status = 'failed', error_code = 'decrypt_failed',
                         error_message_safe = 'secret json invalid', finished_at = datetime('now') WHERE id = ?""",
@@ -578,6 +579,23 @@ def process_cred_check_run(
                 continue
             if not isinstance(secret_obj, dict):
                 secret_obj = {}
+            plain = ""
+
+        if envelope.strip():
+            audit(
+                conn,
+                "credential_profile.secret_used",
+                {
+                    "credential_profile_id": profile_id,
+                    "credential_check_run_id": run_id,
+                    "target_row_id": tid,
+                    "asset_id": aid,
+                    "transport": transport,
+                    "target_ip": host[:120],
+                    "plugins_scheduled": executable_tags,
+                    "result_code": "decrypt_ok",
+                },
+            )
 
         def _plugin_transport_fail(pkey: str, pver: str) -> None:
             _insert_result(
@@ -629,6 +647,20 @@ def process_cred_check_run(
                     code = "command_failed"
                 if code == "auth_failed":
                     auth_failed_skip_pkg = True
+                    audit(
+                        conn,
+                        "credential_profile.secret_auth_failed",
+                        {
+                            "credential_profile_id": profile_id,
+                            "credential_check_run_id": run_id,
+                            "target_row_id": tid,
+                            "asset_id": aid,
+                            "transport": transport,
+                            "target_ip": host[:120],
+                            "plugin_key": OS_RELEASE_KEY,
+                            "result_code": code,
+                        },
+                    )
                 _insert_result(
                     conn,
                     run_id,
@@ -778,6 +810,21 @@ def process_cred_check_run(
                         "dependency_missing",
                     ):
                         code = "command_failed"
+                    if code == "auth_failed":
+                        audit(
+                            conn,
+                            "credential_profile.secret_auth_failed",
+                            {
+                                "credential_profile_id": profile_id,
+                                "credential_check_run_id": run_id,
+                                "target_row_id": tid,
+                                "asset_id": aid,
+                                "transport": transport,
+                                "target_ip": host[:120],
+                                "plugin_key": PKG_KEY,
+                                "result_code": code,
+                            },
+                        )
                     _insert_result(
                         conn,
                         run_id,
@@ -932,6 +979,21 @@ def process_cred_check_run(
                     "dependency_missing",
                 ):
                     code = "protocol_error"
+                if code == "auth_failed":
+                    audit(
+                        conn,
+                        "credential_profile.secret_auth_failed",
+                        {
+                            "credential_profile_id": profile_id,
+                            "credential_check_run_id": run_id,
+                            "target_row_id": tid,
+                            "asset_id": aid,
+                            "transport": transport,
+                            "target_ip": host[:120],
+                            "plugin_key": SNMP_KEY,
+                            "result_code": code,
+                        },
+                    )
                 _insert_result(
                     conn,
                     run_id,

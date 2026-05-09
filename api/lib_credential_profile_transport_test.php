@@ -458,6 +458,14 @@ function st_cred_profile_transport_test_run(PDO $db, array $in, ?int $actorId, ?
             }
         }
         $effPort = $port > 0 ? $port : ($transport === 'snmpv3' ? 161 : 22);
+        st_audit_log('credential_profile.secret_tested', $actorId, $actorName, null, null, [
+            'credential_profile_id' => $id,
+            'transport'             => $transport,
+            'target_host'           => $host,
+            'plugin_key'            => 'credential_profile.transport_test',
+            'result_code'           => $code,
+            'duration_ms'           => $dur,
+        ]);
         $payload = [
             'ok'          => true,
             'test'        => [
