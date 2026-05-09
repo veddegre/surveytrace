@@ -284,7 +284,20 @@ done
 if [[ -f "$SRC/VERSION" ]] && ! st_deploy_skip_same "$SRC/VERSION" "$DEST/VERSION"; then
   sudo cp "$SRC/VERSION" "$DEST/"
 fi
+# Unit templates at repo root — must exist under $DEST for check_deploy_coverage.php (e.g. release_security_gate --static-only).
+mapfile -t SERVICE_UNITS < <(SRC="$SRC" php "$SRC/scripts/deploy_manifest_export.php" service_units)
+for u in "${SERVICE_UNITS[@]}"; do
+  if [[ ! -f "$SRC/$u" ]]; then
+    echo "  [FAIL] missing $u at repo root (manifest service_units — add file or fix manifest)"
+    exit 1
+  fi
+  if st_deploy_skip_same "$SRC/$u" "$DEST/$u"; then
+    continue
+  fi
+  sudo cp "$SRC/$u" "$DEST/"
+done
 echo "  API files deployed"
+echo "  systemd unit templates synced (manifest service_units → $DEST)"
 
 # ---------------------------------------------------------------------------
 # Starter integrations (Splunk / Grafana) — optional copy for operators
