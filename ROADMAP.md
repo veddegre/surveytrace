@@ -223,6 +223,10 @@ First-class API-backed enrichment for systems such as:
 
 ### Scan workflow integration (next work; explicit operator choice required)
 - Scan launch and schedule flows currently choose scan coverage/rates only; credential profile binding is still handled in **Credentialed Checks jobs**.
+- **TODO (product):** attach optional **credential profile / credentialed check job** to **scan start** (UI + API), default **none**, with audit parity to job-based runs.
+- **TODO (product):** attach the same optional linkage to **scheduled scan** definitions so repeats never gain credentialed execution implicitly.
+- **TODO (engineering):** **scope-compatible target filtering** when a scan has a `scope_id` — only targets (or assets) allowed by the profile’s `scope_json` (and job policy) may be offered or executed.
+- **TODO (safety):** **no silent credential execution** — any scan-linked cred path requires an explicit operator-visible mode (e.g. discover-only vs discover+credentialed) and must not run merely because a scan exists.
 - Add an explicit scan/schedule option to select **credential profile (optional)**, with a safe default of **none selected**.
 - Filter profile choices by scope compatibility (`scope_json.scope_ids` allowlist) when the scan/schedule has a selected `scope_id`.
 - Require an explicit run-mode choice before credentialed execution is allowed from scan contexts (for example: discover-only vs discover+credentialed), so credentialed checks never start silently.

@@ -227,7 +227,25 @@ Notes:
 - No automatic pruning daemon exists in this release.
 - Tool is intentionally conservative and avoids active/running/queued/retrying rows.
 - `--vacuum` is explicit; consider WAL/write-lock impact before running VACUUM.
-- Maintenance scripts under `scripts/` are **not deployed by `deploy.sh`** by default; run them from a repo/maintenance workspace.
+- Maintenance CLIs live under **`/opt/surveytrace/scripts/`** after a master **`deploy.sh`** / **`setup.sh`** (see `scripts/deploy_file_manifest.php`). Run them as **`surveytrace`** (or `sudo -u surveytrace`) from the install root; keep backups before any `--apply`.
+
+### Credentialed check run history (`prune_credential_runtime_history.php`)
+
+Prunes **credentialed-check** runtime tables (`credential_check_artifacts`, `credential_check_results`, run targets, **terminal** runs, and related `worker_job_events` / terminal `worker_jobs`) while **preserving active runs**, **non-terminal jobs**, the **N most recent runs** (`--keep-runs`), and **recent failures** outside the age window per script policy.
+
+```bash
+# Dry-run (default; optional explicit --dry-run)
+cd /opt/surveytrace
+sudo -u surveytrace php scripts/prune_credential_runtime_history.php --dry-run
+sudo -u surveytrace php scripts/prune_credential_runtime_history.php --days=90 --keep-runs=50
+
+# After review, apply (writes a maintenance audit row when user_audit_log exists)
+sudo -u surveytrace php scripts/prune_credential_runtime_history.php --apply --days=90 --keep-runs=50
+```
+
+For **broader** history (multiple worker job types, optional run trees), use **`prune_operational_history.php`** above — including **`--include-runs`** only when you intend to prune old **terminal** run/job subgraphs beyond credentialed checks alone. Always dry-run first.
+
+See also: [Credentialed checks integration](credentialed-checks-integration.md#run-history-and-retention).
 
 ### Manual stale worker recovery utility (slice 3)
 
@@ -254,8 +272,9 @@ Run monthly (or before release promotion), in this order:
 1. Backup DB (`daemon/backup_db.sh` or your standard backup flow).
 2. `php scripts/rewrap_credential_secrets.php` (dry-run)
 3. `php scripts/prune_operational_history.php --older-than-days=90` (dry-run)
-4. `php scripts/recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync` (dry-run)
-5. Apply only if needed, during a maintenance window.
+4. `php scripts/prune_credential_runtime_history.php` (dry-run) when credentialed-check tables are large
+5. `php scripts/recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync` (dry-run)
+6. Apply only if needed, during a maintenance window.
 
 Why this is manual in current releases:
 

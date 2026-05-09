@@ -11,6 +11,8 @@
 # ignores .install_role vs chosen mode mismatches (emergency only).
 # SURVEYTRACE_DEPLOY_SKIP_DEFAULT_SSH_CHECK_HOST_POLICY=1 — do not append
 # SURVEYTRACE_CRED_SSH_CHECK_HOST_KEY_POLICY=accept_new when that key is missing from surveytrace.env.
+# After manifest copy + php -l, deploy runs release_security_gate.php --static-only (no security_runtime_audit).
+# Full gate (with audit) is manual / staging: php /opt/surveytrace/scripts/release_security_gate.php
 set -e
 
 DEST="/opt/surveytrace"
@@ -408,6 +410,18 @@ if command -v php >/dev/null 2>&1; then
   else
     echo "  [FAIL] php -l — fix syntax before relying on deploy"
     exit 1
+  fi
+  # Static security selftests only (no security_runtime_audit.php — that runs in post-deploy verify on the host).
+  if st_sudo test -f "$DEST/scripts/release_security_gate.php"; then
+    echo "  Running release_security_gate.php --static-only (manifest + leak + rewrap + backup readiness)…"
+    if st_sudo php "$DEST/scripts/release_security_gate.php" --static-only --install-root="$DEST" --env-file=/etc/surveytrace/surveytrace.env; then
+      echo "  [OK] release_security_gate.php --static-only"
+    else
+      echo "  [FAIL] release_security_gate.php --static-only — fix failing selftest before relying on deploy"
+      exit 1
+    fi
+  else
+    echo "  [WARN] release_security_gate.php missing under DEST — skipped static gate"
   fi
 else
   echo "  [WARN] php not in PATH — skipped php -l for deployed PHP trees"

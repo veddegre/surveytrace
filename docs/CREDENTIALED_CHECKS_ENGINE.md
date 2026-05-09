@@ -36,6 +36,10 @@ They are **not** passive ingestion of a third party’s already-chewed summary; 
 
 **Out of scope for this document:** implementing transports, vault products, or compliance frameworks (see [§13](#13-deferred-work)).
 
+### Collectors, scans, and scheduling (shipped behavior)
+
+Credentialed checks **execute on the master** via **`surveytrace-credential-check-worker`** (see [Credentialed checks integration](wiki/credentialed-checks-integration.md)). **Collectors** do not perform credentialed checks. **Normal scans** and **scheduled scans** do **not** automatically enqueue credentialed jobs; operators use **Settings → Credentialed Checks** for explicit job execution. Future scan/schedule linkage is **explicit opt-in** only (see [Roadmap](../ROADMAP.md#credentialed-checks-engine)).
+
 ---
 
 ## 2. Execution model

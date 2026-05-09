@@ -44,12 +44,13 @@ These documents describe how SurveyTrace works internally or how to extend it.
 
 Covers observations, assertions, assertion sources, and reconciliation runs (OS/platform scope in Milestone 1).
 
-### Credentialed checks (design — not shipped product yet)
+### Credentialed checks (design + shipped slices)
 
 - [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md) — execution model, transports, credential safety, plugin framework.
-- [Credentialed Checks — MVP implementation plan](CREDENTIALED_CHECKS_MVP_PLAN.md) — staged milestones before coding (planning doc; internal numbering is historical).
+- [Credentialed Checks — MVP implementation plan](CREDENTIALED_CHECKS_MVP_PLAN.md) — staged milestones (planning doc; internal numbering is historical).
+- [Credentialed checks vs collectors & scans (wiki)](wiki/credentialed-checks-integration.md) — where jobs run today; scans and schedules do not auto-invoke cred jobs.
 
-These documents support planning only until the engine is implemented.
+Design docs above remain authoritative for intent; the wiki page describes **current** integration boundaries.
 
 ### Background jobs and workers (design)
 
@@ -63,7 +64,7 @@ These documents support planning only until the engine is implemented.
 
 ### Runtime security audit (read-only)
 
-- **`scripts/security_runtime_audit.php`** (installed as **`/opt/surveytrace/scripts/security_runtime_audit.php`**) — operator-facing, **read-only** checks for credential-helper layout, sudoers narrowness, manifest file presence, dangerous file permissions, systemd unit expectations, SQLite hygiene hints, and static API/UI hygiene. **Not** a CVE scanner or penetration test. `setup.sh` / `deploy.sh` run it post-install/post-deploy; run manually after upgrades: `sudo php /opt/surveytrace/scripts/security_runtime_audit.php --install-root=/opt/surveytrace`. See [Troubleshooting — security model](wiki/troubleshooting.md#credential-secret-helper--security-model).
+- **`scripts/security_runtime_audit.php`** (installed as **`/opt/surveytrace/scripts/security_runtime_audit.php`**) — operator-facing, **read-only** checks for credential-helper layout, sudoers narrowness, manifest file presence, dangerous file permissions, systemd unit expectations, SQLite hygiene hints, and static API/UI hygiene. **Not** a CVE scanner or penetration test. `setup.sh` / `deploy.sh` run **`release_security_gate.php --static-only`** after **`php -l`** (manifest + leak/rewrap/backup selftests; host-neutral), then **`security_runtime_audit.php`** in post-install/post-deploy verification on the host. Full pre-release gate: `php scripts/release_security_gate.php` (includes audit) on staging. See [Troubleshooting — security model](wiki/troubleshooting.md#credential-secret-helper--security-model).
 
 ### Device identity
 

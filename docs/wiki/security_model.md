@@ -123,6 +123,7 @@ Manual (production):
 
 ## Related documentation
 
+- [Credentialed checks vs collectors & scans](credentialed-checks-integration.md) — execution locality and why scans do not auto-run cred jobs.
 - [Troubleshooting — Credential secret helper](troubleshooting.md#credential-secret-helper--security-model) (symptoms, visudo checks, probes).
 - [Release readiness checklist](../RELEASE_READINESS_CHECKLIST.md) — security gate and host validation rows.
 - Engine design: [Credentialed Checks Engine](../CREDENTIALED_CHECKS_ENGINE.md).

@@ -2363,7 +2363,7 @@ if (!headers_sent()) {
     </div>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="platform">Core application behavior, security defaults, session policy, and role-aware access controls.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="integrations">External systems, collectors, feeds, API access, and data exchange settings.</p>
-    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="credentialed">Credential profiles, bounded check jobs, execution history, and authenticated evidence controls.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="credentialed">Credential profiles, bounded check jobs, execution history, and authenticated evidence controls. Credentialed checks currently run as <strong>separate jobs</strong> from the <strong>master</strong> credential-check worker. They are <strong>not</strong> automatically part of regular scans or scheduled scans yet.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="maintenance">Operational lifecycle tools for retention, backup/restore validation, secret rewrap, and stuck-worker recovery.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="advanced">Low-frequency controls, AI behavior, and experimental or diagnostic configuration.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="reference">Reference material, build information, category definitions, and operational documentation links.</p>
@@ -2470,7 +2470,7 @@ if (!headers_sent()) {
       <div class="st-settings-col-title">Credentialed checks — jobs &amp; runs</div>
       <div class="card st-settings-card" id="st-cred-jobs-card">
         <div class="ct">Check jobs (queue / worker)</div>
-        <p class="help-line mb10 text-dim">Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue <code class="code-accent">worker_jobs</code> (<code class="code-accent">job_type=credentialed_check</code>). Implemented plugins: <strong>ssh.linux.os_release@1.0.0</strong>, <strong>ssh.linux.package_inventory@1.0.0</strong>, and <strong>snmpv3.device_identity@1.0.0</strong> with bounded outputs/artifacts and trusted-data observation writes. Intentionally not implemented here: arbitrary commands, remediation, WinRM execution, CVE/finding fusion, or custom SNMP walk/SET behavior.</p>
+        <p class="help-line mb10 text-dim">Credentialed checks run on the <strong>master</strong> worker (<code class="code-accent">surveytrace-credential-check-worker</code>) — not on remote collectors. They are <strong>not</strong> triggered by normal scans or scheduled scans; create a job here and use <strong>Run now</strong> (or API) to enqueue work. Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue <code class="code-accent">worker_jobs</code> (<code class="code-accent">job_type=credentialed_check</code>). Implemented plugins: <strong>ssh.linux.os_release@1.0.0</strong>, <strong>ssh.linux.package_inventory@1.0.0</strong>, and <strong>snmpv3.device_identity@1.0.0</strong> with bounded outputs/artifacts and trusted-data observation writes. Intentionally not implemented here: arbitrary commands, remediation, WinRM execution, CVE/finding fusion, or custom SNMP walk/SET behavior.</p>
         <div class="row-wrap gap6 mb10">
           <button type="button" class="btnp" onclick="stCcJobOpenModal(null)">New job</button>
           <button type="button" class="tbtn" onclick="stCcLoadJobsAndRuns()">Refresh</button>
@@ -2485,7 +2485,7 @@ if (!headers_sent()) {
           </table>
         </div>
         <div class="flbl mb4">Recent runs</div>
-        <p class="hint-micro text-dim mb6 st-cc-runs-retention-note">Run list shows bounded previews only in <strong>Detail</strong> (no full package dumps). Stored <code class="code-accent">credential_check_results</code> / artifact metadata grow with history; plan operational pruning — automatic TTL is not enabled in this release.</p>
+        <p class="hint-micro text-dim mb6 st-cc-runs-retention-note">Run list shows bounded previews only in <strong>Detail</strong> (no full package dumps). Stored <code class="code-accent">credential_check_results</code> / artifact metadata grow with history; automatic TTL is not enabled. From the server install tree: <code class="code-accent">sudo -u surveytrace php /opt/surveytrace/scripts/prune_credential_runtime_history.php --dry-run</code> (default), then <code class="code-accent">--apply --days=N --keep-runs=N</code> after review — preserves active runs and non-terminal jobs per script policy. Broader retention: <code class="code-accent">prune_operational_history.php</code> (optional <code class="code-accent">--include-runs</code>). See <strong>docs/wiki/deployment.md</strong> and <strong>docs/wiki/credentialed-checks-integration.md</strong>.</p>
         <div class="row-wrap gap6 mb8 st-cc-runs-filters flex-wrap" style="align-items:center">
           <label class="text-micro text-dim" style="display:flex;align-items:center;gap:6px">Status
             <select class="finp" id="st-cc-runs-filter-status" style="min-width:120px" onchange="stCcLoadJobsAndRuns()">

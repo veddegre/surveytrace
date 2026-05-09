@@ -60,6 +60,7 @@ SurveyTrace documentation for installation, operation, and understanding how the
 - [Credentialed Checks MVP plan](../CREDENTIALED_CHECKS_MVP_PLAN.md) — Staged implementation record (slices 1–11 implemented; hardening slice deferred).
 - [Release readiness checklist](../RELEASE_READINESS_CHECKLIST.md) — Pre-tag verification for stabilization releases.
 - [Credential secret security model](security_model.md) — Helper architecture, env/sudo boundary, audit/retention, and operator must-not rules.
+- [Credentialed checks vs collectors & scans](credentialed-checks-integration.md) — Where jobs run, what scans do not do yet, and history pruning pointers.
 - [Worker / job execution substrate](../WORKER_EXECUTION_SUBSTRATE.md) — Shared background job design (queues, retries, health).
 - [Worker execution MVP plan](../WORKER_EXECUTION_MVP_PLAN.md) — Staged implementation before coding.
 

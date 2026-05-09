@@ -1132,6 +1132,15 @@ if command -v php >/dev/null 2>&1; then
         [[ -z "$_st_scr" ]] && continue
         php -l "$INSTALL_DIR/scripts/$_st_scr" >/dev/null 2>&1 && check_ok "php -l scripts/$_st_scr" || check_fail "php -l scripts/$_st_scr"
     done < <(php "$INSTALL_DIR/scripts/deploy_manifest_export.php" scripts_php)
+    if [[ -f "$INSTALL_DIR/scripts/release_security_gate.php" ]]; then
+        if php "$INSTALL_DIR/scripts/release_security_gate.php" --static-only --install-root="$INSTALL_DIR" --env-file="$ENV_FILE"; then
+            check_ok "release_security_gate.php --static-only (manifest + leak + rewrap + backup readiness)"
+        else
+            check_fail "release_security_gate.php --static-only"
+        fi
+    else
+        check_warn "release_security_gate.php missing — skipped static gate"
+    fi
 else
     check_warn "php not in PATH — skipped php -l (API / scripts manifest)"
 fi
