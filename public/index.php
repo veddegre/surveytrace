@@ -12584,6 +12584,27 @@ function stCcParseRunSummaryJson(raw) {
     }
 }
 
+function stCcPrettyMaybeJson(raw) {
+    const s = String(raw || '');
+    if (!s) return '';
+    try {
+        return JSON.stringify(JSON.parse(s), null, 2);
+    } catch {
+        return s;
+    }
+}
+
+function stCcToggleNormPrev(btn) {
+    if (!btn || !btn.parentElement) return;
+    const wrap = btn.parentElement;
+    const pre = wrap.querySelector('.st-cc-prev-full');
+    if (!pre) return;
+    const open = pre.classList.contains('hide');
+    pre.classList.toggle('hide', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.textContent = open ? 'Hide details' : 'View details';
+}
+
 function stCcRunStatusBadgeHtml(status, opts) {
     opts = opts && typeof opts === 'object' ? opts : {};
     const ro = String(opts.run_outcome || '');
@@ -12639,11 +12660,33 @@ async function stCcRunOpenModal(runId) {
     const failN = parseInt(String(rc.failed ?? 0), 10) || 0;
     const planned = Array.isArray(run.job_plugins_planned) ? run.job_plugins_planned : [];
     const plannedLine = planned.length ? planned.map((p) => `<span class="mono-sm">${esc(String(p))}</span>`).join(' ') : '<span class="text-dim">—</span>';
-    const sumObj = stCcParseRunSummaryJson(run.summary_json);
+    const sumPub = run.summary_public && typeof run.summary_public === 'object' ? run.summary_public : null;
+    const sumKeys = sumPub ? Object.keys(sumPub) : [];
     let sumHtml = '';
-    if (sumObj && typeof sumObj === 'object') {
-        const rows = Object.keys(sumObj).map((k) => `<tr><td class="text-dim mono-sm">${esc(k)}</td><td class="st-host-evidence-cell-raw">${esc(JSON.stringify(sumObj[k]))}</td></tr>`).join('');
+    if (sumKeys.length) {
+        const rows = sumKeys
+            .sort()
+            .map((k) => `<tr><td class="text-dim mono-sm">${esc(k)}</td><td class="st-host-evidence-cell-raw">${esc(JSON.stringify(sumPub[k]))}</td></tr>`)
+            .join('');
         sumHtml = rows ? `<div class="tbl-wrap tbl-wrap--compact mt6"><table class="tbl tbl--compact st-cc-run-sum-tbl"><tbody>${rows}</tbody></table></div>` : '';
+    } else {
+        const sumLegacy = stCcParseRunSummaryJson(run.summary_json);
+        if (sumLegacy && typeof sumLegacy === 'object' && !sumLegacy._unparsed) {
+            const hide = new Set(['slice', 'executor', 'job_id', 'credential_profile_id']);
+            const rows = Object.keys(sumLegacy)
+                .filter((k) => !hide.has(k))
+                .filter((k) => {
+                    if (k === 'placeholder_only' && !sumLegacy[k]) return false;
+                    if (k === 'plugins_placeholder' && (!Array.isArray(sumLegacy[k]) || sumLegacy[k].length === 0)) return false;
+                    return true;
+                })
+                .sort()
+                .map((k) => `<tr><td class="text-dim mono-sm">${esc(k)}</td><td class="st-host-evidence-cell-raw">${esc(JSON.stringify(sumLegacy[k]))}</td></tr>`)
+                .join('');
+            sumHtml = rows ? `<div class="tbl-wrap tbl-wrap--compact mt6"><table class="tbl tbl--compact st-cc-run-sum-tbl"><tbody>${rows}</tbody></table></div>` : '';
+        } else if (sumLegacy && sumLegacy._unparsed) {
+            sumHtml = `<p class="hint-micro text-dim mb0 mt6">Summary unavailable as structured fields (${esc(String(sumLegacy._unparsed))}).</p>`;
+        }
     }
     const headline = run.run_headline != null && String(run.run_headline).trim()
         ? `<p class="text-strong mb0 mt6">${esc(String(run.run_headline))}</p>`
@@ -12711,11 +12754,20 @@ async function stCcRunOpenModal(runId) {
         const stB = String(x.status || '').toLowerCase() === 'partial'
             ? `${stCcRunStatusBadgeHtml(x.status)} <span class="st-cc-pill st-cc-pill--warn">partial</span>`
             : stCcRunStatusBadgeHtml(x.status);
-        const pv = x.normalized_preview ? esc(String(x.normalized_preview)) : '—';
+        const pvRaw = x.normalized_preview != null ? String(x.normalized_preview) : '';
+        const pvEsc = pvRaw ? esc(pvRaw) : '—';
+        const detAvail = !!x.normalized_detail_available && x.normalized_detail_json != null && String(x.normalized_detail_json).trim() !== '';
+        let pvCell = `<span class="mono-sm">${pvEsc}</span>`;
+        if (detAvail) {
+            const fullEsc = esc(stCcPrettyMaybeJson(String(x.normalized_detail_json)));
+            pvCell = `<div class="st-cc-prev-wrap"><div class="mono-sm st-cc-prev-short">${pvEsc}</div>
+            <button type="button" class="tbtn btn-xs mt2" aria-expanded="false" onclick="stCcToggleNormPrev(this)">View details</button>
+            <pre class="st-cc-prev-full hide mono-sm mt4 text-dim" style="white-space:pre-wrap;max-height:260px;overflow:auto">${fullEsc}</pre></div>`;
+        }
         return `<tr>
           <td class="mono-sm">${esc(String(x.plugin_key || ''))}@${esc(String(x.plugin_version || ''))}</td>
           <td>${stB}</td>
-          <td class="st-cc-norm-prev mono-sm">${pv}</td>
+          <td class="st-cc-norm-prev">${pvCell}</td>
         </tr>`;
     };
     const rbT = Array.isArray(run.results_by_target) ? run.results_by_target : [];
@@ -12744,17 +12796,39 @@ async function stCcRunOpenModal(runId) {
             : '<p class="text-dim mb0">No result rows.</p>';
     }
 
-    const obs = Array.isArray(run.observations_written) ? run.observations_written : [];
-    const obsRows = obs.map((o) => `<tr>
+    const osum = run.observations_summary && typeof run.observations_summary === 'object' ? run.observations_summary : null;
+    const otypes = osum && osum.counts_by_type && typeof osum.counts_by_type === 'object' ? osum.counts_by_type : {};
+    const typeKeys = Object.keys(otypes).sort();
+    const countRows = typeKeys
+        .map((t) => `<tr><td class="mono-sm">${esc(t)}</td><td>${esc(String(otypes[t]))}</td></tr>`)
+        .join('');
+    const samples = osum && Array.isArray(osum.software_observed_samples) ? osum.software_observed_samples : [];
+    const swN = parseInt(String(otypes.software_observed || 0), 10) || 0;
+    const sampleRows = samples
+        .map((o) => `<tr>
       <td class="mono-sm">${esc(String(o.id))}</td>
       <td class="mono-sm">${esc(String(o.asset_id))}</td>
-      <td class="mono-sm">${esc(String(o.observation_type || ''))}</td>
       <td class="mono-sm">${esc(String(o.source_object_ref || ''))}</td>
       <td class="text-dim">${o.observed_at ? esc(localTime(String(o.observed_at))) : '—'}</td>
-    </tr>`).join('');
-    const obsBlock = obsRows
-        ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Obs</th><th>Asset</th><th>Type</th><th>Ref</th><th>Observed</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
-        : '<p class="text-dim mb0">No reconciled observations linked to this run (or reconciliation unavailable).</p>';
+    </tr>`)
+        .join('');
+    const obsNote = osum && osum.software_observed_note ? `<p class="hint-micro text-dim mb6">${esc(String(osum.software_observed_note))}</p>` : '';
+    let obsBlock = '';
+    if (!typeKeys.length) {
+        obsBlock = '<p class="text-dim mb0">No reconciled observations linked to this run (or reconciliation unavailable).</p>';
+    } else {
+        const tbl = countRows
+            ? `<div class="tbl-wrap tbl-wrap--compact mb6"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>observation_type</th><th>count</th></tr></thead><tbody>${countRows}</tbody></table></div>`
+            : '';
+        let disc = '';
+        if (swN > 0 && sampleRows) {
+            disc = `<details class="mt4"><summary class="text-dim" style="cursor:pointer">Sample software_observed rows (showing ${esc(String(samples.length))} of ${esc(String(swN))})</summary>
+            <div class="tbl-wrap tbl-wrap--compact mt4"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Asset</th><th>Ref</th><th>Observed</th></tr></thead><tbody>${sampleRows}</tbody></table></div></details>`;
+        } else if (swN > 0) {
+            disc = `<p class="hint-micro text-dim mb0">${esc(String(swN))} software_observed rows (samples omitted).</p>`;
+        }
+        obsBlock = `${obsNote}${tbl}${disc}`;
+    }
 
     const arts = Array.isArray(run.artifact_summaries) ? run.artifact_summaries : [];
     const artRows = arts.map((a) => {
@@ -12807,11 +12881,11 @@ async function stCcRunOpenModal(runId) {
         · Results: ok ${esc(String(rc.success ?? 0))} · partial ${esc(String(rc.partial ?? 0))} · failed ${esc(String(rc.failed ?? 0))}</p>
       ${errHint}
       ${opNotesHtml}
-      ${sumHtml ? `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Run summary (JSON)</div>${sumHtml}</div>` : ''}
+      ${sumHtml ? `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Run summary</div>${sumHtml}</div>` : ''}
       ${tlmBlock}
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Targets</div>${tgtBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Normalized previews</div>${resBlock}</div>
-      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Observations written (reconciliation)</div>${obsBlock}</div>
+      <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Observations (reconciliation)</div>${obsBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Artifact metadata</div>${artBlock}</div>
       ${wjBlock}
       ${retNote}

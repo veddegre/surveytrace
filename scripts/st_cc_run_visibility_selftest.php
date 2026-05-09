@@ -208,4 +208,69 @@ if (isset($pubPlug['stderr'])) {
     exit(1);
 }
 
+$sumPub = st_cc_run_summary_for_display(json_encode([
+    'slice'               => 9,
+    'executor'            => 'credential_check_worker',
+    'placeholder_only'    => false,
+    'plugins_placeholder' => [],
+    'targets_total'       => 2,
+    'run_outcome'         => 'success',
+    'result_success_count'=> 5,
+], JSON_THROW_ON_ERROR));
+if (isset($sumPub['slice']) || isset($sumPub['executor'])) {
+    fwrite(STDERR, 'FAIL: summary_public should omit slice/executor, got ' . json_encode($sumPub) . "\n");
+    exit(1);
+}
+if (isset($sumPub['placeholder_only']) || isset($sumPub['plugins_placeholder'])) {
+    fwrite(STDERR, "FAIL: summary_public should omit empty placeholder fields\n");
+    exit(1);
+}
+if ((int) ($sumPub['targets_total'] ?? 0) !== 2) {
+    fwrite(STDERR, "FAIL: summary_public targets_total\n");
+    exit(1);
+}
+
+$sumPh = st_cc_run_summary_for_display(json_encode([
+    'placeholder_only'    => true,
+    'plugins_placeholder' => ['x@1'],
+    'run_outcome'         => 'partial',
+], JSON_THROW_ON_ERROR));
+if (($sumPh['placeholder_only'] ?? null) !== true || ! isset($sumPh['plugins_placeholder'])) {
+    fwrite(STDERR, 'FAIL: summary_public should keep truthy placeholder signals, got ' . json_encode($sumPh) . "\n");
+    exit(1);
+}
+
+$pdoObs = new PDO('sqlite::memory:', null, null, [
+    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+]);
+$pdoObs->exec('PRAGMA foreign_keys = OFF');
+$pdoObs->exec('CREATE TABLE asset_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    observation_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    source_object_ref TEXT NOT NULL DEFAULT \'\',
+    observed_at TEXT NOT NULL DEFAULT (datetime(\'now\'))
+)');
+$insO = $pdoObs->prepare('INSERT INTO asset_observations (asset_id, observation_type, source_id, source_object_ref, observed_at) VALUES (?,?,?,?,?)');
+$insO->execute([1, 'os_version_observed', 9, 'run:77:t1', '2024-01-01 00:00:00']);
+$insO->execute([1, 'package_inventory_observed', 9, 'run:77:t2', '2024-01-01 00:00:01']);
+for ($i = 0; $i < 12; ++$i) {
+    $insO->execute([1, 'software_observed', 9, 'run:77:sw:' . $i, '2024-01-02 00:00:' . str_pad((string) $i, 2, '0', STR_PAD_LEFT)]);
+}
+$osum = st_cc_run_observations_public_summary($pdoObs, 9, 77);
+if ((int) ($osum['counts_by_type']['software_observed'] ?? 0) !== 12) {
+    fwrite(STDERR, 'FAIL: software_observed count, got ' . json_encode($osum['counts_by_type']) . "\n");
+    exit(1);
+}
+if ((int) ($osum['counts_by_type']['os_version_observed'] ?? 0) !== 1) {
+    fwrite(STDERR, "FAIL: os_version_observed count\n");
+    exit(1);
+}
+if (count($osum['software_observed_samples']) !== 5) {
+    fwrite(STDERR, 'FAIL: expected 5 software samples, got ' . count($osum['software_observed_samples']) . "\n");
+    exit(1);
+}
+
 echo "OK st_cc_run_visibility_selftest\n";

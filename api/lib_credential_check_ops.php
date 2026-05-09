@@ -910,6 +910,116 @@ function st_cc_result_metrics_public(?string $metricsJson): array
 }
 
 /**
+ * Operator-facing subset of worker summary_json for run detail (hides internal MVP fields by default).
+ *
+ * @return array<string, mixed>
+ */
+function st_cc_run_summary_for_display(?string $summaryJson): array
+{
+    $out = [];
+    if ($summaryJson === null || trim($summaryJson) === '') {
+        return $out;
+    }
+    try {
+        $d = json_decode($summaryJson, true, 64, JSON_THROW_ON_ERROR);
+    } catch (Throwable) {
+        return $out;
+    }
+    if (! is_array($d)) {
+        return $out;
+    }
+    $allow = [
+        'targets_total',
+        'targets_completed',
+        'targets_failed',
+        'targets_skipped',
+        'os_release_attempted',
+        'os_release_ok',
+        'package_inventory_attempted',
+        'package_inventory_ok',
+        'snmp_identity_attempted',
+        'snmp_identity_ok',
+        'result_success_count',
+        'result_partial_count',
+        'result_failed_count',
+        'run_outcome',
+    ];
+    foreach ($allow as $k) {
+        if (array_key_exists($k, $d)) {
+            $out[$k] = $d[$k];
+        }
+    }
+    if (! empty($d['placeholder_only'])) {
+        $out['placeholder_only'] = true;
+    }
+    $pp = $d['plugins_placeholder'] ?? null;
+    if (is_array($pp) && $pp !== []) {
+        $out['plugins_placeholder'] = $pp;
+    }
+
+    return $out;
+}
+
+/**
+ * Grouped observation counts + capped software_observed samples for run detail (no row dump).
+ *
+ * @return array{counts_by_type: array<string, int>, software_observed_samples: list<array<string, mixed>>, software_observed_note: string}
+ */
+function st_cc_run_observations_public_summary(PDO $pdo, int $credSourceId, int $runId): array
+{
+    $note = 'Software observations are bounded and summarized for display.';
+    $out = [
+        'counts_by_type'            => [],
+        'software_observed_samples' => [],
+        'software_observed_note'     => $note,
+    ];
+    if ($credSourceId < 1 || $runId < 1) {
+        return $out;
+    }
+    $refLike = 'run:' . $runId . ':%';
+    try {
+        $st = $pdo->prepare(
+            'SELECT o.observation_type AS t, COUNT(*) AS n
+             FROM asset_observations o
+             WHERE o.source_id = ? AND o.source_object_ref LIKE ?
+             GROUP BY o.observation_type
+             ORDER BY o.observation_type ASC'
+        );
+        $st->execute([$credSourceId, $refLike]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $t = (string) ($row['t'] ?? '');
+            if ($t !== '') {
+                $out['counts_by_type'][$t] = (int) ($row['n'] ?? 0);
+            }
+        }
+    } catch (Throwable) {
+        $out['counts_by_type'] = [];
+    }
+    try {
+        $stS = $pdo->prepare(
+            "SELECT o.id, o.asset_id, o.observation_type, o.source_object_ref, o.observed_at
+             FROM asset_observations o
+             WHERE o.source_id = ? AND o.source_object_ref LIKE ? AND o.observation_type = 'software_observed'
+             ORDER BY o.id ASC
+             LIMIT 5"
+        );
+        $stS->execute([$credSourceId, $refLike]);
+        foreach ($stS->fetchAll(PDO::FETCH_ASSOC) ?: [] as $sr) {
+            if (is_array($sr)) {
+                $out['software_observed_samples'][] = $sr;
+            }
+        }
+    } catch (Throwable) {
+        $out['software_observed_samples'] = [];
+    }
+
+    return $out;
+}
+
+/**
  * Run-detail: bounded preview of normalized_json (never full package list for ssh.linux.package_inventory).
  */
 function st_cc_normalized_preview_public(string $pluginKey, string $normalizedJson): string
@@ -1032,6 +1142,28 @@ function st_cc_normalized_preview_public(string $pluginKey, string $normalizedJs
 
             return $enc;
         }
+        $kv = isset($d['os_release']) && is_array($d['os_release']) ? $d['os_release'] : [];
+        $disp = '';
+        if (($kv['PRETTY_NAME'] ?? '') !== '') {
+            $disp = substr((string) $kv['PRETTY_NAME'], 0, 100);
+        } elseif (($kv['NAME'] ?? '') !== '') {
+            $disp = substr(trim((string) $kv['NAME'] . ' ' . (string) ($kv['VERSION_ID'] ?? $kv['VERSION'] ?? '')), 0, 100);
+        }
+        $prev = [
+            'normalized_os'     => $d['normalized_os'] ?? null,
+            'display_preview'   => $disp !== '' ? $disp : null,
+            'os_release_fields' => count($kv),
+            'source'            => $d['source'] ?? null,
+        ];
+        $enc = json_encode($prev, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (! is_string($enc)) {
+            return '…';
+        }
+        if (strlen($enc) > 1100) {
+            return substr($enc, 0, 1100) . '…';
+        }
+
+        return $enc;
     }
     $preview = $normalizedJson !== '' ? substr($normalizedJson, 0, 400) : '';
     if (strlen($normalizedJson) > 400) {
@@ -1696,6 +1828,13 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         $nj = isset($rr['normalized_json']) ? (string) $rr['normalized_json'] : '';
         $pkey = (string) ($rr['plugin_key'] ?? '');
         $rr['normalized_preview'] = st_cc_normalized_preview_public($pkey, $nj);
+        $rr['normalized_detail_json'] = null;
+        $rr['normalized_detail_available'] = false;
+        if ($pkey === 'ssh.linux.os_release' && $nj !== '' && strlen($nj) > 220) {
+            $rr['normalized_detail_available'] = true;
+            $cap = 4000;
+            $rr['normalized_detail_json'] = strlen($nj) > $cap ? substr($nj, 0, $cap) . '…' : $nj;
+        }
         unset($rr['normalized_json']);
         $rr['metrics'] = st_cc_result_metrics_public(isset($rr['metrics_json']) ? (string) $rr['metrics_json'] : null);
         unset($rr['metrics_json']);
@@ -1834,6 +1973,13 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
     $run['job_plugins_planned'] = st_cc_parse_plugin_labels((string) ($run['job_plugin_selection_json'] ?? ''));
     unset($run['job_plugin_selection_json']);
 
+    $run['summary_public'] = st_cc_run_summary_for_display(isset($run['summary_json']) ? (string) $run['summary_json'] : null);
+
+    $run['observations_summary'] = [
+        'counts_by_type'            => [],
+        'software_observed_samples' => [],
+        'software_observed_note'    => 'Software observations are bounded and summarized for display.',
+    ];
     $run['observations_written'] = [];
     require_once __DIR__ . '/lib_reconciliation.php';
     if (st_recon_tables_ready($pdo)) {
@@ -1841,19 +1987,7 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
             st_recon_seed_sources($pdo);
             $sidCred = st_recon_source_id($pdo, 'credentialed_check');
             if ($sidCred !== null) {
-                $pref = 'run:' . $runId . ':';
-                $obSt = $pdo->prepare(
-                    "SELECT o.id, o.asset_id, o.observation_type, o.source_object_ref, o.observed_at
-                     FROM asset_observations o
-                     WHERE o.source_id = ? AND o.source_object_ref LIKE ?
-                     ORDER BY o.id ASC LIMIT 120"
-                );
-                $obSt->execute([$sidCred, $pref . '%']);
-                foreach ($obSt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $or) {
-                    if (is_array($or)) {
-                        $run['observations_written'][] = $or;
-                    }
-                }
+                $run['observations_summary'] = st_cc_run_observations_public_summary($pdo, (int) $sidCred, $runId);
             }
         } catch (Throwable $e) {
             @error_log('SurveyTrace st_cc_run_get_detail observations: ' . $e->getMessage());

@@ -74,4 +74,29 @@ if (! is_array($decOs) || ($decOs['error_code'] ?? '') !== 'protocol_error'
     exit(1);
 }
 
+$osOk = json_encode([
+    'os_release'    => [
+        'ID'            => 'ubuntu',
+        'VERSION_ID'    => '24.04',
+        'PRETTY_NAME'   => 'Ubuntu 24.04 LTS with a long pretty name suffix ' . str_repeat('x', 200),
+        'BUILD_ID'      => 'unused',
+    ],
+    'normalized_os' => 'ubuntu_24_4_x',
+    'source'        => 'credentialed_check',
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+$posOk = st_cc_normalized_preview_public('ssh.linux.os_release', is_string($osOk) ? $osOk : '');
+$dOk = json_decode($posOk, true);
+if (! is_array($dOk) || array_key_exists('os_release', $dOk)) {
+    fwrite(STDERR, "FAIL: os_release success preview must not embed full os_release object, got {$posOk}\n");
+    exit(1);
+}
+if (($dOk['normalized_os'] ?? '') !== 'ubuntu_24_4_x' || ! isset($dOk['display_preview']) || ! isset($dOk['os_release_fields'])) {
+    fwrite(STDERR, "FAIL: os_release success preview shape: {$posOk}\n");
+    exit(1);
+}
+if (strlen((string) ($dOk['display_preview'] ?? '')) > 120) {
+    fwrite(STDERR, "FAIL: display_preview should be bounded\n");
+    exit(1);
+}
+
 echo "OK st_cc_normalized_preview_selftest\n";
