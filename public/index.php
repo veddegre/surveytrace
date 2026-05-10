@@ -2363,7 +2363,7 @@ if (!headers_sent()) {
     </div>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="platform">Core application behavior, security defaults, session policy, and role-aware access controls.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="integrations">External systems, collectors, feeds, API access, and data exchange settings.</p>
-    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="credentialed">Credential profiles, bounded check jobs, execution history, and authenticated evidence controls. Credentialed checks currently run as <strong>separate jobs</strong> from the <strong>master</strong> credential-check worker. They are <strong>not</strong> automatically part of regular scans or scheduled scans yet.</p>
+    <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="credentialed">Credential profiles, bounded check jobs, execution history, and authenticated evidence controls. Credentialed checks run as <strong>separate jobs</strong> on the <strong>master</strong> credential-check worker. Optional <strong>per-job recurring schedules</strong> are driven by <code class="code-accent">surveytrace-scheduler</code> (not <code class="code-accent">scan_schedules</code>).</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="maintenance">Operational lifecycle tools for retention, backup/restore validation, secret rewrap, and stuck-worker recovery.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="advanced">Low-frequency controls, AI behavior, and experimental or diagnostic configuration.</p>
     <p class="hint-micro text-dim st-settings-tab-intro mb8" data-st-group="reference">Reference material, build information, category definitions, and operational documentation links.</p>
@@ -2470,7 +2470,7 @@ if (!headers_sent()) {
       <div class="st-settings-col-title">Credentialed checks — jobs &amp; runs</div>
       <div class="card st-settings-card" id="st-cred-jobs-card">
         <div class="ct">Check jobs (queue / worker)</div>
-        <p class="help-line mb10 text-dim">Credentialed checks run on the <strong>master</strong> worker (<code class="code-accent">surveytrace-credential-check-worker</code>) — not on remote collectors. They are <strong>not</strong> triggered by normal scans or scheduled scans; create a job here and use <strong>Run now</strong> (or API) to enqueue work. Create a job (credential profile + plugins + targets), then <strong>Run now</strong> to enqueue <code class="code-accent">worker_jobs</code> (<code class="code-accent">job_type=credentialed_check</code>). Implemented plugins: <strong>ssh.linux.os_release@1.0.0</strong>, <strong>ssh.linux.package_inventory@1.0.0</strong>, and <strong>snmpv3.device_identity@1.0.0</strong> with bounded outputs/artifacts and trusted-data observation writes. Intentionally not implemented here: arbitrary commands, remediation, WinRM execution, CVE/finding fusion, or custom SNMP walk/SET behavior.</p>
+        <p class="help-line mb10 text-dim">Credentialed checks run on the <strong>master</strong> worker (<code class="code-accent">surveytrace-credential-check-worker</code>) — not on remote collectors. They are <strong>not</strong> triggered by normal scans or <code class="code-accent">scan_schedules</code>; create a job, optionally enable a <strong>recurring schedule</strong> (processed by <code class="code-accent">surveytrace-scheduler</code> via <code class="code-accent">credential_schedule_tick.php</code>), and use <strong>Run now</strong> or wait for the next <code class="code-accent">schedule_next_run_at</code>. Each launch enqueues <code class="code-accent">worker_jobs</code> (<code class="code-accent">job_type=credentialed_check</code>). Implemented plugins: <strong>ssh.linux.os_release@1.0.0</strong>, <strong>ssh.linux.package_inventory@1.0.0</strong>, and <strong>snmpv3.device_identity@1.0.0</strong> with bounded outputs/artifacts and trusted-data observation writes. Intentionally not implemented here: arbitrary commands, remediation, WinRM execution, CVE/finding fusion, or custom SNMP walk/SET behavior.</p>
         <div class="row-wrap gap6 mb10">
           <button type="button" class="btnp" onclick="stCcJobOpenModal(null)">New job</button>
           <button type="button" class="tbtn" onclick="stCcLoadJobsAndRuns()">Refresh</button>
@@ -2480,8 +2480,8 @@ if (!headers_sent()) {
         <div class="flbl mb4">Jobs</div>
         <div class="table-wrap mb10" style="overflow:auto;max-width:100%">
           <table class="data-table" style="min-width:680px">
-            <thead><tr><th>Name</th><th>Profile</th><th>Mode</th><th>On</th><th></th></tr></thead>
-            <tbody id="st-cc-jobs-tbody"><tr><td colspan="5" class="text-dim">—</td></tr></tbody>
+            <thead><tr><th>Name</th><th>Profile</th><th>Mode</th><th>On</th><th>Schedule</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
+            <tbody id="st-cc-jobs-tbody"><tr><td colspan="8" class="text-dim">—</td></tr></tbody>
           </table>
         </div>
         <div class="flbl mb4">Recent runs</div>
@@ -2519,8 +2519,8 @@ if (!headers_sent()) {
         </div>
         <div class="table-wrap" style="overflow:auto;max-width:100%">
           <table class="data-table st-cc-runs-table" style="min-width:1040px">
-            <thead><tr><th>Run</th><th>Job</th><th>Profile</th><th>Plugins</th><th>Status</th><th>Targets</th><th>Duration</th><th>Worker job</th><th>Started</th><th>Finished</th><th></th></tr></thead>
-            <tbody id="st-cc-runs-tbody"><tr><td colspan="11" class="text-dim">—</td></tr></tbody>
+            <thead><tr><th>Run</th><th>Job</th><th>Profile</th><th>Plugins</th><th>Status</th><th>Trigger</th><th>Targets</th><th>Duration</th><th>Worker job</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+            <tbody id="st-cc-runs-tbody"><tr><td colspan="12" class="text-dim">—</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -3044,13 +3044,36 @@ if (!headers_sent()) {
     <div id="st-cc-job-plugins" class="mb8 text-dim hint-micro" style="max-height:140px;overflow:auto;border:1px solid var(--border-subtle,#2a3340);padding:8px;border-radius:6px">Select a profile first.</div>
     <div class="row-wrap gap8 mb8">
       <div style="flex:1">
-        <label class="flbl" for="st-cc-job-max-conc">Max concurrency</label>
+        <label class="flbl" for="st-cc-job-max-conc">Max concurrency (plugins)</label>
         <input class="finp w100" id="st-cc-job-max-conc" type="number" min="1" max="50" value="4">
       </div>
       <div style="flex:1">
         <label class="flbl" for="st-cc-job-timeout">Timeout (ms)</label>
         <input class="finp w100" id="st-cc-job-timeout" type="number" min="5000" max="3600000" value="600000">
       </div>
+    </div>
+    <div class="st-cc-job-sched-sec mt8 mb8" style="border-top:1px solid var(--border-subtle,#2a3340);padding-top:10px">
+      <div class="text-secondary mb6">Recurring schedule</div>
+      <p class="hint-micro text-dim mb6">When enabled, <code class="mono-sm">surveytrace-scheduler</code> runs <code class="mono-sm">credential_schedule_tick.php</code> and may enqueue at most one catch-up run after downtime, then advances <code class="mono-sm">schedule_next_run_at</code> (UTC storage; cron evaluated in the timezone below).</p>
+      <label class="switch-field mb8">
+        <span class="tog"><input type="checkbox" id="st-cc-job-sched-enabled"><div class="trk"></div><div class="tth"></div></span>
+        <span class="text-secondary">Schedule enabled</span>
+      </label>
+      <label class="flbl" for="st-cc-job-sched-cron">Cron expression</label>
+      <input class="finp w100 mb6 mono-sm" id="st-cc-job-sched-cron" maxlength="200" placeholder="@hourly or 0 0 * * *" autocomplete="off">
+      <label class="flbl" for="st-cc-job-sched-tz">Timezone (IANA)</label>
+      <input class="finp w100 mb6 mono-sm" id="st-cc-job-sched-tz" maxlength="80" placeholder="UTC" autocomplete="off">
+      <div class="row-wrap gap8 mb6">
+        <div style="flex:1">
+          <label class="flbl" for="st-cc-job-sched-max">Max concurrent runs (queue)</label>
+          <input class="finp w100" id="st-cc-job-sched-max" type="number" min="1" max="20" value="1">
+        </div>
+        <div style="flex:1">
+          <label class="flbl" for="st-cc-job-run-to">Run timeout (sec)</label>
+          <input class="finp w100" id="st-cc-job-run-to" type="number" min="60" max="172800" value="3600">
+        </div>
+      </div>
+      <p class="hint-micro text-dim mb0" id="st-cc-job-sched-readonly"></p>
     </div>
     <label class="switch-field mb10">
       <span class="tog"><input type="checkbox" id="st-cc-job-enabled" checked><div class="trk"></div><div class="tth"></div></span>
@@ -12289,6 +12312,12 @@ async function stCcJobOpenModal(jobId, presetProfileId) {
     const mc = document.getElementById('st-cc-job-max-conc');
     const to = document.getElementById('st-cc-job-timeout');
     const en = document.getElementById('st-cc-job-enabled');
+    const se = document.getElementById('st-cc-job-sched-enabled');
+    const scr = document.getElementById('st-cc-job-sched-cron');
+    const stz = document.getElementById('st-cc-job-sched-tz');
+    const smx = document.getElementById('st-cc-job-sched-max');
+    const rto = document.getElementById('st-cc-job-run-to');
+    const sro = document.getElementById('st-cc-job-sched-readonly');
     const hintEl = document.getElementById('st-cc-job-modal-hint');
     const resBox = document.getElementById('st-cc-job-asset-results');
     const qEl = document.getElementById('st-cc-job-asset-q');
@@ -12377,6 +12406,23 @@ async function stCcJobOpenModal(jobId, presetProfileId) {
         if (mc) mc.value = String(pol.max_concurrency != null ? pol.max_concurrency : 4);
         if (to) to.value = String(pol.timeout_ms != null ? pol.timeout_ms : 600000);
         if (en) en.checked = !!j.enabled;
+        if (se) se.checked = !!j.schedule_enabled;
+        if (scr) scr.value = j.schedule_cron != null && String(j.schedule_cron).trim() ? String(j.schedule_cron) : '';
+        if (stz) stz.value = j.schedule_timezone != null && String(j.schedule_timezone).trim() ? String(j.schedule_timezone) : 'UTC';
+        if (smx) smx.value = String(j.schedule_max_concurrency != null ? j.schedule_max_concurrency : 1);
+        if (rto) rto.value = String(j.run_timeout_sec != null ? j.run_timeout_sec : 3600);
+        if (sro) {
+            const nr = j.schedule_next_run_at != null && String(j.schedule_next_run_at).trim() ? esc(String(j.schedule_next_run_at)) + ' UTC' : '—';
+            const lr = j.schedule_last_run_at != null && String(j.schedule_last_run_at).trim() ? esc(String(j.schedule_last_run_at)) + ' UTC' : '—';
+            const er = j.schedule_last_error != null && String(j.schedule_last_error).trim() ? esc(String(j.schedule_last_error)) : '—';
+            sro.innerHTML =
+                '<span class="text-dim">Next scheduled:</span> ' +
+                nr +
+                ' · <span class="text-dim">Last scheduler launch:</span> ' +
+                lr +
+                ' · <span class="text-dim">Last scheduler error:</span> ' +
+                er;
+        }
         await stCcJobOnProfileChange();
         let plugs = [];
         try {
@@ -12398,6 +12444,12 @@ async function stCcJobOpenModal(jobId, presetProfileId) {
         if (mc) mc.value = '4';
         if (to) to.value = '600000';
         if (en) en.checked = true;
+        if (se) se.checked = false;
+        if (scr) scr.value = '';
+        if (stz) stz.value = 'UTC';
+        if (smx) smx.value = '1';
+        if (rto) rto.value = '3600';
+        if (sro) sro.textContent = '';
         stCcJobSyncTargetHints();
         await stCcJobOnProfileChange();
     }
@@ -12428,6 +12480,11 @@ async function stCcJobSave() {
     const mc = document.getElementById('st-cc-job-max-conc');
     const to = document.getElementById('st-cc-job-timeout');
     const en = document.getElementById('st-cc-job-enabled');
+    const se = document.getElementById('st-cc-job-sched-enabled');
+    const scr = document.getElementById('st-cc-job-sched-cron');
+    const stz = document.getElementById('st-cc-job-sched-tz');
+    const smx = document.getElementById('st-cc-job-sched-max');
+    const rto = document.getElementById('st-cc-job-run-to');
     const hintEl = document.getElementById('st-cc-job-modal-hint');
     const id = hid && hid.value ? parseInt(hid.value, 10) : 0;
     let ints = [];
@@ -12458,6 +12515,11 @@ async function stCcJobSave() {
         plugin_selection_json: selPl,
         policy_json: policy,
         enabled: en ? !!en.checked : true,
+        schedule_enabled: se ? !!se.checked : false,
+        schedule_cron: scr ? scr.value.trim() : '',
+        schedule_timezone: stz && stz.value.trim() ? stz.value.trim() : 'UTC',
+        schedule_max_concurrency: smx ? parseInt(smx.value, 10) || 1 : 1,
+        run_timeout_sec: rto ? parseInt(rto.value, 10) || 3600 : 3600,
     };
     if (id > 0) body.id = id;
     const r = await apiPost('/api/credential_check_jobs.php', body);
@@ -12864,6 +12926,8 @@ async function stCcRunOpenModal(runId) {
     }
 
     const retNote = run.retention_note ? `<p class="hint-micro text-dim mt8 mb0">${esc(String(run.retention_note))}</p>` : '';
+    const trigSrc = String(run.launch_source || 'manual').toLowerCase() === 'scheduled' ? 'scheduled' : 'manual';
+    const trigLine = `<p class="hint-micro text-dim mb0 mt4">Trigger: <span class="mono-sm">${esc(trigSrc)}</span> (manual UI/API vs surveytrace-scheduler)</p>`;
 
     box.innerHTML = `
       <div class="st-cc-run-head row-wrap gap8 align-center">
@@ -12874,6 +12938,7 @@ async function stCcRunOpenModal(runId) {
         ${partialN > 0 ? '<span class="st-cc-pill st-cc-pill--warn">partial results</span>' : ''}
       </div>
       ${headline}
+      ${trigLine}
       <p class="hint-micro text-dim mb0 mt4">${esc(String(run.job_name || ''))}${run.profile_name != null ? ` · ${esc(String(run.profile_name))}` : ''}${run.profile_transport != null ? ` <span class="mono-sm">(${esc(String(run.profile_transport))})</span>` : ''}</p>
       <p class="hint-micro text-dim mb0 mt4">Planned plugins: ${plannedLine}</p>
       <p class="hint-micro text-dim mb0">Started ${run.started_at ? esc(localTime(String(run.started_at))) : '—'} · Finished ${run.finished_at ? esc(localTime(String(run.finished_at))) : '—'}</p>
@@ -12989,23 +13054,33 @@ async function stCcLoadJobsAndRuns() {
         api('/api/credential_check_runs.php?' + qs.toString()),
     ]);
     if (!rj || !rj.ok) {
-        tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">Could not load jobs.</td></tr>';
+        tbJ.innerHTML = '<tr><td colspan="8" class="text-dim">Could not load jobs.</td></tr>';
     } else {
         const jobs = rj.jobs || [];
         window.__stCcJobsCache = jobs;
         stCcRenderOperationalSummary();
         if (!jobs.length) {
-            tbJ.innerHTML = '<tr><td colspan="5" class="text-dim">No jobs yet.</td></tr>';
+            tbJ.innerHTML = '<tr><td colspan="8" class="text-dim">No jobs yet.</td></tr>';
         } else {
             tbJ.innerHTML = jobs
                 .map((j) => {
                     const id = Number(j.id);
                     const on = j.enabled ? 'yes' : 'no';
+                    const sch = j.schedule_enabled ? esc(String(j.schedule_cron || 'on')) : '—';
+                    const nx = j.schedule_next_run_at != null && String(j.schedule_next_run_at).trim()
+                        ? esc(String(j.schedule_next_run_at)) + ' <span class="text-dim">UTC</span>'
+                        : '—';
+                    const lr = j.schedule_last_run_at != null && String(j.schedule_last_run_at).trim()
+                        ? esc(String(j.schedule_last_run_at)) + ' <span class="text-dim">UTC</span>'
+                        : '—';
                     return `<tr>
             <td>${esc(String(j.name || ''))}</td>
             <td class="text-dim">${esc(String(j.profile_name || ''))} <span class="mono-sm">(${esc(String(j.profile_transport || ''))})</span></td>
             <td class="mono-sm">${esc(String(j.target_mode || ''))}</td>
             <td>${esc(on)}</td>
+            <td class="mono-sm">${sch}</td>
+            <td class="mono-sm">${nx}</td>
+            <td class="mono-sm">${lr}</td>
             <td class="row-wrap gap4" style="white-space:nowrap">
               <button type="button" class="tbtn btn-xs" onclick="stCcJobOpenModal(${id})">Edit</button>
               <button type="button" class="tbtn btn-xs" onclick="stCcLaunchRun(${id})">Run now</button>
@@ -13017,13 +13092,13 @@ async function stCcLoadJobsAndRuns() {
         }
     }
     if (!rr || !rr.ok) {
-        tbR.innerHTML = '<tr><td colspan="11" class="text-dim">Could not load runs.</td></tr>';
+        tbR.innerHTML = '<tr><td colspan="12" class="text-dim">Could not load runs.</td></tr>';
     } else {
         const runs = rr.runs || [];
         window.__stCcRunsListCache = runs;
         stCcRenderOperationalSummary();
         if (!runs.length) {
-            tbR.innerHTML = '<tr><td colspan="11" class="text-dim">No runs match filters.</td></tr>';
+            tbR.innerHTML = '<tr><td colspan="12" class="text-dim">No runs match filters.</td></tr>';
         } else {
             tbR.innerHTML = runs
                 .map((u) => {
@@ -13036,6 +13111,7 @@ async function stCcLoadJobsAndRuns() {
                             ? `${prof} <span class="mono-sm text-dim">(${tr})</span>`
                             : prof;
                     const plug = esc(String(u.plugin_summary || '—'));
+                    const trig = String(u.launch_source || 'manual').toLowerCase() === 'scheduled' ? 'scheduled' : 'manual';
                     const tot = parseInt(String(u.targets_total ?? 0), 10) || 0;
                     const done = parseInt(String(u.targets_completed ?? 0), 10) || 0;
                     const failT = parseInt(String(u.targets_failed ?? 0), 10) || 0;
@@ -13072,6 +13148,7 @@ async function stCcLoadJobsAndRuns() {
             <td class="row-wrap">${profCell}</td>
             <td class="mono-sm row-wrap">${plug}</td>
             <td class="row-wrap gap4">${stCcRunStatusBadgeHtml(u.status, { run_outcome: ro })} ${errVis} ${partVis}</td>
+            <td class="mono-sm">${esc(trig)}</td>
             <td class="mono-sm">${esc(String(done))}/${esc(String(tot))}${failT > 0 ? ` <span class="text-dim">(${esc(String(failT))} fail)</span>` : ''}${tgtExtra}</td>
             <td class="mono-sm">${esc(dur)}</td>
             <td class="mono-sm">${wj}</td>

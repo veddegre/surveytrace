@@ -8,6 +8,10 @@
  * as intentionally dev-only (scripts_dev_only, daemon_dev_only_py). There is no third category: if it is
  * missing from both, check_deploy_coverage.php and CI/deploy will flag drift and installs may omit it.
  *
+ * Feature parity — when you add a new first-class shipped surface (especially under api/), also extend the
+ * post-verify spot-checks in deploy.sh and setup.sh (check_file / check_readable_as_user) for the same paths
+ * so a bad deploy is caught the same way after setup and after upgrade.
+ *
  * @return array<string, list<string>>
  */
 declare(strict_types=1);
@@ -42,6 +46,7 @@ return [
         'lib_cred_secret_helper.php',
         'lib_credential_profiles.php',
         'lib_credential_check_ops.php',
+        'lib_credential_schedule.php',
         'lib_credential_profile_transport_test.php',
         'collector_checkin.php',
         'credential_profiles.php',
@@ -170,6 +175,8 @@ return [
         'st_recon_trusted_data_selftest.php',
         'st_cc_normalized_preview_selftest.php',
         'st_cc_run_visibility_selftest.php',
+        'st_credential_schedule_selftest.php',
+        'credential_schedule_tick.php',
         'st_assets_quick_search_selftest.php',
         'diagnose_collector_ingest_queue.php',
         'diagnose_scan_failure.php',

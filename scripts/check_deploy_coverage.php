@@ -4,7 +4,8 @@
  * Flags drift between the repo tree and scripts/deploy_file_manifest.php (what deploy.sh installs).
  *
  * Contributing: every new runtime/admin/production-selftest path must appear in that manifest (shipped)
- * or under scripts_dev_only / daemon_dev_only_py (never shipped). See the manifest file header.
+ * or under scripts_dev_only / daemon_dev_only_py (never shipped). See the manifest file header. For new
+ * first-class api/*.php surfaces, also add matching post-verify checks in deploy.sh and setup.sh.
  *
  * Usage:
  *   php scripts/check_deploy_coverage.php [/path/to/repo]

@@ -567,6 +567,9 @@ install_unit_with_install_dir() {
   echo "  $unit_name installed/enabled"
 }
 
+# Core scanner + scheduler units (templates live at repo root; must match /etc after deploy).
+install_unit_with_install_dir "surveytrace-daemon.service"
+install_unit_with_install_dir "surveytrace-scheduler.service"
 install_unit_with_install_dir "surveytrace-collector-ingest.service"
 install_unit_with_install_dir "surveytrace-credential-check-worker.service"
 
@@ -740,6 +743,7 @@ check_file "$DEST/api/credentialed_checks.php" "credentialed_checks API (plugin 
 check_file "$DEST/api/credential_profiles.php" "credential_profiles API"
 check_file "$DEST/api/cred_secret_helper_debug.php" "cred_secret_helper_debug API"
 check_file "$DEST/api/lib_credential_check_ops.php" "lib_credential_check_ops (cred check jobs/runs)"
+check_file "$DEST/api/lib_credential_schedule.php" "lib_credential_schedule (cred job cron + tick helpers)"
 check_file "$DEST/api/credential_check_jobs.php" "credential_check_jobs API"
 check_file "$DEST/api/credential_check_runs.php" "credential_check_runs API"
 check_file "$DEST/api/lib_credential_profile_transport_test.php" "lib_credential_profile_transport_test (handshake runner)"

@@ -61,6 +61,10 @@ Rewrap utility (key change with old+new key available): `scripts/rewrap_credenti
 
 ---
 
+## Credentialed job scheduler (`credential_schedule_tick.php`)
+
+The **`surveytrace-scheduler`** loop may invoke **`scripts/credential_schedule_tick.php`**, which uses the **same** `st_cc_run_launch()` / `worker_jobs` path as the UI. The tick **does not** read or decrypt credential envelopes, does not shell out to system cron, and does not execute arbitrary host commands. It only reads job templates, writes schedule metadata and **`user_audit_log`** rows (actor `system`), and enqueues work the existing **`surveytrace-credential-check-worker`** consumes. Operators should still treat scheduled launches as **automated use of stored credentials** within the same trust boundary as manual “Run now”.
+
 ## Audit model (credential use)
 
 Safe, operator-facing audit actions (details are JSON in `user_audit_log.details_json`):

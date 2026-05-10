@@ -14,6 +14,8 @@ EnvironmentFile=-/etc/surveytrace/surveytrace.env
 ExecStart=/opt/surveytrace/venv/bin/python3 scheduler_daemon.py
 Restart=always
 RestartSec=10
+# SQLite + subprocesses; default 1024 is easy to exhaust on long-lived schedulers.
+LimitNOFILE=65536
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=surveytrace-scheduler

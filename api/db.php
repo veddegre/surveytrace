@@ -410,6 +410,7 @@ function st_db(): PDO {
     st_migrate_credentialed_checks_v1($pdo);
     st_migrate_cred_profiles_deleted_at_v1($pdo);
     st_migrate_cred_profile_test_columns_v1($pdo);
+    st_migrate_cred_check_job_schedule_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1408,6 +1409,60 @@ function st_migrate_cred_profile_test_columns_v1(PDO $pdo): void
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_cred_profile_test_columns_v1', '1')"
+    );
+}
+
+/**
+ * Credential check job recurring schedule (Phase 1) + run launch_source.
+ */
+function st_migrate_cred_check_job_schedule_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_cred_check_job_schedule_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential_check_jobs' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $jobCol = static function (PDO $pdo): array {
+        return array_column($pdo->query('PRAGMA table_info(credential_check_jobs)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    };
+    $jcols = $jobCol($pdo);
+    if (! in_array('schedule_enabled', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN schedule_enabled INTEGER NOT NULL DEFAULT 0');
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('schedule_timezone', $jcols, true)) {
+        $pdo->exec("ALTER TABLE credential_check_jobs ADD COLUMN schedule_timezone TEXT NOT NULL DEFAULT 'UTC'");
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('schedule_last_run_at', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN schedule_last_run_at TEXT');
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('schedule_next_run_at', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN schedule_next_run_at TEXT');
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('schedule_last_error', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN schedule_last_error TEXT');
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('max_concurrency', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN max_concurrency INTEGER NOT NULL DEFAULT 1');
+    }
+    $jcols = $jobCol($pdo);
+    if (! in_array('run_timeout_sec', $jcols, true)) {
+        $pdo->exec('ALTER TABLE credential_check_jobs ADD COLUMN run_timeout_sec INTEGER NOT NULL DEFAULT 3600');
+    }
+    $rcols = array_column($pdo->query('PRAGMA table_info(credential_check_runs)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (! in_array('launch_source', $rcols, true)) {
+        $pdo->exec("ALTER TABLE credential_check_runs ADD COLUMN launch_source TEXT NOT NULL DEFAULT 'manual'");
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_schedule_due ON credential_check_jobs(enabled, schedule_enabled, schedule_next_run_at)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_cred_check_job_schedule_v1', '1')"
     );
 }
 

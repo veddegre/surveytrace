@@ -669,6 +669,13 @@ CREATE TABLE IF NOT EXISTS credential_check_jobs (
     plugin_selection_json      TEXT,
     policy_json                TEXT,
     schedule_cron              TEXT,
+    schedule_enabled           INTEGER NOT NULL DEFAULT 0,
+    schedule_timezone          TEXT NOT NULL DEFAULT 'UTC',
+    schedule_last_run_at       TEXT,
+    schedule_next_run_at       TEXT,
+    schedule_last_error        TEXT,
+    max_concurrency            INTEGER NOT NULL DEFAULT 1,
+    run_timeout_sec            INTEGER NOT NULL DEFAULT 3600,
     enabled                    INTEGER NOT NULL DEFAULT 1,
     created_by                 INTEGER,
     created_at                 DATETIME NOT NULL DEFAULT (datetime('now')),
@@ -676,6 +683,7 @@ CREATE TABLE IF NOT EXISTS credential_check_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_profile ON credential_check_jobs(credential_profile_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_enabled ON credential_check_jobs(enabled, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_schedule_due ON credential_check_jobs(enabled, schedule_enabled, schedule_next_run_at);
 
 CREATE TABLE IF NOT EXISTS credential_check_runs (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -686,6 +694,8 @@ CREATE TABLE IF NOT EXISTS credential_check_runs (
     status               TEXT NOT NULL DEFAULT 'queued',
         -- queued | resolving_targets | ready | running | completed | failed | cancelled
     initiated_by         TEXT,
+    launch_source        TEXT NOT NULL DEFAULT 'manual',
+        -- manual | scheduled
     summary_json         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cred_check_runs_job ON credential_check_runs(job_id, started_at DESC);

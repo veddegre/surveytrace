@@ -63,7 +63,7 @@ if ($action === 'launch') {
         st_json(['ok' => false, 'error' => 'job_id required'], 400);
     }
     $accept = ! empty($in['accept_experimental']) && ($in['accept_experimental'] === true || $in['accept_experimental'] === 1 || $in['accept_experimental'] === '1');
-    [$ok, $err, $run, $hints] = st_cc_run_launch($db, $jobId, $actorName, $accept);
+    [$ok, $err, $run, $hints] = st_cc_run_launch($db, $jobId, $actorName, $accept, 'manual');
     if (! $ok || $run === null) {
         $payload = ['ok' => false, 'error' => $err ?? 'Launch failed'];
         if (is_array($hints) && $hints !== []) {
@@ -76,6 +76,7 @@ if ($action === 'launch') {
         'run_id'        => $rid,
         'job_id'        => $jobId,
         'worker_job_id' => (int) ($run['worker_job_id'] ?? 0),
+        'launch_source' => 'manual',
     ]);
     st_json(['ok' => true, 'run' => $run]);
 }

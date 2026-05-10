@@ -870,6 +870,22 @@ $health['worker_substrate'] = st_worker_substrate_health_snapshot($db);
 
 require_once __DIR__ . '/lib_credential_check_ops.php';
 try {
+    $health['credential_scheduler'] = st_cc_schedule_health_snapshot($db);
+} catch (Throwable $e) {
+    $health['credential_scheduler'] = [
+        'tables_ready'         => false,
+        'enabled_jobs'         => 0,
+        'due_jobs'             => 0,
+        'overdue_jobs'         => 0,
+        'last_launch_utc'      => null,
+        'last_tick_utc'        => null,
+        'scheduler_runtime_ok' => false,
+        'jobs_with_schedule_error' => 0,
+        'warning_hints'        => ['Credential scheduler health unavailable.'],
+    ];
+    @error_log('SurveyTrace health credential_scheduler: ' . $e->getMessage());
+}
+try {
     $health['credential_check_runs'] = st_cc_health_snapshot_runs($db);
 } catch (Throwable $e) {
     $health['credential_check_runs'] = [

@@ -59,6 +59,14 @@ if ($action === 'create') {
         'job_id' => $jid,
         'name'   => $norm['name'],
     ]);
+    if (! empty($norm['schedule_enabled'])) {
+        $nj = st_cc_job_get($db, $jid);
+        st_audit_log('credential_check.job_scheduled', $actorId, $actorName, null, null, [
+            'job_id'        => $jid,
+            'next_run_at'   => $nj['schedule_next_run_at'] ?? null,
+            'schedule_cron' => $nj['schedule_cron'] ?? null,
+        ]);
+    }
     st_json(['ok' => true, 'id' => $jid, 'experimental_warnings' => $warnings]);
 }
 
@@ -67,6 +75,7 @@ if ($action === 'update') {
     if ($id < 1) {
         st_json(['ok' => false, 'error' => 'id required'], 400);
     }
+    $old = st_cc_job_get($db, $id);
     [$norm, $err, $vlist, $warnings] = st_cc_ops_normalize_job_input($db, $in);
     if ($norm === null || $err !== null) {
         st_json(['ok' => false, 'error' => $err ?? 'validation failed', 'validation_errors' => $vlist], 400);
@@ -76,6 +85,29 @@ if ($action === 'update') {
         st_json(['ok' => false, 'error' => $e], 400);
     }
     st_audit_log('credential_check.job_updated', $actorId, $actorName, null, null, ['job_id' => $id]);
+    $wasOn = is_array($old) && ! empty($old['schedule_enabled']);
+    $nowOn = ! empty($norm['schedule_enabled']);
+    $nj = st_cc_job_get($db, $id);
+    if ($nowOn && ! $wasOn) {
+        st_audit_log('credential_check.job_scheduled', $actorId, $actorName, null, null, [
+            'job_id'        => $id,
+            'next_run_at'   => $nj['schedule_next_run_at'] ?? null,
+            'schedule_cron' => $nj['schedule_cron'] ?? null,
+        ]);
+    } elseif ($wasOn && ! $nowOn) {
+        st_audit_log('credential_check.job_schedule_disabled', $actorId, $actorName, null, null, ['job_id' => $id]);
+    } elseif ($wasOn && $nowOn) {
+        $cronCh = (string) ($old['schedule_cron'] ?? '') !== (string) ($norm['schedule_cron'] ?? '')
+            || (string) ($old['schedule_timezone'] ?? 'UTC') !== (string) ($norm['schedule_timezone'] ?? 'UTC')
+            || (int) ($old['schedule_max_concurrency'] ?? 1) !== (int) ($norm['schedule_max_concurrency'] ?? 1)
+            || (int) ($old['run_timeout_sec'] ?? 3600) !== (int) ($norm['run_timeout_sec'] ?? 3600);
+        if ($cronCh) {
+            st_audit_log('credential_check.job_schedule_updated', $actorId, $actorName, null, null, [
+                'job_id'      => $id,
+                'next_run_at' => $nj['schedule_next_run_at'] ?? null,
+            ]);
+        }
+    }
     st_json(['ok' => true, 'experimental_warnings' => $warnings]);
 }
 

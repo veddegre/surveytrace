@@ -16,6 +16,24 @@ Common issues and how to diagnose and resolve them.
 
 ---
 
+## `surveytrace-scheduler` — scheduled scans stop but a restart fixes it
+
+**Symptom:** `journalctl -u surveytrace-scheduler` repeats `sqlite3.OperationalError: unable to open database file` every poll interval, while **`sudo -u surveytrace sqlite3 /opt/surveytrace/data/surveytrace.db 'select 1'`** still works. Scheduled scans do not run until **`systemctl restart surveytrace-scheduler`**.
+
+**Typical cause:** The long-lived Python process hits a **resource limit** (often **open file descriptors**) or otherwise gets into a state where SQLite cannot open the DB from that process only. A restart clears it.
+
+**What we ship to reduce recurrence:**
+
+| Mitigation | Detail |
+|------------|--------|
+| **`LimitNOFILE=`** in `surveytrace-scheduler.service` | Raises the soft open-file limit for the service. On master, **`sudo bash deploy.sh`** copies the repo unit into **`/etc/systemd/system/`** (with `daemon-reload`) and restarts the scheduler — see `deploy.sh` **`install_unit_with_install_dir`**. |
+| **Auto-exit on repeated hard open errors** | `scheduler_daemon.py` exits with status **1** after **10** consecutive failures matching “unable to open” / “disk I/o” so **`Restart=always`** replaces the process without manual intervention. |
+| **Richer connect logging** | On connect failure, logs resolved path, `exists`, parent writable, file R/W, and **`open_fds`** (from `/proc/self/fd`) to confirm FD pressure. |
+
+**If it still recurs:** Inspect **`journalctl -u surveytrace-scheduler`** for the `sqlite connect failed:` line, compare **`open_fds`** to **`LimitNOFILE`**, and check for other services or cron jobs opening the same DB. Consider a periodic controlled restart (e.g. weekly maintenance window) only if needed after tuning limits.
+
+---
+
 ## Credential secret helper — security model
 
 Hardened installs keep **`SURVEYTRACE_CRED_SECRET_KEY`** out of the **php-fpm / Apache** process environment for normal **profile secret encrypt**, **clear**, and **handshake** flows. The key lives in **`/etc/surveytrace/surveytrace.env`**, readable only by the **`surveytrace`** service user — **not** by **`www-data`**.

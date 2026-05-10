@@ -11,6 +11,7 @@ require_once __DIR__ . '/lib_credentialed_checks.php';
 require_once __DIR__ . '/lib_credential_profiles.php';
 require_once __DIR__ . '/lib_worker_jobs.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
+require_once __DIR__ . '/lib_credential_schedule.php';
 
 /** Worker substrate job_type for credentialed check runs. */
 const ST_CC_WORKER_JOB_TYPE = 'credentialed_check';
@@ -382,6 +383,38 @@ function st_cc_ops_normalize_job_input(PDO $pdo, array $in): array
     }
     $enabled = isset($in['enabled']) ? ((bool) $in['enabled'] || (string) $in['enabled'] === '1') : true;
 
+    $scheduleEnabled = isset($in['schedule_enabled']) ? ((bool) $in['schedule_enabled'] || (string) $in['schedule_enabled'] === '1') : false;
+    $scheduleCronRaw = isset($in['schedule_cron']) ? trim((string) $in['schedule_cron']) : '';
+    $scheduleCronNorm = $scheduleCronRaw !== '' ? $scheduleCronRaw : null;
+    $scheduleTz = isset($in['schedule_timezone']) ? trim((string) $in['schedule_timezone']) : 'UTC';
+    if ($scheduleTz === '') {
+        $scheduleTz = 'UTC';
+    }
+    $tzErr = st_cc_schedule_validate_timezone($scheduleTz);
+    if ($tzErr !== null) {
+        $errs[] = $tzErr;
+    }
+    $schedMaxConc = isset($in['schedule_max_concurrency']) ? (int) $in['schedule_max_concurrency'] : 1;
+    if ($schedMaxConc < 1) {
+        $schedMaxConc = 1;
+    }
+    if ($schedMaxConc > 20) {
+        $schedMaxConc = 20;
+    }
+    $runTimeoutSec = isset($in['run_timeout_sec']) ? (int) $in['run_timeout_sec'] : 3600;
+    $runTimeoutSec = max(60, min(172800, $runTimeoutSec));
+    if ($scheduleEnabled) {
+        $ce = st_cc_schedule_validate_cron($scheduleCronNorm);
+        if ($ce !== null) {
+            $errs[] = $ce;
+        }
+    } elseif ($scheduleCronNorm !== null) {
+        $ce2 = st_cc_schedule_validate_cron($scheduleCronNorm);
+        if ($ce2 !== null) {
+            $errs[] = $ce2;
+        }
+    }
+
     if ($plugins !== [] && $transport !== '' && $errs === []) {
         [$okP, $msgP, $elist] = st_cc_ops_validate_plugins_for_profile($pdo, $transport, $plugins);
         if (! $okP) {
@@ -428,6 +461,11 @@ function st_cc_ops_normalize_job_input(PDO $pdo, array $in): array
         'policy_json'           => $polEnc,
         'enabled'               => $enabled ? 1 : 0,
         '_resolved_asset_count' => count($assetIds),
+        'schedule_enabled'      => $scheduleEnabled ? 1 : 0,
+        'schedule_cron'         => $scheduleCronNorm,
+        'schedule_timezone'     => $scheduleTz,
+        'schedule_max_concurrency' => $schedMaxConc,
+        'run_timeout_sec'       => $runTimeoutSec,
     ], null, [], $warnings];
 }
 
@@ -441,7 +479,9 @@ function st_cc_job_list(PDO $pdo): array
     }
     $st = $pdo->query(
         'SELECT j.id, j.name, j.description, j.credential_profile_id, j.target_mode, j.target_json, j.plugin_selection_json,
-                j.policy_json, j.schedule_cron, j.enabled, j.created_by, j.created_at, j.updated_at,
+                j.policy_json, j.schedule_cron, j.schedule_enabled, j.schedule_timezone, j.schedule_last_run_at,
+                j.schedule_next_run_at, j.schedule_last_error, j.max_concurrency AS schedule_max_concurrency, j.run_timeout_sec,
+                j.enabled, j.created_by, j.created_at, j.updated_at,
                 p.name AS profile_name, p.transport AS profile_transport
          FROM credential_check_jobs j
          LEFT JOIN credential_profiles p ON p.id = j.credential_profile_id AND p.deleted_at IS NULL
@@ -467,7 +507,9 @@ function st_cc_job_get(PDO $pdo, int $id): ?array
     }
     $st = $pdo->prepare(
         'SELECT j.id, j.name, j.description, j.credential_profile_id, j.target_mode, j.target_json, j.plugin_selection_json,
-                j.policy_json, j.schedule_cron, j.enabled, j.created_by, j.created_at, j.updated_at,
+                j.policy_json, j.schedule_cron, j.schedule_enabled, j.schedule_timezone, j.schedule_last_run_at,
+                j.schedule_next_run_at, j.schedule_last_error, j.max_concurrency AS schedule_max_concurrency, j.run_timeout_sec,
+                j.enabled, j.created_by, j.created_at, j.updated_at,
                 p.name AS profile_name, p.transport AS profile_transport
          FROM credential_check_jobs j
          LEFT JOIN credential_profiles p ON p.id = j.credential_profile_id AND p.deleted_at IS NULL
@@ -491,10 +533,24 @@ function st_cc_job_create(PDO $pdo, array $in, ?int $actorUserId): array
     if ($norm === null || $err !== null) {
         return [0, $err ?? 'validation failed'];
     }
+    $nextAt = null;
+    if (! empty($norm['schedule_enabled']) && $norm['schedule_cron'] !== null && $norm['schedule_cron'] !== '') {
+        try {
+            $nextAt = st_cc_schedule_next_run_sqlite(
+                (string) $norm['schedule_cron'],
+                (string) $norm['schedule_timezone'],
+                new \DateTimeImmutable('now', new \DateTimeZone('UTC'))
+            );
+        } catch (Throwable) {
+            $nextAt = null;
+        }
+    }
     try {
         $pdo->prepare(
-            'INSERT INTO credential_check_jobs (name, description, credential_profile_id, target_mode, target_json, plugin_selection_json, policy_json, schedule_cron, enabled, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, datetime(\'now\'), datetime(\'now\'))'
+            'INSERT INTO credential_check_jobs (name, description, credential_profile_id, target_mode, target_json, plugin_selection_json, policy_json,
+                schedule_cron, schedule_enabled, schedule_timezone, schedule_last_run_at, schedule_next_run_at, schedule_last_error,
+                max_concurrency, run_timeout_sec, enabled, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, datetime(\'now\'), datetime(\'now\'))'
         )->execute([
             $norm['name'],
             $norm['description'],
@@ -503,6 +559,12 @@ function st_cc_job_create(PDO $pdo, array $in, ?int $actorUserId): array
             $norm['target_json'],
             $norm['plugin_selection_json'],
             $norm['policy_json'],
+            $norm['schedule_cron'],
+            $norm['schedule_enabled'],
+            $norm['schedule_timezone'],
+            $nextAt,
+            $norm['schedule_max_concurrency'],
+            $norm['run_timeout_sec'],
             $norm['enabled'],
             $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
         ]);
@@ -521,18 +583,80 @@ function st_cc_job_update(PDO $pdo, int $id, array $in): ?string
     if (! st_cc_ops_tables_ready($pdo) || $id < 1) {
         return 'Not found';
     }
-    if (st_cc_job_get($pdo, $id) === null) {
+    $old = st_cc_job_get($pdo, $id);
+    if ($old === null) {
         return 'Job not found';
     }
     $in['name'] = $in['name'] ?? '';
+    if (! array_key_exists('schedule_enabled', $in)) {
+        $in['schedule_enabled'] = ! empty($old['schedule_enabled']);
+    }
+    if (! array_key_exists('schedule_cron', $in)) {
+        $in['schedule_cron'] = $old['schedule_cron'] ?? '';
+    }
+    if (! array_key_exists('schedule_timezone', $in)) {
+        $in['schedule_timezone'] = $old['schedule_timezone'] ?? 'UTC';
+    }
+    if (! array_key_exists('schedule_max_concurrency', $in)) {
+        $in['schedule_max_concurrency'] = (int) ($old['schedule_max_concurrency'] ?? 1);
+    }
+    if (! array_key_exists('run_timeout_sec', $in)) {
+        $in['run_timeout_sec'] = (int) ($old['run_timeout_sec'] ?? 3600);
+    }
     [$norm, $err, ,] = st_cc_ops_normalize_job_input($pdo, $in);
     if ($norm === null || $err !== null) {
         return $err ?? 'validation failed';
     }
+    $nextAt = isset($old['schedule_next_run_at']) ? trim((string) $old['schedule_next_run_at']) : '';
+    $nextAt = $nextAt !== '' ? $nextAt : null;
+    $needRecompute = false;
+    if (! empty($norm['schedule_enabled'])) {
+        $cron = $norm['schedule_cron'];
+        if ($cron === null || $cron === '') {
+            $nextAt = null;
+        } else {
+            $oCron = isset($old['schedule_cron']) ? (string) $old['schedule_cron'] : '';
+            if (($oCron !== (string) $cron)) {
+                $needRecompute = true;
+            }
+            if ((string) ($old['schedule_timezone'] ?? 'UTC') !== (string) $norm['schedule_timezone']) {
+                $needRecompute = true;
+            }
+            if (empty($old['schedule_enabled'])) {
+                $needRecompute = true;
+            }
+            if ($nextAt === null) {
+                $needRecompute = true;
+            }
+            if ($needRecompute) {
+                try {
+                    $nextAt = st_cc_schedule_next_run_sqlite(
+                        (string) $cron,
+                        (string) $norm['schedule_timezone'],
+                        new \DateTimeImmutable('now', new \DateTimeZone('UTC'))
+                    );
+                } catch (Throwable) {
+                    $nextAt = null;
+                }
+            }
+        }
+    } else {
+        $nextAt = null;
+    }
+    $schedLastErr = null;
+    if (empty($norm['schedule_enabled'])) {
+        $schedLastErr = null;
+    } elseif ($norm['schedule_cron'] === null || $norm['schedule_cron'] === '') {
+        $schedLastErr = 'schedule_cron missing';
+    } elseif ($nextAt === null) {
+        $schedLastErr = 'could not compute schedule_next_run_at';
+    }
     try {
         $pdo->prepare(
             'UPDATE credential_check_jobs SET name = ?, description = ?, credential_profile_id = ?, target_mode = ?,
-                target_json = ?, plugin_selection_json = ?, policy_json = ?, enabled = ?, updated_at = datetime(\'now\')
+                target_json = ?, plugin_selection_json = ?, policy_json = ?, schedule_cron = ?, schedule_enabled = ?,
+                schedule_timezone = ?, schedule_next_run_at = ?, schedule_last_error = ?,
+                max_concurrency = ?, run_timeout_sec = ?, enabled = ?, updated_at = datetime(\'now\')
              WHERE id = ?'
         )->execute([
             $norm['name'],
@@ -542,6 +666,13 @@ function st_cc_job_update(PDO $pdo, int $id, array $in): ?string
             $norm['target_json'],
             $norm['plugin_selection_json'],
             $norm['policy_json'],
+            $norm['schedule_cron'],
+            $norm['schedule_enabled'],
+            $norm['schedule_timezone'],
+            $nextAt,
+            $schedLastErr,
+            $norm['schedule_max_concurrency'],
+            $norm['run_timeout_sec'],
             $norm['enabled'],
             $id,
         ]);
@@ -567,11 +698,30 @@ function st_cc_job_delete(PDO $pdo, int $id): bool
     }
 }
 
+function st_cc_count_active_runs_for_job(PDO $pdo, int $jobId): int
+{
+    if (! st_cc_ops_tables_ready($pdo) || $jobId < 1) {
+        return 0;
+    }
+    try {
+        $st = $pdo->prepare(
+            "SELECT COUNT(*) FROM credential_check_runs
+             WHERE job_id = ? AND status IN ('queued','resolving_targets','ready','running')"
+        );
+        $st->execute([$jobId]);
+        $n = $st->fetchColumn();
+
+        return is_numeric($n) ? (int) $n : 0;
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
 /**
  * @return array{0: bool, 1: ?string, 2: ?array<string, mixed>, 3: ?array<string, mixed>}
  *     On failure, element 3 may hold e.g. experimental_plugins for the client.
  */
-function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acceptExperimental): array
+function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acceptExperimental, string $launchSource = 'manual', bool $ownTransaction = true): array
 {
     if (! st_worker_tables_ready($pdo)) {
         return [false, 'Worker substrate not available', null, null];
@@ -628,16 +778,24 @@ function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acc
     }
 
     $actor = trim($actorUsername) !== '' ? substr(trim($actorUsername), 0, 200) : 'unknown';
+    $ls = strtolower(trim($launchSource));
+    if (! in_array($ls, ['manual', 'scheduled'], true)) {
+        $ls = 'manual';
+    }
 
     try {
-        $pdo->exec('BEGIN IMMEDIATE');
+        if ($ownTransaction) {
+            $pdo->exec('BEGIN IMMEDIATE');
+        }
         $pdo->prepare(
-            'INSERT INTO credential_check_runs (job_id, worker_job_id, status, initiated_by, summary_json, started_at)
-             VALUES (?, NULL, \'resolving_targets\', ?, NULL, datetime(\'now\'))'
-        )->execute([$jobId, $actor]);
+            'INSERT INTO credential_check_runs (job_id, worker_job_id, status, initiated_by, launch_source, summary_json, started_at)
+             VALUES (?, NULL, \'resolving_targets\', ?, ?, NULL, datetime(\'now\'))'
+        )->execute([$jobId, $actor, $ls]);
         $runId = (int) $pdo->lastInsertId();
         if ($runId < 1) {
-            $pdo->exec('ROLLBACK');
+            if ($ownTransaction) {
+                $pdo->exec('ROLLBACK');
+            }
 
             return [false, 'Could not create run', null, null];
         }
@@ -672,12 +830,16 @@ function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acc
             ],
         ]);
         if ($wjid < 1) {
-            $pdo->exec('ROLLBACK');
+            if ($ownTransaction) {
+                $pdo->exec('ROLLBACK');
+            }
 
             return [false, 'Could not enqueue worker job', null, null];
         }
         $pdo->prepare('UPDATE credential_check_runs SET worker_job_id = ? WHERE id = ?')->execute([$wjid, $runId]);
-        $pdo->exec('COMMIT');
+        if ($ownTransaction) {
+            $pdo->exec('COMMIT');
+        }
 
         $row = $pdo->prepare('SELECT * FROM credential_check_runs WHERE id = ? LIMIT 1');
         $row->execute([$runId]);
@@ -685,9 +847,11 @@ function st_cc_run_launch(PDO $pdo, int $jobId, string $actorUsername, bool $acc
 
         return [true, null, is_array($out) ? $out : null, null];
     } catch (Throwable $e) {
-        try {
-            $pdo->exec('ROLLBACK');
-        } catch (Throwable) {
+        if ($ownTransaction) {
+            try {
+                $pdo->exec('ROLLBACK');
+            } catch (Throwable) {
+            }
         }
 
         return [false, 'Launch failed', null, null];
@@ -2149,6 +2313,250 @@ function st_cc_health_snapshot_runs(PDO $pdo): array
         }
     } catch (Throwable) {
         $out['summary'] = 'Credentialed check run counts unavailable.';
+    }
+
+    return $out;
+}
+
+/**
+ * System audit row (scheduler / CLI). Does not read secrets.
+ *
+ * @param array<string, mixed> $details
+ */
+function st_cc_schedule_audit_write(PDO $pdo, string $action, array $details): void
+{
+    try {
+        $pdo->prepare(
+            'INSERT INTO user_audit_log (actor_user_id, actor_username, action, details_json, source_ip)
+             VALUES (NULL, ?, ?, ?, ?)'
+        )->execute([
+            'system',
+            $action,
+            json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
+            '127.0.0.1',
+        ]);
+    } catch (Throwable) {
+    }
+}
+
+/**
+ * Process due credentialed-check job schedules (one bounded batch). Uses existing run + worker enqueue path.
+ *
+ * @return array<string, int|string>
+ */
+function st_cc_schedule_process_tick(PDO $pdo, int $dueLimit = 25): array
+{
+    $stats = [
+        'due_selected' => 0,
+        'launched'     => 0,
+        'skipped'      => 0,
+        'errors'       => 0,
+        'last_message' => '',
+    ];
+    if (! st_cc_ops_tables_ready($pdo) || ! st_worker_tables_ready($pdo)) {
+        return $stats;
+    }
+    $jcols = array_column($pdo->query('PRAGMA table_info(credential_check_jobs)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (! in_array('schedule_enabled', $jcols, true)) {
+        return $stats;
+    }
+    $nowUtc = gmdate('Y-m-d H:i:s');
+    try {
+        $cfg = $pdo->prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+        $cfg->execute(['credential_scheduler_last_tick_utc', $nowUtc]);
+    } catch (Throwable) {
+    }
+
+    $st = $pdo->prepare(
+        "SELECT id FROM credential_check_jobs
+         WHERE enabled = 1 AND schedule_enabled = 1
+           AND schedule_cron IS NOT NULL AND trim(schedule_cron) <> ''
+           AND schedule_next_run_at IS NOT NULL AND schedule_next_run_at <= ?
+         ORDER BY schedule_next_run_at ASC LIMIT " . (string) max(1, min(100, $dueLimit))
+    );
+    $st->execute([$nowUtc]);
+    $ids = [];
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $rid) {
+        if (is_numeric($rid)) {
+            $ids[] = (int) $rid;
+        }
+    }
+    $stats['due_selected'] = count($ids);
+    foreach ($ids as $jobId) {
+        try {
+            $pdo->exec('BEGIN IMMEDIATE');
+            $rowSt = $pdo->prepare(
+                'SELECT id, enabled, schedule_enabled, schedule_cron, schedule_timezone, schedule_next_run_at, max_concurrency
+                 FROM credential_check_jobs WHERE id = ? LIMIT 1'
+            );
+            $rowSt->execute([$jobId]);
+            $j = $rowSt->fetch(PDO::FETCH_ASSOC);
+            if (! is_array($j) || empty($j['enabled']) || empty($j['schedule_enabled'])) {
+                $pdo->exec('COMMIT');
+
+                continue;
+            }
+            $cron = trim((string) ($j['schedule_cron'] ?? ''));
+            if ($cron === '') {
+                $pdo->exec('COMMIT');
+
+                continue;
+            }
+            $tz = trim((string) ($j['schedule_timezone'] ?? 'UTC')) !== '' ? trim((string) ($j['schedule_timezone'] ?? 'UTC')) : 'UTC';
+            $maxC = max(1, (int) ($j['max_concurrency'] ?? 1));
+            $active = st_cc_count_active_runs_for_job($pdo, $jobId);
+            if ($active >= $maxC) {
+                st_cc_schedule_audit_write($pdo, 'credential_check.run_schedule_skipped', [
+                    'job_id'         => $jobId,
+                    'reason'         => 'max_active_runs',
+                    'active_runs'    => $active,
+                    'max_concurrency'=> $maxC,
+                    'next_run_at'    => (string) ($j['schedule_next_run_at'] ?? ''),
+                ]);
+                $pdo->exec('COMMIT');
+                ++$stats['skipped'];
+
+                continue;
+            }
+            [$ok, $err, $run,] = st_cc_run_launch($pdo, $jobId, 'scheduler', true, 'scheduled', false);
+            if (! $ok || ! is_array($run)) {
+                try {
+                    $pdo->exec('ROLLBACK');
+                } catch (Throwable) {
+                }
+                $errS = substr(trim((string) $err), 0, 480);
+                $nextF = null;
+                try {
+                    $nextF = st_cc_schedule_next_run_sqlite($cron, $tz, new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+                } catch (Throwable) {
+                    $nextF = null;
+                }
+                try {
+                    $pdo->exec('BEGIN IMMEDIATE');
+                    $pdo->prepare(
+                        'UPDATE credential_check_jobs SET schedule_last_error = ?, schedule_next_run_at = COALESCE(?, schedule_next_run_at),
+                            updated_at = datetime(\'now\') WHERE id = ?'
+                    )->execute([$errS !== '' ? $errS : 'launch_failed', $nextF, $jobId]);
+                    $pdo->exec('COMMIT');
+                } catch (Throwable) {
+                    try {
+                        $pdo->exec('ROLLBACK');
+                    } catch (Throwable) {
+                    }
+                }
+                st_cc_schedule_audit_write($pdo, 'credential_check.run_schedule_skipped', [
+                    'job_id'      => $jobId,
+                    'reason'      => 'launch_failed',
+                    'error'       => $errS,
+                    'next_run_at' => $nextF,
+                ]);
+                ++$stats['errors'];
+                $stats['last_message'] = $errS;
+
+                continue;
+            }
+            $runId = (int) ($run['id'] ?? 0);
+            $nextN = null;
+            try {
+                $nextN = st_cc_schedule_next_run_sqlite($cron, $tz, new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+            } catch (Throwable) {
+                $nextN = null;
+            }
+            $pdo->prepare(
+                'UPDATE credential_check_jobs SET schedule_last_run_at = ?, schedule_next_run_at = ?, schedule_last_error = NULL,
+                    updated_at = datetime(\'now\') WHERE id = ?'
+            )->execute([$nowUtc, $nextN, $jobId]);
+            st_cc_schedule_audit_write($pdo, 'credential_check.run_scheduled_launch', [
+                'job_id'      => $jobId,
+                'run_id'      => $runId,
+                'next_run_at' => $nextN,
+            ]);
+            try {
+                $cfg2 = $pdo->prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+                $cfg2->execute(['credential_scheduler_last_launch_utc', $nowUtc]);
+            } catch (Throwable) {
+            }
+            $pdo->exec('COMMIT');
+            ++$stats['launched'];
+        } catch (Throwable $e) {
+            try {
+                $pdo->exec('ROLLBACK');
+            } catch (Throwable) {
+            }
+            ++$stats['errors'];
+            $stats['last_message'] = substr($e->getMessage(), 0, 200);
+        }
+    }
+
+    return $stats;
+}
+
+/**
+ * Health snapshot for credentialed job scheduler (UTC timestamps in responses).
+ *
+ * @return array<string, mixed>
+ */
+function st_cc_schedule_health_snapshot(PDO $pdo): array
+{
+    $out = [
+        'tables_ready'         => false,
+        'enabled_jobs'         => 0,
+        'due_jobs'             => 0,
+        'overdue_jobs'         => 0,
+        'last_launch_utc'      => null,
+        'last_tick_utc'        => null,
+        'scheduler_runtime_ok' => false,
+        'jobs_with_schedule_error' => 0,
+        'warning_hints'        => [],
+    ];
+    if (! st_cc_ops_tables_ready($pdo)) {
+        return $out;
+    }
+    $jcols = array_column($pdo->query('PRAGMA table_info(credential_check_jobs)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (! in_array('schedule_enabled', $jcols, true)) {
+        return $out;
+    }
+    $out['tables_ready'] = true;
+    $nowUtc = gmdate('Y-m-d H:i:s');
+    try {
+        $out['enabled_jobs'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_jobs WHERE enabled = 1 AND schedule_enabled = 1
+             AND schedule_cron IS NOT NULL AND trim(schedule_cron) <> ''"
+        )->fetchColumn();
+        $out['due_jobs'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_jobs WHERE enabled = 1 AND schedule_enabled = 1
+             AND schedule_next_run_at IS NOT NULL AND schedule_next_run_at <= datetime('now')"
+        )->fetchColumn();
+        $out['overdue_jobs'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_jobs WHERE enabled = 1 AND schedule_enabled = 1
+             AND schedule_next_run_at IS NOT NULL AND schedule_next_run_at < datetime('now', '-15 minutes')"
+        )->fetchColumn();
+        $out['jobs_with_schedule_error'] = (int) $pdo->query(
+            "SELECT COUNT(*) FROM credential_check_jobs WHERE schedule_enabled = 1
+             AND schedule_last_error IS NOT NULL AND trim(schedule_last_error) <> ''"
+        )->fetchColumn();
+        $tick = $pdo->query("SELECT value FROM config WHERE key = 'credential_scheduler_last_tick_utc' LIMIT 1")->fetchColumn();
+        if ($tick !== false && $tick !== null && (string) $tick !== '') {
+            $out['last_tick_utc'] = (string) $tick;
+        }
+        $ll = $pdo->query("SELECT value FROM config WHERE key = 'credential_scheduler_last_launch_utc' LIMIT 1")->fetchColumn();
+        if ($ll !== false && $ll !== null && (string) $ll !== '') {
+            $out['last_launch_utc'] = (string) $ll;
+        }
+        $tickTs = $out['last_tick_utc'] !== null ? strtotime((string) $out['last_tick_utc'] . ' UTC') : false;
+        $out['scheduler_runtime_ok'] = ((int) $out['enabled_jobs'] === 0)
+            || ($tickTs !== false && $tickTs > time() - 120);
+        if ($out['overdue_jobs'] > 0) {
+            $out['warning_hints'][] = (string) $out['overdue_jobs'] . ' credentialed job schedule(s) overdue (>15m) — check surveytrace-scheduler and PHP tick.';
+        }
+        if ($out['jobs_with_schedule_error'] > 2) {
+            $out['warning_hints'][] = 'Several credentialed jobs report schedule_last_error — review job schedule settings.';
+        }
+        if (! $out['scheduler_runtime_ok'] && $out['enabled_jobs'] > 0) {
+            $out['warning_hints'][] = 'Credential scheduler heartbeat stale — surveytrace-scheduler may be stopped or PHP tick failing.';
+        }
+    } catch (Throwable) {
+        $out['warning_hints'][] = 'Credential scheduler snapshot query failed.';
     }
 
     return $out;

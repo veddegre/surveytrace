@@ -25,6 +25,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 **Shell:** `bash -n setup.sh` and `bash -n deploy.sh` after any script edits.
 
 | Credentialed checks — placeholder smoke (optional) | From a **clone** of the repo (not on production): `./scripts/smoke_credential_checks_placeholder.sh` — isolated temp SQLite + `st_cc_run_launch` + one worker `--once` pass. Requires `sqlite3`, `php`, `python3`. **Not** shipped by `deploy.sh` (fixture only; see script header). |
+| Credentialed checks — schedule selftest | From the release tree: `php scripts/st_credential_schedule_selftest.php` — cron/next-run helpers, duplicate-active skip, `launch_source`, scheduler audits (in-memory SQLite). |
 
 ---
 

@@ -38,7 +38,9 @@ They are **not** passive ingestion of a third party’s already-chewed summary; 
 
 ### Collectors, scans, and scheduling (shipped behavior)
 
-Credentialed checks **execute on the master** via **`surveytrace-credential-check-worker`** (see [Credentialed checks integration](wiki/credentialed-checks-integration.md)). **Collectors** do not perform credentialed checks. **Normal scans** and **scheduled scans** do **not** automatically enqueue credentialed jobs; operators use **Settings → Credentialed Checks** for explicit job execution. Future scan/schedule linkage is **explicit opt-in** only (see [Roadmap](../ROADMAP.md#credentialed-checks-engine)).
+Credentialed checks **execute on the master** via **`surveytrace-credential-check-worker`** (see [Credentialed checks integration](wiki/credentialed-checks-integration.md)). **Collectors** do not perform credentialed checks. **Normal scans** and **`scan_schedules`** do **not** automatically enqueue credentialed jobs.
+
+**Per-job recurring schedules (Phase 1):** `credential_check_jobs` may set `schedule_enabled`, `schedule_cron`, `schedule_timezone`, and related columns. The **`surveytrace-scheduler`** service invokes **`scripts/credential_schedule_tick.php`** each poll cycle. That PHP tick selects due jobs, respects **`max_concurrency`** (max simultaneous active runs per job), calls the same **`st_cc_run_launch()`** path used for manual runs (so **`worker_jobs`** + audits stay unified), sets **`credential_check_runs.launch_source`** to `scheduled`, advances **`schedule_next_run_at`** using the same cron semantics as `daemon/scheduler_daemon.py` (see `api/lib_credential_schedule.php`), and writes bounded audit rows. **Catch-up:** after downtime, at most **one** overdue run is created per due evaluation; **`schedule_next_run_at`** is then recomputed from current UTC time (no backlog storm). **Cron limitations** match the Python scheduler helper: five fields or `@hourly` / `@daily` / `@weekly` / `@monthly` / `@yearly` presets; `*` steps, ranges, and lists; no `L`/`W`/`#` or month/day names.
 
 ---
 

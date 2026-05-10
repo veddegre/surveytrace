@@ -24,6 +24,7 @@ import json
 import ipaddress
 import logging
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -36,6 +37,34 @@ from pathlib import Path
 
 from sqlite_pragmas import apply_surveytrace_pragmas
 from surveytrace_paths import install_root, main_db_path
+
+
+def process_credential_job_schedules() -> None:
+    """Enqueue credentialed-check runs for due credential_check_jobs (PHP tick, bounded)."""
+    script = install_root() / "scripts" / "credential_schedule_tick.php"
+    if not script.is_file():
+        return
+    php = shutil.which("php") or shutil.which("php8") or shutil.which("php82") or shutil.which("php81")
+    if not php:
+        log.warning("credential_schedule_tick: no php binary in PATH")
+        return
+    try:
+        proc = subprocess.run(
+            [php, str(script), "--once"],
+            cwd=str(install_root()),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        if proc.returncode != 0:
+            log.warning(
+                "credential_schedule_tick failed rc=%s stderr=%s",
+                proc.returncode,
+                (proc.stderr or "")[:500],
+            )
+    except Exception as e:
+        log.warning("credential_schedule_tick: %s", e)
 
 log = logging.getLogger("scheduler")
 logging.basicConfig(
@@ -79,10 +108,45 @@ def _clear_stale_scheduler_txn(conn: sqlite3.Connection, label: str) -> None:
 # Database helpers
 # ---------------------------------------------------------------------------
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=60)
+    p = Path(DB_PATH).resolve()
+    try:
+        conn = sqlite3.connect(str(p), timeout=60)
+    except sqlite3.OperationalError as e:
+        parent = p.parent
+        parent_dir = parent.is_dir()
+        parent_w = os.access(str(parent), os.W_OK) if parent_dir else False
+        exists = p.is_file()
+        file_rw = os.access(str(p), os.R_OK | os.W_OK) if exists else False
+        try:
+            n_open = len(os.listdir("/proc/self/fd"))
+        except OSError:
+            n_open = -1
+        log.error(
+            "sqlite connect failed: path=%s exists=%s file_rw=%s parent_dir=%s parent_w=%s open_fds=%s err=%s",
+            p,
+            exists,
+            file_rw,
+            parent_dir,
+            parent_w,
+            n_open,
+            e,
+        )
+        raise
     conn.row_factory = sqlite3.Row
     apply_surveytrace_pragmas(conn)
     return conn
+
+
+# After this many consecutive hard SQLite open failures, exit non-zero so
+# systemd Restart= can replace the process (mitigates FD exhaustion / stuck state).
+DB_HARD_OPEN_FAIL_MAX_STREAK = 10
+
+
+def _is_hard_sqlite_open_failure(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "unable to open" in msg or "disk i/o" in msg
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -1219,10 +1283,13 @@ def main() -> None:
 
     log.info("Scheduler ready — polling every %ds", POLL_SECS)
 
+    hard_db_fail_streak = 0
     while True:
         try:
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+            process_credential_job_schedules()
 
             with db_conn() as conn:
                 purge_expired_trashed_scans(conn)
@@ -1258,7 +1325,27 @@ def main() -> None:
                         log.error("Failed to enqueue job for schedule '%s': %s",
                                   s["name"], e)
 
+            hard_db_fail_streak = 0
+
+        except sqlite3.OperationalError as e:
+            if _is_hard_sqlite_open_failure(e):
+                hard_db_fail_streak += 1
+                log.error(
+                    "Scheduler hard DB open failure streak %s/%s: %s",
+                    hard_db_fail_streak,
+                    DB_HARD_OPEN_FAIL_MAX_STREAK,
+                    e,
+                )
+                if hard_db_fail_streak >= DB_HARD_OPEN_FAIL_MAX_STREAK:
+                    log.critical(
+                        "Exiting after %s consecutive hard SQLite open errors so systemd can restart "
+                        "(see LimitNOFILE / open_fds in prior error logs).",
+                        hard_db_fail_streak,
+                    )
+                    raise SystemExit(1) from e
+            log.warning("Scheduler sqlite operational error: %s", e)
         except Exception as e:
+            hard_db_fail_streak = 0
             log.exception("Scheduler loop error: %s", e)
 
         time.sleep(POLL_SECS)
