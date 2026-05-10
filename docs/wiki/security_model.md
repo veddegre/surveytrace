@@ -138,6 +138,8 @@ Manual (production):
 
 Credentialed SSH package inventory persists **normalized** identities in `software_inventory` / `software_inventory_versions` / `software_inventory_asset_state` (worker-side SQLite, same DB as the app). The web tier serves **bounded** reads via `api/software_inventory.php` (prefix match on sanitized names; no `WHERE` clause from raw client SQL). **Health** `trusted_data` counters include row totals and latest `last_seen_at` timestamps only—never raw `dpkg-query` / `rpm -qa` artifact bodies. Full stdout remains in `credential_check_artifacts` for authorized operators, not in default JSON surfaces.
 
+**Local advisory correlation (optional operator import):** `vulnerability_advisories` / `vulnerability_advisory_packages` / `asset_vulnerabilities` are populated from **bounded local JSON** via `scripts/import_advisories.php` (no shell; HTML stripped from descriptions). Public APIs (`api/vulnerabilities.php`, additive `vulnerability_inventory` on single-asset `assets.php`) return **allowlisted columns and integer IDs only**—no arbitrary SQL from clients, no raw feed blobs. Correlation runs offline (`scripts/run_vulnerability_correlation.php`); the cred worker only **enqueues** a deduped `worker_jobs` hint after inventory success.
+
 ---
 
 ## Limitations (honest)

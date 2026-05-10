@@ -922,6 +922,7 @@ try {
 }
 
 require_once __DIR__ . '/lib_reconciliation.php';
+require_once __DIR__ . '/lib_vulnerability_correlation.php';
 try {
     $health['trusted_data'] = st_recon_health_snapshot($db);
 } catch (Throwable $e) {
@@ -953,6 +954,27 @@ try {
         'warning_hints'                      => ['Trusted data health snapshot unavailable.'],
     ];
     @error_log('SurveyTrace health trusted_data: ' . $e->getMessage());
+}
+
+try {
+    $health['vulnerability_correlation'] = st_vuln_correlation_health_snapshot($db);
+} catch (Throwable $e) {
+    $health['vulnerability_correlation'] = [
+        'tables_ready'                => false,
+        'advisory_count'              => 0,
+        'advisory_package_rules'      => 0,
+        'affected_rows'               => 0,
+        'distinct_vulnerable_assets' => 0,
+        'stale_advisory_warning'      => false,
+        'last_correlation_finished_at' => null,
+        'last_correlation_duration_ms' => null,
+        'last_correlation_status'     => null,
+        'correlation_runtime_warning' => false,
+        'queued_correlation_jobs'     => 0,
+        'summary'                     => 'Vulnerability correlation health unavailable.',
+        'warning_hints'               => [],
+    ];
+    @error_log('SurveyTrace health vulnerability_correlation: ' . $e->getMessage());
 }
 
 $health['maintenance'] = st_health_maintenance_snapshot($db);

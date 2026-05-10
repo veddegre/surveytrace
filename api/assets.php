@@ -58,6 +58,7 @@ require_once __DIR__ . '/lib_zabbix.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reconciliation.php';
 require_once __DIR__ . '/lib_software_inventory.php';
+require_once __DIR__ . '/lib_vulnerability_correlation.php';
 require_once __DIR__ . '/lib_credential_check_ops.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
@@ -727,6 +728,22 @@ if ($single_id > 0) {
         @error_log('SurveyTrace assets.php credential_check_host_summary: ' . $e->getMessage());
     }
 
+    $vulnBundle = [
+        'tables_ready'   => st_vuln_tables_ready($db),
+        'affected_total' => 0,
+        'rows'           => [],
+    ];
+    if ($vulnBundle['tables_ready']) {
+        try {
+            $vc = $db->prepare("SELECT COUNT(*) FROM asset_vulnerabilities WHERE asset_id = ? AND status = 'affected'");
+            $vc->execute([$single_id]);
+            $vulnBundle['affected_total'] = (int) $vc->fetchColumn();
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets.php vulnerability_inventory count: ' . $e->getMessage());
+        }
+        $vulnBundle['rows'] = st_vuln_list_for_asset($db, $single_id, 40, 0);
+    }
+
     st_json(array_merge([
         'asset'                   => $asset,
         'asset_scope_assignable'  => st_assets_has_scope_id($db),
@@ -760,6 +777,7 @@ if ($single_id > 0) {
             'active_package_rows'            => st_si_active_count_for_asset($db, $single_id),
             'latest_inventory_last_seen_at'    => st_si_latest_last_seen_for_asset($db, $single_id),
         ],
+        'vulnerability_inventory'         => $vulnBundle,
     ], $trustedApi));
 }
 

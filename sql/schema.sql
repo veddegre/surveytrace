@@ -524,7 +524,7 @@ CREATE INDEX IF NOT EXISTS idx_recon_runs_entity ON reconciliation_runs(entity_t
 
 -- -------------------------------------------------------
 -- Normalized software inventory (credentialed package inventory → durable state)
--- Future: join software_inventory_versions to advisory mapping (not implemented yet).
+-- Join vulnerability_advisory_packages + asset_vulnerabilities for CVE-style correlation (see docs/TRUSTED_DATA_MODEL.md).
 -- -------------------------------------------------------
 CREATE TABLE IF NOT EXISTS software_inventory (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -567,6 +567,87 @@ CREATE TABLE IF NOT EXISTS software_inventory_asset_state (
 CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_asset ON software_inventory_asset_state(asset_id, active, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_version ON software_inventory_asset_state(software_inventory_version_id);
 CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_last_seen ON software_inventory_asset_state(last_seen_at DESC);
+
+-- -------------------------------------------------------
+-- Vulnerability advisories + inventory correlation (bounded local ingestion; no live NVD mirror here)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vulnerability_advisories (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    advisory_key   TEXT NOT NULL,
+        -- e.g. CVE-2024-1234 or distro-local key; unique canonical string
+    source         TEXT NOT NULL,
+        -- nvd | ubuntu | debian | redhat | alpine | internal | sample
+    severity       TEXT NOT NULL DEFAULT 'unknown',
+        -- critical | high | medium | low | info | unknown
+    cvss_score     REAL,
+    description    TEXT,
+    published_at   DATETIME,
+    modified_at    DATETIME,
+    withdrawn      INTEGER NOT NULL DEFAULT 0,
+    created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at     DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vulnerability_advisories_key ON vulnerability_advisories(advisory_key);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_advisories_severity ON vulnerability_advisories(severity);
+CREATE INDEX IF NOT EXISTS idx_vulnerability_advisories_modified ON vulnerability_advisories(modified_at DESC);
+
+CREATE TABLE IF NOT EXISTS vulnerability_advisory_packages (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    advisory_id        INTEGER NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    ecosystem          TEXT NOT NULL,
+        -- dpkg | rpm | generic
+    normalized_name    TEXT NOT NULL,
+    version_operator   TEXT NOT NULL,
+        -- = | < | <= | > | >= (interpreted vs installed version string for ecosystem)
+    version_value      TEXT NOT NULL,
+    distro_release     TEXT,
+    architecture       TEXT,
+    fixed_version      TEXT,
+    metadata_json      TEXT,
+    created_at         DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_adv_pkg_advisory ON vulnerability_advisory_packages(advisory_id);
+CREATE INDEX IF NOT EXISTS idx_vuln_adv_pkg_eco_name ON vulnerability_advisory_packages(ecosystem, normalized_name);
+
+CREATE TABLE IF NOT EXISTS asset_vulnerabilities (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id                        INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    software_inventory_asset_state_id INTEGER NOT NULL REFERENCES software_inventory_asset_state(id) ON DELETE CASCADE,
+    advisory_id                     INTEGER NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    status                          TEXT NOT NULL DEFAULT 'affected',
+        -- affected | fixed | ignored
+    first_seen_at                   DATETIME NOT NULL DEFAULT (datetime('now')),
+    last_seen_at                    DATETIME NOT NULL DEFAULT (datetime('now')),
+    detection_source                TEXT NOT NULL DEFAULT 'inventory_correlation',
+    correlation_confidence          TEXT NOT NULL DEFAULT 'medium',
+        -- high | medium | low
+    fixed_detected_at               DATETIME,
+    explain_json                    TEXT,
+    created_at                      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at                      DATETIME NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(asset_id, advisory_id, software_inventory_asset_state_id)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_asset ON asset_vulnerabilities(asset_id, status);
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_advisory ON asset_vulnerabilities(advisory_id, status);
+CREATE INDEX IF NOT EXISTS idx_asset_vuln_status ON asset_vulnerabilities(status, last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS vulnerability_correlation_runs (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+    finished_at        DATETIME,
+    mode               TEXT NOT NULL DEFAULT 'batch',
+        -- batch | asset | jobs
+    assets_processed   INTEGER NOT NULL DEFAULT 0,
+    rules_evaluated    INTEGER NOT NULL DEFAULT 0,
+    rows_matched       INTEGER NOT NULL DEFAULT 0,
+    rows_upserted      INTEGER NOT NULL DEFAULT 0,
+    rows_marked_fixed  INTEGER NOT NULL DEFAULT 0,
+    duration_ms        INTEGER,
+    status             TEXT NOT NULL DEFAULT 'ok',
+        -- ok | partial | error
+    error_safe         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_corr_runs_finished ON vulnerability_correlation_runs(finished_at DESC);
 
 -- -------------------------------------------------------
 -- Worker execution substrate (MVP slice 1 — schema only; no runtime wiring yet)

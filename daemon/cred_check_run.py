@@ -26,6 +26,7 @@ from cred_secret_decrypt import decrypt_profile_secret
 
 import recon_observations as recon
 import software_inventory_persist as sinv
+import vuln_correlation_jobs as vuln_jobs
 
 log = logging.getLogger(__name__)
 
@@ -983,6 +984,8 @@ def process_cred_check_run(
                             },
                         )
                     counts["package_inventory_ok"] += 1
+                    if diff.get("ok"):
+                        vuln_jobs.try_enqueue_vulnerability_correlation(conn, int(aid), int(run_id))
 
         if cancel_requested():
             conn.execute(

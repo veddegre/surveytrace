@@ -5544,6 +5544,7 @@ function renderHealthHtml(h, zbxResp) {
     integrationRows.push(`<tr><td class="tbl-cell-primary">Zabbix error summary</td><td class="tbl-cell-muted">${zbxErrorSummary !== '—' ? '<span class="hstate-err">Error</span>' : '<span class="hstate-unk">—</span>'}</td><td class="tbl-cell-muted">${esc(zbxErrorSummary)}</td></tr>`);
 
     const td = h.trusted_data && typeof h.trusted_data === 'object' ? h.trusted_data : null;
+    const vu = h.vulnerability_correlation && typeof h.vulnerability_correlation === 'object' ? h.vulnerability_correlation : null;
     const tdHints = td && Array.isArray(td.warning_hints) ? td.warning_hints : [];
     const tdReady = !!(td && td.tables_ready);
     const tdFails = td ? (parseInt(String(td.failed_runs_24h || 0), 10) || 0) : 0;
@@ -5632,6 +5633,16 @@ function renderHealthHtml(h, zbxResp) {
                 tdDetail += ` (last active ${tdSiMx})`;
             }
         }
+        if (vu && vu.tables_ready) {
+            const vac = parseInt(String(vu.advisory_count || 0), 10) || 0;
+            const vrows = parseInt(String(vu.affected_rows || 0), 10) || 0;
+            const vassets = parseInt(String(vu.distinct_vulnerable_assets || 0), 10) || 0;
+            const vq = parseInt(String(vu.queued_correlation_jobs || 0), 10) || 0;
+            tdDetail += ` · local advisories ${esc(String(vac))} · corr affected-rows ${esc(String(vrows))} · assets ${esc(String(vassets))}`;
+            if (vq > 0) {
+                tdDetail += ` · corr-queued ${esc(String(vq))}`;
+            }
+        }
     }
     integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
 
@@ -5661,6 +5672,14 @@ function renderHealthHtml(h, zbxResp) {
             warnings.push(s);
         }
     });
+    if (vu && Array.isArray(vu.warning_hints)) {
+        vu.warning_hints.forEach((hint) => {
+            const s = String(hint || '').trim();
+            if (s && warnings.indexOf(s) === -1) {
+                warnings.push(s);
+            }
+        });
+    }
 
     const ws = h.worker_substrate && typeof h.worker_substrate === 'object' ? h.worker_substrate : null;
     const wsStatusRaw = ws ? String(ws.status || 'unavailable').toLowerCase() : 'unavailable';
@@ -8023,7 +8042,35 @@ function stHostSoftwareInventoryHtml(assetData) {
         ? `<div class="hp-chips" style="margin-top:6px">${badgeParts.join('')}</div>`
         : '';
 
-    const noCveLine = `<p class="text-micro mt6 text-dim">This <strong>software evidence</strong> summary reflects inventory freshness and completeness only. It is <strong>not</strong> CVE or vulnerability analysis. <strong>No findings</strong> are generated from package inventory in SurveyTrace yet.</p>`;
+    const vin = assetData.vulnerability_inventory && typeof assetData.vulnerability_inventory === 'object'
+        ? assetData.vulnerability_inventory
+        : null;
+    const vinRows = vin && Array.isArray(vin.rows) ? vin.rows : [];
+    const vinTot = vin && vin.affected_total != null ? parseInt(String(vin.affected_total), 10) || 0 : 0;
+    const aidV = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
+    const vinApi =
+        vin && vin.tables_ready === true && aidV > 0
+            ? `<p class="text-micro text-dim mt4 mb0">Advisory correlation (bounded): <span class="mono-sm">/api/vulnerabilities.php?action=list_for_asset&amp;asset_id=${esc(
+                  String(aidV),
+              )}</span></p>`
+            : '';
+    const vinTable =
+        vin && vin.tables_ready === true && vinRows.length
+            ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory advisory correlation (local rules)</h4>
+        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Severity</th><th>Confidence</th><th>Last seen</th></tr></thead><tbody>${vinRows
+                  .map((r) => {
+                      const k = r.advisory_key != null ? esc(String(r.advisory_key)) : '\u2014';
+                      const sev = r.severity != null ? esc(String(r.severity)) : '\u2014';
+                      const cf = r.correlation_confidence != null ? esc(String(r.correlation_confidence)) : '\u2014';
+                      const ls = r.last_seen_at != null ? esc(String(r.last_seen_at)) : '\u2014';
+                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td>${cf}</td><td class="text-dim">${ls}</td></tr>`;
+                  })
+                  .join('')}</tbody></table>
+        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; not remediation or exposure scoring.</p></div>`
+            : vin && vin.tables_ready === true && vinTot > 0
+              ? `<p class="text-micro text-dim mt8">This host has <span class="mono-sm">${esc(String(vinTot))}</span> correlated advisory row(s); reload asset detail for the first page of rows.</p>`
+              : '';
+    const noCveLine = `<p class="text-micro mt6 text-dim">This <strong>software evidence</strong> summary reflects inventory freshness and completeness. Separate <strong>local advisory correlation</strong> (when advisories are imported) matches installed packages using deterministic version rules — not internet exposure, KEV, or ticketing.</p>`;
 
     const expl = assetData.software_inventory_explanation != null && String(assetData.software_inventory_explanation).trim()
         ? `<p class="text-micro mt6 st-host-evidence-expl">${esc(String(assetData.software_inventory_explanation))}</p>`
@@ -8079,6 +8126,8 @@ function stHostSoftwareInventoryHtml(assetData) {
       <div class="host-inner-surface st-host-evidence-inner">
         <p class="text-micro text-dim">Bounded <span class="mono-sm">software_observed</span> rows are present (${esc(String(swObs))}), but no reconciled <span class="mono-sm">software_inventory_summary</span> yet. Open this host again after the next credentialed package inventory run, or review trusted-data diagnostics if this persists.</p>
         ${noCveLine}
+        ${vinTable}
+        ${vinApi}
         ${evidenceBlock}
       </div>
     </section>`;
@@ -8096,6 +8145,8 @@ function stHostSoftwareInventoryHtml(assetData) {
         <div class="text-micro text-dim mt2">Package manager \u00b7 <span class="mono-sm">${esc(mgr)}</span> · Observed package count (hint) \u00b7 <span class="mono-sm">${esc(cnt)}</span> · Last evidence \u00b7 ${oatDisp}</div>
         ${badgeRow}
         ${noCveLine}
+        ${vinTable}
+        ${vinApi}
         ${expl}
         ${evidenceBlock}
       </div>

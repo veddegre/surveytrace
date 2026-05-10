@@ -412,6 +412,7 @@ function st_db(): PDO {
     st_migrate_cred_profile_test_columns_v1($pdo);
     st_migrate_cred_check_job_schedule_v1($pdo);
     st_migrate_software_inventory_normalized_v1($pdo);
+    st_migrate_vulnerability_correlation_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1528,6 +1529,97 @@ function st_migrate_software_inventory_normalized_v1(PDO $pdo): void
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_last_seen ON software_inventory_asset_state(last_seen_at DESC)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_software_inventory_normalized_v1', '1')"
+    );
+}
+
+/**
+ * Advisory records + package rules + correlated asset_vulnerabilities (inventory-driven; local ingestion).
+ */
+function st_migrate_vulnerability_correlation_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_vulnerability_correlation_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vulnerability_advisories (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            advisory_key   TEXT NOT NULL,
+            source         TEXT NOT NULL,
+            severity       TEXT NOT NULL DEFAULT \'unknown\',
+            cvss_score     REAL,
+            description    TEXT,
+            published_at   DATETIME,
+            modified_at    DATETIME,
+            withdrawn      INTEGER NOT NULL DEFAULT 0,
+            created_at     DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            updated_at     DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_vulnerability_advisories_key ON vulnerability_advisories(advisory_key)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vulnerability_advisories_severity ON vulnerability_advisories(severity)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vulnerability_advisories_modified ON vulnerability_advisories(modified_at DESC)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vulnerability_advisory_packages (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            advisory_id        INTEGER NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+            ecosystem          TEXT NOT NULL,
+            normalized_name    TEXT NOT NULL,
+            version_operator   TEXT NOT NULL,
+            version_value      TEXT NOT NULL,
+            distro_release     TEXT,
+            architecture       TEXT,
+            fixed_version      TEXT,
+            metadata_json      TEXT,
+            created_at         DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_adv_pkg_advisory ON vulnerability_advisory_packages(advisory_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_adv_pkg_eco_name ON vulnerability_advisory_packages(ecosystem, normalized_name)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS asset_vulnerabilities (
+            id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id                        INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            software_inventory_asset_state_id INTEGER NOT NULL REFERENCES software_inventory_asset_state(id) ON DELETE CASCADE,
+            advisory_id                     INTEGER NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+            status                          TEXT NOT NULL DEFAULT \'affected\',
+            first_seen_at                   DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            last_seen_at                    DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            detection_source                TEXT NOT NULL DEFAULT \'inventory_correlation\',
+            correlation_confidence          TEXT NOT NULL DEFAULT \'medium\',
+            fixed_detected_at               DATETIME,
+            explain_json                    TEXT,
+            created_at                      DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            updated_at                      DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            UNIQUE(asset_id, advisory_id, software_inventory_asset_state_id)
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_vuln_asset ON asset_vulnerabilities(asset_id, status)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_vuln_advisory ON asset_vulnerabilities(advisory_id, status)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_asset_vuln_status ON asset_vulnerabilities(status, last_seen_at DESC)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vulnerability_correlation_runs (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at         DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            finished_at        DATETIME,
+            mode               TEXT NOT NULL DEFAULT \'batch\',
+            assets_processed   INTEGER NOT NULL DEFAULT 0,
+            rules_evaluated    INTEGER NOT NULL DEFAULT 0,
+            rows_matched       INTEGER NOT NULL DEFAULT 0,
+            rows_upserted      INTEGER NOT NULL DEFAULT 0,
+            rows_marked_fixed  INTEGER NOT NULL DEFAULT 0,
+            duration_ms        INTEGER,
+            status             TEXT NOT NULL DEFAULT \'ok\',
+            error_safe         TEXT
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_corr_runs_finished ON vulnerability_correlation_runs(finished_at DESC)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_correlation_v1', '1')"
     );
 }
 
