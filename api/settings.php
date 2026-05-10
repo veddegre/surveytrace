@@ -19,6 +19,7 @@
  *   - security_allow_private_outbound_targets: bool (default false; allow private/loopback OIDC/OpenWebUI endpoints)
  *   - security_health_requires_scan_editor: bool (default false; when true, GET /api/health.php requires scan_editor or admin)
  *   - security_export_requires_scan_editor: bool (default false; when true, GET /api/export.php requires scan_editor or admin)
+ *   - health_worker_substrate_warn_failed_jobs_min: int (0..1000000) — System Health “failed worker_jobs” hint threshold (0 = off; 1 = warn on any; default 1)
  *   - integration_webhook_enabled: bool — reserved legacy flag (no server path calls `st_integrations_outbound_emit()`; use **Integrations** push rows + test/sample instead)
  *   - integration_webhook_url: string — HTTPS URL (http allowed only when security_allow_private_outbound_targets is on)
  *   - integration_webhook_secret: optional HMAC secret (X-SurveyTrace-Signature: sha256=…); never returned on GET
@@ -269,6 +270,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     if ($aiOllamaNumCtx !== 0 && ($aiOllamaNumCtx < 512 || $aiOllamaNumCtx > 131072)) {
         $aiOllamaNumCtx = 0;
     }
+    $_hwf_raw = trim((string) st_config('health_worker_substrate_warn_failed_jobs_min', '1'));
+    if (strcasecmp($_hwf_raw, 'disabled') === 0) {
+        $healthWorkerSubstrateWarnFailedJobsMin = 0;
+    } else {
+        $healthWorkerSubstrateWarnFailedJobsMin = max(0, min(1_000_000, (int) $_hwf_raw));
+    }
     st_json([
         'ok' => true,
         'session_timeout_minutes' => $m,
@@ -286,6 +293,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
         'security_allow_private_outbound_targets' => st_config('security_allow_private_outbound_targets', '0') === '1',
         'security_health_requires_scan_editor' => st_config('security_health_requires_scan_editor', '0') === '1',
         'security_export_requires_scan_editor' => st_config('security_export_requires_scan_editor', '0') === '1',
+        'health_worker_substrate_warn_failed_jobs_min' => $healthWorkerSubstrateWarnFailedJobsMin,
         'password_policy' => st_password_policy(),
         'password_hash_algo' => st_password_hash_algo(),
         'login_max_attempts' => st_login_max_attempts(),
@@ -525,6 +533,12 @@ if (array_key_exists('security_export_requires_scan_editor', $body)) {
     $v = !empty($body['security_export_requires_scan_editor']);
     st_config_set('security_export_requires_scan_editor', $v ? '1' : '0');
     $changed['security_export_requires_scan_editor'] = $v;
+}
+if (array_key_exists('health_worker_substrate_warn_failed_jobs_min', $body)) {
+    $v = (int) $body['health_worker_substrate_warn_failed_jobs_min'];
+    $v = max(0, min(1_000_000, $v));
+    st_config_set('health_worker_substrate_warn_failed_jobs_min', (string) $v);
+    $changed['health_worker_substrate_warn_failed_jobs_min'] = $v;
 }
 if (array_key_exists('integration_webhook_enabled', $body)) {
     $v = !empty($body['integration_webhook_enabled']);

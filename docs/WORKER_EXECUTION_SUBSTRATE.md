@@ -245,6 +245,49 @@ Expose a compact **read-only** snapshot (extend existing health JSON pattern):
 
 **UI (MVP slice 3, implemented):** `GET /api/health.php` includes **`worker_substrate`** (`st_worker_substrate_health_snapshot()` in `api/lib_worker_jobs.php`). The System health tab shows **Background jobs (preview)** with status, job counts, heartbeat / stale-node counts, oldest queued/running ages, 24h failure/event counts, and last error text. Empty healthy substrate stays a single quiet line; warn/error states use existing `st-health-band--attention` styling and surface hints under **Needs attention**.
 
+### Clearing old terminal `worker_jobs` (e.g. setup failures)
+
+1. **Supported prune (time-based, dry-run first)** — removes terminal `worker_jobs` (and related events/attempts/runs when included) older than a cutoff:
+
+   ```bash
+   php /opt/surveytrace/scripts/prune_operational_history.php \
+     --db=/opt/surveytrace/data/surveytrace.db \
+     --older-than-days=1 \
+     --include-runs
+   ```
+
+   Review output, then add **`--apply`**. Do **not** use `--older-than-days=0` (cutoff becomes “now” and can match almost all terminal history).
+
+2. **Surgical delete (specific IDs)** — only if you know the rows are disposable (e.g. ids 7–12). Clear FK references first, then children, then the job:
+
+   ```sql
+   UPDATE credential_check_runs SET worker_job_id = NULL
+     WHERE worker_job_id IN (7,8,9,10,11,12);
+   DELETE FROM worker_job_events WHERE job_id IN (7,8,9,10,11,12);
+   DELETE FROM worker_job_attempts WHERE job_id IN (7,8,9,10,11,12);
+   DELETE FROM worker_jobs WHERE id IN (7,8,9,10,11,12);
+   ```
+
+   Run inside `sqlite3` with a backup first if unsure.
+
+### Tuning the “failed jobs” health hint
+
+**Settings UI (preferred):** **Settings → Platform → Security controls** — set **Failed worker jobs warn threshold** (same `config` key as below) and click **Save security controls**.
+
+Optional direct **`config`** row:
+
+| key | value | effect |
+|-----|-------|--------|
+| `health_worker_substrate_warn_failed_jobs_min` | `1` (default if unset) | Warn when `failed_jobs` ≥ 1 (original behavior). |
+| | `25` | Warn only when there are at least 25 failed rows. |
+| | `0` or `disabled` | Never add the “N job(s) in failed state” hint (counts still shown; separate **error** rules still apply for very large totals). |
+
+Example (SQL only if you prefer not to use the UI):
+
+```sql
+INSERT OR REPLACE INTO config (key, value) VALUES ('health_worker_substrate_warn_failed_jobs_min', '25');
+```
+
 **Credentialed checks (MVP slice 7):** `GET /api/health.php` includes **`credential_check_runs`** (`st_cc_health_snapshot_runs()` in `api/lib_credential_check_ops.php`) — queued/active/running, **completed (24h)**, and **failed (24h)**. Runs use `job_type = credentialed_check`; **`credential_check_worker.py`** executes **`ssh.linux.os_release@1.0.0`** when selected (otherwise targets stay skipped `not_implemented`), unless **`SURVEYTRACE_CRED_CHECK_PLACEHOLDER_ONLY=1`**.
 
 ---

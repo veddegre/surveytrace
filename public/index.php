@@ -2406,6 +2406,14 @@ if (!headers_sent()) {
             <span class="text-secondary">Require scan editor/admin for exports</span>
           </label>
         </div>
+        <p class="help-line mb8 text-dim">
+          <strong>System Health — Background jobs (preview):</strong> warn when the count of <code>worker_jobs</code> in <strong>failed</strong> status is at least this number.
+          Use <strong>0</strong> to turn off that hint (failed counts still appear). Default <strong>1</strong> matches prior behavior.
+        </p>
+        <div class="row-wrap gap8 mb10" style="align-items:center">
+          <label class="text-secondary" for="st-health-worker-failed-warn-min">Failed worker jobs warn threshold</label>
+          <input class="finp" type="number" id="st-health-worker-failed-warn-min" min="0" max="1000000" step="1" style="width:7rem" title="0 = never add the failed-count hint; 1 = warn on any failed row; higher = less noise">
+        </div>
         <button class="tbtn" type="button" onclick="saveSecurityControlsSettings()">Save security controls</button>
       </div>
       <div id="st-cc-summary-wrap" data-st-group="credentialed">
@@ -10681,6 +10689,11 @@ async function loadUiSettings() {
     if (secHealth) secHealth.checked = !!d.security_health_requires_scan_editor;
     const secExport = document.getElementById('st-sec-export-scan-editor');
     if (secExport) secExport.checked = !!d.security_export_requires_scan_editor;
+    const hwfMin = document.getElementById('st-health-worker-failed-warn-min');
+    if (hwfMin) {
+        const v = d.health_worker_substrate_warn_failed_jobs_min;
+        hwfMin.value = String(typeof v === 'number' && Number.isFinite(v) ? v : 1);
+    }
     closeCollectorInstallTokenRevealModal();
     collectorInstallTokenConfigured = !!d.collector_install_token_configured;
     const cTokSt = document.getElementById('st-collector-install-token-status');
@@ -13255,9 +13268,13 @@ async function stCcLoadOperationalSummary(force) {
 }
 
 async function saveSecurityControlsSettings() {
+    let failedWarnMin = parseInt(String(document.getElementById('st-health-worker-failed-warn-min')?.value ?? '1'), 10);
+    if (!Number.isFinite(failedWarnMin) || failedWarnMin < 0) failedWarnMin = 1;
+    if (failedWarnMin > 1000000) failedWarnMin = 1000000;
     const body = {
         security_health_requires_scan_editor: !!document.getElementById('st-sec-health-scan-editor')?.checked,
         security_export_requires_scan_editor: !!document.getElementById('st-sec-export-scan-editor')?.checked,
+        health_worker_substrate_warn_failed_jobs_min: failedWarnMin,
     };
     const r = await apiPost('/api/settings.php', body);
     if (r && r.ok) {

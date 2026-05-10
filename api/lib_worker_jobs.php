@@ -561,6 +561,46 @@ function st_worker_log_event(PDO $pdo, array $event): void
 }
 
 /**
+ * Config keys (optional `config` table) for worker_substrate health hints:
+ *
+ * - **health_worker_substrate_warn_failed_jobs_min** — integer ≥ 1: only add the
+ *   "N job(s) in failed state" warning hint when `failed_jobs` >= this value (default **1**).
+ *   Set to **25** or **50** to ignore small numbers of historical failures.
+ * - Set to **0** (or string **disabled**) to never add that hint (counts still shown; `error` if ≥50 total, etc.).
+ *
+ * Pruning terminal `worker_jobs` (and related rows) is supported by
+ * `scripts/prune_operational_history.php` with `--include-runs` (dry-run by default).
+ *
+ * UI: **Settings → Platform → Security controls** (admin) — “Failed worker jobs warn threshold”.
+ */
+function st_worker_substrate_health_failed_hint_config(PDO $pdo): array
+{
+    $min = 1;
+    $disabled = false;
+    try {
+        $st = $pdo->prepare('SELECT value FROM config WHERE key = ? LIMIT 1');
+        $st->execute(['health_worker_substrate_warn_failed_jobs_min']);
+        $raw = $st->fetchColumn();
+        if ($raw === false || $raw === null) {
+            return ['min' => $min, 'disabled' => $disabled];
+        }
+        $t = trim((string) $raw);
+        if ($t === '' || strcasecmp($t, 'disabled') === 0) {
+            return ['min' => $min, 'disabled' => true];
+        }
+        $v = (int) $t;
+        if ($v < 1) {
+            return ['min' => $min, 'disabled' => true];
+        }
+        $min = min(1_000_000, max(1, $v));
+    } catch (Throwable) {
+        // keep defaults
+    }
+
+    return ['min' => $min, 'disabled' => $disabled];
+}
+
+/**
  * Read-only snapshot for System Health. Cheap COUNT/MIN queries only.
  *
  * @return array{
@@ -720,10 +760,11 @@ function st_worker_substrate_health_snapshot(PDO $pdo): array
         }
 
         $hints = [];
+        $failedHintCfg = st_worker_substrate_health_failed_hint_config($pdo);
         if ($out['stale_heartbeat_count'] > 0) {
             $hints[] = $out['stale_heartbeat_count'] . ' worker node(s) have no heartbeat within the last ' . (int) ($staleHbSec / 60) . ' minutes.';
         }
-        if ($out['failed_jobs'] > 0) {
+        if (! $failedHintCfg['disabled'] && $out['failed_jobs'] >= (int) $failedHintCfg['min']) {
             $hints[] = $out['failed_jobs'] . ' job(s) in failed state.';
         }
         if ($out['retrying_jobs'] > 0) {
