@@ -659,6 +659,8 @@ CREATE TABLE IF NOT EXISTS asset_vulnerability_triage (
         -- new | investigating | confirmed | mitigated | false_positive | accepted_risk
     priority                TEXT NOT NULL DEFAULT 'medium',
         -- critical | high | medium | low | info
+    priority_source         TEXT NOT NULL DEFAULT 'model',
+        -- model | analyst_override
     assigned_to             TEXT,
     due_at                  DATETIME,
     first_triaged_at        DATETIME,

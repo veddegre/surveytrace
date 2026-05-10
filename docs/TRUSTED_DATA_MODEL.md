@@ -143,7 +143,7 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 ### Vulnerability triage, prioritization, and analyst workflow
 
-**Tables:** `asset_vulnerability_triage` (one row per `asset_vulnerabilities.id`: `triage_state`, `priority`, assignment, suppression reason/expiry, `notes_count`), `vulnerability_notes` (plain text, **≤8000** characters; control characters stripped), `vulnerability_activity_log` (append-only audit; `details_json` is **allowlisted keys only**).
+**Tables:** `asset_vulnerability_triage` (one row per `asset_vulnerabilities.id`: `triage_state`, **`priority`** = stored triage band shown in dashboards, **`priority_source`** = `model` \| `analyst_override`, assignment, suppression reason/expiry, `notes_count`), `vulnerability_notes` (plain text, **≤8000** characters; control characters stripped), `vulnerability_activity_log` (append-only audit; `details_json` is **allowlisted keys only**). APIs and **`vulnerability_inventory`** rows expose **`model_priority`**, **`model_priority_score`**, **`model_priority_rationale`**, **`triage_priority`** (same as stored `priority`), and **`priority_source`** so clients can distinguish deterministic model output from analyst-chosen bands.
 
 **Prioritization:** `api/lib_vulnerability_priority.php` computes a **deterministic** integer score and band (`critical` … `info`) from advisory severity, CVSS, age since `first_seen_at`, optional future placeholders (internet exposure, KEV), triage posture, **active** temporary suppression (expiry strictly in the future), and correlation `fixed` status. Output includes a **rationale** array (explainable steps; no ML).
 

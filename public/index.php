@@ -4822,6 +4822,37 @@ async function apiPost(url, body) {
     }
 }
 
+/** Reset vulnerability triage stored priority to model-derived band (editor/admin; CSRF). */
+async function stVtResetPriorityToModel(avid) {
+    const id = parseInt(String(avid), 10) || 0;
+    if (!stRoleCanManageScans() || id < 1) {
+        return;
+    }
+    if (!csrfToken) {
+        toast('CSRF token missing; refresh the page.', 'err');
+        return;
+    }
+    if (!window.confirm('Reset stored priority to the model-derived band?')) {
+        return;
+    }
+    const r = await apiPost('/api/vulnerability_triage.php?action=reset_priority_to_model', {
+        action: 'reset_priority_to_model',
+        asset_vulnerability_id: id,
+    });
+    if (!r || !r.ok) {
+        toast(r && r.error ? String(r.error) : 'Reset failed', 'err');
+        return;
+    }
+    toast('Priority reset to model', 'ok');
+    const hp = document.getElementById('host-panel');
+    const hid = hp && hp.dataset && hp.dataset.hpAssetId ? parseInt(String(hp.dataset.hpAssetId), 10) || 0 : 0;
+    const ht = document.getElementById('hp-title');
+    const ip = ht && ht.textContent ? ht.textContent : '';
+    if (hid > 0 && hp && hp.style.display !== 'none') {
+        void openHostPanel(hid, ip);
+    }
+}
+
 function handleAuthRequired() {
     if (authMode === 'session' || authMode === 'oidc') {
         loginRequired = true;
@@ -8075,13 +8106,29 @@ function stHostSoftwareInventoryHtml(assetData) {
     const vinTable =
         vin && vin.tables_ready === true && vinRows.length
             ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory advisory correlation (local rules)</h4>
-        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Triage</th><th>Pri</th><th>Score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
+        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Triage</th><th>Priority</th><th>Model score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
                   .map((r) => {
                       const k = r.advisory_key != null ? esc(String(r.advisory_key)) : '\u2014';
                       const sev = r.advisory_severity != null ? esc(String(r.advisory_severity)) : r.severity != null ? esc(String(r.severity)) : '\u2014';
                       const tr = r.triage_state != null && String(r.triage_state).trim() ? esc(String(r.triage_state)) : '<span class="text-dim">new</span>';
-                      const pr = r.triage_priority != null && String(r.triage_priority).trim() ? esc(String(r.triage_priority)) : esc(String(r.computed_priority || '\u2014'));
-                      const sc = r.computed_priority_score != null ? esc(String(r.computed_priority_score)) : '\u2014';
+                      const triPri =
+                          r.triage_priority != null && String(r.triage_priority).trim()
+                              ? esc(String(r.triage_priority))
+                              : esc(String(r.model_priority != null ? r.model_priority : r.computed_priority || '\u2014'));
+                      const modPri = esc(String(r.model_priority != null ? r.model_priority : r.computed_priority || '\u2014'));
+                      const modSc = esc(
+                          String(r.model_priority_score != null ? r.model_priority_score : r.computed_priority_score ?? '\u2014'),
+                      );
+                      const srcRaw = r.priority_source != null ? String(r.priority_source).trim().toLowerCase() : '';
+                      const isOv = srcRaw === 'analyst_override';
+                      const ovBadge = isOv
+                          ? '<span class="hp-chip" title="Stored triage band set by analyst; model score column shows deterministic model">Analyst override</span> '
+                          : '';
+                      const avid = r.asset_vulnerability_id != null ? parseInt(String(r.asset_vulnerability_id), 10) || 0 : 0;
+                      const resetBtn =
+                          stRoleCanManageScans() && isOv && avid > 0
+                              ? ` <button type="button" class="tbtn btn-xs" onclick="stVtResetPriorityToModel(${avid})">Reset to model</button>`
+                              : '';
                       const nc = r.notes_count != null ? esc(String(r.notes_count)) : '0';
                       const fs = r.first_seen_at != null ? esc(String(r.first_seen_at)) : '\u2014';
                       let sup = '\u2014';
@@ -8091,7 +8138,7 @@ function stHostSoftwareInventoryHtml(assetData) {
                               sup += ` <span class="text-dim">(\u2264${esc(String(r.suppression_expires_at))})</span>`;
                           }
                       }
-                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${pr}</span></td><td class="mono-sm">${sc}</td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
+                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${triPri}</span> ${ovBadge}${resetBtn}</td><td class="mono-sm">${modSc} <span class="text-dim text-micro">${modPri}</span></td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
                   })
                   .join('')}</tbody></table>
         <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; triage/score are operational hints only (not KEV/exposure). Use triage API for state changes (editor role).</p></div>`

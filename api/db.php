@@ -414,6 +414,7 @@ function st_db(): PDO {
     st_migrate_software_inventory_normalized_v1($pdo);
     st_migrate_vulnerability_correlation_v1($pdo);
     st_migrate_vulnerability_triage_v1($pdo);
+    st_migrate_vulnerability_triage_priority_source_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1643,6 +1644,7 @@ function st_migrate_vulnerability_triage_v1(PDO $pdo): void
             asset_vulnerability_id  INTEGER NOT NULL UNIQUE REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
             triage_state            TEXT NOT NULL DEFAULT \'new\',
             priority                TEXT NOT NULL DEFAULT \'medium\',
+            priority_source         TEXT NOT NULL DEFAULT \'model\',
             assigned_to             TEXT,
             due_at                  DATETIME,
             first_triaged_at        DATETIME,
@@ -1682,6 +1684,51 @@ function st_migrate_vulnerability_triage_v1(PDO $pdo): void
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_act_av ON vulnerability_activity_log(asset_vulnerability_id, created_at DESC)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_triage_v1', '1')"
+    );
+}
+
+/**
+ * Triage row: priority_source (model vs analyst_override) for API/UI clarity.
+ */
+function st_migrate_vulnerability_triage_priority_source_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_vulnerability_triage_priority_source_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'asset_vulnerability_triage' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $has = false;
+    try {
+        foreach ($pdo->query('PRAGMA table_info(asset_vulnerability_triage)') ?: [] as $col) {
+            if (is_array($col) && (($col['name'] ?? '') === 'priority_source')) {
+                $has = true;
+                break;
+            }
+        }
+    } catch (Throwable $e) {
+        $has = false;
+    }
+    if (! $has) {
+        try {
+            $pdo->exec(
+                "ALTER TABLE asset_vulnerability_triage ADD COLUMN priority_source TEXT NOT NULL DEFAULT 'model'"
+            );
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_migrate_vulnerability_triage_priority_source_v1: ' . $e->getMessage());
+
+            return;
+        }
+    }
+    try {
+        $pdo->exec("UPDATE asset_vulnerability_triage SET priority_source = 'model' WHERE priority_source IS NULL OR trim(priority_source) = ''");
+    } catch (Throwable $e) {
+        // ignore
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_triage_priority_source_v1', '1')"
     );
 }
 
