@@ -60,6 +60,7 @@ SurveyTrace documentation for installation, operation, and understanding how the
 - [Credentialed Checks MVP plan](../CREDENTIALED_CHECKS_MVP_PLAN.md) — Staged implementation record (slices 1–11 implemented; hardening slice deferred).
 - [Roadmap — package–advisory correlation (future)](../ROADMAP.md#package-advisory-correlation-future) — Investigation memo: NVD/OSV/distro trackers/KEV/EPSS; identity, confidence, and non-authority constraints for inventory-derived matching.
 - [Release readiness checklist](../RELEASE_READINESS_CHECKLIST.md) — Pre-tag verification for stabilization releases.
+- [Vulnerability advisory operator runbook](vulnerability-advisory-runbook.md) — Offline imports, correlation, diagnostics, **`remove_advisory.php`** hygiene (**`CVE-TEST-*`** cleanup).
 - [Credential secret security model](security_model.md) — Helper architecture, env/sudo boundary, audit/retention, and operator must-not rules.
 - [Credentialed checks vs collectors & scans](credentialed-checks-integration.md) — Where jobs run, what scans do not do yet, and history pruning pointers.
 - [Worker / job execution substrate](../WORKER_EXECUTION_SUBSTRATE.md) — Shared background job design (queues, retries, health).

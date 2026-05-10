@@ -44,6 +44,8 @@ These documents describe how SurveyTrace works internally or how to extend it.
 
 Covers observations, assertions, assertion sources, and reconciliation runs (OS/platform scope in Milestone 1).
 
+- [Vulnerability advisory operator runbook (wiki)](wiki/vulnerability-advisory-runbook.md) — Local advisory import, **`package_authority`**, offline correlation, diagnostics, and **`remove_advisory.php`** (sample cleanup).
+
 ### Credentialed checks (design + shipped slices)
 
 - [Credentialed Checks Engine — design](CREDENTIALED_CHECKS_ENGINE.md) — execution model, transports, credential safety, plugin framework.

@@ -415,6 +415,7 @@ function st_db(): PDO {
     st_migrate_vulnerability_correlation_v1($pdo);
     st_migrate_vulnerability_triage_v1($pdo);
     st_migrate_vulnerability_triage_priority_source_v1($pdo);
+    st_migrate_vulnerability_advisory_authority_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1729,6 +1730,76 @@ function st_migrate_vulnerability_triage_priority_source_v1(PDO $pdo): void
     }
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_triage_priority_source_v1', '1')"
+    );
+}
+
+/**
+ * Advisory package authority + NVD references JSON (vendor/distro > internal > NVD metadata-only).
+ */
+function st_migrate_vulnerability_advisory_authority_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_vulnerability_advisory_authority_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vulnerability_advisories' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $hasRefs = false;
+    $hasPa = false;
+    try {
+        foreach ($pdo->query('PRAGMA table_info(vulnerability_advisories)') ?: [] as $col) {
+            if (! is_array($col)) {
+                continue;
+            }
+            $n = (string) ($col['name'] ?? '');
+            if ($n === 'references_json') {
+                $hasRefs = true;
+            }
+            if ($n === 'package_authority') {
+                $hasPa = true;
+            }
+        }
+    } catch (Throwable $e) {
+        // ignore
+    }
+    if (! $hasRefs) {
+        try {
+            $pdo->exec('ALTER TABLE vulnerability_advisories ADD COLUMN references_json TEXT');
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_migrate_vulnerability_advisory_authority_v1 refs: ' . $e->getMessage());
+        }
+    }
+    if (! $hasPa) {
+        try {
+            $pdo->exec(
+                "ALTER TABLE vulnerability_advisories ADD COLUMN package_authority TEXT NOT NULL DEFAULT 'internal'"
+            );
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace st_migrate_vulnerability_advisory_authority_v1 pa: ' . $e->getMessage());
+
+            return;
+        }
+    }
+    try {
+        $pdo->exec(
+            "UPDATE vulnerability_advisories SET package_authority = 'vendor_distro'
+             WHERE lower(source) IN ('ubuntu','debian','redhat','alpine')"
+        );
+        $pdo->exec(
+            "UPDATE vulnerability_advisories SET package_authority = 'internal'
+             WHERE lower(source) IN ('internal','sample')"
+        );
+        $pdo->exec(
+            "UPDATE vulnerability_advisories SET package_authority = 'metadata_only'
+             WHERE lower(source) = 'nvd'"
+        );
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_migrate_vulnerability_advisory_authority_v1 backfill: ' . $e->getMessage());
+    }
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_advisory_authority_v1', '1')"
     );
 }
 

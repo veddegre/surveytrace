@@ -1,0 +1,23 @@
+{
+  "distro_source": "ubuntu",
+  "advisories": [
+    {
+      "cve_id": "CVE-2025-90002",
+      "description": "Sample Ubuntu USN-style row (fixed_version semantics: affected when installed is older than fixed).",
+      "severity": "medium",
+      "cvss_score": 5.0,
+      "published_at": "2025-02-01T00:00:00Z",
+      "modified_at": "2025-02-02T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "packages": [
+        {
+          "binary_package": "openssl",
+          "source_package": "openssl3",
+          "fixed_version": "3.0.2-0ubuntu1.18",
+          "status": "released"
+        }
+      ]
+    }
+  ]
+}

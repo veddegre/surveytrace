@@ -55,6 +55,11 @@ if ($action === 'advisory_detail') {
             $row['description'] = substr($row['description'], 0, 8000);
         }
     }
+    if (isset($row['references_json']) && is_string($row['references_json'])) {
+        if (strlen($row['references_json']) > 24_000) {
+            $row['references_json'] = substr($row['references_json'], 0, 24_000);
+        }
+    }
     $rules = [];
     try {
         $st = $db->prepare(

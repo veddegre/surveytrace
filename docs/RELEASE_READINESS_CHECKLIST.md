@@ -12,7 +12,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 |------|--------|
 | Fresh **master** install | `sudo bash setup.sh` (or `SURVEYTRACE_SETUP=master`) completes; post-install validation passes. |
 | **deploy.sh** on existing master | Completes; post-deploy checks **PASS**; **`check_deploy_coverage.php`** ran clean from the repo before copy; **`release_security_gate.php --static-only`** runs after **`php -l`** (host-neutral selftests); shipped trees match **`scripts/deploy_file_manifest.php`**. |
-| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_observation_selftest.py`, maintenance CLIs + selftests under **`/opt/surveytrace/scripts/`** (see manifest), `scripts/st_software_inventory_summary_selftest.php`, `scripts/st_software_inventory_evidence_selftest.php`, `scripts/st_software_inventory_diagnostics_selftest.php`, `scripts/st_vulnerability_correlation_selftest.php`, `scripts/st_vulnerability_triage_selftest.php`, `docs/TRUSTED_DATA_MODEL.md` (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
+| Required files present | `api/lib_reconciliation.php`, `api/recon_diagnostics.php`, `daemon/recon_observations.py`, `daemon/st_software_observation_selftest.py`, maintenance CLIs + selftests under **`/opt/surveytrace/scripts/`** (see manifest), `api/lib_vulnerability_advisory_import.php`, `scripts/st_software_inventory_summary_selftest.php`, `scripts/st_software_inventory_evidence_selftest.php`, `scripts/st_software_inventory_diagnostics_selftest.php`, `scripts/st_vulnerability_correlation_selftest.php`, `scripts/st_remove_advisory_selftest.php`, `scripts/st_vulnerability_triage_selftest.php`, `docs/TRUSTED_DATA_MODEL.md`, **`docs/samples/*.json`** (and cred-checks design docs if shipped) under `/opt/surveytrace`. |
 | Manifest drift guard | From a checkout: `php scripts/check_deploy_coverage.php` exits **0** after edits that add `api/*.php`, `daemon/*.py`, or `scripts/*.php`. |
 | Stale deploy tree (optional) | After upgrades that rename/remove shipped files: **`sudo bash deploy.sh --cleanup-stale`** (dry-run from a fresh **`git pull`**); review output, backup, then **`sudo bash deploy.sh --cleanup-stale --apply`**. The underlying **`scripts/cleanup_deployed_stale_files.php`** never deletes **`data/`**, **`backups/`**, **`venv/`**, **`.git/`**, SQLite **`.db-wal` / `.db-shm`**, **`.env`**, **`surveytrace.env`**, or log trees (heuristic). Not a substitute for DB/history pruning (`prune_operational_history.php`). Known renames (e.g. `cred_check_slice7_selftest.py` → `cred_check_os_release_selftest.py`) are listed in **`st_cleanup_known_renamed()`** inside that script — run dry-run after helper/manifest changes to confirm no unexpected leftovers. |
 | Permissions | `api/`: `surveytrace:www-data`, dirs `2750`, files `640`; `data/`: `2770` / `660` on DB; `daemon/`: `surveytrace:surveytrace`. |
@@ -83,6 +83,21 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 
 **Reference:** [TRUSTED_DATA_MODEL.md](TRUSTED_DATA_MODEL.md)
 
+### Local advisory import and correlation (optional; when enabled)
+
+| Step | Verify |
+|------|--------|
+| Schema | `vulnerability_advisories` includes **`references_json`** and **`package_authority`** after migration / fresh schema. |
+| Correlation selftest | `php scripts/st_vulnerability_correlation_selftest.php` passes (metadata-only does not correlate; vendor **`fixed_version`** path; removal policy selftest). |
+| Removal policy selftest | `php scripts/st_remove_advisory_selftest.php` passes. |
+| Importer + sample JSON (from **git checkout** or **`$INSTALL/docs/samples/`** on master) | Bounded imports succeed (no network): `php scripts/import_nvd_metadata.php docs/samples/nvd_metadata.sample.json` · `php scripts/import_distro_advisories.php docs/samples/distro_advisories.sample.json` · `php scripts/import_advisories.php docs/samples/advisory_cve_test.sample.json` |
+| Offline correlation | `php scripts/run_vulnerability_correlation.php --batch=100` (or `--consume-jobs` when jobs are queued) completes without error. |
+| Diagnostics | `php scripts/diagnose_vulnerability_correlation.php` and `php scripts/diagnose_vulnerability_triage.php` emit JSON; **`counts_by_priority`** in triage reflects **`affected`** joins only. |
+| Test advisory cleanup | After lab work: **`php scripts/remove_advisory.php --advisory-key=CVE-TEST-0001`** (dry-run), then **`--apply`** with optional **`--source=internal`**. **Do not** leave **`CVE-TEST-*`** rows in production. |
+| Vendor delete guard | Confirm **`php scripts/remove_advisory.php --advisory-key=<ubuntu CVE> --source=ubuntu`** exits **refused** without **`--force`** (expected safety). |
+
+**Operator runbook:** [wiki — Vulnerability advisory operator runbook](wiki/vulnerability-advisory-runbook.md)
+
 ---
 
 ## F. Reporting
@@ -137,7 +152,8 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | [TRUSTED_DATA_MODEL.md](TRUSTED_DATA_MODEL.md) | Matches current observation/assertion behavior. |
 | [CREDENTIALED_CHECKS_ENGINE.md](CREDENTIALED_CHECKS_ENGINE.md) / [MVP plan](CREDENTIALED_CHECKS_MVP_PLAN.md) | Implemented slices and deferred scope are clearly distinguished. |
 | Collector docs | [setup-collector](wiki/setup-collector.md), [troubleshooting](wiki/troubleshooting.md) mention ingest states. |
-| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, no auto-rotation, **[Troubleshooting — Credential secret helper — security model](wiki/troubleshooting.md#credential-secret-helper--security-model)**, and **[Credential secret security model](wiki/security_model.md)** (helper flow, audit/retention, must-not rules). |
+| Secret key ops docs | Deployment/troubleshooting cover `SURVEYTRACE_CRED_SECRET_KEY`, multi-node parity, backup/restore impact, no auto-rotation, **[Troubleshooting — Credential secret helper — security model](wiki/troubleshooting.md#credential-secret-helper--security-model)**, and **[Credential secret security model](wiki/security_model.md)** (helper flow, audit/retention, must-not rules, **advisory authority** + **`remove_advisory.php`** gates). |
+| Vulnerability advisory runbook | **[wiki — Vulnerability advisory operator runbook](wiki/vulnerability-advisory-runbook.md)** matches shipped importer/correlation CLIs and cleanup guidance. |
 | Secret rewrap runbook | `scripts/rewrap_credential_secrets.php` dry-run/apply workflow and failure interpretation are documented. |
 | Operational prune runbook | `scripts/prune_operational_history.php` dry-run/apply, include-runs guardrails, and backup-before-apply guidance are documented. |
 | Credential runtime prune runbook | `scripts/prune_credential_runtime_history.php` dry-run default, `--apply` / `--days` / `--keep-runs`, preserving active runs and audit integrity; related WARNs in `security_runtime_audit.php`. |
@@ -204,7 +220,7 @@ Before sign-off on a release that ships **cred helper / sudoers** behavior, conf
 
 Document for operators **what is not in this release**:
 
-- **Credentialed checks scope limits** — no WinRM execution; **no CVE matching, findings, or remediation from package inventory / `software_inventory_summary`** (inventory evidence and reconciliation only); no auto-prune daemon, no Vault/KMS integration yet.
+- **Credentialed checks scope limits** — no WinRM execution; **no CVE matching, findings, or remediation from package inventory / `software_inventory_summary`** (inventory evidence and reconciliation only); no auto-prune daemon, no Vault/KMS integration yet. **Bounded local advisory correlation** may ship separately: it is **offline**, **import-driven**, and uses **`package_authority`** so **NVD metadata-only** rows never correlate by themselves — not a full NVD mirror, distro USN sync, or SOAR loop.
 - **CVE fusion** / multi-source reconciliation — roadmap [Data fusion](../ROADMAP.md#data-fusion-and-source-reconciliation).
 - **Ownership / Defender / TeamDynamix** — deferred connector track ([Roadmap](../ROADMAP.md#ownership-and-endpoint-enrichment)).
 - **Infrastructure API connectors** (Proxmox, VMware, …) — planned track, not part of stabilization scope.

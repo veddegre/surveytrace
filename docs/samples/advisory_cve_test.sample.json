@@ -1,0 +1,22 @@
+{
+  "advisories": [
+    {
+      "advisory_key": "CVE-TEST-0001",
+      "source": "internal",
+      "severity": "critical",
+      "cvss_score": 9.0,
+      "description": "Sample test advisory for scripts/remove_advisory.php validation (remove after use).",
+      "packages": [
+        {
+          "ecosystem": "dpkg",
+          "normalized_name": "openssl",
+          "version_operator": "<",
+          "version_value": "99.0.0-1",
+          "distro_release": null,
+          "architecture": null,
+          "metadata_json": {"sample": true}
+        }
+      ]
+    }
+  ]
+}

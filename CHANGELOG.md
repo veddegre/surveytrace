@@ -9,6 +9,7 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ### Added
 
+- **Advisory authority + offline correlation polish** — `vulnerability_advisories.package_authority` (`metadata_only` \| `vendor_distro` \| `internal`) and optional `references_json`; NVD metadata importer (`scripts/import_nvd_metadata.php`), Ubuntu/Debian vendor importer (`scripts/import_distro_advisories.php`), extended `import_advisories.php` merges; correlation excludes **`metadata_only`** from package matching; health snapshot reports per-source and authority breakdowns; UI/API **basis** + **correlation confidence** wording; **`scripts/remove_advisory.php`** (dry-run default, `--force` for vendor) and **`scripts/st_remove_advisory_selftest.php`**; shipped **`docs/samples/*.json`** + wiki runbook.
 - **`scripts/deploy_file_manifest.php`** — canonical file lists shared by **`deploy.sh`** / **`setup.sh`**; **`scripts/deploy_manifest_export.php`** emits manifest sections for bash; **`scripts/check_deploy_coverage.php`** fails when `api/`, `daemon/`, or `scripts/` drift from the manifest.
 - **`scripts/cleanup_deployed_stale_files.php`** — dry-run-by-default removal of obsolete **`api/`**, **`daemon/`**, **`scripts/`**, **`sql/`**, **`docs/`** (vs **`--repo-src`**), and root **`*.service`** paths no longer in the manifest; **`deploy.sh --cleanup-stale`** wraps it with repo manifest + **`--repo-src`**.
 

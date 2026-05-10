@@ -96,7 +96,7 @@ The credentialed check **worker** writes **observation** rows **additively**; it
 - **Stale** authenticated OS release (**> 90 days**, or **missing `observed_at`**) **does not override** newer scan/Zabbix fingerprints; if no other signal exists, belief may fall back to **low** confidence with a stale note.
 - **`package_inventory_observed`** remains **summary-only evidence** (shown in host OS evidence list); it does **not** assert software inventory, **CVE fusion**, or findings (deferred).
 - **`software_inventory_snapshot_observed`** + **`software_inventory*`** tables hold durable inventory; **slice 2** rolls evidence into **`software_inventory_summary`** without CVE or per-package assertions. Legacy **`software_observed`** may still appear on older databases until the next successful inventory run cleans it up.
-- **Future:** possible **package→advisory** correlation (feeds, identity, confidence, evidence) is scoped and constrained in [Roadmap — Package-advisory correlation (future)](../ROADMAP.md#package-advisory-correlation-future); inventory observations remain **non-authoritative** for vulnerability until that track ships with explicit governance.
+- **Shipped (bounded):** **package→advisory** correlation exists for **locally imported** advisories only — see *Local advisory correlation* below. Normalized inventory observations remain **non-authoritative** for vulnerability by themselves; **vendor/internal package rules** (and deterministic version compare) drive **`asset_vulnerabilities`**. Broader fusion (live feeds, KEV, EPSS, SOAR) remains scoped in [Roadmap — Package-advisory correlation (future)](../ROADMAP.md#package-advisory-correlation-future).
 
 **Identity (slice 10):** SNMP **`hostname_observed` / `fqdn_observed`** from **`sysName`** participate in existing **`canonical_hostname`** reconciliation. **SNMP-only** evidence is **scored lower** than corroborated DNS/scan/Zabbix hostname signals; **FQDN + hostname both from the same SNMP sysName parse** does **not** count as full “FQDN corroboration”. When SNMP agrees with other hostname sources, explanations mention it. **`device_identity_observed`** is linked as **supporting context only** (assertion source note); it is **not** a canonical hostname by itself.
 
@@ -127,19 +127,39 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 **`software_inventory*`** asset state is **long-lived**: inactive rows record “last seen” history; **do not** bulk-delete active/inactive state as part of routine observation pruning. **`asset_vulnerabilities`** correlated rows are **long-lived** as well (do not bulk-prune active exposure state as part of routine observation pruning). **`asset_vulnerability_triage`**, **`vulnerability_notes`**, and **`vulnerability_activity_log`** hold operator workflow and audit history — **no hard deletes** of correlated exposure rows when suppressing or accepting risk; use **`scripts/prune_vulnerability_activity.php`** (dry-run by default) to trim **old activity log rows only** after operational policy. **`software_observed`** (legacy) is removed on new inventories. Historical bounded snapshots remain in **`credential_check_results`** / artifacts — prune per operational retention when disk grows.
 
+**Exception (test/internal advisories):** **`scripts/remove_advisory.php`** intentionally **`DELETE`s** a single **`vulnerability_advisories`** row (dry-run by default; **`--apply`** required). SQLite FK cascades remove **`vulnerability_advisory_packages`**, matching **`asset_vulnerabilities`**, and therefore triage/notes/activity for those rows. Use only for **lab keys** (`CVE-TEST-*`), **`internal`/`sample`**, or **`nvd`+`metadata_only`**, or after **`--force`** review — not as routine suppression. See [wiki — Vulnerability advisory operator runbook](wiki/vulnerability-advisory-runbook.md).
+
 ---
 
 ## Local advisory correlation (inventory-driven)
 
-**Tables:** `vulnerability_advisories` (canonical `advisory_key` + metadata), `vulnerability_advisory_packages` (ecosystem + `normalized_name` + version rule or `fixed_version`), `asset_vulnerabilities` (join `software_inventory_asset_state` ↔ advisory, `status` = `affected` \| `fixed` \| `ignored`), `vulnerability_correlation_runs` (bounded batch telemetry).
+**Tables:** `vulnerability_advisories` (canonical `advisory_key` + metadata + **`references_json`** optional + **`package_authority`**), `vulnerability_advisory_packages` (ecosystem + `normalized_name` + version rule or `fixed_version` + optional `distro_release`), `asset_vulnerabilities` (join `software_inventory_asset_state` ↔ advisory, `status` = `affected` \| `fixed` \| `ignored`), `vulnerability_correlation_runs` (bounded batch telemetry).
 
-**Ingestion:** operators import a **bounded** JSON file via `php scripts/import_advisories.php` (transactional; rejects malformed keys/operators; strips HTML from descriptions; no shell). This is **not** a full distro advisory feed or live CVE mirror.
+### `package_authority` (precedence)
 
-**Matching:** deterministic `dpkg` / `rpm` foundation / `generic` version ordering in `api/lib_version_compare.php`. When **`fixed_version`** is set, a host is **affected** iff installed version is **strictly below** that fix (Debian-style); otherwise operators use `version_operator` (`=`, `<`, `<=`, `>`, `>=`) against `version_value`. **Explainability:** `asset_vulnerabilities.explain_json` holds structured match rationale (no raw feed HTML).
+| Value | Meaning |
+|-------|---------|
+| **`metadata_only`** | CVE metadata carrier (description, CVSS, severity, dates, **`references_json`**). **Does not** participate in package correlation — NVD-only rows **never** prove an installed package is affected, even if stray package rules exist. |
+| **`vendor_distro`** | Distro/vendor advisory truth (Ubuntu/Debian/Red Hat/Alpine importers or merged precedence). Drives **`asset_vulnerabilities`** when rules match. |
+| **`internal`** | Operator `internal` / `sample` imports, or explicit package rules on an NVD key (treated as policy, not distro authority). Drives correlation. |
 
-**Lifecycle:** correlation script `php scripts/run_vulnerability_correlation.php` refreshes matches; rows no longer matching become **`fixed`** with `fixed_detected_at`. **`ignored`** is preserved on upsert. **Retention:** do not bulk-prune active `asset_vulnerabilities`; correlation run history may be trimmed later.
+On upsert, authority and **`source`** merge so **vendor > internal > metadata_only** for the same `advisory_key` (see `api/lib_vulnerability_advisory_import.php`).
 
-**UI/API:** single-asset `GET /api/assets.php?id=` includes bounded **`vulnerability_inventory`** (counts + first page). Additional reads: `GET /api/vulnerabilities.php` (`list_for_asset`, `assets_for_advisory`, `advisory_detail`, `top_packages`). **Health:** `vulnerability_correlation` block (advisory counts, affected rows/assets, queued `worker_jobs` of type `vulnerability_correlation`, stale advisory hint, last run duration).
+### Ingestion (bounded CLIs)
+
+- **`php scripts/import_advisories.php`** — general `advisories[]` JSON (packages optional).
+- **`php scripts/import_nvd_metadata.php`** — `vulnerabilities[]` metadata only → **`metadata_only`**; leaves existing package rules from other feeds intact on merge.
+- **`php scripts/import_distro_advisories.php`** — `distro_source` `ubuntu` \| `debian`; **`distro_release`** required per advisory; emits dpkg **`fixed_version`** rules.
+
+All are transactional, offline, and reject oversized inputs (see script headers).
+
+### Matching and explainability
+
+Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compare.php`. When **`fixed_version`** is set, a host is **affected** iff installed version is **strictly below** that fix (Debian-style); **`distro_release`** must match the inventory row when the rule specifies it. Otherwise operators use `version_operator` (`=`, `<`, `<=`, `>`, `>=`) against `version_value`. **`asset_vulnerabilities.explain_json`** records structured rationale including **`correlation_basis_label`** (“Vendor advisory match”, “Internal advisory match”, or “NVD metadata only” for context fields) and **`correlation_confidence`** (**`high`** for vendor matches, **`medium`** for internal policy matches in the current policy).
+
+**Lifecycle:** `php scripts/run_vulnerability_correlation.php` (batch or `--consume-jobs`) refreshes matches; rows no longer matching become **`fixed`** with `fixed_detected_at`. **`ignored`** is preserved on upsert. **Retention:** do not bulk-prune active `asset_vulnerabilities`; correlation run history may be trimmed later.
+
+**UI/API:** single-asset `GET /api/assets.php?id=` includes bounded **`vulnerability_inventory`** (counts + first page; triage-aware fields include **basis** + **correlation confidence**). Additional reads: `GET /api/vulnerabilities.php` (`list_for_asset`, `assets_for_advisory`, `advisory_detail`, `top_packages`). **Health:** `vulnerability_correlation` block adds per-source advisory counts, **`package_authority`** histogram, vendor vs internal package-rule counts, **`advisory_package_rules_by_ecosystem_release`**, and last-import hints by `source` (see `api/lib_vulnerability_correlation.php` **`st_vuln_correlation_health_snapshot`**).
 
 ### Vulnerability triage, prioritization, and analyst workflow
 
@@ -169,9 +189,10 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 - `daemon/software_inventory_normalize.py`, `daemon/software_inventory_persist.py` — normalized inventory writes from **`daemon/cred_check_run.py`**
 - `daemon/vuln_correlation_jobs.py` — enqueue deduped **`worker_jobs`** (`vulnerability_correlation`) after inventory persist
 - `api/lib_software_inventory.php`, `api/software_inventory.php` — bounded read/search API
-- `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
-- `scripts/import_advisories.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php` — bounded import, offline correlation, diagnostics, selftest
+- `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_advisory_import.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
+- `scripts/import_advisories.php`, `scripts/import_nvd_metadata.php`, `scripts/import_distro_advisories.php`, `scripts/remove_advisory.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php`, `scripts/st_remove_advisory_selftest.php` — bounded import, offline correlation, diagnostics, selftests
 - `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/resync_vulnerability_triage_priority.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), **priority resync** CLI (dry-run default), triage selftest
+- `docs/samples/*.json` — shipped bounded sample payloads for importer validation (mirrors `data/samples/` in git)
 - `scripts/st_recon_trusted_data_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
 - `daemon/st_software_observation_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
 - `scripts/st_software_inventory_summary_selftest.php` — resolver rules for **`software_inventory_summary`** (fresh/partial/stale, CVE disclaimer text)

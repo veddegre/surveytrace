@@ -1,32 +1,28 @@
 <?php
 /**
- * Local advisory JSON import (transactional, bounded, upsert-safe).
+ * Ubuntu/Debian-style bounded advisory import (vendor package rules: fixed_version + distro_release).
  *
- * Usage: php scripts/import_advisories.php /path/to/advisories.json
+ * Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json
  *
  * JSON shape:
  * {
+ *   "distro_source": "ubuntu",
  *   "advisories": [
  *     {
- *       "advisory_key": "CVE-2024-12345",
- *       "source": "nvd",
+ *       "cve_id": "CVE-2024-12345",
+ *       "description": "optional",
  *       "severity": "high",
  *       "cvss_score": 7.5,
- *       "description": "text",
- *       "references": [ {"url": "https://..."} ],
- *       "published_at": "2024-01-01T00:00:00Z",
- *       "modified_at": "2024-01-02T00:00:00Z",
+ *       "published_at": "...",
+ *       "modified_at": "...",
+ *       "distro_release": "jammy",
  *       "withdrawn": false,
  *       "packages": [
  *         {
- *           "ecosystem": "dpkg",
- *           "normalized_name": "openssl",
- *           "version_operator": "<",
- *           "version_value": "3.0.12-1",
- *           "fixed_version": "3.0.12-1",
- *           "distro_release": null,
- *           "architecture": null,
- *           "metadata_json": {}
+ *           "binary_package": "openssl",
+ *           "source_package": "openssl3",
+ *           "fixed_version": "3.0.2-0ubuntu1.15",
+ *           "status": "released"
  *         }
  *       ]
  *     }
@@ -47,7 +43,7 @@ require_once dirname(__DIR__) . '/api/lib_vulnerability_advisory_import.php';
 
 $path = $argv[1] ?? '';
 if ($path === '' || ! is_readable($path)) {
-    fwrite(STDERR, "Usage: php scripts/import_advisories.php /path/to/advisories.json\n");
+    fwrite(STDERR, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json\n");
     exit(1);
 }
 
@@ -61,6 +57,12 @@ if ($raw === false || strlen($raw) > $maxBytes) {
 $data = json_decode($raw, true);
 if (! is_array($data) || ! isset($data['advisories']) || ! is_array($data['advisories'])) {
     fwrite(STDERR, "Invalid JSON: top-level advisories[] required.\n");
+    exit(1);
+}
+
+$ds = isset($data['distro_source']) ? st_vuln_normalize_source((string) $data['distro_source']) : null;
+if ($ds !== 'ubuntu' && $ds !== 'debian') {
+    fwrite(STDERR, "distro_source must be ubuntu or debian.\n");
     exit(1);
 }
 
@@ -81,15 +83,11 @@ if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
     $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
 }
 
-$ok = 0;
-$rej = 0;
-$pkgRows = 0;
-
 $selEx = $pdo->prepare('SELECT id, source, package_authority FROM vulnerability_advisories WHERE advisory_key = ? LIMIT 1');
 
 $upAdv = $pdo->prepare(
     'INSERT INTO vulnerability_advisories (advisory_key, source, severity, cvss_score, description, references_json, package_authority, published_at, modified_at, withdrawn, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'), datetime(\'now\'))
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, datetime(\'now\'), datetime(\'now\'))
      ON CONFLICT(advisory_key) DO UPDATE SET
         source = CASE
             WHEN excluded.source IN (\'ubuntu\',\'debian\',\'redhat\',\'alpine\') THEN excluded.source
@@ -103,10 +101,6 @@ $upAdv = $pdo->prepare(
         description = CASE
             WHEN length(ifnull(excluded.description,\'\')) > length(ifnull(vulnerability_advisories.description,\'\')) THEN excluded.description
             ELSE vulnerability_advisories.description
-        END,
-        references_json = CASE
-            WHEN excluded.references_json IS NOT NULL AND length(trim(excluded.references_json)) > 0 THEN excluded.references_json
-            ELSE vulnerability_advisories.references_json
         END,
         package_authority = CASE
             WHEN excluded.package_authority = \'vendor_distro\' OR ifnull(vulnerability_advisories.package_authority,\'internal\') = \'vendor_distro\' THEN \'vendor_distro\'
@@ -122,8 +116,12 @@ $upAdv = $pdo->prepare(
 $delPkg = $pdo->prepare('DELETE FROM vulnerability_advisory_packages WHERE advisory_id = ?');
 $insPkg = $pdo->prepare(
     'INSERT INTO vulnerability_advisory_packages (advisory_id, ecosystem, normalized_name, version_operator, version_value, distro_release, architecture, fixed_version, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
+     VALUES (?, \'dpkg\', ?, \'=\', \'0\', ?, NULL, ?, ?, datetime(\'now\'))'
 );
+
+$ok = 0;
+$rej = 0;
+$pkgRows = 0;
 
 try {
     $pdo->exec('BEGIN IMMEDIATE');
@@ -132,13 +130,16 @@ try {
             ++$rej;
             continue;
         }
-        $key = isset($rec['advisory_key']) ? trim((string) $rec['advisory_key']) : '';
+        $key = isset($rec['cve_id']) ? trim((string) $rec['cve_id']) : '';
+        if ($key === '' && isset($rec['advisory_key'])) {
+            $key = trim((string) $rec['advisory_key']);
+        }
         if (! st_vuln_validate_advisory_key($key)) {
             ++$rej;
             continue;
         }
-        $src = isset($rec['source']) ? st_vuln_normalize_source((string) $rec['source']) : null;
-        if ($src === null) {
+        $drAdv = isset($rec['distro_release']) ? trim((string) $rec['distro_release']) : '';
+        if ($drAdv === '' || strlen($drAdv) > 120) {
             ++$rej;
             continue;
         }
@@ -165,25 +166,60 @@ try {
         $wd = ! empty($rec['withdrawn']) ? 1 : 0;
 
         $pks = $rec['packages'] ?? [];
-        if (! is_array($pks)) {
-            $pks = [];
+        if (! is_array($pks) || count($pks) === 0) {
+            ++$rej;
+            continue;
         }
         if (count($pks) > 200) {
             ++$rej;
             continue;
         }
-        $incomingPa = st_vuln_incoming_package_authority($src, count($pks));
+        $validRows = [];
+        foreach ($pks as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $bin = strtolower(trim((string) ($p['binary_package'] ?? '')));
+            if ($bin === '') {
+                $bin = strtolower(trim((string) ($p['normalized_name'] ?? '')));
+            }
+            $bin = preg_replace('/[^a-z0-9._+\\-]+/', '', $bin) ?? '';
+            if ($bin === '' || strlen($bin) > 500) {
+                continue;
+            }
+            $fv = isset($p['fixed_version']) ? substr(trim((string) $p['fixed_version']), 0, 500) : '';
+            if ($fv === '') {
+                continue;
+            }
+            $srcPkg = isset($p['source_package']) ? substr(trim((string) $p['source_package']), 0, 500) : '';
+            $stPkg = isset($p['status']) ? substr(trim((string) $p['status']), 0, 120) : '';
+            $meta = [
+                'source_package' => $srcPkg !== '' ? $srcPkg : null,
+                'status' => $stPkg !== '' ? $stPkg : null,
+                'distro_source' => $ds,
+            ];
+            $mj = json_encode($meta, $flags) ?: '{}';
+            if (strlen($mj) > 8000) {
+                $mj = substr($mj, 0, 8000);
+            }
+            $validRows[] = ['bin' => $bin, 'fv' => $fv, 'mj' => $mj];
+        }
+        if ($validRows === []) {
+            ++$rej;
+            continue;
+        }
+
+        $incomingPa = st_vuln_incoming_package_authority($ds, count($validRows));
         $selEx->execute([$key]);
         $exRow = $selEx->fetch(PDO::FETCH_ASSOC);
         $mergedPa = is_array($exRow)
             ? st_vuln_package_authority_merge((string) ($exRow['package_authority'] ?? 'internal'), $incomingPa)
             : $incomingPa;
         $mergedSrc = is_array($exRow)
-            ? st_vuln_advisory_source_prefer((string) ($exRow['source'] ?? ''), $src)
-            : $src;
-        $refsJson = st_vuln_encode_references_json($rec['references'] ?? null);
+            ? st_vuln_advisory_source_prefer((string) ($exRow['source'] ?? ''), $ds)
+            : $ds;
 
-        $upAdv->execute([$key, $mergedSrc, $sev, $cvss, $desc, $refsJson, $mergedPa, $pub, $mod, $wd]);
+        $upAdv->execute([$key, $mergedSrc, $sev, $cvss, $desc, $mergedPa, $pub, $mod, $wd]);
         $idSt = $pdo->prepare('SELECT id FROM vulnerability_advisories WHERE advisory_key = ? LIMIT 1');
         $idSt->execute([$key]);
         $aid = (int) $idSt->fetchColumn();
@@ -193,39 +229,8 @@ try {
         }
 
         $delPkg->execute([$aid]);
-        foreach ($pks as $p) {
-            if (! is_array($p)) {
-                continue;
-            }
-            $eco = strtolower(trim((string) ($p['ecosystem'] ?? '')));
-            if (! in_array($eco, ['dpkg', 'rpm', 'generic'], true)) {
-                continue;
-            }
-            $nn = strtolower(trim((string) ($p['normalized_name'] ?? '')));
-            $nn = preg_replace('/[^a-z0-9._+\\-]+/', '', $nn) ?? '';
-            if ($nn === '' || strlen($nn) > 500) {
-                continue;
-            }
-            $op = st_vuln_normalize_operator((string) ($p['version_operator'] ?? ''));
-            if ($op === null) {
-                continue;
-            }
-            $vv = substr(trim((string) ($p['version_value'] ?? '')), 0, 500);
-            if ($vv === '') {
-                continue;
-            }
-            $fv = isset($p['fixed_version']) ? substr(trim((string) $p['fixed_version']), 0, 500) : '';
-            $fv = $fv === '' ? null : $fv;
-            $dr = isset($p['distro_release']) ? substr(trim((string) $p['distro_release']), 0, 120) : null;
-            $dr = $dr === '' ? null : $dr;
-            $ar = isset($p['architecture']) ? substr(trim((string) $p['architecture']), 0, 64) : null;
-            $ar = $ar === '' ? null : $ar;
-            $meta = $p['metadata_json'] ?? [];
-            $mj = is_array($meta) ? (json_encode($meta, $flags) ?: null) : null;
-            if ($mj !== null && strlen($mj) > 8000) {
-                $mj = substr($mj, 0, 8000);
-            }
-            $insPkg->execute([$aid, $eco, $nn, $op, $vv, $dr, $ar, $fv, $mj]);
+        foreach ($validRows as $vr) {
+            $insPkg->execute([$aid, $vr['bin'], $drAdv, $vr['fv'], $vr['mj']]);
             ++$pkgRows;
         }
         ++$ok;

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Vulnerability advisory / correlation (operator-facing)
+
+- **Authority model** — Each `vulnerability_advisories` row has **`package_authority`**: **`metadata_only`** (NVD-style CVE metadata + optional `references_json`), **`vendor_distro`** (distro fixed-version truth), or **`internal`** (operator/sample rules). **Only `vendor_distro` and `internal` participate in inventory correlation**; **NVD-only metadata never creates affected assets by itself**, even if stray package rows exist.
+- **Importers (offline, bounded)** — `import_advisories.php` (general), `import_nvd_metadata.php` (CVE metadata only), `import_distro_advisories.php` (Ubuntu/Debian `fixed_version` + `distro_release`). Shared merge helpers in `api/lib_vulnerability_advisory_import.php`.
+- **Removal** — `remove_advisory.php`: **dry-run by default**, **`--apply`** to delete; **`--source=`** guard; **`--force`** required for vendor/distro rows; cascades triage/notes/activity for removed asset-vulnerability rows — **test/internal cleanup only**. **`st_remove_advisory_selftest.php`** locks the policy matrix.
+- **Docs / samples** — `docs/wiki/security_model.md`, `TRUSTED_DATA_MODEL.md`, `CREDENTIALED_CHECKS_ENGINE.md`, release checklist, and **`docs/wiki/vulnerability-advisory-runbook.md`** aligned; **`docs/samples/*.json`** ship with `docs/` for validation on installs (git `data/samples/` remains for checkouts; `setup.sh` excludes copying `data/`).
+
 ## 1.0.4 (2026-05-07)
 
 SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (slices 1–4)** on the trusted-data model: bounded **`software_observed`** rows from credentialed SSH package inventory, a single lazy **`software_inventory_summary`** assertion per asset, Host modal **software evidence** (bounded preview only), and **System Health / `trusted_data`** readiness counters for operators.

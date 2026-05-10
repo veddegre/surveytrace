@@ -1,0 +1,16 @@
+{
+  "vulnerabilities": [
+    {
+      "cve_id": "CVE-2025-90001",
+      "severity": "high",
+      "cvss_score": 7.5,
+      "description": "Sample NVD metadata row (no distro package authority).",
+      "published_at": "2025-01-10T00:00:00Z",
+      "modified_at": "2025-01-11T00:00:00Z",
+      "references": [
+        {"url": "https://nvd.nist.gov/vuln/detail/CVE-2025-90001"}
+      ],
+      "withdrawn": false
+    }
+  ]
+}

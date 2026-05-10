@@ -581,6 +581,10 @@ CREATE TABLE IF NOT EXISTS vulnerability_advisories (
         -- critical | high | medium | low | info | unknown
     cvss_score     REAL,
     description    TEXT,
+    references_json TEXT,
+        -- JSON array of reference objects (NVD-style); bounded at import
+    package_authority TEXT NOT NULL DEFAULT 'internal',
+        -- vendor_distro | internal | metadata_only — correlation uses vendor+internal only
     published_at   DATETIME,
     modified_at    DATETIME,
     withdrawn      INTEGER NOT NULL DEFAULT 0,

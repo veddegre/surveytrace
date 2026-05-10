@@ -8106,10 +8106,18 @@ function stHostSoftwareInventoryHtml(assetData) {
     const vinTable =
         vin && vin.tables_ready === true && vinRows.length
             ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory advisory correlation (local rules)</h4>
-        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Triage</th><th>Priority</th><th>Model score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
+        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Basis</th><th>Correlation confidence</th><th>Triage</th><th>Priority</th><th>Model score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
                   .map((r) => {
                       const k = r.advisory_key != null ? esc(String(r.advisory_key)) : '\u2014';
                       const sev = r.advisory_severity != null ? esc(String(r.advisory_severity)) : r.severity != null ? esc(String(r.severity)) : '\u2014';
+                      const basis =
+                          r.correlation_basis_label != null && String(r.correlation_basis_label).trim()
+                              ? esc(String(r.correlation_basis_label))
+                              : '\u2014';
+                      const cconf =
+                          r.correlation_confidence != null && String(r.correlation_confidence).trim()
+                              ? esc(String(r.correlation_confidence))
+                              : '\u2014';
                       const tr = r.triage_state != null && String(r.triage_state).trim() ? esc(String(r.triage_state)) : '<span class="text-dim">new</span>';
                       const triPri =
                           r.triage_priority != null && String(r.triage_priority).trim()
@@ -8138,10 +8146,10 @@ function stHostSoftwareInventoryHtml(assetData) {
                               sup += ` <span class="text-dim">(\u2264${esc(String(r.suppression_expires_at))})</span>`;
                           }
                       }
-                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${triPri}</span> ${ovBadge}${resetBtn}</td><td class="mono-sm">${modSc} <span class="text-dim text-micro">${modPri}</span></td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
+                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td class="text-micro">${basis}</td><td class="text-micro">${cconf}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${triPri}</span> ${ovBadge}${resetBtn}</td><td class="mono-sm">${modSc} <span class="text-dim text-micro">${modPri}</span></td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
                   })
                   .join('')}</tbody></table>
-        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; triage/score are operational hints only (not KEV/exposure). Use triage API for state changes (editor role).</p></div>`
+        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; triage/score are operational hints only (not KEV/exposure). Correlation uses vendor or internal package rules; NVD metadata alone does not prove an installed package is affected. Use triage API for state changes (editor role).</p></div>`
             : vin && vin.tables_ready === true && vinTot > 0
               ? `<p class="text-micro text-dim mt8">This host has <span class="mono-sm">${esc(String(vinTot))}</span> correlated advisory row(s); reload asset detail for the first page of rows.</p>`
               : '';
