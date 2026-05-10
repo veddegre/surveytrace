@@ -951,6 +951,8 @@ check_file "$INSTALL_DIR/public/index.php" "public/index.php exists"
 check_file "$INSTALL_DIR/public/css/app.css" "public/css/app.css exists"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/public/index.php" "www-data readable: public/index.php"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/health.php" "www-data readable: api/health.php"
+check_file "$INSTALL_DIR/api/lib_scheduler_health.php" "api/lib_scheduler_health.php exists"
+check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_scheduler_health.php" "www-data readable: lib_scheduler_health.php"
 
 check_file "$INSTALL_DIR/api/lib_reconciliation.php" "api/lib_reconciliation.php exists"
 check_file "$INSTALL_DIR/api/lib_worker_jobs.php" "api/lib_worker_jobs.php exists"
@@ -1116,6 +1118,11 @@ if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/collec
     check_ok "collector ingest runtime DB-open check"
 else
     check_fail "collector ingest runtime DB-open check"
+fi
+if runuser -u "$APP_USER" -- "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/scheduler_daemon.py" --check-db-open >/dev/null 2>&1; then
+    check_ok "scheduler runtime DB-open check"
+else
+    check_fail "scheduler runtime DB-open check"
 fi
 
 if command -v zabbix_sender >/dev/null 2>&1; then

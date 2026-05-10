@@ -8,11 +8,12 @@ ConditionPathExists=/opt/surveytrace/data/surveytrace.db
 Type=simple
 User=surveytrace
 Group=surveytrace
+SupplementaryGroups=www-data
 WorkingDirectory=/opt/surveytrace/daemon
 Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
 EnvironmentFile=-/etc/surveytrace/surveytrace.env
 ExecStart=/opt/surveytrace/venv/bin/python3 scheduler_daemon.py
-Restart=always
+Restart=on-failure
 RestartSec=10
 # SQLite + subprocesses; default 1024 is easy to exhaust on long-lived schedulers.
 LimitNOFILE=65536
@@ -20,10 +21,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=surveytrace-scheduler
 
-# Same DB as scanner; only needs SQLite access under data/
+# Same DB as scanner + WAL sidecars under data/; www-data shares group on SQLite files.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ProtectHome=yes
 ReadWritePaths=/opt/surveytrace/data
 
 [Install]

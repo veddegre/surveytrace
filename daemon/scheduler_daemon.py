@@ -20,10 +20,12 @@ Features:
 
 from __future__ import annotations
 
+import argparse
 import json
 import ipaddress
 import logging
 import os
+import resource
 import shutil
 import sqlite3
 import subprocess
@@ -36,18 +38,18 @@ except ImportError:
 from pathlib import Path
 
 from sqlite_pragmas import apply_surveytrace_pragmas
-from surveytrace_paths import install_root, main_db_path
+from surveytrace_paths import data_dir, install_root, main_db_path
 
 
-def process_credential_job_schedules() -> None:
+def process_credential_job_schedules() -> bool:
     """Enqueue credentialed-check runs for due credential_check_jobs (PHP tick, bounded)."""
     script = install_root() / "scripts" / "credential_schedule_tick.php"
     if not script.is_file():
-        return
+        return True
     php = shutil.which("php") or shutil.which("php8") or shutil.which("php82") or shutil.which("php81")
     if not php:
         log.warning("credential_schedule_tick: no php binary in PATH")
-        return
+        return False
     try:
         proc = subprocess.run(
             [php, str(script), "--once"],
@@ -63,8 +65,11 @@ def process_credential_job_schedules() -> None:
                 proc.returncode,
                 (proc.stderr or "")[:500],
             )
+            return False
+        return True
     except Exception as e:
         log.warning("credential_schedule_tick: %s", e)
+        return False
 
 log = logging.getLogger("scheduler")
 logging.basicConfig(
@@ -76,6 +81,10 @@ DB_PATH   = main_db_path()
 BACKUP_SCRIPT = Path(__file__).parent / "backup_db.sh"
 BACKUP_DIR_DEFAULT = DB_PATH.parent / "backups"
 POLL_SECS = 30   # check every 30 seconds
+
+STATUS_PATH = data_dir() / "scheduler_status.json"
+_DB_OPEN_FAIL_MAX_CONSECUTIVE = 10
+_DB_OPEN_FAIL_MAX_SECONDS = 120
 
 # Zabbix connector SQLite table (single source of truth for scheduler SQL — must be zabbix_connector).
 ZABBIX_CONNECTOR_TABLE = "zabbix_connector"
@@ -105,48 +114,188 @@ def _clear_stale_scheduler_txn(conn: sqlite3.Connection, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Database helpers
+# Database helpers + SQLite open diagnostics (parity with collector_ingest_worker)
 # ---------------------------------------------------------------------------
+def _iso_utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _uid_gid_names() -> tuple[str, str]:
+    try:
+        import grp
+        import pwd
+
+        u = pwd.getpwuid(os.getuid()).pw_name
+        g = grp.getgrgid(os.getgid()).gr_name
+        return u, g
+    except Exception:
+        return str(os.getuid()), str(os.getgid())
+
+
+def _safe_stat_meta(p: Path) -> dict:
+    try:
+        st = p.stat()
+        return {
+            "exists": True,
+            "mode": oct(st.st_mode),
+            "uid": int(st.st_uid),
+            "gid": int(st.st_gid),
+            "readable": os.access(p, os.R_OK),
+            "writable": os.access(p, os.W_OK),
+        }
+    except OSError:
+        return {"exists": False, "mode": None, "uid": None, "gid": None, "readable": False, "writable": False}
+
+
+def _scheduler_status_write(status: dict) -> None:
+    """Atomic JSON write under data/ — must never require DB access."""
+    try:
+        STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATUS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(status, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+        tmp.replace(STATUS_PATH)
+    except Exception:
+        pass
+
+
+def _scheduler_status_read_previous() -> dict:
+    try:
+        if STATUS_PATH.is_file():
+            parsed = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+            return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _is_scheduler_db_open_terminal_failure(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "unable to open" in msg or "disk i/o" in msg
+
+
+def _log_db_open_diagnostics(exc: BaseException | None = None) -> None:
+    try:
+        dbp = Path(DB_PATH).resolve()
+    except Exception:
+        dbp = Path(DB_PATH)
+    parent = dbp.parent
+    uname, gname = _uid_gid_names()
+    parent_exists = parent.exists()
+    parent_is_dir = parent.is_dir() if parent_exists else False
+    parent_rw = os.access(str(parent), os.W_OK) if parent_exists and parent_is_dir else False
+    parent_r = os.access(str(parent), os.R_OK) if parent_exists and parent_is_dir else False
+    db_exists = dbp.is_file()
+    db_rw = os.access(str(dbp), os.R_OK | os.W_OK) if db_exists else False
+    db_r = os.access(str(dbp), os.R_OK) if db_exists else False
+    wal_meta = _safe_stat_meta(Path(str(dbp) + "-wal"))
+    shm_meta = _safe_stat_meta(Path(str(dbp) + "-shm"))
+    try:
+        sup_groups = sorted(int(g) for g in os.getgroups())
+    except OSError:
+        sup_groups = []
+    try:
+        nofile_soft, nofile_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except OSError:
+        nofile_soft, nofile_hard = (-1, -1)
+    try:
+        pmode = oct(parent.stat().st_mode) if parent_exists else "n/a"
+    except OSError:
+        pmode = "?"
+    try:
+        fmode = oct(dbp.stat().st_mode) if db_exists else "n/a"
+    except OSError:
+        fmode = "?"
+    err = repr(exc) if exc is not None else ""
+    log.error(
+        "SQLite open failed | resolved_db_path=%s | install_root=%s | cwd=%s | euid=%s egid=%s (%s:%s) | "
+        "parent=%s exists=%s is_dir=%s mode=%s readable=%s writable=%s | "
+        "db_file_exists=%s mode=%s db_readable=%s db_writable=%s | "
+        "wal=%s shm=%s | supplementary_groups=%s | nofile_soft=%s nofile_hard=%s | "
+        "env_INSTALL_DIR=%r env_DB_PATH=%r | err=%s",
+        dbp,
+        install_root().resolve(),
+        os.getcwd(),
+        os.geteuid(),
+        os.getegid(),
+        uname,
+        gname,
+        parent,
+        parent_exists,
+        parent_is_dir,
+        pmode,
+        parent_r,
+        parent_rw,
+        db_exists,
+        fmode,
+        db_r,
+        db_rw,
+        wal_meta,
+        shm_meta,
+        sup_groups,
+        nofile_soft,
+        nofile_hard,
+        os.environ.get("SURVEYTRACE_INSTALL_DIR"),
+        os.environ.get("SURVEYTRACE_DB_PATH"),
+        err,
+    )
+
+
+def _preflight_sqlite() -> bool:
+    try:
+        dbp = Path(DB_PATH).resolve()
+    except Exception:
+        dbp = Path(DB_PATH)
+    parent = dbp.parent
+    if not parent.is_dir():
+        log.error("preflight: data directory missing or not a directory: %s", parent)
+        return False
+    if not os.access(str(parent), os.W_OK | os.R_OK):
+        log.error("preflight: data directory not readable/writable for this process: %s", parent)
+        _log_db_open_diagnostics()
+        return False
+    try:
+        c = sqlite3.connect(str(dbp), timeout=10)
+        c.execute("SELECT 1")
+        c.close()
+    except sqlite3.OperationalError as e:
+        log.error("preflight: SQLite connect failed: %s", e)
+        _log_db_open_diagnostics(e)
+        return False
+    return True
+
+
 def db_conn() -> sqlite3.Connection:
     p = Path(DB_PATH).resolve()
     try:
         conn = sqlite3.connect(str(p), timeout=60)
     except sqlite3.OperationalError as e:
-        parent = p.parent
-        parent_dir = parent.is_dir()
-        parent_w = os.access(str(parent), os.W_OK) if parent_dir else False
-        exists = p.is_file()
-        file_rw = os.access(str(p), os.R_OK | os.W_OK) if exists else False
-        try:
-            n_open = len(os.listdir("/proc/self/fd"))
-        except OSError:
-            n_open = -1
-        log.error(
-            "sqlite connect failed: path=%s exists=%s file_rw=%s parent_dir=%s parent_w=%s open_fds=%s err=%s",
-            p,
-            exists,
-            file_rw,
-            parent_dir,
-            parent_w,
-            n_open,
-            e,
-        )
+        _log_db_open_diagnostics(e)
         raise
     conn.row_factory = sqlite3.Row
     apply_surveytrace_pragmas(conn)
     return conn
 
 
-# After this many consecutive hard SQLite open failures, exit non-zero so
-# systemd Restart= can replace the process (mitigates FD exhaustion / stuck state).
-DB_HARD_OPEN_FAIL_MAX_STREAK = 10
-
-
-def _is_hard_sqlite_open_failure(exc: BaseException) -> bool:
-    if not isinstance(exc, sqlite3.OperationalError):
+def _run_db_open_check() -> bool:
+    """CLI --check-db-open: open DB and read sqlite_master (no writes)."""
+    if not _preflight_sqlite():
         return False
-    msg = str(exc).lower()
-    return "unable to open" in msg or "disk i/o" in msg
+    try:
+        dbp = Path(DB_PATH).resolve()
+    except Exception:
+        dbp = Path(DB_PATH)
+    try:
+        c = sqlite3.connect(str(dbp), timeout=30)
+        try:
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+        finally:
+            c.close()
+    except sqlite3.OperationalError as e:
+        _log_db_open_diagnostics(e)
+        return False
+    return True
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -1224,6 +1373,18 @@ def process_due_schedule(conn: sqlite3.Connection, row: sqlite3.Row, now: dateti
         return
 
     # run_once — single job, align to next cron boundary after now
+    try:
+        nr0 = _parse_utc_naive(str(s.get("next_run") or ""))
+        overdue_sec = max(0, int((now - nr0).total_seconds()))
+    except Exception:
+        overdue_sec = 0
+    if overdue_sec > 300:
+        log.info(
+            "Schedule '%s' (id=%d) was overdue by ~%d min; run_once catch-up (single job, no backlog storm)",
+            s["name"],
+            s["id"],
+            overdue_sec // 60,
+        )
     job_id = enqueue_job(conn, s)
     conn.execute(
         """
@@ -1270,26 +1431,92 @@ def seed_missing_next_runs(conn: sqlite3.Connection, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 # Main scheduler loop
 # ---------------------------------------------------------------------------
+def _parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="SurveyTrace scheduler daemon")
+    ap.add_argument(
+        "--check-db-open",
+        action="store_true",
+        help="Verify data dir + SQLite open + sqlite_master read then exit 0/1 (no scheduler loop)",
+    )
+    return ap.parse_args()
+
+
 def main() -> None:
+    args = _parse_cli_args()
+    prev = _scheduler_status_read_previous()
+    st: dict = {
+        "pid": os.getpid(),
+        "last_start_utc": _iso_utc_now(),
+        "last_loop_success_utc": str(prev.get("last_loop_success_utc") or ""),
+        "last_db_open_success_utc": str(prev.get("last_db_open_success_utc") or ""),
+        "last_schedule_scan_attempt_utc": str(prev.get("last_schedule_scan_attempt_utc") or ""),
+        "last_credential_schedule_tick_utc": str(prev.get("last_credential_schedule_tick_utc") or ""),
+        "db_open_consecutive_failures": 0,
+        "db_open_first_failure_utc": "",
+        "last_db_open_error": "",
+        "updated_at": _iso_utc_now(),
+    }
+    _scheduler_status_write(st)
+
+    if args.check_db_open:
+        ok = _run_db_open_check()
+        st["updated_at"] = _iso_utc_now()
+        if ok:
+            st["last_db_open_success_utc"] = st["updated_at"]
+            st["last_db_open_error"] = ""
+            st["db_open_consecutive_failures"] = 0
+            st["db_open_first_failure_utc"] = ""
+            _scheduler_status_write(st)
+            log.info("scheduler DB open check: OK")
+            raise SystemExit(0)
+        st["last_db_open_error"] = "check_db_open_failed"
+        st["db_open_consecutive_failures"] = 1
+        st["db_open_first_failure_utc"] = st["updated_at"]
+        _scheduler_status_write(st)
+        log.error("scheduler DB open check: FAILED")
+        raise SystemExit(1)
+
     log.info("SurveyTrace scheduler daemon starting (db: %s)", DB_PATH)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ensure schema exists
-    with db_conn() as conn:
-        ensure_schema(conn)
+    while not _preflight_sqlite():
+        log.error(
+            "scheduler preflight failed; fix permissions or SURVEYTRACE_INSTALL_DIR/SURVEYTRACE_DB_PATH; retry in 30s"
+        )
+        st["last_db_open_error"] = "preflight_failed"
+        st["updated_at"] = _iso_utc_now()
+        _scheduler_status_write(st)
+        time.sleep(30)
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        seed_missing_next_runs(conn, now)
+    try:
+        with db_conn() as conn:
+            ensure_schema(conn)
+            now0 = datetime.now(timezone.utc).replace(tzinfo=None)
+            seed_missing_next_runs(conn, now0)
+    except Exception as e:
+        log.error("scheduler bootstrap failed: %s", e)
+        st["last_db_open_error"] = str(e)[:500]
+        st["updated_at"] = _iso_utc_now()
+        _scheduler_status_write(st)
+        raise SystemExit(2) from e
+
+    st["last_db_open_success_utc"] = _iso_utc_now()
+    st["last_db_open_error"] = ""
+    st["db_open_consecutive_failures"] = 0
+    st["db_open_first_failure_utc"] = ""
+    st["updated_at"] = _iso_utc_now()
+    _scheduler_status_write(st)
 
     log.info("Scheduler ready — polling every %ds", POLL_SECS)
 
-    hard_db_fail_streak = 0
+    db_open_fail_consecutive = 0
+    db_open_fail_window_started_monotonic = 0.0
+    non_db_error_count = 0
+
     while True:
         try:
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-
-            process_credential_job_schedules()
 
             with db_conn() as conn:
                 purge_expired_trashed_scans(conn)
@@ -1303,50 +1530,100 @@ def main() -> None:
                 if conn.in_transaction:
                     conn.commit()
                 seed_missing_next_runs(conn, now)
-                # Find all enabled schedules due to run
-                due = conn.execute("""
+                due = conn.execute(
+                    """
                     SELECT * FROM scan_schedules
                     WHERE enabled = 1
                       AND COALESCE(paused, 0) = 0
                       AND next_run IS NOT NULL
                       AND next_run <= ?
                     ORDER BY next_run ASC
-                """, (now_str,)).fetchall()
+                    """,
+                    (now_str,),
+                ).fetchall()
 
                 for schedule in due:
                     s = dict(schedule)
-                    log.info("Schedule '%s' (id=%d) is due — policy=%s",
-                             s["name"], s["id"],
-                             (s.get("missed_run_policy") or "run_once"))
+                    log.info(
+                        "Schedule '%s' (id=%d) is due — policy=%s",
+                        s["name"],
+                        s["id"],
+                        (s.get("missed_run_policy") or "run_once"),
+                    )
 
                     try:
                         process_due_schedule(conn, schedule, now)
                     except Exception as e:
-                        log.error("Failed to enqueue job for schedule '%s': %s",
-                                  s["name"], e)
+                        log.error("Failed to enqueue job for schedule '%s': %s", s["name"], e)
 
-            hard_db_fail_streak = 0
+            ts_ok = _iso_utc_now()
+            st["last_db_open_success_utc"] = ts_ok
+            st["last_loop_success_utc"] = ts_ok
+            st["last_schedule_scan_attempt_utc"] = ts_ok
+            st["last_db_open_error"] = ""
+            st["db_open_consecutive_failures"] = 0
+            st["db_open_first_failure_utc"] = ""
+            st["updated_at"] = ts_ok
+            db_open_fail_consecutive = 0
+            db_open_fail_window_started_monotonic = 0.0
+            non_db_error_count = 0
+            _scheduler_status_write(st)
+
+            if process_credential_job_schedules():
+                st["last_credential_schedule_tick_utc"] = _iso_utc_now()
+                st["updated_at"] = st["last_credential_schedule_tick_utc"]
+                _scheduler_status_write(st)
 
         except sqlite3.OperationalError as e:
-            if _is_hard_sqlite_open_failure(e):
-                hard_db_fail_streak += 1
-                log.error(
-                    "Scheduler hard DB open failure streak %s/%s: %s",
-                    hard_db_fail_streak,
-                    DB_HARD_OPEN_FAIL_MAX_STREAK,
-                    e,
+            if _is_scheduler_db_open_terminal_failure(e):
+                db_open_fail_consecutive += 1
+                if db_open_fail_window_started_monotonic <= 0.0:
+                    db_open_fail_window_started_monotonic = time.monotonic()
+                    st["db_open_first_failure_utc"] = _iso_utc_now()
+                elapsed_unavailable = max(0.0, time.monotonic() - db_open_fail_window_started_monotonic)
+                st["last_db_open_error"] = str(e)[:500]
+                st["db_open_consecutive_failures"] = db_open_fail_consecutive
+                st["updated_at"] = _iso_utc_now()
+                _scheduler_status_write(st)
+                should_exit = db_open_fail_consecutive >= _DB_OPEN_FAIL_MAX_CONSECUTIVE or elapsed_unavailable >= float(
+                    _DB_OPEN_FAIL_MAX_SECONDS
                 )
-                if hard_db_fail_streak >= DB_HARD_OPEN_FAIL_MAX_STREAK:
-                    log.critical(
-                        "Exiting after %s consecutive hard SQLite open errors so systemd can restart "
-                        "(see LimitNOFILE / open_fds in prior error logs).",
-                        hard_db_fail_streak,
+                if should_exit:
+                    msg = (
+                        f"SQLite DB unavailable after {db_open_fail_consecutive} attempts / "
+                        f"{int(elapsed_unavailable)} seconds; exiting for systemd restart"
                     )
-                    raise SystemExit(1) from e
-            log.warning("Scheduler sqlite operational error: %s", e)
+                    log.error(msg)
+                    st["last_db_open_error"] = msg
+                    st["updated_at"] = _iso_utc_now()
+                    _scheduler_status_write(st)
+                    raise SystemExit(2)
+                if db_open_fail_consecutive <= 3:
+                    _log_db_open_diagnostics(e)
+                    log.error(
+                        "Scheduler DB unavailable; retrying (%s/%s, elapsed=%ss/%ss): %s",
+                        db_open_fail_consecutive,
+                        _DB_OPEN_FAIL_MAX_CONSECUTIVE,
+                        int(elapsed_unavailable),
+                        _DB_OPEN_FAIL_MAX_SECONDS,
+                        e,
+                    )
+                elif db_open_fail_consecutive % 5 == 0:
+                    log.warning(
+                        "Scheduler DB unavailable; retrying (%s/%s, elapsed=%ss/%ss)",
+                        db_open_fail_consecutive,
+                        _DB_OPEN_FAIL_MAX_CONSECUTIVE,
+                        int(elapsed_unavailable),
+                        _DB_OPEN_FAIL_MAX_SECONDS,
+                    )
+            else:
+                log.warning("Scheduler sqlite operational error: %s", e)
         except Exception as e:
-            hard_db_fail_streak = 0
-            log.exception("Scheduler loop error: %s", e)
+            non_db_error_count += 1
+            if non_db_error_count <= 3:
+                log.exception("Scheduler loop error: %s", e)
+            else:
+                log.error("Scheduler loop error (suppressing traceback after %s repeats): %s", non_db_error_count, e)
 
         time.sleep(POLL_SECS)
 

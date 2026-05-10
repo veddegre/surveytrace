@@ -728,6 +728,7 @@ check_file "$DEST/api/lib_reconciliation.php" "lib_reconciliation.php (trusted d
 check_file "$DEST/api/lib_worker_jobs.php" "lib_worker_jobs.php (worker execution substrate)"
 check_file "$DEST/api/recon_diagnostics.php" "recon_diagnostics.php"
 check_file "$DEST/api/health.php" "health API"
+check_file "$DEST/api/lib_scheduler_health.php" "lib_scheduler_health (scheduler runtime health)"
 check_file "$DEST/api/feeds.php" "feeds API"
 check_file "$DEST/api/feed_sync_lib.php" "feed_sync_lib"
 check_file "$DEST/api/lib_collectors.php" "lib_collectors"
@@ -873,6 +874,12 @@ if sudo -u surveytrace "$DEST/venv/bin/python3" "$DEST/daemon/collector_ingest_w
   echo "  [OK] collector ingest runtime DB-open check"
 else
   echo "  [FAIL] collector ingest runtime DB-open check"
+  VERIFY_OK=0
+fi
+if sudo -u surveytrace "$DEST/venv/bin/python3" "$DEST/daemon/scheduler_daemon.py" --check-db-open >/dev/null 2>&1; then
+  echo "  [OK] scheduler runtime DB-open check"
+else
+  echo "  [FAIL] scheduler runtime DB-open check"
   VERIFY_OK=0
 fi
 SUDO_HELPER_DROPIN="/etc/sudoers.d/surveytrace-credential-secret-helper"

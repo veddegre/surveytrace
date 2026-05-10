@@ -9,6 +9,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/feed_sync_lib.php';
+require_once __DIR__ . '/lib_scheduler_health.php';
 
 st_auth();
 if (st_config('security_health_requires_scan_editor', '0') === '1') {
@@ -599,6 +600,7 @@ $health = [
         'collector_ingest' => st_health_systemd_unit('surveytrace-collector-ingest'),
     ],
     'collector_ingest_runtime' => [],
+    'scheduler_runtime' => [],
     'collectors' => [
         'total' => 0,
         'online_recent_2m' => 0,
@@ -771,6 +773,19 @@ try {
     }
 } catch (Throwable $e) {
     // leave defaults
+}
+
+$health['scheduler_runtime'] = st_health_scheduler_runtime($dataDir);
+foreach (st_health_scheduler_schedule_tick_warnings($health['schedules'], $health['scheduler_runtime']) as $_st_sch_warn) {
+    $health['scheduler_runtime']['warnings'][] = $_st_sch_warn;
+}
+if (
+    $health['services']['scheduler']['state'] === 'active'
+    && is_array($health['scheduler_runtime'])
+    && !empty($health['scheduler_runtime']['warnings'])
+) {
+    $health['services']['scheduler']['state'] = 'degraded';
+    $health['services']['scheduler']['detail'] = 'Running with runtime warnings (see scheduler_runtime).';
 }
 
 $aiProvHealth = (string)$health['ai']['provider'];
