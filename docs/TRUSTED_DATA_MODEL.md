@@ -151,9 +151,11 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 **Correlation interaction:** Re-correlation **preserves** triage, notes, and activity history; new matches **ensure** a triage row via `INSERT OR IGNORE`. Marking **`fixed`** logs **`correlation_mark_fixed`** and caps operational priority in the model.
 
+**Stored vs computed priority:** `asset_vulnerability_triage.priority` is kept aligned with `st_vt_compute_priority_for_row()` via **`st_vt_resync_priority_column()`** (bounded batch or single `asset_vulnerability_id`; optional dry-run via the fourth `apply` argument). Resync runs after correlation upserts, after suppression expiry sweep entries, after suppress/unsuppress, and after **`update_state`** when the client did **not** send an explicit `priority` override (operator-provided priority is left as-is until the next correlation or a manual **`scripts/resync_vulnerability_triage_priority.php --apply`** pass).
+
 **API:** `GET/POST /api/vulnerability_triage.php` — allowlisted actions, bounded pagination, CSRF on mutations, **`scan_editor`/`admin`** for writes. **Views** (`list_view`): top vulnerable assets, highest triage priority, aging, suppressed, by severity, by ecosystem — all **capped** row limits.
 
-**Ops:** `php scripts/diagnose_vulnerability_triage.php` (read-only JSON bundle). **`scripts/st_vulnerability_triage_selftest.php`** exercises transitions, suppression expiry, notes, activity, and correlation coexistence.
+**Ops:** `php scripts/diagnose_vulnerability_triage.php` (read-only JSON bundle; includes **`triage_priority_mismatch_count`** / **`oldest_priority_mismatch_at`** over a bounded scan). **`scripts/resync_vulnerability_triage_priority.php`** — dry-run by default, **`--apply`** to write; **`--limit`**, **`--asset-vulnerability-id`**, optional **`--db=`**. **`scripts/st_vulnerability_triage_selftest.php`** exercises transitions, suppression expiry, notes, activity, correlation coexistence, and priority resync.
 
 **Post-inventory:** after successful normalized package persist, the cred worker **best-effort enqueues** one `vulnerability_correlation` job per asset (deduped); heavy work stays in offline scripts/cron — **not** inline in the scan path.
 
@@ -169,7 +171,7 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 - `api/lib_software_inventory.php`, `api/software_inventory.php` — bounded read/search API
 - `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
 - `scripts/import_advisories.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php` — bounded import, offline correlation, diagnostics, selftest
-- `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), triage selftest
+- `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/resync_vulnerability_triage_priority.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), **priority resync** CLI (dry-run default), triage selftest
 - `scripts/st_recon_trusted_data_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
 - `daemon/st_software_observation_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
 - `scripts/st_software_inventory_summary_selftest.php` — resolver rules for **`software_inventory_summary`** (fresh/partial/stale, CVE disclaimer text)

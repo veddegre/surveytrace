@@ -53,6 +53,7 @@ Use this checklist before tagging a **maintenance / stabilization** release. It 
 | Vulnerabilities | Filters, triage columns, host link. |
 | Findings actions | Resolve / accept risk (role-gated); audit expectation understood. |
 | Exports | CSV/JSON; **trusted columns** present when recon tables exist; raw columns preserved. |
+| Vulnerability triage (when migrated) | **`php scripts/st_vulnerability_triage_selftest.php`** passes. Optional ops: **`php scripts/resync_vulnerability_triage_priority.php --dry-run`** (or **`--apply`** after review) aligns stored **`asset_vulnerability_triage.priority`** with the computed model; **`php scripts/diagnose_vulnerability_triage.php`** reports mismatch hints over a bounded scan. |
 
 ---
 

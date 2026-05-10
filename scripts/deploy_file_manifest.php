@@ -193,6 +193,7 @@ return [
         'st_vulnerability_correlation_selftest.php',
         'diagnose_vulnerability_triage.php',
         'prune_vulnerability_activity.php',
+        'resync_vulnerability_triage_priority.php',
         'st_vulnerability_triage_selftest.php',
         'st_recon_trusted_data_selftest.php',
         'st_cc_normalized_preview_selftest.php',
