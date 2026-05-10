@@ -411,6 +411,7 @@ function st_db(): PDO {
     st_migrate_cred_profiles_deleted_at_v1($pdo);
     st_migrate_cred_profile_test_columns_v1($pdo);
     st_migrate_cred_check_job_schedule_v1($pdo);
+    st_migrate_software_inventory_normalized_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1463,6 +1464,70 @@ function st_migrate_cred_check_job_schedule_v1(PDO $pdo): void
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_cred_check_jobs_schedule_due ON credential_check_jobs(enabled, schedule_enabled, schedule_next_run_at)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_cred_check_job_schedule_v1', '1')"
+    );
+}
+
+/**
+ * Normalized software inventory tables (credentialed SSH package inventory persistence).
+ */
+function st_migrate_software_inventory_normalized_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_software_inventory_normalized_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assets' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS software_inventory (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            ecosystem            TEXT NOT NULL,
+            canonical_name       TEXT NOT NULL,
+            normalized_name      TEXT NOT NULL,
+            source_package_name  TEXT,
+            vendor               TEXT,
+            created_at           DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            updated_at           DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_software_inventory_eco_norm ON software_inventory(ecosystem, normalized_name)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_software_inventory_eco_norm ON software_inventory(ecosystem, normalized_name)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS software_inventory_versions (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            software_inventory_id   INTEGER NOT NULL REFERENCES software_inventory(id) ON DELETE CASCADE,
+            version_raw             TEXT NOT NULL,
+            version_normalized      TEXT,
+            architecture            TEXT,
+            distro_release            TEXT,
+            package_release           TEXT,
+            epoch                     TEXT,
+            created_at                DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_software_inventory_versions_key
+            ON software_inventory_versions(software_inventory_id, version_raw, IFNULL(architecture, \'\'))'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS software_inventory_asset_state (
+            id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id                     INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            software_inventory_version_id INTEGER NOT NULL REFERENCES software_inventory_versions(id) ON DELETE CASCADE,
+            first_seen_at                DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            last_seen_at                 DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            source                       TEXT NOT NULL DEFAULT \'credentialed_check\',
+            credential_check_run_id      INTEGER,
+            active                       INTEGER NOT NULL DEFAULT 1
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_asset ON software_inventory_asset_state(asset_id, active, last_seen_at DESC)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_version ON software_inventory_asset_state(software_inventory_version_id)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_last_seen ON software_inventory_asset_state(last_seen_at DESC)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_software_inventory_normalized_v1', '1')"
     );
 }
 

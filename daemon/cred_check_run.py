@@ -25,6 +25,7 @@ from cred_check_ssh_packages import collect_package_inventory, parse_tabular_pac
 from cred_secret_decrypt import decrypt_profile_secret
 
 import recon_observations as recon
+import software_inventory_persist as sinv
 
 log = logging.getLogger(__name__)
 
@@ -435,6 +436,9 @@ def process_cred_check_run(
         "package_inventory_ok": 0,
         "snmp_identity_attempted": 0,
         "snmp_identity_ok": 0,
+        "inventory_diff_packages_added": 0,
+        "inventory_diff_packages_removed": 0,
+        "inventory_diff_packages_changed": 0,
         "placeholder_only": placeholder_only,
         "plugins_placeholder": placeholder_plugin_tags,
     }
@@ -920,20 +924,54 @@ def process_cred_check_run(
                             "credential_check.observation_written",
                             {"run_id": run_id, "target_row_id": tid, "asset_id": aid, "observation_type": "package_inventory_observed"},
                         )
-                    n_sw = recon.upsert_cred_software_observations(
+                    recon.delete_cred_software_observations_for_asset_plugin_auto(
                         conn,
                         asset_id=aid,
-                        packages=stored,
+                        plugin_key=PKG_KEY,
+                    )
+                    diff = sinv.persist_cred_package_inventory(
+                        conn,
+                        asset_id=aid,
                         package_manager=str(norm_doc["package_manager"]),
-                        run_id=run_id,
-                        target_row_id=tid,
-                        result_id=ridp,
+                        packages=stored,
+                        credential_check_run_id=run_id,
                         plugin_key=PKG_KEY,
                         plugin_version=PKG_VER,
                         run_partial=partial,
                         package_count_total=int(total_ok),
                     )
-                    if n_sw > 0:
+                    if diff.get("ok"):
+                        counts["inventory_diff_packages_added"] += int(diff.get("packages_added") or 0)
+                        counts["inventory_diff_packages_removed"] += int(diff.get("packages_removed") or 0)
+                        counts["inventory_diff_packages_changed"] += int(diff.get("packages_version_changed") or 0)
+                    snap_doc: dict[str, Any] = {
+                        "package_manager": norm_doc["package_manager"],
+                        "package_count": total_ok,
+                        "packages_added": int(diff.get("packages_added") or 0),
+                        "packages_removed": int(diff.get("packages_removed") or 0),
+                        "packages_changed": int(diff.get("packages_version_changed") or 0),
+                        "partial": bool(partial),
+                        "truncated": bool(norm_doc.get("truncated")),
+                        "active_rows_after": int(diff.get("active_rows_after") or 0),
+                        "dedupe_rows_written": int(diff.get("dedupe_input_rows") or 0),
+                        "run_id": run_id,
+                        "result_id": ridp,
+                    }
+                    snap_raw = json.dumps(snap_doc, separators=(",", ":"), ensure_ascii=False)[:4000]
+                    snap_norm = (
+                        f"{norm_doc['package_manager']}:{total_ok}:snap:"
+                        f"{snap_doc['packages_added']}+{snap_doc['packages_removed']}~{snap_doc['packages_changed']}"
+                    )[:500]
+                    ref_snap = f"run:{run_id}:target:{tid}:{PKG_KEY}@{PKG_VER}:inv_snapshot"
+                    prov_snap = {**provp, "inventory_snapshot": True}
+                    if diff.get("ok") and recon.upsert_software_inventory_snapshot_observation(
+                        conn,
+                        asset_id=aid,
+                        raw_value=snap_raw,
+                        normalized_value=snap_norm,
+                        source_object_ref=ref_snap,
+                        provenance=prov_snap,
+                    ):
                         audit(
                             conn,
                             "credential_check.observation_written",
@@ -941,8 +979,7 @@ def process_cred_check_run(
                                 "run_id": run_id,
                                 "target_row_id": tid,
                                 "asset_id": aid,
-                                "observation_type": "software_observed",
-                                "rows_written": n_sw,
+                                "observation_type": "software_inventory_snapshot_observed",
                             },
                         )
                     counts["package_inventory_ok"] += 1

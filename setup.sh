@@ -1005,6 +1005,8 @@ check_file "$INSTALL_DIR/daemon/collector_ingest_mirror.py" "collector_ingest_mi
 check_file "$INSTALL_DIR/daemon/credential_check_worker.py" "credential_check_worker.py exists"
 check_file "$INSTALL_DIR/daemon/cred_ssh_probe_cli.py" "cred_ssh_probe_cli.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_run.py" "cred_check_run.py exists"
+check_file "$INSTALL_DIR/daemon/software_inventory_normalize.py" "software_inventory_normalize.py exists"
+check_file "$INSTALL_DIR/daemon/software_inventory_persist.py" "software_inventory_persist.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_ssh_os_release.py" "cred_check_ssh_os_release.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_ssh_packages.py" "cred_check_ssh_packages.py exists"
 check_file "$INSTALL_DIR/daemon/cred_check_snmp_identity.py" "cred_check_snmp_identity.py exists"

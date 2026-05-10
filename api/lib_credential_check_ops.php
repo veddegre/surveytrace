@@ -1103,6 +1103,9 @@ function st_cc_run_summary_for_display(?string $summaryJson): array
         'package_inventory_ok',
         'snmp_identity_attempted',
         'snmp_identity_ok',
+        'inventory_diff_packages_added',
+        'inventory_diff_packages_removed',
+        'inventory_diff_packages_changed',
         'result_success_count',
         'result_partial_count',
         'result_failed_count',
@@ -1127,15 +1130,16 @@ function st_cc_run_summary_for_display(?string $summaryJson): array
 /**
  * Grouped observation counts + capped software_observed samples for run detail (no row dump).
  *
- * @return array{counts_by_type: array<string, int>, software_observed_samples: list<array<string, mixed>>, software_observed_note: string}
+ * @return array{counts_by_type: array<string, int>, software_observed_samples: list<array<string, mixed>>, software_observed_note: string, software_inventory_snapshots: list<array<string, mixed>>}
  */
 function st_cc_run_observations_public_summary(PDO $pdo, int $credSourceId, int $runId): array
 {
-    $note = 'Software observations are bounded and summarized for display.';
+    $note = 'Per-package software_observed rows are legacy; inventory uses normalized tables plus one snapshot observation per target.';
     $out = [
         'counts_by_type'            => [],
         'software_observed_samples' => [],
         'software_observed_note'     => $note,
+        'software_inventory_snapshots' => [],
     ];
     if ($credSourceId < 1 || $runId < 1) {
         return $out;
@@ -1178,6 +1182,35 @@ function st_cc_run_observations_public_summary(PDO $pdo, int $credSourceId, int 
         }
     } catch (Throwable) {
         $out['software_observed_samples'] = [];
+    }
+    try {
+        $stSn = $pdo->prepare(
+            "SELECT asset_id, raw_value, observed_at FROM asset_observations
+             WHERE source_id = ? AND observation_type = 'software_inventory_snapshot_observed'
+               AND source_object_ref LIKE ?
+             ORDER BY id ASC"
+        );
+        $stSn->execute([$credSourceId, 'run:' . $runId . ':%']);
+        foreach ($stSn->fetchAll(PDO::FETCH_ASSOC) ?: [] as $sr) {
+            if (! is_array($sr)) {
+                continue;
+            }
+            $doc = json_decode((string) ($sr['raw_value'] ?? ''), true);
+            $out['software_inventory_snapshots'][] = [
+                'asset_id'          => (int) ($sr['asset_id'] ?? 0),
+                'observed_at'       => $sr['observed_at'] ?? null,
+                'package_manager'   => is_array($doc) ? ($doc['package_manager'] ?? null) : null,
+                'package_count'     => is_array($doc) ? ($doc['package_count'] ?? null) : null,
+                'packages_added'    => is_array($doc) ? ($doc['packages_added'] ?? null) : null,
+                'packages_removed'  => is_array($doc) ? ($doc['packages_removed'] ?? null) : null,
+                'packages_changed'  => is_array($doc) ? ($doc['packages_changed'] ?? null) : null,
+                'partial'           => is_array($doc) ? ($doc['partial'] ?? null) : null,
+                'truncated'         => is_array($doc) ? ($doc['truncated'] ?? null) : null,
+                'active_rows_after' => is_array($doc) ? ($doc['active_rows_after'] ?? null) : null,
+            ];
+        }
+    } catch (Throwable) {
+        $out['software_inventory_snapshots'] = [];
     }
 
     return $out;
@@ -2140,9 +2173,10 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
     $run['summary_public'] = st_cc_run_summary_for_display(isset($run['summary_json']) ? (string) $run['summary_json'] : null);
 
     $run['observations_summary'] = [
-        'counts_by_type'            => [],
-        'software_observed_samples' => [],
-        'software_observed_note'    => 'Software observations are bounded and summarized for display.',
+        'counts_by_type'               => [],
+        'software_observed_samples'    => [],
+        'software_observed_note'       => 'Per-package software_observed rows are legacy; inventory uses normalized tables plus snapshot observations.',
+        'software_inventory_snapshots' => [],
     ];
     $run['observations_written'] = [];
     require_once __DIR__ . '/lib_reconciliation.php';

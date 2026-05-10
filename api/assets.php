@@ -57,6 +57,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/lib_zabbix.php';
 require_once __DIR__ . '/lib_scan_scopes.php';
 require_once __DIR__ . '/lib_reconciliation.php';
+require_once __DIR__ . '/lib_software_inventory.php';
 require_once __DIR__ . '/lib_credential_check_ops.php';
 st_auth();
 st_require_role(['viewer', 'scan_editor', 'admin']);
@@ -754,6 +755,11 @@ if ($single_id > 0) {
         'software_inventory_has_bounded_observations' => $softwareBundle['software_inventory_has_bounded_observations'],
         'software_inventory_observation_gap' => $softwareBundle['software_inventory_observation_gap'],
         'software_inventory_stale_band' => $softwareBundle['software_inventory_stale_band'],
+        'software_inventory_catalog'    => [
+            'tables_ready'                   => st_si_tables_ready($db),
+            'active_package_rows'            => st_si_active_count_for_asset($db, $single_id),
+            'latest_inventory_last_seen_at'    => st_si_latest_last_seen_for_asset($db, $single_id),
+        ],
     ], $trustedApi));
 }
 

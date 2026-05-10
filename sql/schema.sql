@@ -458,7 +458,8 @@ CREATE TABLE IF NOT EXISTS asset_observations (
     observation_type     TEXT NOT NULL,
         -- os_fingerprint_scan | os_fingerprint_cpe | os_inventory_zabbix | os_hint_enrichment
         -- | hostname_observed | fqdn_observed | ipv4_observed | mac_observed | monitoring_hostid | device_link | ...
-        -- | software_observed (bounded credentialed package identities; slice 1 — no assertions) | ...
+        -- | software_observed (legacy bounded credentialed package sample rows) |
+        -- | software_inventory_snapshot_observed (per-target inventory diff summary; normalized tables hold detail) | ...
     raw_value            TEXT,
     normalized_value     TEXT,
     source_id            INTEGER NOT NULL REFERENCES recon_sources(id),
@@ -520,6 +521,52 @@ CREATE TABLE IF NOT EXISTS reconciliation_runs (
     error                TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_recon_runs_entity ON reconciliation_runs(entity_type, entity_id, slice_key, finished_at DESC);
+
+-- -------------------------------------------------------
+-- Normalized software inventory (credentialed package inventory → durable state)
+-- Future: join software_inventory_versions to advisory mapping (not implemented yet).
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS software_inventory (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    ecosystem            TEXT NOT NULL,
+        -- dpkg | rpm | generic | (future: pip, npm, …)
+    canonical_name       TEXT NOT NULL,
+    normalized_name      TEXT NOT NULL,
+    source_package_name  TEXT,
+    vendor               TEXT,
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_software_inventory_eco_norm ON software_inventory(ecosystem, normalized_name);
+CREATE INDEX IF NOT EXISTS idx_software_inventory_eco_norm ON software_inventory(ecosystem, normalized_name);
+
+CREATE TABLE IF NOT EXISTS software_inventory_versions (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    software_inventory_id   INTEGER NOT NULL REFERENCES software_inventory(id) ON DELETE CASCADE,
+    version_raw             TEXT NOT NULL,
+    version_normalized      TEXT,
+    architecture            TEXT,
+    distro_release            TEXT,
+    package_release           TEXT,
+    epoch                     TEXT,
+    created_at                DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_software_inventory_versions_key
+    ON software_inventory_versions(software_inventory_id, version_raw, IFNULL(architecture, ''));
+
+CREATE TABLE IF NOT EXISTS software_inventory_asset_state (
+    id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id                     INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    software_inventory_version_id INTEGER NOT NULL REFERENCES software_inventory_versions(id) ON DELETE CASCADE,
+    first_seen_at                DATETIME NOT NULL DEFAULT (datetime('now')),
+    last_seen_at                 DATETIME NOT NULL DEFAULT (datetime('now')),
+    source                       TEXT NOT NULL DEFAULT 'credentialed_check',
+    credential_check_run_id      INTEGER,
+    active                       INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_asset ON software_inventory_asset_state(asset_id, active, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_version ON software_inventory_asset_state(software_inventory_version_id);
+CREATE INDEX IF NOT EXISTS idx_sinv_asset_state_last_seen ON software_inventory_asset_state(last_seen_at DESC);
 
 -- -------------------------------------------------------
 -- Worker execution substrate (MVP slice 1 — schema only; no runtime wiring yet)

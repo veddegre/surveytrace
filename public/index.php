@@ -5621,7 +5621,15 @@ function renderHealthHtml(h, zbxResp) {
                 tdDetail += ` · summary newer than sw_obs ${esc(String(tdSwRecAfter))}`;
             }
             if (tdSwNoBnd > 0) {
-                tdDetail += ` · summaries w/o sw_obs rows ${esc(String(tdSwNoBnd))}`;
+                tdDetail += ` · summaries w/o inv corroboration ${esc(String(tdSwNoBnd))}`;
+            }
+        }
+        const tdSiRows = parseInt(String(td.software_inventory_rows_total || 0), 10) || 0;
+        const tdSiMx = td.software_inventory_latest_active_last_seen ? esc(String(td.software_inventory_latest_active_last_seen)) : '';
+        if (tdSiRows > 0) {
+            tdDetail += ` · norm sw catalog rows ${esc(String(tdSiRows))}`;
+            if (tdSiMx !== '') {
+                tdDetail += ` (last active ${tdSiMx})`;
             }
         }
     }
@@ -7832,9 +7840,12 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
     const asrc = Array.isArray(rd.assertion_sources) ? rd.assertion_sources : [];
     const ast = rd.assertion && typeof rd.assertion === 'object' ? rd.assertion : null;
     const sw = rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
+    const sir = rd.software_inventory_rows && typeof rd.software_inventory_rows === 'object' ? rd.software_inventory_rows : null;
     const swCount = sw ? (parseInt(String(sw.observation_count || 0), 10) || 0) : 0;
+    const sirCount = sir ? (parseInt(String(sir.active_count || 0), 10) || 0) : 0;
     const swPrev = sw && Array.isArray(sw.preview) ? sw.preview : [];
-    if (!obs.length && !runs.length && !asrc.length && !ast && swCount === 0) return '';
+    const sirPrev = sir && Array.isArray(sir.preview) ? sir.preview : [];
+    if (!obs.length && !runs.length && !asrc.length && !ast && swCount === 0 && sirCount === 0) return '';
     const astHead = ast
         ? `<div class="text-micro text-dim mb6 st-host-evidence-astmeta">Stored assertion <span class="mono-sm">${esc(String(ast.value_label || ast.value_slug || ''))}</span>${ast.reconciled_at ? ` · reconciled ${esc(localTime(ast.reconciled_at))}` : ''}${ast.version != null ? ` · v${esc(String(ast.version))}` : ''}</div>`
         : '';
@@ -7880,16 +7891,25 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
         return `<li class="text-micro mono-sm">${lb}</li>`;
     }).join('');
+    const sirPreviewLis = sirPrev.map((p) => {
+        const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
+        return `<li class="text-micro mono-sm">${lb}</li>`;
+    }).join('');
+    const sirBlock = sirCount > 0
+        ? `<div class="text-micro text-dim mt8 mb4">Normalized software catalog (<span class="mono-sm">software_inventory*</span>)</div>
+          <p class="text-micro mb4">${esc(String(sirCount))} active row(s). Preview (lexicographic sample, max 3):</p>
+          ${sirPreviewLis ? `<ul class="st-host-sw-preview mb0">${sirPreviewLis}</ul>` : '<p class="text-micro text-dim mb0">No preview rows returned.</p>'}`
+        : '';
     const swBlock = swCount > 0
-        ? `<div class="text-micro text-dim mt8 mb4">Software observations (<span class="mono-sm">software_observed</span>)</div>
-          <p class="text-micro mb4">${esc(String(swCount))} bounded row(s) from credentialed package inventory (latest run replaces the stored sample set). Preview — latest identities, max 3:</p>
+        ? `<div class="text-micro text-dim mt8 mb4">Legacy software observations (<span class="mono-sm">software_observed</span>)</div>
+          <p class="text-micro mb4">${esc(String(swCount))} bounded row(s) from older releases. Preview — max 3:</p>
           ${swPreviewLis ? `<ul class="st-host-sw-preview mb0">${swPreviewLis}</ul>` : '<p class="text-micro text-dim mb0">No preview rows returned.</p>'}`
         : '';
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Recent reconciliation attempts (this host)</div>
           <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Status</th><th>Run key</th><th>Finished</th><th>Error / summary</th></tr></thead><tbody>${runRows}</tbody></table></div>`
         : '';
-    return `${astHead}${asrcBlock}${swBlock}${obsBlock}${runBlock}`;
+    return `${astHead}${asrcBlock}${sirBlock}${swBlock}${obsBlock}${runBlock}`;
 }
 
 function stHostReconciliationEvidenceHtml(assetData) {
@@ -7899,9 +7919,11 @@ function stHostReconciliationEvidenceHtml(assetData) {
     const swObs = rd && rd.software_observed && typeof rd.software_observed === 'object'
         ? (parseInt(String(rd.software_observed.observation_count || 0), 10) || 0)
         : 0;
+    const sirR = rd && rd.software_inventory_rows && typeof rd.software_inventory_rows === 'object' ? rd.software_inventory_rows : null;
+    const sirObs = sirR ? (parseInt(String(sirR.active_count || 0), 10) || 0) : 0;
     const asserted = assetData.os_platform_assertion != null ? String(assetData.os_platform_assertion).trim() : '';
     const hasAsserted = asserted.length > 0;
-    if (!hasAsserted && (!rd || rd.tables_ready !== true || (obsCount === 0 && swObs === 0))) return '';
+    if (!hasAsserted && (!rd || rd.tables_ready !== true || (obsCount === 0 && swObs === 0 && sirObs === 0))) return '';
     const confRaw = assetData.os_platform_confidence;
     const conf = (confRaw != null && String(confRaw).trim() !== '')
         ? String(confRaw).toLowerCase()
@@ -7921,8 +7943,10 @@ function stHostReconciliationEvidenceHtml(assetData) {
     const detailBlock = detailInner
         ? `<details class="st-host-evidence-details mt8"><summary class="text-micro st-host-evidence-sum">View evidence</summary>${detailInner}</details>`
         : '';
-    const swLine = swObs > 0
-        ? `<div class="text-micro text-dim mt4">Software inventory evidence: <span class="mono-sm">${esc(String(swObs))}</span> bounded <span class="mono-sm">software_observed</span> row(s) (sample preview in evidence).</div>`
+    const swLine = swObs > 0 || sirObs > 0
+        ? `<div class="text-micro text-dim mt4">Software inventory: <span class="mono-sm">${esc(String(Math.max(swObs, sirObs)))}</span> row hint from ${
+            sirObs > 0 ? 'normalized <span class="mono-sm">software_inventory*</span> catalog' : 'legacy <span class="mono-sm">software_observed</span> samples'
+        } (bounded preview in evidence).</div>`
         : '';
     const assertRow = hasAsserted
         ? `<div class="st-host-evidence-row">
@@ -7944,17 +7968,19 @@ function stHostReconciliationEvidenceHtml(assetData) {
     </section>`;
 }
 
-/** Reconciled software_inventory_summary (no CVE signal). Bounded preview via recon_detail.software_observed only. */
+/** Reconciled software_inventory_summary (no CVE signal). Bounded preview via normalized catalog and/or legacy software_observed. */
 function stHostSoftwareInventoryHtml(assetData) {
     if (!assetData) return '';
     const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
     const sw = rd && rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
+    const sir = rd && rd.software_inventory_rows && typeof rd.software_inventory_rows === 'object' ? rd.software_inventory_rows : null;
     const swObs = sw && sw.observation_count != null ? (parseInt(String(sw.observation_count), 10) || 0) : 0;
+    const normActive = sir && sir.active_count != null ? (parseInt(String(sir.active_count), 10) || 0) : 0;
 
     const sum = assetData.software_inventory_summary != null && String(assetData.software_inventory_summary).trim()
         ? String(assetData.software_inventory_summary).trim() : '';
 
-    if (!sum && swObs <= 0) return '';
+    if (!sum && swObs <= 0 && normActive <= 0) return '';
 
     const mgrRaw = assetData.software_inventory_manager != null ? String(assetData.software_inventory_manager).trim() : '';
     const mgr = mgrRaw || '\u2014';
@@ -7991,7 +8017,7 @@ function stHostSoftwareInventoryHtml(assetData) {
         badgeParts.push(`<span class="hp-chip" title="Beyond freshness window — not vulnerability posture">${esc(staleHint)}</span>`);
     }
     if (obsGap) {
-        badgeParts.push('<span class="hp-chip" title="Cardinality from package_inventory_observed summary until bounded rows exist">No bounded row corroboration</span>');
+        badgeParts.push('<span class="hp-chip" title="Only the package summary observation exists; no normalized rows or snapshot yet">No normalized inventory corroboration</span>');
     }
     const badgeRow = badgeParts.length
         ? `<div class="hp-chips" style="margin-top:6px">${badgeParts.join('')}</div>`
@@ -8004,19 +8030,43 @@ function stHostSoftwareInventoryHtml(assetData) {
         : '';
 
     const swPrev = sw && Array.isArray(sw.preview) ? sw.preview : [];
+    const sirPrev = sir && Array.isArray(sir.preview) ? sir.preview : [];
+    const sirPrevLis = sirPrev.map((p) => {
+        const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
+        return `<li class="text-micro mono-sm">${lb}</li>`;
+    }).join('');
     const swPrevLis = swPrev.map((p) => {
         const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
         return `<li class="text-micro mono-sm">${lb}</li>`;
     }).join('');
 
+    const cat = assetData.software_inventory_catalog && typeof assetData.software_inventory_catalog === 'object'
+        ? assetData.software_inventory_catalog
+        : null;
+    const aidSw = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
+    const searchHint =
+        cat && cat.tables_ready === true && aidSw > 0
+            ? `<p class="text-micro text-dim mt6 mb0">Bounded package search: <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(
+                  String(aidSw),
+              )}&amp;q=&amp;limit=80</span> (prefix match on normalized names).</p>`
+            : '';
+
     const evidenceParts = [];
-    if (swPrev.length && rd && rd.tables_ready === true) {
+    if (sirPrev.length && rd && rd.tables_ready === true) {
+        evidenceParts.push(`<ul class="st-host-sw-preview mb0">${sirPrevLis}</ul>`);
+        evidenceParts.push('<p class="text-micro text-dim mt6 mb0">Showing up to <span class="mono-sm">3</span> sample rows from the normalized <span class="mono-sm">software_inventory*</span> catalog (active installs). Full lists stay server-side; use the API for bounded search.</p>');
+    } else if (normActive > 0) {
+        evidenceParts.push(`<p class="text-micro text-dim mb0"><span class="mono-sm">${esc(String(normActive))}</span> active normalized row(s); preview samples omitted in this response.</p>`);
+    } else if (swPrev.length && rd && rd.tables_ready === true) {
         evidenceParts.push(`<ul class="st-host-sw-preview mb0">${swPrevLis}</ul>`);
-        evidenceParts.push('<p class="text-micro text-dim mt6 mb0">Showing up to <span class="mono-sm">3</span> sample identities from bounded <span class="mono-sm">software_observed</span> rows. The full installed package list is not loaded here by design.</p>');
+        evidenceParts.push('<p class="text-micro text-dim mt6 mb0">Legacy <span class="mono-sm">software_observed</span> preview (older releases).</p>');
     } else if (swObs > 0) {
-        evidenceParts.push(`<p class="text-micro text-dim mb0"><span class="mono-sm">${esc(String(swObs))}</span> bounded <span class="mono-sm">software_observed</span> row(s); preview samples unavailable in this response.</p>`);
+        evidenceParts.push(`<p class="text-micro text-dim mb0"><span class="mono-sm">${esc(String(swObs))}</span> legacy <span class="mono-sm">software_observed</span> row(s); preview unavailable.</p>`);
     } else {
-        evidenceParts.push('<p class="text-micro text-dim mb0">No bounded row preview in this response.</p>');
+        evidenceParts.push('<p class="text-micro text-dim mb0">No bounded preview in this response.</p>');
+    }
+    if (searchHint) {
+        evidenceParts.push(searchHint);
     }
 
     const evidenceBlock = evidenceParts.length
@@ -12877,15 +12927,18 @@ async function stCcRunOpenModal(runId) {
     const countRows = typeKeys
         .map((t) => `<tr><td class="mono-sm">${esc(t)}</td><td>${esc(String(otypes[t]))}</td></tr>`)
         .join('');
-    const samples = osum && Array.isArray(osum.software_observed_samples) ? osum.software_observed_samples : [];
-    const swN = parseInt(String(otypes.software_observed || 0), 10) || 0;
-    const sampleRows = samples
-        .map((o) => `<tr>
-      <td class="mono-sm">${esc(String(o.id))}</td>
-      <td class="mono-sm">${esc(String(o.asset_id))}</td>
-      <td class="mono-sm">${esc(String(o.source_object_ref || ''))}</td>
-      <td class="text-dim">${o.observed_at ? esc(localTime(String(o.observed_at))) : '—'}</td>
-    </tr>`)
+    const invSnaps = osum && Array.isArray(osum.software_inventory_snapshots) ? osum.software_inventory_snapshots : [];
+    const snapRows = invSnaps
+        .map((s) => {
+            const pm = s.package_manager != null ? esc(String(s.package_manager)) : '—';
+            const pc = s.package_count != null ? esc(String(s.package_count)) : '—';
+            const pa = s.packages_added != null ? esc(String(s.packages_added)) : '—';
+            const pr = s.packages_removed != null ? esc(String(s.packages_removed)) : '—';
+            const pv = s.packages_changed != null ? esc(String(s.packages_changed)) : '—';
+            const ast = s.active_rows_after != null ? esc(String(s.active_rows_after)) : '—';
+            const at = s.observed_at ? esc(localTime(String(s.observed_at))) : '—';
+            return `<tr><td class="mono-sm">${esc(String(s.asset_id || ''))}</td><td>${pm}</td><td>${pc}</td><td>${pa}</td><td>${pr}</td><td>${pv}</td><td>${ast}</td><td class="text-dim">${at}</td></tr>`;
+        })
         .join('');
     const obsNote = osum && osum.software_observed_note ? `<p class="hint-micro text-dim mb6">${esc(String(osum.software_observed_note))}</p>` : '';
     let obsBlock = '';
@@ -12895,14 +12948,12 @@ async function stCcRunOpenModal(runId) {
         const tbl = countRows
             ? `<div class="tbl-wrap tbl-wrap--compact mb6"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>observation_type</th><th>count</th></tr></thead><tbody>${countRows}</tbody></table></div>`
             : '';
-        let disc = '';
-        if (swN > 0 && sampleRows) {
-            disc = `<details class="mt4"><summary class="text-dim" style="cursor:pointer">Sample software_observed rows (showing ${esc(String(samples.length))} of ${esc(String(swN))})</summary>
-            <div class="tbl-wrap tbl-wrap--compact mt4"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Asset</th><th>Ref</th><th>Observed</th></tr></thead><tbody>${sampleRows}</tbody></table></div></details>`;
-        } else if (swN > 0) {
-            disc = `<p class="hint-micro text-dim mb0">${esc(String(swN))} software_observed rows (samples omitted).</p>`;
-        }
-        obsBlock = `${obsNote}${tbl}${disc}`;
+        const snapTbl =
+            snapRows !== ''
+                ? `<div class="text-micro text-dim mt6 mb4">Software inventory snapshots (<span class="mono-sm">software_inventory_snapshot_observed</span>) — diff vs prior active state</div>
+            <div class="tbl-wrap tbl-wrap--compact mb6"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Asset</th><th>PM</th><th>Count</th><th>+</th><th>−</th><th>~ver</th><th>Active rows</th><th>Observed</th></tr></thead><tbody>${snapRows}</tbody></table></div>`
+                : '';
+        obsBlock = `${obsNote}${tbl}${snapTbl}`;
     }
 
     const arts = Array.isArray(run.artifact_summaries) ? run.artifact_summaries : [];

@@ -948,6 +948,8 @@ try {
         'software_inventory_assets_repeat_partial_pkg_inventory' => 0,
         'software_inventory_summary_reconciled_after_sw_obs_assets' => 0,
         'software_inventory_summary_without_bounded_sw_obs_assets' => 0,
+        'software_inventory_rows_total'                 => 0,
+        'software_inventory_latest_active_last_seen'      => null,
         'warning_hints'                      => ['Trusted data health snapshot unavailable.'],
     ];
     @error_log('SurveyTrace health trusted_data: ' . $e->getMessage());

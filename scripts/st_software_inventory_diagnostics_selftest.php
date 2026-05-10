@@ -27,6 +27,11 @@ function mk_ev(array $overrides): array
         'software_first_provenance'       => '',
         'software_max_observed_at'        => null,
         'evidence_max_observed_at'        => null,
+        'inventory_snapshot_id'           => null,
+        'inventory_snapshot_raw'          => '',
+        'inventory_snapshot_observed_at'  => null,
+        'normalized_active_count'         => 0,
+        'normalized_latest_last_seen'     => null,
     ], $overrides);
 }
 

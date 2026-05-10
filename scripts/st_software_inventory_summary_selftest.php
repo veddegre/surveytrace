@@ -27,6 +27,11 @@ function mk_ev(array $overrides): array
         'software_first_provenance'     => '',
         'software_max_observed_at'      => null,
         'evidence_max_observed_at'      => null,
+        'inventory_snapshot_id'           => null,
+        'inventory_snapshot_raw'          => '',
+        'inventory_snapshot_observed_at'  => null,
+        'normalized_active_count'         => 0,
+        'normalized_latest_last_seen'     => null,
     ], $overrides);
 }
 
@@ -147,7 +152,23 @@ if (($r5['observation_gap'] ?? true) !== false || strpos($r5['explanation'], ST_
     st_sw2_fail('software_observed-only must not claim observation_gap');
 }
 
-foreach ([$r1, $r2, $r3, $r4, $r5] as $rx) {
+$r6 = st_recon_resolve_software_inventory_summary_evidence(mk_ev([
+    'package_inventory_id'          => 14,
+    'package_inventory_raw'         => json_encode([
+        'package_manager' => 'dpkg',
+        'package_count'   => 200,
+        'partial'         => false,
+    ], JSON_UNESCAPED_SLASHES),
+    'package_inventory_observed_at' => $fresh,
+    'software_observed_count'       => 0,
+    'normalized_active_count'       => 200,
+    'normalized_latest_last_seen'   => $fresh,
+]));
+if (($r6['observation_gap'] ?? true) !== false || ($r6['has_bounded_sw_obs'] ?? false) !== true) {
+    st_sw2_fail('normalized active rows should clear observation_gap and set corroboration');
+}
+
+foreach ([$r1, $r2, $r3, $r4, $r5, $r6] as $rx) {
     if (stripos($rx['explanation'], 'CVE') === false || stripos($rx['explanation'], 'credentialed SSH package inventory') === false) {
         st_sw2_fail('explanation must disclaim CVE and cite cred inventory');
     }

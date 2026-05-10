@@ -219,6 +219,44 @@ def upsert_credentialed_check_os_observation(
         return False
 
 
+def upsert_software_inventory_snapshot_observation(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    raw_value: str,
+    normalized_value: str,
+    source_object_ref: str,
+    provenance: dict[str, Any],
+) -> bool:
+    """
+    One-row-per-target summary for normalized inventory diff (replaces per-package software_observed volume).
+    """
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return False
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return False
+        prov = json.dumps(provenance, separators=(",", ":"), ensure_ascii=False)
+        raw_safe = (raw_value or "")[:4000]
+        norm_safe = (normalized_value or "")[:500]
+        _upsert_observation(
+            conn,
+            asset_id,
+            "software_inventory_snapshot_observed",
+            raw_safe,
+            norm_safe,
+            sid,
+            source_object_ref[:500] if source_object_ref else "",
+            "medium",
+            prov if prov else "{}",
+        )
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def upsert_cred_package_inventory_summary_observation(
     conn: sqlite3.Connection,
     *,
@@ -327,6 +365,25 @@ def delete_cred_software_observations_for_asset_plugin(
               AND COALESCE(json_extract(provenance_json, '$.plugin_key'), '') = ?""",
         (asset_id, source_id, pk),
     )
+
+
+def delete_cred_software_observations_for_asset_plugin_auto(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: int,
+    plugin_key: str,
+) -> None:
+    """Same as delete_cred_software_observations_for_asset_plugin but resolves credentialed_check source_id."""
+    if asset_id < 1 or not _recon_tables_ready(conn):
+        return
+    try:
+        _recon_seed_sources(conn)
+        sid = _recon_source_id(conn, "credentialed_check")
+        if sid is None:
+            return
+        delete_cred_software_observations_for_asset_plugin(conn, asset_id=asset_id, source_id=sid, plugin_key=plugin_key)
+    except sqlite3.Error:
+        return
 
 
 def upsert_cred_software_observations(

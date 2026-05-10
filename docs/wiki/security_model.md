@@ -134,6 +134,12 @@ Manual (production):
 
 ---
 
+## Normalized software inventory (API exposure)
+
+Credentialed SSH package inventory persists **normalized** identities in `software_inventory` / `software_inventory_versions` / `software_inventory_asset_state` (worker-side SQLite, same DB as the app). The web tier serves **bounded** reads via `api/software_inventory.php` (prefix match on sanitized names; no `WHERE` clause from raw client SQL). **Health** `trusted_data` counters include row totals and latest `last_seen_at` timestamps only—never raw `dpkg-query` / `rpm -qa` artifact bodies. Full stdout remains in `credential_check_artifacts` for authorized operators, not in default JSON surfaces.
+
+---
+
 ## Limitations (honest)
 
 - PHP and Python do not provide guaranteed zeroization of strings; we **discard references** and avoid logging sensitive structures—**not** cryptographic memory wiping.
