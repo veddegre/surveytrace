@@ -5643,6 +5643,15 @@ function renderHealthHtml(h, zbxResp) {
                 tdDetail += ` · corr-queued ${esc(String(vq))}`;
             }
         }
+        const vtH = h.vulnerability_triage && typeof h.vulnerability_triage === 'object' ? h.vulnerability_triage : null;
+        if (vtH && vtH.tables_ready) {
+            const wo = parseInt(String(vtH.affected_without_triage || 0), 10) || 0;
+            const stsp = parseInt(String(vtH.stale_suppressions || 0), 10) || 0;
+            const hpag = parseInt(String(vtH.high_priority_aging_30d || 0), 10) || 0;
+            if (wo > 0 || stsp > 0 || hpag > 0) {
+                tdDetail += ` · triage backlog wo=${esc(String(wo))} stale-sup=${esc(String(stsp))} hi-age30=${esc(String(hpag))}`;
+            }
+        }
     }
     integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
 
@@ -5674,6 +5683,15 @@ function renderHealthHtml(h, zbxResp) {
     });
     if (vu && Array.isArray(vu.warning_hints)) {
         vu.warning_hints.forEach((hint) => {
+            const s = String(hint || '').trim();
+            if (s && warnings.indexOf(s) === -1) {
+                warnings.push(s);
+            }
+        });
+    }
+    const vt = h.vulnerability_triage && typeof h.vulnerability_triage === 'object' ? h.vulnerability_triage : null;
+    if (vt && Array.isArray(vt.warning_hints)) {
+        vt.warning_hints.forEach((hint) => {
             const s = String(hint || '').trim();
             if (s && warnings.indexOf(s) === -1) {
                 warnings.push(s);
@@ -8052,21 +8070,31 @@ function stHostSoftwareInventoryHtml(assetData) {
         vin && vin.tables_ready === true && aidV > 0
             ? `<p class="text-micro text-dim mt4 mb0">Advisory correlation (bounded): <span class="mono-sm">/api/vulnerabilities.php?action=list_for_asset&amp;asset_id=${esc(
                   String(aidV),
-              )}</span></p>`
+              )}</span> \u00b7 Triage API: <span class="mono-sm">/api/vulnerability_triage.php?action=get&amp;asset_vulnerability_id=</span> (viewer+).</p>`
             : '';
     const vinTable =
         vin && vin.tables_ready === true && vinRows.length
             ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory advisory correlation (local rules)</h4>
-        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Severity</th><th>Confidence</th><th>Last seen</th></tr></thead><tbody>${vinRows
+        <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Triage</th><th>Pri</th><th>Score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
                   .map((r) => {
                       const k = r.advisory_key != null ? esc(String(r.advisory_key)) : '\u2014';
-                      const sev = r.severity != null ? esc(String(r.severity)) : '\u2014';
-                      const cf = r.correlation_confidence != null ? esc(String(r.correlation_confidence)) : '\u2014';
-                      const ls = r.last_seen_at != null ? esc(String(r.last_seen_at)) : '\u2014';
-                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td>${cf}</td><td class="text-dim">${ls}</td></tr>`;
+                      const sev = r.advisory_severity != null ? esc(String(r.advisory_severity)) : r.severity != null ? esc(String(r.severity)) : '\u2014';
+                      const tr = r.triage_state != null && String(r.triage_state).trim() ? esc(String(r.triage_state)) : '<span class="text-dim">new</span>';
+                      const pr = r.triage_priority != null && String(r.triage_priority).trim() ? esc(String(r.triage_priority)) : esc(String(r.computed_priority || '\u2014'));
+                      const sc = r.computed_priority_score != null ? esc(String(r.computed_priority_score)) : '\u2014';
+                      const nc = r.notes_count != null ? esc(String(r.notes_count)) : '0';
+                      const fs = r.first_seen_at != null ? esc(String(r.first_seen_at)) : '\u2014';
+                      let sup = '\u2014';
+                      if (r.suppression_reason != null && String(r.suppression_reason).trim()) {
+                          sup = esc(String(r.suppression_reason).slice(0, 48));
+                          if (r.suppression_expires_at) {
+                              sup += ` <span class="text-dim">(\u2264${esc(String(r.suppression_expires_at))})</span>`;
+                          }
+                      }
+                      return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${pr}</span></td><td class="mono-sm">${sc}</td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
                   })
                   .join('')}</tbody></table>
-        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; not remediation or exposure scoring.</p></div>`
+        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; triage/score are operational hints only (not KEV/exposure). Use triage API for state changes (editor role).</p></div>`
             : vin && vin.tables_ready === true && vinTot > 0
               ? `<p class="text-micro text-dim mt8">This host has <span class="mono-sm">${esc(String(vinTot))}</span> correlated advisory row(s); reload asset detail for the first page of rows.</p>`
               : '';

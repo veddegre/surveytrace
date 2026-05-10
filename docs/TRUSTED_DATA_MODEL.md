@@ -125,7 +125,7 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 `reconciliation_runs` can grow without bound as assets are viewed and reconciled. Operators may trim via the admin diagnostics endpoint; adjust `keep` to retain more or fewer newest rows. This is intentionally simple—no background retention scheduler in this slice.
 
-**`software_inventory*`** asset state is **long-lived**: inactive rows record “last seen” history; **do not** bulk-delete active/inactive state as part of routine observation pruning. **`asset_vulnerabilities`** correlated rows are **long-lived** as well (do not bulk-prune active exposure state as part of routine observation pruning). **`software_observed`** (legacy) is removed on new inventories. Historical bounded snapshots remain in **`credential_check_results`** / artifacts — prune per operational retention when disk grows.
+**`software_inventory*`** asset state is **long-lived**: inactive rows record “last seen” history; **do not** bulk-delete active/inactive state as part of routine observation pruning. **`asset_vulnerabilities`** correlated rows are **long-lived** as well (do not bulk-prune active exposure state as part of routine observation pruning). **`asset_vulnerability_triage`**, **`vulnerability_notes`**, and **`vulnerability_activity_log`** hold operator workflow and audit history — **no hard deletes** of correlated exposure rows when suppressing or accepting risk; use **`scripts/prune_vulnerability_activity.php`** (dry-run by default) to trim **old activity log rows only** after operational policy. **`software_observed`** (legacy) is removed on new inventories. Historical bounded snapshots remain in **`credential_check_results`** / artifacts — prune per operational retention when disk grows.
 
 ---
 
@@ -141,6 +141,20 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 
 **UI/API:** single-asset `GET /api/assets.php?id=` includes bounded **`vulnerability_inventory`** (counts + first page). Additional reads: `GET /api/vulnerabilities.php` (`list_for_asset`, `assets_for_advisory`, `advisory_detail`, `top_packages`). **Health:** `vulnerability_correlation` block (advisory counts, affected rows/assets, queued `worker_jobs` of type `vulnerability_correlation`, stale advisory hint, last run duration).
 
+### Vulnerability triage, prioritization, and analyst workflow
+
+**Tables:** `asset_vulnerability_triage` (one row per `asset_vulnerabilities.id`: `triage_state`, `priority`, assignment, suppression reason/expiry, `notes_count`), `vulnerability_notes` (plain text, **≤8000** characters; control characters stripped), `vulnerability_activity_log` (append-only audit; `details_json` is **allowlisted keys only**).
+
+**Prioritization:** `api/lib_vulnerability_priority.php` computes a **deterministic** integer score and band (`critical` … `info`) from advisory severity, CVSS, age since `first_seen_at`, optional future placeholders (internet exposure, KEV), triage posture, **active** temporary suppression (expiry strictly in the future), and correlation `fixed` status. Output includes a **rationale** array (explainable steps; no ML).
+
+**Suppression:** Temporary holds use `suppression_reason` + `suppression_expires_at`. Expired suppressions are **cleared** by `st_vt_sweep_expired_suppressions()` (invoked at the start of each per-asset correlation run) and emit **`suppression_expired`** activity; correlation rows stay **`affected`** until the inventory no longer matches. **`false_positive`** / **`accepted_risk`** are triage states (terminal score posture), not row deletes.
+
+**Correlation interaction:** Re-correlation **preserves** triage, notes, and activity history; new matches **ensure** a triage row via `INSERT OR IGNORE`. Marking **`fixed`** logs **`correlation_mark_fixed`** and caps operational priority in the model.
+
+**API:** `GET/POST /api/vulnerability_triage.php` — allowlisted actions, bounded pagination, CSRF on mutations, **`scan_editor`/`admin`** for writes. **Views** (`list_view`): top vulnerable assets, highest triage priority, aging, suppressed, by severity, by ecosystem — all **capped** row limits.
+
+**Ops:** `php scripts/diagnose_vulnerability_triage.php` (read-only JSON bundle). **`scripts/st_vulnerability_triage_selftest.php`** exercises transitions, suppression expiry, notes, activity, and correlation coexistence.
+
 **Post-inventory:** after successful normalized package persist, the cred worker **best-effort enqueues** one `vulnerability_correlation` job per asset (deduped); heavy work stays in offline scripts/cron — **not** inline in the scan path.
 
 ---
@@ -153,8 +167,9 @@ Assertions still update **only** through **`api/lib_reconciliation.php`** lazy h
 - `daemon/software_inventory_normalize.py`, `daemon/software_inventory_persist.py` — normalized inventory writes from **`daemon/cred_check_run.py`**
 - `daemon/vuln_correlation_jobs.py` — enqueue deduped **`worker_jobs`** (`vulnerability_correlation`) after inventory persist
 - `api/lib_software_inventory.php`, `api/software_inventory.php` — bounded read/search API
-- `api/lib_version_compare.php`, `api/lib_vulnerability_correlation.php`, `api/vulnerabilities.php` — **local advisory correlation** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, KEV, exposure, or remediation
+- `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
 - `scripts/import_advisories.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php` — bounded import, offline correlation, diagnostics, selftest
+- `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), triage selftest
 - `scripts/st_recon_trusted_data_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
 - `daemon/st_software_observation_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**
 - `scripts/st_software_inventory_summary_selftest.php` — resolver rules for **`software_inventory_summary`** (fresh/partial/stale, CVE disclaimer text)

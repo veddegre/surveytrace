@@ -140,6 +140,8 @@ Credentialed SSH package inventory persists **normalized** identities in `softwa
 
 **Local advisory correlation (optional operator import):** `vulnerability_advisories` / `vulnerability_advisory_packages` / `asset_vulnerabilities` are populated from **bounded local JSON** via `scripts/import_advisories.php` (no shell; HTML stripped from descriptions). Public APIs (`api/vulnerabilities.php`, additive `vulnerability_inventory` on single-asset `assets.php`) return **allowlisted columns and integer IDs only**—no arbitrary SQL from clients, no raw feed blobs. Correlation runs offline (`scripts/run_vulnerability_correlation.php`); the cred worker only **enqueues** a deduped `worker_jobs` hint after inventory success.
 
+**Vulnerability triage API (`api/vulnerability_triage.php`):** allowlisted **GET/POST actions** only; mutations require CSRF and **`scan_editor`/`admin`**. Analyst **notes** are stored as **plain text** with a fixed max length; **never render note or actor strings as HTML** — treat as untrusted text (escape on output). **`vulnerability_activity_log.details_json`** is written only from an **allowlisted key set** (no arbitrary client JSON). Suppression does **not** delete `asset_vulnerabilities` rows. Operational views and list endpoints use **hard caps** on rows returned.
+
 ---
 
 ## Limitations (honest)

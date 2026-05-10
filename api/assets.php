@@ -741,7 +741,11 @@ if ($single_id > 0) {
         } catch (Throwable $e) {
             @error_log('SurveyTrace assets.php vulnerability_inventory count: ' . $e->getMessage());
         }
-        $vulnBundle['rows'] = st_vuln_list_for_asset($db, $single_id, 40, 0);
+        if (function_exists('st_vt_tables_ready') && st_vt_tables_ready($db)) {
+            $vulnBundle['rows'] = st_vt_list_rows_for_asset($db, $single_id, 40, 0);
+        } else {
+            $vulnBundle['rows'] = st_vuln_list_for_asset($db, $single_id, 40, 0);
+        }
     }
 
     st_json(array_merge([

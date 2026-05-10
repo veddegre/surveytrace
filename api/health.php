@@ -977,6 +977,22 @@ try {
     @error_log('SurveyTrace health vulnerability_correlation: ' . $e->getMessage());
 }
 
+try {
+    $health['vulnerability_triage'] = st_vt_health_snapshot($db);
+} catch (Throwable $e) {
+    $health['vulnerability_triage'] = [
+        'tables_ready'                  => false,
+        'counts_by_priority'           => [],
+        'stale_suppressions'            => 0,
+        'affected_without_triage'       => 0,
+        'oldest_untriaged_first_seen'  => null,
+        'high_priority_aging_30d'      => 0,
+        'summary'                       => 'Vulnerability triage health unavailable.',
+        'warning_hints'                 => [],
+    ];
+    @error_log('SurveyTrace health vulnerability_triage: ' . $e->getMessage());
+}
+
 $health['maintenance'] = st_health_maintenance_snapshot($db);
 $health['collector_ingest_runtime'] = st_health_collector_ingest_runtime($dataDir);
 if (

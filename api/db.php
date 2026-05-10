@@ -413,6 +413,7 @@ function st_db(): PDO {
     st_migrate_cred_check_job_schedule_v1($pdo);
     st_migrate_software_inventory_normalized_v1($pdo);
     st_migrate_vulnerability_correlation_v1($pdo);
+    st_migrate_vulnerability_triage_v1($pdo);
 
     require_once __DIR__ . '/lib_credentialed_checks.php';
     if (st_cred_tables_ready($pdo)) {
@@ -1620,6 +1621,67 @@ function st_migrate_vulnerability_correlation_v1(PDO $pdo): void
     $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_corr_runs_finished ON vulnerability_correlation_runs(finished_at DESC)');
     $pdo->exec(
         "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_correlation_v1', '1')"
+    );
+}
+
+/**
+ * Analyst triage, notes, and immutable activity log (operational workflow).
+ */
+function st_migrate_vulnerability_triage_v1(PDO $pdo): void
+{
+    $v = $pdo->query("SELECT value FROM config WHERE key = 'migration_vulnerability_triage_v1' LIMIT 1")->fetchColumn();
+    if ($v === '1' || $v === 1) {
+        return;
+    }
+    $t = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'asset_vulnerabilities' LIMIT 1")->fetchColumn();
+    if ($t === false || $t === null) {
+        return;
+    }
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS asset_vulnerability_triage (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_vulnerability_id  INTEGER NOT NULL UNIQUE REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+            triage_state            TEXT NOT NULL DEFAULT \'new\',
+            priority                TEXT NOT NULL DEFAULT \'medium\',
+            assigned_to             TEXT,
+            due_at                  DATETIME,
+            first_triaged_at        DATETIME,
+            last_triaged_at         DATETIME,
+            last_changed_by         TEXT,
+            suppression_reason      TEXT,
+            suppression_expires_at  DATETIME,
+            notes_count             INTEGER NOT NULL DEFAULT 0,
+            created_at              DATETIME NOT NULL DEFAULT (datetime(\'now\')),
+            updated_at              DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_av_triage_state ON asset_vulnerability_triage(triage_state)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_av_triage_priority ON asset_vulnerability_triage(priority)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_av_triage_assigned ON asset_vulnerability_triage(assigned_to)');
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_av_triage_due ON asset_vulnerability_triage(due_at)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vulnerability_notes (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_vulnerability_id  INTEGER NOT NULL REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+            author                  TEXT NOT NULL,
+            note_text               TEXT NOT NULL,
+            created_at              DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_notes_av ON vulnerability_notes(asset_vulnerability_id, created_at DESC)');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS vulnerability_activity_log (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_vulnerability_id  INTEGER NOT NULL REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+            action                  TEXT NOT NULL,
+            actor                   TEXT NOT NULL,
+            details_json            TEXT,
+            created_at              DATETIME NOT NULL DEFAULT (datetime(\'now\'))
+        )'
+    );
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_vuln_act_av ON vulnerability_activity_log(asset_vulnerability_id, created_at DESC)');
+    $pdo->exec(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('migration_vulnerability_triage_v1', '1')"
     );
 }
 

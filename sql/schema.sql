@@ -650,6 +650,51 @@ CREATE TABLE IF NOT EXISTS vulnerability_correlation_runs (
 CREATE INDEX IF NOT EXISTS idx_vuln_corr_runs_finished ON vulnerability_correlation_runs(finished_at DESC);
 
 -- -------------------------------------------------------
+-- Vulnerability triage / analyst workflow (bounded; audit trail; no hard deletes)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS asset_vulnerability_triage (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_vulnerability_id  INTEGER NOT NULL UNIQUE REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+    triage_state            TEXT NOT NULL DEFAULT 'new',
+        -- new | investigating | confirmed | mitigated | false_positive | accepted_risk
+    priority                TEXT NOT NULL DEFAULT 'medium',
+        -- critical | high | medium | low | info
+    assigned_to             TEXT,
+    due_at                  DATETIME,
+    first_triaged_at        DATETIME,
+    last_triaged_at         DATETIME,
+    last_changed_by         TEXT,
+    suppression_reason      TEXT,
+    suppression_expires_at  DATETIME,
+    notes_count             INTEGER NOT NULL DEFAULT 0,
+    created_at              DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at              DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_av_triage_state ON asset_vulnerability_triage(triage_state);
+CREATE INDEX IF NOT EXISTS idx_av_triage_priority ON asset_vulnerability_triage(priority);
+CREATE INDEX IF NOT EXISTS idx_av_triage_assigned ON asset_vulnerability_triage(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_av_triage_due ON asset_vulnerability_triage(due_at);
+
+CREATE TABLE IF NOT EXISTS vulnerability_notes (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_vulnerability_id  INTEGER NOT NULL REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+    author                  TEXT NOT NULL,
+    note_text               TEXT NOT NULL,
+    created_at              DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_notes_av ON vulnerability_notes(asset_vulnerability_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS vulnerability_activity_log (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_vulnerability_id  INTEGER NOT NULL REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+    action                  TEXT NOT NULL,
+    actor                   TEXT NOT NULL,
+    details_json            TEXT,
+    created_at              DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_vuln_act_av ON vulnerability_activity_log(asset_vulnerability_id, created_at DESC);
+
+-- -------------------------------------------------------
 -- Worker execution substrate (MVP slice 1 — schema only; no runtime wiring yet)
 -- See docs/WORKER_EXECUTION_SUBSTRATE.md and docs/WORKER_EXECUTION_MVP_PLAN.md
 -- Logical refs: lease_node_id / node_id → worker_nodes.id (not enforced as FK)
