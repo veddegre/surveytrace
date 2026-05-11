@@ -993,6 +993,21 @@ try {
     @error_log('SurveyTrace health vulnerability_triage: ' . $e->getMessage());
 }
 
+try {
+    $health['vulnerability_dashboard'] = st_vuln_dashboard_health_snapshot($db);
+} catch (Throwable $e) {
+    $health['vulnerability_dashboard'] = [
+        'total_open_findings'     => 0,
+        'critical_open_findings'  => 0,
+        'stale_findings_over_30d' => 0,
+        'suppressed_active'       => 0,
+        'override_active'         => 0,
+        'top_risk_asset_id'       => null,
+        'warnings'                => ['Vulnerability dashboard health unavailable.'],
+    ];
+    @error_log('SurveyTrace health vulnerability_dashboard: ' . $e->getMessage());
+}
+
 $health['maintenance'] = st_health_maintenance_snapshot($db);
 $health['collector_ingest_runtime'] = st_health_collector_ingest_runtime($dataDir);
 if (

@@ -975,6 +975,7 @@ check_file "$INSTALL_DIR/daemon/cred_transport_cli.py" "daemon/cred_transport_cl
 check_file "$INSTALL_DIR/daemon/cred_transport_ssh.py" "daemon/cred_transport_ssh.py exists"
 check_file "$INSTALL_DIR/daemon/cred_transport_snmp.py" "daemon/cred_transport_snmp.py exists"
 check_file "$INSTALL_DIR/api/recon_diagnostics.php" "api/recon_diagnostics.php exists"
+check_file "$INSTALL_DIR/api/vulnerability_dashboard.php" "api/vulnerability_dashboard.php exists"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_reconciliation.php" "www-data readable: lib_reconciliation.php"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_worker_jobs.php" "www-data readable: lib_worker_jobs.php"
 check_readable_as_user "$WEB_GROUP" "$INSTALL_DIR/api/lib_credentialed_checks.php" "www-data readable: lib_credentialed_checks.php"

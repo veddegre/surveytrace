@@ -732,6 +732,7 @@ if ($single_id > 0) {
         'tables_ready'   => st_vuln_tables_ready($db),
         'affected_total' => 0,
         'rows'           => [],
+        'risk_rollup'    => null,
     ];
     if ($vulnBundle['tables_ready']) {
         try {
@@ -745,6 +746,11 @@ if ($single_id > 0) {
             $vulnBundle['rows'] = st_vt_list_rows_for_asset($db, $single_id, 40, 0);
         } else {
             $vulnBundle['rows'] = st_vuln_list_for_asset($db, $single_id, 40, 0);
+        }
+        try {
+            $vulnBundle['risk_rollup'] = st_vuln_asset_risk_rollup($db, $single_id);
+        } catch (Throwable $e) {
+            @error_log('SurveyTrace assets.php risk_rollup: ' . $e->getMessage());
         }
     }
 

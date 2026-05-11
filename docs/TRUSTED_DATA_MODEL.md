@@ -179,6 +179,24 @@ Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compar
 
 **Post-inventory:** after successful normalized package persist, the cred worker **best-effort enqueues** one `vulnerability_correlation` job per asset (deduped); heavy work stays in offline scripts/cron — **not** inline in the scan path.
 
+### Vulnerability Dashboard (operator risk posture)
+
+**API:** `GET /api/vulnerability_dashboard.php` — read-only, allowlisted actions (`summary`, `top_assets`, `recent_findings`, `aging`, `by_severity`, `by_package`, `by_advisory`, `suppressed`, `overrides`). All queries bounded with explicit `LIMIT` caps (top assets ≤100, recent findings ≤250, package/advisory summaries ≤100). No raw artifact access, no secrets, safe sort allowlists, pagination via `offset`.
+
+**Risk rollup:** `st_vuln_asset_risk_rollup(PDO, int $assetId)` computes per-asset weighted score: critical=40, high=10, medium=3, low=1, info=0. Bands: ≥80 critical, ≥30 high, ≥10 medium, ≥1 low, 0 none. Includes suppressed/override counts and oldest open `first_seen_at`.
+
+**Summary:** global counts (total open, by severity, by triage priority), distinct affected assets, oldest finding, stale findings >30 days, active suppressions, analyst overrides.
+
+**UI:** dedicated "Vuln Dashboard" tab with summary cards, highest-risk assets table, aging criticals, most common vulnerable packages, recent findings (paginated), suppressed findings, and analyst overrides. Asset detail host panel includes a risk rollup banner when correlated findings exist.
+
+**Health:** `vulnerability_dashboard` block in `/api/health.php` reports `total_open_findings`, `critical_open_findings`, `stale_findings_over_30d`, `suppressed_active`, `override_active`, `top_risk_asset_id`, and `warnings[]` (stale correlation, no advisories, aging criticals, triage mismatches).
+
+**Diagnostics:** `php scripts/diagnose_vulnerability_dashboard.php [--db=]` — JSON output: summary, top-10 assets, advisory ingestion freshness, stale warnings, triage mismatch, health snapshot.
+
+**Selftest:** `php scripts/st_vulnerability_dashboard_selftest.php` — validates rollup math, suppression/override counts, aging logic, risk bands, bounded query limits, summary and health snapshot shapes.
+
+**Constraints:** SQLite-safe, offline, no charting libraries, no unbounded auto-refresh, no external APIs, no websocket streaming.
+
 ---
 
 ## Related code
@@ -192,6 +210,7 @@ Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compar
 - `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_advisory_import.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
 - `scripts/import_advisories.php`, `scripts/import_nvd_metadata.php`, `scripts/import_distro_advisories.php`, `scripts/remove_advisory.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php`, `scripts/st_remove_advisory_selftest.php` — bounded import, offline correlation, diagnostics, selftests
 - `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/resync_vulnerability_triage_priority.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), **priority resync** CLI (dry-run default), triage selftest
+- `api/vulnerability_dashboard.php`, `scripts/diagnose_vulnerability_dashboard.php`, `scripts/st_vulnerability_dashboard_selftest.php` — operator vulnerability dashboard API, diagnostics, selftest
 - `docs/samples/*.json` — shipped bounded sample payloads for importer validation (mirrors `data/samples/` in git)
 - `scripts/st_recon_trusted_data_selftest.php` — no-network checks for cred-aware OS + SNMP hostname reconciliation wording (slice 10)
 - `daemon/st_software_observation_selftest.py` — normalization, dedupe, cap, replace semantics for **`software_observed`**

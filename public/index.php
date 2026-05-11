@@ -119,6 +119,10 @@ if (!headers_sent()) {
     Vulnerabilities
     <span class="nb" id="nb-vulns">—</span>
   </div>
+      <div class="ni" id="nvulndash" data-nav-label="Vuln Dashboard" onclick="goTab('vulndash');hiNav('nvulndash')">
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="12" height="10" rx="1.5"/><path d="M4 8v2M7 6v4M10 4v6"/></svg>
+    Vuln Dashboard
+  </div>
     </div>
   </div>
   <div class="nav-grp" id="nav-grp-operations" data-nav-group="operations">
@@ -727,6 +731,107 @@ if (!headers_sent()) {
     <p class="hint-micro text-dim st-vuln-actions-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
       <strong>Resolve</strong> when remediation is verified (finding leaves the open list; audited). <strong>Accept risk</strong> documents acceptance and suppresses recurring open alerts for that finding while it remains accepted — use with governance alignment. Readers see status only. If the table is empty, confirm whether filters exclude everything vs. no data yet (see message in the findings grid).
     </p>
+  </section>
+</div>
+
+<!-- ================================================================ VULNERABILITY DASHBOARD -->
+<div class="tab" id="t-vulndash">
+  <section class="st-band st-vuln-band st-vuln-band--overview" aria-labelledby="st-vulndash-overview-title">
+    <header class="st-vuln-band-head">
+      <div class="st-vuln-kicker">Risk</div>
+      <div class="st-vuln-band-main">
+        <h2 class="st-vuln-page-title" id="st-vulndash-overview-title">Vulnerability Dashboard</h2>
+        <p class="hint-micro text-dim st-vuln-overview-lede mb0" style="max-width:min(100%,52rem);line-height:1.45">
+          Operator-focused <strong>risk posture</strong> at a glance: severity counts, highest-risk assets, aging criticals, common vulnerable packages, recent findings, suppressions, and analyst overrides. All data is locally computed from advisory correlation — bounded, offline, no external enrichment.
+        </p>
+      </div>
+    </header>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-summary-title">
+    <h3 class="st-vuln-section-title" id="st-vulndash-summary-title">Summary</h3>
+    <div class="sgrid" id="vd-summary-cards">
+      <div class="sc r"><div class="sl">Open findings</div><div class="sv" id="vd-total-open">—</div><div class="ss">total affected</div></div>
+      <div class="sc r"><div class="sl">Critical</div><div class="sv" id="vd-critical">—</div><div class="ss">highest severity</div></div>
+      <div class="sc a"><div class="sl">High</div><div class="sv" id="vd-high">—</div><div class="ss">near-term priority</div></div>
+      <div class="sc"><div class="sl">Medium</div><div class="sv" id="vd-medium">—</div><div class="ss">standard risk</div></div>
+      <div class="sc"><div class="sl">Low / Info</div><div class="sv" id="vd-low">—</div><div class="ss">low urgency</div></div>
+      <div class="sc g"><div class="sl">Affected assets</div><div class="sv" id="vd-assets">—</div><div class="ss">distinct hosts</div></div>
+      <div class="sc"><div class="sl">Stale &gt;30d</div><div class="sv" id="vd-stale">—</div><div class="ss">aging findings</div></div>
+      <div class="sc"><div class="sl">Suppressed</div><div class="sv" id="vd-suppressed">—</div><div class="ss">active suppressions</div></div>
+      <div class="sc"><div class="sl">Overrides</div><div class="sv" id="vd-overrides">—</div><div class="ss">analyst overrides</div></div>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-toprisk-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-toprisk-title">Highest-risk assets</h3>
+      <p class="hint-micro text-dim mb0">Top assets ordered by weighted risk score (critical=40, high=10, medium=3, low=1). Capped at 25 rows.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Asset</th><th>Risk band</th><th>Score</th><th>Critical</th><th>High</th><th>Total</th><th>Oldest</th></tr></thead>
+      <tbody id="vd-top-assets"><tr><td colspan="7" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-aging-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-aging-title">Oldest critical/high findings</h3>
+      <p class="hint-micro text-dim mb0">Critical and high-severity findings open more than 30 days without resolution.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Advisory</th><th>Severity</th><th>Asset</th><th>CVSS</th><th>Age (days)</th><th>First seen</th></tr></thead>
+      <tbody id="vd-aging"><tr><td colspan="6" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-packages-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-packages-title">Most common vulnerable packages</h3>
+      <p class="hint-micro text-dim mb0">Packages affecting the most assets across the environment.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Package</th><th>Ecosystem</th><th>Affected assets</th><th>Findings</th></tr></thead>
+      <tbody id="vd-packages"><tr><td colspan="4" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-recent-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-recent-title">Recent findings</h3>
+      <p class="hint-micro text-dim mb0">Most recently detected open findings (latest 50). Use pagination for more.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Advisory</th><th>Severity</th><th>Asset</th><th>CVSS</th><th>First seen</th></tr></thead>
+      <tbody id="vd-recent"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
+    <div class="pgn">
+      <button id="vd-recent-prev" onclick="loadVdRecent(vdRecentPage-1)" disabled>&#8592; Prev</button>
+      <span id="vd-recent-pgn">—</span>
+      <button id="vd-recent-next" onclick="loadVdRecent(vdRecentPage+1)" disabled>Next &#8594;</button>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-suppressed-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-suppressed-title">Suppressed findings</h3>
+      <p class="hint-micro text-dim mb0">Active suppressions (accepted risk or deferred).</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Advisory</th><th>Severity</th><th>Asset</th><th>Reason</th><th>Expires</th></tr></thead>
+      <tbody id="vd-suppressed-tbl"><tr><td colspan="5" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-overrides-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-overrides-title">Analyst overrides</h3>
+      <p class="hint-micro text-dim mb0">Findings where analysts have overridden the model priority.</p>
+    </header>
+    <div class="tbl-wrap tbl-wrap--data">
+      <table class="tbl tbl--data"><thead><tr><th>Advisory</th><th>Severity</th><th>Asset</th><th>Priority</th><th>Changed by</th><th>When</th></tr></thead>
+      <tbody id="vd-overrides-tbl"><tr><td colspan="6" class="loading tbl-empty">Loading…</td></tr></tbody></table>
+    </div>
   </section>
 </div>
 
@@ -4554,6 +4659,7 @@ function goTab(name) {
     if (name === 'assets')   loadAssets(1);
     if (name === 'devices')  loadDevices(1);
     if (name === 'vulns')    loadFindings(1);
+    if (name === 'vulndash') loadVulnDashboard();
     if (name === 'logs')     loadLog();
     if (name === 'scan')     loadScanStatus();
     if (name === 'scanhist') loadScanStatus();
@@ -8096,6 +8202,7 @@ function stHostSoftwareInventoryHtml(assetData) {
         : null;
     const vinRows = vin && Array.isArray(vin.rows) ? vin.rows : [];
     const vinTot = vin && vin.affected_total != null ? parseInt(String(vin.affected_total), 10) || 0 : 0;
+    const vinRollup = vin && vin.risk_rollup && typeof vin.risk_rollup === 'object' ? vin.risk_rollup : null;
     const aidV = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
     const vinApi =
         vin && vin.tables_ready === true && aidV > 0
@@ -8153,6 +8260,15 @@ function stHostSoftwareInventoryHtml(assetData) {
             : vin && vin.tables_ready === true && vinTot > 0
               ? `<p class="text-micro text-dim mt8">This host has <span class="mono-sm">${esc(String(vinTot))}</span> correlated advisory row(s); reload asset detail for the first page of rows.</p>`
               : '';
+    const vinRollupHtml = vinRollup && vinRollup.total_affected > 0
+        ? `<div class="mt8 mb4 st-host-vuln-rollup" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+            <span class="hp-chip hp-chip--${esc(vinRollup.risk_band || 'none')}" title="Risk band">${esc((vinRollup.risk_band || 'none').toUpperCase())}</span>
+            <span class="text-micro">Score <strong>${vinRollup.risk_score}</strong></span>
+            <span class="text-micro text-dim">C:${vinRollup.critical} H:${vinRollup.high} M:${vinRollup.medium} L:${vinRollup.low}</span>
+            <span class="text-micro text-dim">Suppressed:${vinRollup.suppressed} Overrides:${vinRollup.overrides}</span>
+            ${vinRollup.oldest_first_seen ? `<span class="text-micro text-dim">Oldest: ${localDate(vinRollup.oldest_first_seen)}</span>` : ''}
+          </div>`
+        : '';
     const noCveLine = `<p class="text-micro mt6 text-dim">This <strong>software evidence</strong> summary reflects inventory freshness and completeness. Separate <strong>local advisory correlation</strong> (when advisories are imported) matches installed packages using deterministic version rules — not internet exposure, KEV, or ticketing.</p>`;
 
     const expl = assetData.software_inventory_explanation != null && String(assetData.software_inventory_explanation).trim()
@@ -8209,6 +8325,7 @@ function stHostSoftwareInventoryHtml(assetData) {
       <div class="host-inner-surface st-host-evidence-inner">
         <p class="text-micro text-dim">Bounded <span class="mono-sm">software_observed</span> rows are present (${esc(String(swObs))}), but no reconciled <span class="mono-sm">software_inventory_summary</span> yet. Open this host again after the next credentialed package inventory run, or review trusted-data diagnostics if this persists.</p>
         ${noCveLine}
+        ${vinRollupHtml}
         ${vinTable}
         ${vinApi}
         ${evidenceBlock}
@@ -8228,6 +8345,7 @@ function stHostSoftwareInventoryHtml(assetData) {
         <div class="text-micro text-dim mt2">Package manager \u00b7 <span class="mono-sm">${esc(mgr)}</span> · Observed package count (hint) \u00b7 <span class="mono-sm">${esc(cnt)}</span> · Last evidence \u00b7 ${oatDisp}</div>
         ${badgeRow}
         ${noCveLine}
+        ${vinRollupHtml}
         ${vinTable}
         ${vinApi}
         ${expl}
@@ -8485,6 +8603,143 @@ async function unacceptFindingRisk(findingId, assetId, ip) {
     } else {
         toast((r && r.error) || 'Failed to unaccept risk', 'err');
     }
+}
+
+// ==========================================================================
+// Vulnerability Dashboard
+// ==========================================================================
+let vdRecentPage = 1;
+
+async function loadVulnDashboard() {
+    loadVdSummary();
+    loadVdTopAssets();
+    loadVdAging();
+    loadVdPackages();
+    loadVdRecent(1);
+    loadVdSuppressed();
+    loadVdOverrides();
+}
+
+async function loadVdSummary() {
+    const d = await api('/api/vulnerability_dashboard.php?action=summary');
+    if (!d || !d.ok) return;
+    const s = d.data || {};
+    document.getElementById('vd-total-open').textContent = s.total_open ?? '—';
+    document.getElementById('vd-critical').textContent = s.critical_count ?? (s.by_severity?.critical ?? '—');
+    document.getElementById('vd-high').textContent = s.high_count ?? (s.by_severity?.high ?? '—');
+    document.getElementById('vd-medium').textContent = s.medium_count ?? (s.by_severity?.medium ?? '—');
+    const low = (s.low_count ?? 0) + (s.info_count ?? 0);
+    document.getElementById('vd-low').textContent = low || '—';
+    document.getElementById('vd-assets').textContent = s.distinct_assets ?? s.distinct_affected_assets ?? '—';
+    document.getElementById('vd-stale').textContent = s.stale_findings_over_30d ?? '—';
+    document.getElementById('vd-suppressed').textContent = s.suppressed ?? '—';
+    document.getElementById('vd-overrides').textContent = s.overrides ?? '—';
+}
+
+async function loadVdTopAssets() {
+    const d = await api('/api/vulnerability_dashboard.php?action=top_assets&limit=25');
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-top-assets');
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="7" class="tbl-empty">No affected assets found.</td></tr>'; return; }
+    el.innerHTML = rows.map(r => {
+        const band = esc(r.risk_band || 'none');
+        const aid = r.asset_id || 0;
+        return `<tr>
+            <td class="mono click-ip" onclick="openHostPanel(${aid},'')" title="View host">${esc(String(aid))}</td>
+            <td><span class="hp-chip hp-chip--${band}">${band}</span></td>
+            <td class="mono-sm">${r.risk_score ?? '—'}</td>
+            <td>${r.critical ?? '—'}</td>
+            <td>${r.high ?? '—'}</td>
+            <td>${r.total_affected ?? r.affected_count ?? '—'}</td>
+            <td class="text-dim">${r.oldest_first_seen ? localDate(r.oldest_first_seen) : '—'}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function loadVdAging() {
+    const d = await api('/api/vulnerability_dashboard.php?action=aging&min_days=30&limit=50');
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-aging');
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="6" class="tbl-empty">No aging critical/high findings.</td></tr>'; return; }
+    el.innerHTML = rows.map(r => `<tr>
+        <td class="mono-sm">${esc(r.advisory_key || '—')}</td>
+        <td><span class="sev ${sevClass(r.cvss_score)}">${esc(r.severity || '—')}</span></td>
+        <td class="mono-sm">${esc(String(r.asset_id || '—'))}</td>
+        <td>${r.cvss_score ?? '—'}</td>
+        <td class="mono-sm">${r.age_days ?? '—'}</td>
+        <td class="text-dim">${r.first_seen_at ? localDate(r.first_seen_at) : '—'}</td>
+    </tr>`).join('');
+}
+
+async function loadVdPackages() {
+    const d = await api('/api/vulnerability_dashboard.php?action=by_package&limit=25');
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-packages');
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="4" class="tbl-empty">No vulnerable packages found.</td></tr>'; return; }
+    el.innerHTML = rows.map(r => `<tr>
+        <td class="mono-sm">${esc(r.package_name || '—')}</td>
+        <td>${esc(r.ecosystem || '—')}</td>
+        <td>${r.affected_asset_count ?? r.affected_assets ?? '—'}</td>
+        <td>${r.affected_count ?? r.finding_count ?? '—'}</td>
+    </tr>`).join('');
+}
+
+async function loadVdRecent(page) {
+    vdRecentPage = Math.max(1, page || 1);
+    const perPage = 50;
+    const offset = (vdRecentPage - 1) * perPage;
+    const d = await api(`/api/vulnerability_dashboard.php?action=recent_findings&limit=${perPage}&offset=${offset}`);
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-recent');
+    if (!rows.length && vdRecentPage === 1) { el.innerHTML = '<tr><td colspan="5" class="tbl-empty">No recent findings.</td></tr>'; }
+    else if (!rows.length) { el.innerHTML = '<tr><td colspan="5" class="tbl-empty">No more findings.</td></tr>'; }
+    else {
+        el.innerHTML = rows.map(r => `<tr>
+            <td class="mono-sm">${esc(r.advisory_key || '—')}</td>
+            <td><span class="sev ${sevClass(r.cvss_score)}">${esc(r.severity || '—')}</span></td>
+            <td class="mono-sm">${esc(String(r.asset_id || '—'))}</td>
+            <td>${r.cvss_score ?? '—'}</td>
+            <td class="text-dim">${r.first_seen_at ? localDate(r.first_seen_at) : '—'}</td>
+        </tr>`).join('');
+    }
+    document.getElementById('vd-recent-pgn').textContent = `Page ${vdRecentPage}`;
+    document.getElementById('vd-recent-prev').disabled = vdRecentPage <= 1;
+    document.getElementById('vd-recent-next').disabled = rows.length < perPage;
+}
+
+async function loadVdSuppressed() {
+    const d = await api('/api/vulnerability_dashboard.php?action=suppressed&limit=50');
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-suppressed-tbl');
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="5" class="tbl-empty">No active suppressions.</td></tr>'; return; }
+    el.innerHTML = rows.map(r => `<tr>
+        <td class="mono-sm">${esc(r.advisory_key || '—')}</td>
+        <td><span class="sev ${sevClass(null)}">${esc(r.severity || '—')}</span></td>
+        <td class="mono-sm">${esc(String(r.asset_id || '—'))}</td>
+        <td class="text-micro">${esc((r.suppression_reason || '—').slice(0, 60))}</td>
+        <td class="text-dim">${r.suppression_expires_at ? localDate(r.suppression_expires_at) : 'indefinite'}</td>
+    </tr>`).join('');
+}
+
+async function loadVdOverrides() {
+    const d = await api('/api/vulnerability_dashboard.php?action=overrides&limit=50');
+    if (!d || !d.ok) return;
+    const rows = d.data || [];
+    const el = document.getElementById('vd-overrides-tbl');
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="6" class="tbl-empty">No analyst overrides.</td></tr>'; return; }
+    el.innerHTML = rows.map(r => `<tr>
+        <td class="mono-sm">${esc(r.advisory_key || '—')}</td>
+        <td><span class="sev ${sevClass(null)}">${esc(r.severity || '—')}</span></td>
+        <td class="mono-sm">${esc(String(r.asset_id || '—'))}</td>
+        <td><span class="hp-chip">${esc(r.priority || '—')}</span></td>
+        <td>${esc(r.last_changed_by || '—')}</td>
+        <td class="text-dim">${r.last_triaged_at ? localDate(r.last_triaged_at) : (r.override_at ? localDate(r.override_at) : '—')}</td>
+    </tr>`).join('');
 }
 
 // ==========================================================================

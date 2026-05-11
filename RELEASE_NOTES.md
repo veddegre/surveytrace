@@ -9,6 +9,15 @@
 - **Removal** — `remove_advisory.php`: **dry-run by default**, **`--apply`** to delete; **`--source=`** guard; **`--force`** required for vendor/distro rows; cascades triage/notes/activity for removed asset-vulnerability rows — **test/internal cleanup only**. **`st_remove_advisory_selftest.php`** locks the policy matrix.
 - **Docs / samples** — `docs/wiki/security_model.md`, `TRUSTED_DATA_MODEL.md`, `CREDENTIALED_CHECKS_ENGINE.md`, release checklist, and **`docs/wiki/vulnerability-advisory-runbook.md`** aligned; **`docs/samples/*.json`** ship with `docs/` for validation on installs (git `data/samples/` remains for checkouts; `setup.sh` excludes copying `data/`).
 
+### Vulnerability Dashboard (operator risk posture)
+
+- **Dashboard API** — `GET /api/vulnerability_dashboard.php` with 9 bounded actions: `summary`, `top_assets`, `recent_findings`, `aging`, `by_severity`, `by_package`, `by_advisory`, `suppressed`, `overrides`. All queries capped (top assets ≤100, recent findings ≤250). Read-only, no external calls.
+- **Per-asset risk rollup** — Weighted scoring (critical=40, high=10, medium=3, low=1). Risk bands: ≥80 critical, ≥30 high, ≥10 medium, ≥1 low, 0 none. Includes suppression/override counts.
+- **UI** — Dedicated "Vuln Dashboard" tab: summary cards, highest-risk assets, oldest critical/high findings, most common vulnerable packages, recent findings (paginated), suppressed findings, analyst overrides. Asset detail host panel shows risk rollup banner.
+- **Health** — `vulnerability_dashboard` block in `/api/health.php`: open/critical counts, stale findings >30d, suppressions, overrides, warnings (stale correlation, no advisories, aging criticals).
+- **Diagnostics** — `scripts/diagnose_vulnerability_dashboard.php` (JSON: summary, top assets, ingestion freshness, stale warnings, triage mismatches).
+- **Selftest** — `scripts/st_vulnerability_dashboard_selftest.php` validates rollup math, suppression/override counts, aging, risk bands, bounded queries, and response shapes.
+
 ## 1.0.4 (2026-05-07)
 
 SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (slices 1–4)** on the trusted-data model: bounded **`software_observed`** rows from credentialed SSH package inventory, a single lazy **`software_inventory_summary`** assertion per asset, Host modal **software evidence** (bounded preview only), and **System Health / `trusted_data`** readiness counters for operators.

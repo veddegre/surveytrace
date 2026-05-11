@@ -97,6 +97,7 @@ return [
         'reporting.php',
         'reporting_cli.php',
         'recon_diagnostics.php',
+        'vulnerability_dashboard.php',
     ],
 
     // daemon/*.py always copied when present (master).
@@ -197,6 +198,8 @@ return [
         'st_vulnerability_correlation_selftest.php',
         'st_remove_advisory_selftest.php',
         'diagnose_vulnerability_triage.php',
+        'diagnose_vulnerability_dashboard.php',
+        'st_vulnerability_dashboard_selftest.php',
         'prune_vulnerability_activity.php',
         'resync_vulnerability_triage_priority.php',
         'st_vulnerability_triage_selftest.php',
