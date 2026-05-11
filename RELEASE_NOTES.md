@@ -1,6 +1,6 @@
 # SurveyTrace Release Notes
 
-## Unreleased
+## 1.0.5 (2026-05-11) — Vulnerability Intelligence Milestone
 
 ### Vulnerability advisory / correlation (operator-facing)
 
@@ -44,6 +44,61 @@
 - **Retention** — `prune_vulnerability_remediation_history.php`: dry-run default, only removes closed+verified actions older than 90d.
 - **Diagnostics** — `diagnose_vulnerability_remediation.php`: JSON output with all counts, stale actions, orphans.
 - **Constraints** — No external tickets, email, auto-remediation, package execution, agent deployment, or remote commands.
+
+### What to verify after upgrade
+
+```bash
+# Shell syntax
+bash -n setup.sh deploy.sh
+
+# Deploy coverage
+php scripts/check_deploy_coverage.php .
+
+# Operational integrity (full suite)
+php scripts/run_operational_integrity_suite.php
+
+# Database integrity
+php scripts/check_database_integrity.php
+
+# All vulnerability selftests
+php scripts/st_vulnerability_correlation_selftest.php
+php scripts/st_vulnerability_dashboard_selftest.php
+php scripts/st_vulnerability_triage_selftest.php
+php scripts/st_remove_advisory_selftest.php
+php scripts/st_vulnerability_remediation_selftest.php
+php scripts/st_operational_integrity_selftest.php
+
+# Scheduler + credential selftests
+php scripts/st_scheduler_health_selftest.php
+php scripts/st_credential_secret_no_leak_selftest.php
+php scripts/st_cred_secret_rewrap_selftest.php
+php scripts/st_backup_restore_readiness_selftest.php
+
+# Timer active
+systemctl list-timers surveytrace-vuln-correlation.timer
+
+# Browser: Vuln Dashboard tab shows data or actionable empty state
+# Browser: Host panel shows risk rollup for assets with inventory
+```
+
+### Known limitations
+
+- Remediation workflow is local-only (no ticket system integrations yet).
+- Correlation runs on a 5-minute timer; near-real-time is not supported.
+- NVD metadata import is manual (no auto-sync feed).
+- Dashboard does not auto-refresh (manual page reload).
+- No E2E browser testing suite.
+- No multi-node cluster support for correlation.
+
+### Deferred items
+
+- External ticket system integration (Jira, ServiceNow).
+- Automated NVD/distro advisory feed synchronization.
+- SLA escalation and email notifications.
+- Auto-remediation or package execution.
+- Multi-source inventory fusion (SBOM, agents).
+- Dashboard charting/visualization libraries.
+- Websocket real-time updates.
 
 ## 1.0.4 (2026-05-07)
 

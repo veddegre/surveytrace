@@ -7,6 +7,10 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-05-11
+
+Vulnerability Intelligence Milestone: advisory correlation, operator dashboard, remediation workflow, operational integrity framework, and automated correlation processing.
+
 ### Added
 
 - **Advisory authority + offline correlation polish** — `vulnerability_advisories.package_authority` (`metadata_only` \| `vendor_distro` \| `internal`) and optional `references_json`; NVD metadata importer (`scripts/import_nvd_metadata.php`), Ubuntu/Debian vendor importer (`scripts/import_distro_advisories.php`), extended `import_advisories.php` merges; correlation excludes **`metadata_only`** from package matching; health snapshot reports per-source and authority breakdowns; UI/API **basis** + **correlation confidence** wording; **`scripts/remove_advisory.php`** (dry-run default, `--force` for vendor) and **`scripts/st_remove_advisory_selftest.php`**; shipped **`docs/samples/*.json`** + wiki runbook.
@@ -25,6 +29,10 @@ Published release summaries are also tracked in `RELEASE_NOTES.md`.
 - Renamed production selftests / reconciliation helpers to neutral terminology (**same behavior**): e.g. **`st_recon_trusted_data_selftest.php`**, **`st_software_inventory_{summary,evidence,diagnostics}_selftest.php`**, **`daemon/cred_check_{os_release,package_inventory,snmp_identity}_selftest.py`**, **`daemon/st_software_observation_selftest.py`**, **`st_cc_normalized_preview_selftest.php`**; **`st_recon_software_inventory_*`** replaces **`st_recon_slice3_*`** / **`st_recon_slice4_*`** contract helpers.
 
 ### Fixed
+
+- **Dashboard API response key mismatch** — `api/vulnerability_dashboard.php` returned data under action-specific keys (`summary`, `top_assets`, etc.) but the UI expected `d.data`; all actions now use consistent `data` key with `meta` on summary.
+- **`st_vulnerability_triage_selftest.php`** — missing `package_authority` and `references_json` columns in the in-memory schema caused correlation to fail against the new authority model.
+- **`public/index.php` security audit** — replaced pre-existing native `window.confirm()` in `stVtResetPriorityToModel` with the auditable `showConfirmModal` utility.
 
 ### Removed
 
