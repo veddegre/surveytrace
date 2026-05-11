@@ -98,6 +98,7 @@ return [
         'reporting_cli.php',
         'recon_diagnostics.php',
         'vulnerability_dashboard.php',
+        'vulnerability_remediation.php',
     ],
 
     // daemon/*.py always copied when present (master).
@@ -224,6 +225,9 @@ return [
         'check_database_integrity.php',
         'st_operational_integrity_selftest.php',
         'diagnose_operational_integrity.php',
+        'st_vulnerability_remediation_selftest.php',
+        'diagnose_vulnerability_remediation.php',
+        'prune_vulnerability_remediation_history.php',
     ],
 
     'public_files' => [

@@ -224,3 +224,7 @@ Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compar
 - `scripts/check_database_integrity.php` — standalone database consistency checker (orphans, duplicates, stale leases, FK integrity)
 - `scripts/st_operational_integrity_selftest.php` — in-memory lifecycle regression (import→correlate→triage→suppress→cleanup→assert)
 - `scripts/diagnose_operational_integrity.php` — JSON diagnostic output (scheduler, worker, vulnerability, DB state)
+- `api/vulnerability_remediation.php` — CRUD + verify + close for remediation actions (CSRF on POST, bounded, audit-logged)
+- `scripts/st_vulnerability_remediation_selftest.php` — lifecycle, verification, overdue, prune, orphan, cascade tests
+- `scripts/diagnose_vulnerability_remediation.php` — JSON: overdue, verification failures, stale actions, orphans
+- `scripts/prune_vulnerability_remediation_history.php` — dry-run default retention prune (closed+verified, >90d)

@@ -835,6 +835,19 @@ if (!headers_sent()) {
       <tbody id="vd-overrides-tbl"><tr><td colspan="6" class="loading tbl-empty">Loading…</td></tr></tbody></table>
     </div>
   </section>
+
+  <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-remed-title">
+    <header class="st-vuln-section-head">
+      <h3 class="st-vuln-section-title" id="st-vulndash-remed-title">Remediation status</h3>
+      <p class="hint-micro text-dim mb0">Operator remediation workflow tracking: overdue, verification failures, and recently resolved.</p>
+    </header>
+    <div class="sgrid" id="vd-remed-cards">
+      <div class="sc r"><div class="sl">Overdue</div><div class="sv" id="vd-remed-overdue">—</div><div class="ss">past due date</div></div>
+      <div class="sc a"><div class="sl">Unresolved &gt;30d</div><div class="sv" id="vd-remed-unresolved">—</div><div class="ss">aging actions</div></div>
+      <div class="sc r"><div class="sl">Verification failures</div><div class="sv" id="vd-remed-vfail">—</div><div class="ss">remediation not confirmed</div></div>
+      <div class="sc g"><div class="sl">Resolved (7d)</div><div class="sv" id="vd-remed-resolved">—</div><div class="ss">recently completed</div></div>
+    </div>
+  </section>
 </div>
 
 <!-- ================================================================ SCAN CONTROL -->
@@ -8620,6 +8633,7 @@ async function loadVulnDashboard() {
     loadVdRecent(1);
     loadVdSuppressed();
     loadVdOverrides();
+    loadVdRemediation();
 }
 
 async function loadVdSummary() {
@@ -8773,6 +8787,26 @@ async function loadVdOverrides() {
         <td>${esc(r.last_changed_by || '—')}</td>
         <td class="text-dim">${r.last_triaged_at ? localDate(r.last_triaged_at) : (r.override_at ? localDate(r.override_at) : '—')}</td>
     </tr>`).join('');
+}
+
+async function loadVdRemediation() {
+    try {
+        const d = await api('/api/vulnerability_remediation.php?action=dashboard_counts');
+        if (!d || !d.ok) {
+            document.getElementById('vd-remed-overdue').textContent = '—';
+            document.getElementById('vd-remed-unresolved').textContent = '—';
+            document.getElementById('vd-remed-vfail').textContent = '—';
+            document.getElementById('vd-remed-resolved').textContent = '—';
+            return;
+        }
+        const c = d.data || {};
+        document.getElementById('vd-remed-overdue').textContent = c.overdue_count ?? 0;
+        document.getElementById('vd-remed-unresolved').textContent = c.unresolved_over_30d ?? 0;
+        document.getElementById('vd-remed-vfail').textContent = c.verification_failures ?? 0;
+        document.getElementById('vd-remed-resolved').textContent = c.recently_resolved_7d ?? 0;
+    } catch (e) {
+        document.getElementById('vd-remed-overdue').textContent = '—';
+    }
 }
 
 // ==========================================================================

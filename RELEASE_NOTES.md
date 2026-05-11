@@ -29,6 +29,22 @@
 - **Release gate** — `release_security_gate.php` now includes `check_database_integrity` and `run_operational_integrity_suite` steps.
 - **Constraints** — No destructive repair, auto-fix, chmod, service restart, internet access, or browser automation. All checks bounded, offline-safe, degrade gracefully.
 
+### Automated correlation + advisory merge
+
+- **Systemd timer** — `surveytrace-vuln-correlation.timer` runs every 5 minutes, processing queued correlation jobs automatically (25/batch, 240s deadline, stale lease recovery). No manual operator intervention after package inventory.
+- **Advisory merge verified** — NVD→vendor upgrade, vendor→NVD enrichment (no downgrade), NVD-only non-correlation all covered by selftest. Dashboard shows one row per `advisory_key`/asset combination.
+
+### Vulnerability remediation workflow (Phase 1)
+
+- **Schema** — `vulnerability_remediation_actions` table: action_type (planned/in_progress/mitigated/resolved/false_positive/accepted_risk), assigned_to, due_at, verification_status (pending/verified/failed), change_summary.
+- **API** — `api/vulnerability_remediation.php`: list_for_asset, get, create, update, verify, close, dashboard_counts. CSRF on POST, `scan_editor`/`admin` for mutations, bounded pagination, audit logging.
+- **Semantics** — "Resolved" does NOT remove the vulnerability. Correlation engine still owns affected/fixed state. Verification cross-checks remediation claims against correlation truth.
+- **Dashboard** — "Remediation status" section: overdue count, unresolved >30d, verification failures, recently resolved.
+- **Health** — `vulnerability_remediation` block: overdue_count, overdue_critical, verification_failures, unresolved_backlog, recently_resolved_7d, warnings.
+- **Retention** — `prune_vulnerability_remediation_history.php`: dry-run default, only removes closed+verified actions older than 90d.
+- **Diagnostics** — `diagnose_vulnerability_remediation.php`: JSON output with all counts, stale actions, orphans.
+- **Constraints** — No external tickets, email, auto-remediation, package execution, agent deployment, or remote commands.
+
 ## 1.0.4 (2026-05-07)
 
 SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (slices 1–4)** on the trusted-data model: bounded **`software_observed`** rows from credentialed SSH package inventory, a single lazy **`software_inventory_summary`** assertion per asset, Host modal **software evidence** (bounded preview only), and **System Health / `trusted_data`** readiness counters for operators.

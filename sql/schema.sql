@@ -701,6 +701,31 @@ CREATE TABLE IF NOT EXISTS vulnerability_activity_log (
 CREATE INDEX IF NOT EXISTS idx_vuln_act_av ON vulnerability_activity_log(asset_vulnerability_id, created_at DESC);
 
 -- -------------------------------------------------------
+-- Vulnerability remediation actions (Phase 1 — operator workflow tracking)
+-- Tracks planned/in-progress/resolved remediation without external ticket dependencies.
+-- Correlation engine still owns affected/fixed state; this is analyst workflow only.
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vulnerability_remediation_actions (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_vulnerability_id  INTEGER NOT NULL REFERENCES asset_vulnerabilities(id) ON DELETE CASCADE,
+    action_type             TEXT NOT NULL DEFAULT 'planned',
+        -- planned | in_progress | mitigated | resolved | false_positive | accepted_risk
+    assigned_to             TEXT,
+    due_at                  DATETIME,
+    completed_at            DATETIME,
+    verification_status     TEXT NOT NULL DEFAULT 'pending',
+        -- pending | verified | failed
+    verification_note       TEXT,
+    change_summary          TEXT,
+    created_at              DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at              DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_vra_avid    ON vulnerability_remediation_actions(asset_vulnerability_id);
+CREATE INDEX IF NOT EXISTS idx_vra_type    ON vulnerability_remediation_actions(action_type);
+CREATE INDEX IF NOT EXISTS idx_vra_vstatus ON vulnerability_remediation_actions(verification_status);
+CREATE INDEX IF NOT EXISTS idx_vra_due     ON vulnerability_remediation_actions(due_at);
+
+-- -------------------------------------------------------
 -- Worker execution substrate (MVP slice 1 — schema only; no runtime wiring yet)
 -- See docs/WORKER_EXECUTION_SUBSTRATE.md and docs/WORKER_EXECUTION_MVP_PLAN.md
 -- Logical refs: lease_node_id / node_id → worker_nodes.id (not enforced as FK)

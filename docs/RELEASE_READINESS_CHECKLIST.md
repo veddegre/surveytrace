@@ -281,6 +281,18 @@ Document for operators **what is not in this release**:
 - [ ] Health API `operational_integrity` block present and correctly shaped
 - [ ] Release gate (`release_security_gate.php`) includes integrity suite + DB integrity steps
 
+### Vulnerability remediation workflow (1.0.6)
+
+- [ ] `php scripts/st_vulnerability_remediation_selftest.php` passes
+- [ ] `php scripts/diagnose_vulnerability_remediation.php` produces valid JSON
+- [ ] `php -l api/vulnerability_remediation.php` passes
+- [ ] Health API `vulnerability_remediation` block present
+- [ ] Dashboard "Remediation status" section renders
+- [ ] `surveytrace-vuln-correlation.timer` active on production
+- [ ] `systemctl list-timers` shows correlation timer
+- [ ] `php scripts/prune_vulnerability_remediation_history.php` dry-run works
+- [ ] `php scripts/check_deploy_coverage.php .` passes
+
 ---
 
 ## Remaining release-readiness gaps (typical)

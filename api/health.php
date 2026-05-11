@@ -393,6 +393,87 @@ function st_health_stat_file_bytes(string $path): ?float {
 }
 
 /**
+ * Vulnerability remediation health snapshot.
+ *
+ * Reports overdue actions, verification failures, backlog size, and stale in-progress actions.
+ * Pure read-only.
+ *
+ * @return array<string,mixed>
+ */
+function st_health_vulnerability_remediation_snapshot(PDO $db): array {
+    $out = [
+        'table_ready'            => false,
+        'total_actions'          => 0,
+        'overdue_count'          => 0,
+        'overdue_critical'       => 0,
+        'verification_failures'  => 0,
+        'unresolved_backlog'     => 0,
+        'recently_resolved_7d'   => 0,
+        'warnings'               => [],
+    ];
+
+    try {
+        $db->query("SELECT 1 FROM vulnerability_remediation_actions LIMIT 1");
+        $out['table_ready'] = true;
+    } catch (Throwable $e) {
+        return $out;
+    }
+
+    $out['total_actions'] = (int) $db->query("SELECT COUNT(*) FROM vulnerability_remediation_actions")->fetchColumn();
+
+    $out['overdue_count'] = (int) $db->query(
+        "SELECT COUNT(*) FROM vulnerability_remediation_actions
+         WHERE due_at IS NOT NULL AND datetime(due_at) < datetime('now')
+           AND completed_at IS NULL
+           AND action_type NOT IN ('resolved','accepted_risk','false_positive')"
+    )->fetchColumn();
+
+    try {
+        $out['overdue_critical'] = (int) $db->query(
+            "SELECT COUNT(*) FROM vulnerability_remediation_actions ra
+             INNER JOIN asset_vulnerabilities av ON av.id = ra.asset_vulnerability_id
+             INNER JOIN vulnerability_advisories va ON va.id = av.advisory_id
+             WHERE ra.due_at IS NOT NULL AND datetime(ra.due_at) < datetime('now')
+               AND ra.completed_at IS NULL
+               AND ra.action_type NOT IN ('resolved','accepted_risk','false_positive')
+               AND va.severity = 'critical'"
+        )->fetchColumn();
+    } catch (Throwable $e) {
+        // join may fail if tables missing
+    }
+
+    $out['verification_failures'] = (int) $db->query(
+        "SELECT COUNT(*) FROM vulnerability_remediation_actions WHERE verification_status='failed'"
+    )->fetchColumn();
+
+    $out['unresolved_backlog'] = (int) $db->query(
+        "SELECT COUNT(*) FROM vulnerability_remediation_actions
+         WHERE action_type NOT IN ('resolved','false_positive','accepted_risk')
+           AND completed_at IS NULL"
+    )->fetchColumn();
+
+    $out['recently_resolved_7d'] = (int) $db->query(
+        "SELECT COUNT(*) FROM vulnerability_remediation_actions
+         WHERE action_type='resolved' AND datetime(completed_at) > datetime('now','-7 day')"
+    )->fetchColumn();
+
+    if ($out['overdue_critical'] > 0) {
+        $out['warnings'][] = "Overdue critical remediations: {$out['overdue_critical']}";
+    }
+    if ($out['overdue_count'] > 5) {
+        $out['warnings'][] = "Large overdue backlog: {$out['overdue_count']} actions past due.";
+    }
+    if ($out['verification_failures'] > 0) {
+        $out['warnings'][] = "Verification failures: {$out['verification_failures']}";
+    }
+    if ($out['unresolved_backlog'] > 50) {
+        $out['warnings'][] = "Large unresolved remediation backlog: {$out['unresolved_backlog']}";
+    }
+
+    return $out;
+}
+
+/**
  * Operational integrity health snapshot.
  *
  * Reports scheduler/worker health, DB integrity signals, helper readiness, and stale components.
@@ -1105,6 +1186,22 @@ if (
 ) {
     $health['services']['collector_ingest']['state'] = 'degraded';
     $health['services']['collector_ingest']['detail'] = 'Running with runtime warnings (see collector_ingest_runtime).';
+}
+
+try {
+    $health['vulnerability_remediation'] = st_health_vulnerability_remediation_snapshot($db);
+} catch (Throwable $e) {
+    $health['vulnerability_remediation'] = [
+        'table_ready'           => false,
+        'total_actions'         => 0,
+        'overdue_count'         => 0,
+        'overdue_critical'      => 0,
+        'verification_failures' => 0,
+        'unresolved_backlog'    => 0,
+        'recently_resolved_7d'  => 0,
+        'warnings'              => ['Vulnerability remediation health unavailable.'],
+    ];
+    @error_log('SurveyTrace health vulnerability_remediation: ' . $e->getMessage());
 }
 
 try {
