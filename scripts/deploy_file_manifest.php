@@ -192,6 +192,7 @@ return [
         'st_software_inventory_diagnostics_selftest.php',
         'import_advisories.php',
         'import_nvd_metadata.php',
+        'import_nvd_from_local_db.php',
         'import_distro_advisories.php',
         'remove_advisory.php',
         'run_vulnerability_correlation.php',
