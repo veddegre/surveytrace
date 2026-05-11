@@ -572,6 +572,10 @@ install_unit_with_install_dir "surveytrace-daemon.service"
 install_unit_with_install_dir "surveytrace-scheduler.service"
 install_unit_with_install_dir "surveytrace-collector-ingest.service"
 install_unit_with_install_dir "surveytrace-credential-check-worker.service"
+install_unit_with_install_dir "surveytrace-vuln-correlation.service"
+sudo cp "$SRC/surveytrace-vuln-correlation.timer" /etc/systemd/system/surveytrace-vuln-correlation.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now surveytrace-vuln-correlation.timer 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Restart daemons

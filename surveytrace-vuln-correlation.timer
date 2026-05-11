@@ -1,0 +1,12 @@
+[Unit]
+Description=Run SurveyTrace vulnerability correlation every 5 minutes
+Documentation=https://github.com/yourorg/surveytrace
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=15s
+
+[Install]
+WantedBy=timers.target

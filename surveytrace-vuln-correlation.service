@@ -1,0 +1,26 @@
+[Unit]
+Description=SurveyTrace vulnerability correlation job processor
+After=network.target
+Documentation=https://github.com/yourorg/surveytrace
+ConditionPathExists=/opt/surveytrace/data/surveytrace.db
+
+[Service]
+Type=oneshot
+User=surveytrace
+Group=surveytrace
+SupplementaryGroups=www-data
+WorkingDirectory=/opt/surveytrace
+Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
+EnvironmentFile=-/etc/surveytrace/surveytrace.env
+ExecStart=/usr/bin/php /opt/surveytrace/scripts/run_vulnerability_correlation.php --consume-jobs --job-batch=25 --max-seconds=240 --recover-job-leases
+TimeoutStartSec=300
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/surveytrace/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=surveytrace-vuln-correlation

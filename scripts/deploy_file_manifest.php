@@ -240,6 +240,8 @@ return [
         'surveytrace-scheduler.service',
         'surveytrace-collector-ingest.service',
         'surveytrace-credential-check-worker.service',
+        'surveytrace-vuln-correlation.service',
+        'surveytrace-vuln-correlation.timer',
     ],
 
     /**

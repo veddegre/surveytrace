@@ -611,6 +611,15 @@ install_service "surveytrace-scheduler"
 install_service "surveytrace-collector-ingest"
 install_service "surveytrace-credential-check-worker"
 
+# Vulnerability correlation timer (oneshot + timer, not long-running daemon)
+if [ -f "$INSTALL_DIR/surveytrace-vuln-correlation.service" ] && [ -f "$INSTALL_DIR/surveytrace-vuln-correlation.timer" ]; then
+  sudo cp "$INSTALL_DIR/surveytrace-vuln-correlation.service" /etc/systemd/system/
+  sudo cp "$INSTALL_DIR/surveytrace-vuln-correlation.timer" /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now surveytrace-vuln-correlation.timer 2>/dev/null || true
+  echo "[setup] Enabled surveytrace-vuln-correlation.timer (every 5 min)"
+fi
+
 # =============================================================================
 # STEP 8 — Web server config
 # =============================================================================
@@ -1047,6 +1056,8 @@ check_systemd_unit_enabled "surveytrace-daemon.service"
 check_systemd_unit_enabled "surveytrace-scheduler.service"
 check_systemd_unit_enabled "surveytrace-collector-ingest.service"
 check_systemd_unit_enabled "surveytrace-credential-check-worker.service"
+check_systemd_unit_present "surveytrace-vuln-correlation.service"
+check_systemd_unit_present "surveytrace-vuln-correlation.timer"
 check_systemd_unit_rw_policy "surveytrace-daemon.service"
 check_systemd_unit_rw_policy "surveytrace-scheduler.service"
 check_systemd_unit_rw_policy "surveytrace-collector-ingest.service"
