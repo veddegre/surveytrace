@@ -4938,7 +4938,7 @@ async function stVtResetPriorityToModel(avid) {
         toast('CSRF token missing; refresh the page.', 'err');
         return;
     }
-    if (!window.confirm('Reset stored priority to the model-derived band?')) {
+    if (!(await showConfirmModal('Reset stored priority to the model-derived band?', {title: 'Reset priority', okText: 'Reset to model'}))) {
         return;
     }
     const r = await apiPost('/api/vulnerability_triage.php?action=reset_priority_to_model', {
