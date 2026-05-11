@@ -4355,6 +4355,12 @@ body.light-mode #t-report.on .report-manual-tools{
 }
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* Empty state banner */
+.st-empty-banner{padding:16px 20px;margin:8px 0 12px;border-radius:8px;background:var(--bg2);border:1px solid var(--brd);line-height:1.5}
+.st-empty-banner strong{color:var(--tx1)}
+.st-empty-steps{margin:8px 0 4px 18px;padding:0;list-style:disc}
+.st-empty-steps li{margin-bottom:4px;color:var(--tx2)}
+
 /* Scrollbar polish */
 *::-webkit-scrollbar{width:10px;height:10px}
 *::-webkit-scrollbar-track{background:var(--bg2)}

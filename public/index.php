@@ -763,6 +763,8 @@ if (!headers_sent()) {
     </div>
   </section>
 
+  <div id="vd-empty-state"></div>
+
   <section class="st-band st-vuln-band" aria-labelledby="st-vulndash-toprisk-title">
     <header class="st-vuln-section-head">
       <h3 class="st-vuln-section-title" id="st-vulndash-toprisk-title">Highest-risk assets</h3>
@@ -8622,18 +8624,49 @@ async function loadVulnDashboard() {
 
 async function loadVdSummary() {
     const d = await api('/api/vulnerability_dashboard.php?action=summary');
-    if (!d || !d.ok) return;
+    if (!d || !d.ok) {
+        const banner = document.getElementById('vd-empty-state');
+        if (banner) banner.innerHTML = '<div class="st-empty-banner"><strong>Dashboard unavailable.</strong> API returned an error. Check authentication and server logs.</div>';
+        return;
+    }
     const s = d.data || {};
-    document.getElementById('vd-total-open').textContent = s.total_open ?? '—';
-    document.getElementById('vd-critical').textContent = s.critical_count ?? (s.by_severity?.critical ?? '—');
-    document.getElementById('vd-high').textContent = s.high_count ?? (s.by_severity?.high ?? '—');
-    document.getElementById('vd-medium').textContent = s.medium_count ?? (s.by_severity?.medium ?? '—');
+    const meta = d.meta || {};
+    document.getElementById('vd-total-open').textContent = s.total_open ?? 0;
+    document.getElementById('vd-critical').textContent = s.critical_count ?? (s.by_severity?.critical ?? 0);
+    document.getElementById('vd-high').textContent = s.high_count ?? (s.by_severity?.high ?? 0);
+    document.getElementById('vd-medium').textContent = s.medium_count ?? (s.by_severity?.medium ?? 0);
     const low = (s.low_count ?? 0) + (s.info_count ?? 0);
-    document.getElementById('vd-low').textContent = low || '—';
-    document.getElementById('vd-assets').textContent = s.distinct_assets ?? s.distinct_affected_assets ?? '—';
-    document.getElementById('vd-stale').textContent = s.stale_findings_over_30d ?? '—';
-    document.getElementById('vd-suppressed').textContent = s.suppressed ?? '—';
-    document.getElementById('vd-overrides').textContent = s.overrides ?? '—';
+    document.getElementById('vd-low').textContent = low;
+    document.getElementById('vd-assets').textContent = s.distinct_assets ?? s.distinct_affected_assets ?? 0;
+    document.getElementById('vd-stale').textContent = s.stale_findings_over_30d ?? 0;
+    document.getElementById('vd-suppressed').textContent = s.suppressed ?? 0;
+    document.getElementById('vd-overrides').textContent = s.overrides ?? 0;
+
+    // Empty-state diagnostics banner
+    const banner = document.getElementById('vd-empty-state');
+    if (!banner) return;
+    const totalOpen = s.total_open ?? 0;
+    const advCount = meta.advisory_count ?? 0;
+    const assetCount = meta.asset_count ?? 0;
+    const pkgRules = meta.package_rules ?? 0;
+    const queuedCorr = meta.queued_correlation_jobs ?? 0;
+
+    if (totalOpen > 0) { banner.innerHTML = ''; return; }
+
+    let hints = [];
+    if (assetCount === 0) hints.push('No assets discovered yet. Run a network scan or import assets.');
+    if (advCount === 0) hints.push('No advisory data imported. Import vendor or internal advisories.');
+    else if (pkgRules === 0) hints.push('Advisories exist but no package rules. Import distro advisories with fixed versions.');
+    if (advCount > 0 && assetCount > 0 && pkgRules > 0) hints.push('Advisories and assets present but no matches. Run vulnerability correlation or verify package inventory.');
+    if (queuedCorr > 0) hints.push(`${queuedCorr} correlation job(s) queued — run the correlation worker.`);
+
+    const countsHtml = `<div class="text-micro text-dim mt4">Current state: <strong>${advCount}</strong> advisories, <strong>${pkgRules}</strong> package rules, <strong>${assetCount}</strong> assets, <strong>${totalOpen}</strong> affected findings.</div>`;
+    const stepsHtml = hints.length > 0
+        ? '<ul class="st-empty-steps">' + hints.map(h => `<li>${esc(h)}</li>`).join('') + '</ul>'
+        : '';
+    const cliHtml = `<details class="mt4"><summary class="text-micro click-ip">CLI quick-start</summary><pre class="text-micro mt4" style="white-space:pre-wrap;max-width:50rem"># Import sample advisory:\nphp scripts/import_advisories.php docs/samples/advisory_cve_test.sample.json\n\n# Run correlation:\nphp scripts/run_vulnerability_correlation.php --batch=100\n\n# Diagnose:\nphp scripts/diagnose_vulnerability_dashboard.php</pre></details>`;
+
+    banner.innerHTML = `<div class="st-empty-banner"><strong>No vulnerability data yet.</strong>${stepsHtml}${countsHtml}${cliHtml}</div>`;
 }
 
 async function loadVdTopAssets() {
