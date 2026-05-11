@@ -8791,7 +8791,7 @@ async function loadVdOverrides() {
 
 async function loadVdRemediation() {
     try {
-        const d = await api('/api/vulnerability_remediation.php?action=dashboard_counts');
+        const d = await api('/api/vulnerability_remediation.php?action=dashboard_counts', {quiet: true});
         if (!d || !d.ok) {
             document.getElementById('vd-remed-overdue').textContent = '—';
             document.getElementById('vd-remed-unresolved').textContent = '—';
