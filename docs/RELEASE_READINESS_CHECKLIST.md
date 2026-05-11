@@ -269,6 +269,18 @@ Document for operators **what is not in this release**:
 - [ ] `bash -n setup.sh` and `bash -n deploy.sh` pass
 - [ ] Manual: Host modal **Software evidence** block + **System Health** trusted-data line when non-zero software diagnostics
 
+### Operational integrity framework (1.0.5)
+
+- [ ] `php scripts/run_operational_integrity_suite.php` passes (exit 0)
+- [ ] `php scripts/run_operational_integrity_suite.php --strict` passes if no WARN acceptable
+- [ ] `php scripts/check_database_integrity.php` passes against production DB
+- [ ] `php scripts/st_operational_integrity_selftest.php` passes (in-memory regression)
+- [ ] `php scripts/diagnose_operational_integrity.php` produces valid JSON
+- [ ] `php scripts/check_deploy_coverage.php .` includes all new scripts
+- [ ] `bash -n setup.sh deploy.sh` pass
+- [ ] Health API `operational_integrity` block present and correctly shaped
+- [ ] Release gate (`release_security_gate.php`) includes integrity suite + DB integrity steps
+
 ---
 
 ## Remaining release-readiness gaps (typical)

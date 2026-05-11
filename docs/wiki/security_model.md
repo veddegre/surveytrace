@@ -148,6 +148,22 @@ Credentialed SSH package inventory persists **normalized** identities in `softwa
 
 ---
 
+## Operational integrity (validation model)
+
+SurveyTrace includes a unified **operational integrity framework** (`scripts/run_operational_integrity_suite.php`) that validates end-to-end correctness without mutating state:
+
+- **Read-only by design**: all integrity checks use `PRAGMA query_only=1` and never repair, chmod, restart, or apply fixes automatically.
+- **Bounded validation**: every scan/query is capped with LIMIT clauses; no unbounded table scans, no giant dataset loads, no network access.
+- **Deterministic ordering**: checks run in a fixed domain order (lint → selftests → deploy → DB → runtime → health → shell syntax) for reproducible results.
+- **Graceful degradation**: missing tables, absent files, or partial installs produce INFO/WARN rather than crashing the suite.
+- **Failure semantics**: FAIL indicates a definite invariant violation (orphans, duplicate keys, syntax errors); WARN indicates drift requiring operator attention (stale data, expired suppressions); both are actionable but only FAIL blocks release in non-strict mode.
+- **Recovery expectations**: the suite diagnoses problems but never fixes them. Remediation is manual or via dedicated CLIs (`recover_stale_worker_jobs.php`, `resync_vulnerability_triage_priority.php --apply`, etc.).
+- **No secret exposure**: integrity output contains counts and identifiers only; never raw credentials, advisory bodies, or package lists.
+
+Related scripts: `check_database_integrity.php` (standalone DB validator), `st_operational_integrity_selftest.php` (in-memory regression), `diagnose_operational_integrity.php` (JSON diagnostics).
+
+---
+
 ## Limitations (honest)
 
 - PHP and Python do not provide guaranteed zeroization of strings; we **discard references** and avoid logging sensitive structures—**not** cryptographic memory wiping.

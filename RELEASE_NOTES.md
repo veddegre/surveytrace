@@ -18,6 +18,17 @@
 - **Diagnostics** — `scripts/diagnose_vulnerability_dashboard.php` (JSON: summary, top assets, ingestion freshness, stale warnings, triage mismatches).
 - **Selftest** — `scripts/st_vulnerability_dashboard_selftest.php` validates rollup math, suppression/override counts, aging, risk bands, bounded queries, and response shapes.
 
+### Operational integrity framework (platform validation)
+
+- **Unified suite** — `scripts/run_operational_integrity_suite.php`: read-only runner covering lint, selftests, deploy coverage, DB integrity, runtime invariants, health shape, and shell syntax. Deterministic domain ordering. `--strict` fails on WARN; `--json` for machine output.
+- **Database integrity** — `scripts/check_database_integrity.php`: PRAGMA integrity_check, orphan detection (asset_vulnerabilities, triage, package rules), duplicate advisory keys, stale leases/queued jobs, invalid status/priority_source values, malformed JSON, expired suppressions, WAL size. All scans bounded.
+- **Runtime invariants** — Embedded in suite: WAL size, stuck correlation runs, advisory/correlation freshness, stale leases, aging queued jobs, expired suppressions, bounded table growth.
+- **Regression selftest** — `scripts/st_operational_integrity_selftest.php`: in-memory lifecycle (import→correlate→triage→suppress→reset-to-model→dashboard rollup→cleanup→assert). Validates bounded outputs, consistent counts, no orphan rows, no negative counters.
+- **Health** — `operational_integrity` block in `/api/health.php`: `integrity_last_run`, `integrity_failures`, `integrity_warnings`, `stale_runtime_components`, `scheduler_runtime_ok`, `db_integrity_ok`, `helper_integrity_ok`.
+- **Diagnostics** — `scripts/diagnose_operational_integrity.php` (JSON: scheduler state, worker state, vulnerability pipeline, DB health, stale components, warning rollup).
+- **Release gate** — `release_security_gate.php` now includes `check_database_integrity` and `run_operational_integrity_suite` steps.
+- **Constraints** — No destructive repair, auto-fix, chmod, service restart, internet access, or browser automation. All checks bounded, offline-safe, degrade gracefully.
+
 ## 1.0.4 (2026-05-07)
 
 SurveyTrace **1.0.4** ships **Software Inventory Reconciliation Foundations (slices 1–4)** on the trusted-data model: bounded **`software_observed`** rows from credentialed SSH package inventory, a single lazy **`software_inventory_summary`** assertion per asset, Host modal **software evidence** (bounded preview only), and **System Health / `trusted_data`** readiness counters for operators.

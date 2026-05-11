@@ -70,6 +70,8 @@ $steps = [
     ['st_credential_secret_no_leak_selftest', [$php, $root . '/scripts/st_credential_secret_no_leak_selftest.php']],
     ['st_cred_secret_rewrap_selftest', [$php, $root . '/scripts/st_cred_secret_rewrap_selftest.php']],
     ['st_backup_restore_readiness_selftest', [$php, $root . '/scripts/st_backup_restore_readiness_selftest.php']],
+    ['check_database_integrity', [$php, $root . '/scripts/check_database_integrity.php']],
+    ['run_operational_integrity_suite', [$php, $root . '/scripts/run_operational_integrity_suite.php']],
 ];
 if (! $staticOnly) {
     $steps[] = [

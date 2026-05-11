@@ -393,6 +393,94 @@ function st_health_stat_file_bytes(string $path): ?float {
 }
 
 /**
+ * Operational integrity health snapshot.
+ *
+ * Reports scheduler/worker health, DB integrity signals, helper readiness, and stale components.
+ * Pure read-only; no repairs.
+ *
+ * @return array<string,mixed>
+ */
+function st_health_operational_integrity_snapshot(PDO $db): array {
+    $out = [
+        'integrity_last_run'       => null,
+        'integrity_failures'       => 0,
+        'integrity_warnings'       => 0,
+        'stale_runtime_components' => [],
+        'scheduler_runtime_ok'     => true,
+        'db_integrity_ok'          => true,
+        'helper_integrity_ok'      => true,
+        'warnings'                 => [],
+    ];
+
+    // Scheduler health: stale leases or very old queued jobs indicate problems
+    try {
+        $staleLeases = (int) $db->query(
+            "SELECT COUNT(*) FROM worker_jobs WHERE status='leased' AND datetime(leased_at) < datetime('now','-2 hour')"
+        )->fetchColumn();
+        $oldQueued = (int) $db->query(
+            "SELECT COUNT(*) FROM worker_jobs WHERE status='queued' AND datetime(created_at) < datetime('now','-7 day')"
+        )->fetchColumn();
+        if ($staleLeases > 0) {
+            $out['scheduler_runtime_ok'] = false;
+            $out['stale_runtime_components'][] = 'worker_leases';
+            $out['integrity_warnings']++;
+            $out['warnings'][] = "Stale worker leases: {$staleLeases}";
+        }
+        if ($oldQueued > 0) {
+            $out['stale_runtime_components'][] = 'queued_jobs';
+            $out['integrity_warnings']++;
+            $out['warnings'][] = "Old queued jobs (>7d): {$oldQueued}";
+        }
+    } catch (Throwable $e) {
+        $out['scheduler_runtime_ok'] = false;
+        $out['warnings'][] = 'Scheduler check error: ' . $e->getMessage();
+    }
+
+    // DB integrity: PRAGMA integrity_check
+    try {
+        $ic = $db->query("PRAGMA integrity_check")->fetchColumn();
+        if ($ic !== 'ok') {
+            $out['db_integrity_ok'] = false;
+            $out['integrity_failures']++;
+            $out['warnings'][] = 'PRAGMA integrity_check failed.';
+        }
+    } catch (Throwable $e) {
+        $out['db_integrity_ok'] = false;
+        $out['warnings'][] = 'DB integrity check error: ' . $e->getMessage();
+    }
+
+    // Helper integrity: credential helper library present
+    $helperLib = dirname(__DIR__) . '/api/lib_cred_secret_helper.php';
+    if (!is_file($helperLib)) {
+        $out['helper_integrity_ok'] = false;
+        $out['integrity_warnings']++;
+        $out['warnings'][] = 'Credential helper library missing.';
+    }
+
+    // Correlation freshness
+    try {
+        $lastCorr = $db->query(
+            "SELECT MAX(finished_at) FROM vulnerability_correlation_runs WHERE status='completed'"
+        )->fetchColumn();
+        if ($lastCorr) {
+            $days = (int) $db->query(
+                "SELECT CAST(julianday(datetime('now')) - julianday('{$lastCorr}') AS INTEGER)"
+            )->fetchColumn();
+            if ($days > 7) {
+                $out['stale_runtime_components'][] = 'correlation';
+                $out['integrity_warnings']++;
+                $out['warnings'][] = "Correlation stale ({$days}d since last run).";
+            }
+            $out['integrity_last_run'] = $lastCorr;
+        }
+    } catch (Throwable $e) {
+        // graceful skip
+    }
+
+    return $out;
+}
+
+/**
  * Read-only operational maintenance snapshot for admin visibility.
  *
  * Counts only; no maintenance actions triggered here.
@@ -1017,6 +1105,22 @@ if (
 ) {
     $health['services']['collector_ingest']['state'] = 'degraded';
     $health['services']['collector_ingest']['detail'] = 'Running with runtime warnings (see collector_ingest_runtime).';
+}
+
+try {
+    $health['operational_integrity'] = st_health_operational_integrity_snapshot($db);
+} catch (Throwable $e) {
+    $health['operational_integrity'] = [
+        'integrity_last_run'       => null,
+        'integrity_failures'       => 0,
+        'integrity_warnings'       => 0,
+        'stale_runtime_components' => [],
+        'scheduler_runtime_ok'     => false,
+        'db_integrity_ok'          => false,
+        'helper_integrity_ok'      => false,
+        'warnings'                 => ['Operational integrity health unavailable.'],
+    ];
+    @error_log('SurveyTrace health operational_integrity: ' . $e->getMessage());
 }
 
 st_json($health);

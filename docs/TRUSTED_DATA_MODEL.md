@@ -218,5 +218,9 @@ Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compar
 - `scripts/st_software_inventory_evidence_selftest.php` — single-asset software field contract + bounded `recon_detail` shape (no full package list)
 - `scripts/st_software_inventory_diagnostics_selftest.php` — stale bands + health `trusted_data` leak guards
 - `daemon/credential_check_worker.py` / `daemon/cred_check_run.py` — slice 7–9 observation writes (no assertion SQL)
-- `api/health.php` — `trusted_data`
+- `api/health.php` — `trusted_data`, `operational_integrity`
 - `api/recon_diagnostics.php` — admin asset diagnostics and optional trim
+- `scripts/run_operational_integrity_suite.php` — unified read-only validation (selftests, DB, runtime, deploy, health)
+- `scripts/check_database_integrity.php` — standalone database consistency checker (orphans, duplicates, stale leases, FK integrity)
+- `scripts/st_operational_integrity_selftest.php` — in-memory lifecycle regression (import→correlate→triage→suppress→cleanup→assert)
+- `scripts/diagnose_operational_integrity.php` — JSON diagnostic output (scheduler, worker, vulnerability, DB state)

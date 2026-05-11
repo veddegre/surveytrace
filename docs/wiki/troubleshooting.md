@@ -493,6 +493,50 @@ journalctl -u surveytrace-scheduler -n 100
 
 ---
 
+## Operational integrity diagnostics
+
+When system health appears degraded or after upgrades, run the operational integrity suite:
+
+```bash
+php scripts/run_operational_integrity_suite.php
+```
+
+This read-only check validates selftests, DB consistency, runtime invariants, deploy coverage, and shell scripts. Results:
+- **PASS**: invariant holds.
+- **WARN**: drift detected (stale data, large WAL, expired suppressions) — operator attention required.
+- **FAIL**: definite violation (orphan rows, syntax errors, duplicate keys) — must resolve before release.
+- **INFO**: check skipped due to missing table/file (common on partial installs).
+
+For JSON output: `--json`. For strict mode (WARN also fails): `--strict`.
+
+**Database-specific checks:**
+
+```bash
+php scripts/check_database_integrity.php [--db=PATH]
+```
+
+Validates PRAGMA integrity_check, orphan rows, duplicate advisories, stale leases, malformed JSON, invalid status values, and broken FK relationships.
+
+**Full diagnostics (JSON):**
+
+```bash
+php scripts/diagnose_operational_integrity.php [--db=PATH]
+```
+
+Outputs scheduler state, worker state, vulnerability pipeline health, DB health indicators, stale component list, and warning rollup.
+
+**Recovery paths:**
+
+| Problem | Diagnostic | Remedy |
+|---------|-----------|--------|
+| Stale worker leases | WARN: stale leases | `php scripts/recover_stale_worker_jobs.php --apply` |
+| Expired suppressions | WARN: expired-but-active | `php scripts/resync_vulnerability_triage_priority.php --apply` |
+| Large WAL file | WARN: WAL size | `PRAGMA wal_checkpoint(TRUNCATE)` via admin |
+| Correlation stale | WARN: last run >7d | `php scripts/run_vulnerability_correlation.php` |
+| Orphan triage rows | WARN: orphans | Manual DB investigation; typically indicates interrupted advisory removal |
+
+---
+
 See also:
 - [System Guide](system-guide.md)
 - [Enrichment](enrichment.md)

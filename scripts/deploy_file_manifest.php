@@ -220,6 +220,10 @@ return [
         'deploy_manifest_export.php',
         'deploy_file_manifest.php',
         'st_security_runtime_audit_selftest.php',
+        'run_operational_integrity_suite.php',
+        'check_database_integrity.php',
+        'st_operational_integrity_selftest.php',
+        'diagnose_operational_integrity.php',
     ],
 
     'public_files' => [
