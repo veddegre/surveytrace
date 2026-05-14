@@ -8187,61 +8187,11 @@ function stHostReconciliationEvidenceHtml(assetData) {
     </section>`;
 }
 
-/** Reconciled software_inventory_summary (no CVE signal). Bounded preview via normalized catalog and/or legacy software_observed. */
-function stHostSoftwareInventoryHtml(assetData) {
+/**
+ * Local advisory rows for this asset (vendor_distro / internal rules vs inventory). Used on Overview and Vulnerabilities host tabs.
+ */
+function stHostVendorAdvisoryCorrelationHtml(assetData) {
     if (!assetData) return '';
-    const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
-    const sw = rd && rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
-    const sir = rd && rd.software_inventory_rows && typeof rd.software_inventory_rows === 'object' ? rd.software_inventory_rows : null;
-    const swObs = sw && sw.observation_count != null ? (parseInt(String(sw.observation_count), 10) || 0) : 0;
-    const normActive = sir && sir.active_count != null ? (parseInt(String(sir.active_count), 10) || 0) : 0;
-
-    const sum = assetData.software_inventory_summary != null && String(assetData.software_inventory_summary).trim()
-        ? String(assetData.software_inventory_summary).trim() : '';
-
-    if (!sum && swObs <= 0 && normActive <= 0) return '';
-
-    const mgrRaw = assetData.software_inventory_manager != null ? String(assetData.software_inventory_manager).trim() : '';
-    const mgr = mgrRaw || '\u2014';
-    const cnt = assetData.software_inventory_count != null ? String(assetData.software_inventory_count) : '\u2014';
-    const confRaw = assetData.software_inventory_confidence != null ? String(assetData.software_inventory_confidence).trim().toLowerCase() : '';
-    const confLabel = confRaw ? confRaw.toUpperCase() : '\u2014';
-    const chipClass = findingConfidenceChipClass(confRaw || 'low');
-    const partial = !!assetData.software_inventory_partial;
-    const oatRaw = assetData.software_inventory_observed_at != null ? String(assetData.software_inventory_observed_at) : '';
-    const oatMs = oatRaw ? Date.parse(oatRaw) : NaN;
-
-    let staleFlag = false;
-    if (assetData.software_inventory_stale === true || assetData.software_inventory_stale === 1) {
-        staleFlag = true;
-    } else if (assetData.software_inventory_stale === false || assetData.software_inventory_stale === 0) {
-        staleFlag = false;
-    } else {
-        staleFlag = Number.isFinite(oatMs) && (Date.now() - oatMs) > 90 * 86400000;
-    }
-
-    const oatDisp = oatRaw ? esc(localTime(oatRaw)) : '\u2014';
-    const srcLine = assetData.software_inventory_source != null && String(assetData.software_inventory_source).trim()
-        ? esc(String(assetData.software_inventory_source).trim())
-        : esc('Credentialed SSH package inventory (ssh.linux.package_inventory)');
-
-    const staleBand = assetData.software_inventory_stale_band != null ? String(assetData.software_inventory_stale_band).trim().toLowerCase() : '';
-    const obsGap = assetData.software_inventory_observation_gap === true || assetData.software_inventory_observation_gap === 1;
-    const badgeParts = [];
-    if (partial) {
-        badgeParts.push('<span class="hp-chip" title="Truncated, capped, or incomplete inventory signal">Partial / bounded inventory</span>');
-    }
-    if (staleFlag) {
-        const staleHint = staleBand === 'over_180' ? 'Stale evidence (>180d since last observation)' : 'Stale evidence (>90d since last observation)';
-        badgeParts.push(`<span class="hp-chip" title="Beyond freshness window — not vulnerability posture">${esc(staleHint)}</span>`);
-    }
-    if (obsGap) {
-        badgeParts.push('<span class="hp-chip" title="Only the package summary observation exists; no normalized rows or snapshot yet">No normalized inventory corroboration</span>');
-    }
-    const badgeRow = badgeParts.length
-        ? `<div class="hp-chips" style="margin-top:6px">${badgeParts.join('')}</div>`
-        : '';
-
     const vin = assetData.vulnerability_inventory && typeof assetData.vulnerability_inventory === 'object'
         ? assetData.vulnerability_inventory
         : null;
@@ -8251,13 +8201,13 @@ function stHostSoftwareInventoryHtml(assetData) {
     const aidV = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
     const vinApi =
         vin && vin.tables_ready === true && aidV > 0
-            ? `<p class="text-micro text-dim mt4 mb0">Advisory correlation (bounded): <span class="mono-sm">/api/vulnerabilities.php?action=list_for_asset&amp;asset_id=${esc(
+            ? `<p class="text-micro text-dim mt4 mb0">API (bounded): <span class="mono-sm">/api/vulnerabilities.php?action=list_for_asset&amp;asset_id=${esc(
                   String(aidV),
-              )}</span> \u00b7 Triage API: <span class="mono-sm">/api/vulnerability_triage.php?action=get&amp;asset_vulnerability_id=</span> (viewer+).</p>`
+              )}</span> · <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(String(aidV))}&amp;limit=80</span></p>`
             : '';
     const vinTable =
         vin && vin.tables_ready === true && vinRows.length
-            ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory advisory correlation (local rules)</h4>
+            ? `<div class="mt8"><h4 class="text-micro text-dim mb4">Inventory ↔ advisory (local rules)</h4>
         <table class="st-table st-table--micro"><thead><tr><th>Advisory</th><th>Sev</th><th>Basis</th><th>Correlation confidence</th><th>Triage</th><th>Priority</th><th>Model score</th><th>Notes</th><th>First seen</th><th>Suppress</th></tr></thead><tbody>${vinRows
                   .map((r) => {
                       const k = r.advisory_key != null ? esc(String(r.advisory_key)) : '\u2014';
@@ -8301,10 +8251,12 @@ function stHostSoftwareInventoryHtml(assetData) {
                       return `<tr><td class="mono-sm">${k}</td><td>${sev}</td><td class="text-micro">${basis}</td><td class="text-micro">${cconf}</td><td><span class="hp-chip hp-chip--dim">${tr}</span></td><td><span class="hp-chip">${triPri}</span> ${ovBadge}${resetBtn}</td><td class="mono-sm">${modSc} <span class="text-dim text-micro">${modPri}</span></td><td>${nc}</td><td class="text-dim">${fs}</td><td class="text-micro">${sup}</td></tr>`;
                   })
                   .join('')}</tbody></table>
-        <p class="text-micro text-dim mt4 mb0">Rows shown here are capped; triage/score are operational hints only (not KEV/exposure). Correlation uses vendor or internal package rules; NVD metadata alone does not prove an installed package is affected. Use triage API for state changes (editor role).</p></div>`
+        <p class="text-micro text-dim mt4 mb0">Capped preview. Correlation uses imported vendor/internal package rules (not scanner-only NVD metadata). Triage changes require editor role.</p></div>`
             : vin && vin.tables_ready === true && vinTot > 0
               ? `<p class="text-micro text-dim mt8">This host has <span class="mono-sm">${esc(String(vinTot))}</span> correlated advisory row(s); reload asset detail for the first page of rows.</p>`
-              : '';
+              : vin && vin.tables_ready === true
+                ? `<p class="text-micro text-dim mt6 mb0">No open vendor advisory matches for this host (installed versions may already meet <span class="mono-sm">fixed_version</span> in imported rules, or correlation jobs are still pending).</p>`
+                : '';
     const vinRollupHtml = vinRollup && vinRollup.total_affected > 0
         ? `<div class="mt8 mb4 st-host-vuln-rollup" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
             <span class="hp-chip hp-chip--${esc(vinRollup.risk_band || 'none')}" title="Risk band">${esc((vinRollup.risk_band || 'none').toUpperCase())}</span>
@@ -8314,6 +8266,135 @@ function stHostSoftwareInventoryHtml(assetData) {
             ${vinRollup.oldest_first_seen ? `<span class="text-micro text-dim">Oldest: ${localDate(vinRollup.oldest_first_seen)}</span>` : ''}
           </div>`
         : '';
+    return `${vinRollupHtml}${vinTable}${vinApi}`;
+}
+
+async function stHostLoadInstalledPackages(assetId, elBtn) {
+    const aid = parseInt(String(assetId), 10) || 0;
+    const out = document.getElementById('hp-pkg-out-' + aid);
+    if (aid < 1 || !out) return;
+    if (elBtn) {
+        elBtn.disabled = true;
+    }
+    out.innerHTML = '<p class="text-micro text-dim mb0">Loading…</p>';
+    try {
+        const r = await api('/api/software_inventory.php?asset_id=' + encodeURIComponent(String(aid)) + '&limit=80&q=', { quiet: true });
+        if (!r || !r.ok) {
+            out.innerHTML = '<p class="text-micro text-dim mb0">Could not load package list.</p>';
+            return;
+        }
+        const pkgs = Array.isArray(r.packages) ? r.packages : [];
+        const tot = r.active_total != null ? String(r.active_total) : '?';
+        if (!pkgs.length) {
+            out.innerHTML = `<p class="text-micro text-dim mb0">No active normalized rows (total active <span class="mono-sm">${esc(tot)}</span>).</p>`;
+            return;
+        }
+        const rows = pkgs
+            .map((p) => {
+                const nm = p.canonical_name != null && String(p.canonical_name).trim()
+                    ? esc(String(p.canonical_name).trim())
+                    : esc(String(p.normalized_name || '').trim() || '\u2014');
+                const ver = esc(String(p.version_raw || '').trim() || '\u2014');
+                const ar = esc(String(p.architecture || '').trim() || '\u2014');
+                const eco = esc(String(p.ecosystem || '').trim() || '\u2014');
+                return `<tr><td class="mono-sm">${nm}</td><td class="mono-sm">${ver}</td><td>${ar}</td><td class="text-dim">${eco}</td></tr>`;
+            })
+            .join('');
+        out.innerHTML = `<p class="text-micro text-dim mb4">Showing <span class="mono-sm">${esc(String(pkgs.length))}</span> of <span class="mono-sm">${esc(tot)}</span> active catalog row(s) (lexicographic first page). Use API query param <span class="mono-sm">q=</span> for prefix search.</p>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Ecosystem</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } catch (_e) {
+        out.innerHTML = '<p class="text-micro text-dim mb0">Load failed.</p>';
+    } finally {
+        if (elBtn) {
+            elBtn.disabled = false;
+            elBtn.textContent = 'Reload first 80 packages';
+        }
+    }
+}
+
+function stHostFocusSoftwareEvidence() {
+    stHostSetTab('overview');
+    requestAnimationFrame(() => {
+        const el = document.querySelector('.st-host-sw-inv');
+        if (el) {
+            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    });
+}
+
+/** Reconciled software_inventory_summary (no CVE signal). Bounded preview via normalized catalog and/or legacy software_observed. */
+function stHostSoftwareInventoryHtml(assetData) {
+    if (!assetData) return '';
+    const rd = assetData.recon_detail && typeof assetData.recon_detail === 'object' ? assetData.recon_detail : null;
+    const sw = rd && rd.software_observed && typeof rd.software_observed === 'object' ? rd.software_observed : null;
+    const sir = rd && rd.software_inventory_rows && typeof rd.software_inventory_rows === 'object' ? rd.software_inventory_rows : null;
+    const swObs = sw && sw.observation_count != null ? (parseInt(String(sw.observation_count), 10) || 0) : 0;
+    const normActive = sir && sir.active_count != null ? (parseInt(String(sir.active_count), 10) || 0) : 0;
+
+    const sum = assetData.software_inventory_summary != null && String(assetData.software_inventory_summary).trim()
+        ? String(assetData.software_inventory_summary).trim() : '';
+
+    const cat = assetData.software_inventory_catalog && typeof assetData.software_inventory_catalog === 'object'
+        ? assetData.software_inventory_catalog
+        : null;
+    const catActive = cat && cat.active_package_rows != null ? parseInt(String(cat.active_package_rows), 10) || 0 : 0;
+    const cntNum =
+        assetData.software_inventory_count != null && String(assetData.software_inventory_count).trim() !== ''
+            ? parseInt(String(assetData.software_inventory_count), 10)
+            : NaN;
+    const hasSig =
+        (sum && sum.trim() !== '') ||
+        swObs > 0 ||
+        normActive > 0 ||
+        (Number.isFinite(cntNum) && cntNum > 0) ||
+        catActive > 0;
+    if (!hasSig) return '';
+
+    const aidSw = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
+
+    const mgrRaw = assetData.software_inventory_manager != null ? String(assetData.software_inventory_manager).trim() : '';
+    const mgr = mgrRaw || '\u2014';
+    const cnt = assetData.software_inventory_count != null ? String(assetData.software_inventory_count) : '\u2014';
+    const confRaw = assetData.software_inventory_confidence != null ? String(assetData.software_inventory_confidence).trim().toLowerCase() : '';
+    const confLabel = confRaw ? confRaw.toUpperCase() : '\u2014';
+    const chipClass = findingConfidenceChipClass(confRaw || 'low');
+    const partial = !!assetData.software_inventory_partial;
+    const oatRaw = assetData.software_inventory_observed_at != null ? String(assetData.software_inventory_observed_at) : '';
+    const oatMs = oatRaw ? Date.parse(oatRaw) : NaN;
+
+    let staleFlag = false;
+    if (assetData.software_inventory_stale === true || assetData.software_inventory_stale === 1) {
+        staleFlag = true;
+    } else if (assetData.software_inventory_stale === false || assetData.software_inventory_stale === 0) {
+        staleFlag = false;
+    } else {
+        staleFlag = Number.isFinite(oatMs) && (Date.now() - oatMs) > 90 * 86400000;
+    }
+
+    const oatDisp = oatRaw ? esc(localTime(oatRaw)) : '\u2014';
+    const srcLine = assetData.software_inventory_source != null && String(assetData.software_inventory_source).trim()
+        ? esc(String(assetData.software_inventory_source).trim())
+        : esc('Credentialed SSH package inventory (ssh.linux.package_inventory)');
+
+    const staleBand = assetData.software_inventory_stale_band != null ? String(assetData.software_inventory_stale_band).trim().toLowerCase() : '';
+    const obsGap = assetData.software_inventory_observation_gap === true || assetData.software_inventory_observation_gap === 1;
+    const badgeParts = [];
+    if (partial) {
+        badgeParts.push('<span class="hp-chip" title="Truncated, capped, or incomplete inventory signal">Partial / bounded inventory</span>');
+    }
+    if (staleFlag) {
+        const staleHint = staleBand === 'over_180' ? 'Stale evidence (>180d since last observation)' : 'Stale evidence (>90d since last observation)';
+        badgeParts.push(`<span class="hp-chip" title="Beyond freshness window — not vulnerability posture">${esc(staleHint)}</span>`);
+    }
+    if (obsGap) {
+        badgeParts.push('<span class="hp-chip" title="Only the package summary observation exists; no normalized rows or snapshot yet">No normalized inventory corroboration</span>');
+    }
+    const badgeRow = badgeParts.length
+        ? `<div class="hp-chips" style="margin-top:6px">${badgeParts.join('')}</div>`
+        : '';
+
+    const vinBlock = stHostVendorAdvisoryCorrelationHtml(assetData);
+
     const noCveLine = `<p class="text-micro mt6 text-dim">This <strong>software evidence</strong> summary reflects inventory freshness and completeness. Separate <strong>local advisory correlation</strong> (when advisories are imported) matches installed packages using deterministic version rules — not internet exposure, KEV, or ticketing.</p>`;
 
     const expl = assetData.software_inventory_explanation != null && String(assetData.software_inventory_explanation).trim()
@@ -8331,15 +8412,18 @@ function stHostSoftwareInventoryHtml(assetData) {
         return `<li class="text-micro mono-sm">${lb}</li>`;
     }).join('');
 
-    const cat = assetData.software_inventory_catalog && typeof assetData.software_inventory_catalog === 'object'
-        ? assetData.software_inventory_catalog
-        : null;
-    const aidSw = assetData.asset && assetData.asset.id != null ? Number(assetData.asset.id) : 0;
     const searchHint =
         cat && cat.tables_ready === true && aidSw > 0
             ? `<p class="text-micro text-dim mt6 mb0">Bounded package search: <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(
                   String(aidSw),
               )}&amp;q=&amp;limit=80</span> (prefix match on normalized names).</p>`
+            : '';
+    const pkgBrowse =
+        cat && cat.tables_ready === true && aidSw > 0
+            ? `<div class="mt8 st-host-pkg-browse-wrap">
+        <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aidSw}, this)">Load first 80 installed packages</button>
+        <div class="st-host-pkg-browse-out mt6" id="hp-pkg-out-${aidSw}"></div>
+      </div>`
             : '';
 
     const evidenceParts = [];
@@ -8365,14 +8449,17 @@ function stHostSoftwareInventoryHtml(assetData) {
         : '';
 
     if (!sum) {
+        const invHint =
+            swObs > 0
+                ? `<p class="text-micro text-dim">Bounded <span class="mono-sm">software_observed</span> rows are present (${esc(String(swObs))}), but no reconciled <span class="mono-sm">software_inventory_summary</span> yet. Open this host again after the next credentialed package inventory run, or review trusted-data diagnostics if this persists.</p>`
+                : `<p class="text-micro text-dim">Package inventory is recorded (catalog / count hints: <span class="mono-sm">${esc(String(Math.max(normActive, catActive, Number.isFinite(cntNum) ? cntNum : 0)))}</span>); reconciled <strong>summary belief</strong> text may populate on the next observation refresh.</p>`;
         return `<section class="host-section st-host-subsection st-host-evidence st-host-sw-inv" aria-label="Software evidence pending reconciliation">
       <h3 class="host-section-heading">Evidence \u2014 Software evidence (bounded inventory)</h3>
       <div class="host-inner-surface st-host-evidence-inner">
-        <p class="text-micro text-dim">Bounded <span class="mono-sm">software_observed</span> rows are present (${esc(String(swObs))}), but no reconciled <span class="mono-sm">software_inventory_summary</span> yet. Open this host again after the next credentialed package inventory run, or review trusted-data diagnostics if this persists.</p>
+        ${invHint}
         ${noCveLine}
-        ${vinRollupHtml}
-        ${vinTable}
-        ${vinApi}
+        ${vinBlock}
+        ${pkgBrowse}
         ${evidenceBlock}
       </div>
     </section>`;
@@ -8390,9 +8477,8 @@ function stHostSoftwareInventoryHtml(assetData) {
         <div class="text-micro text-dim mt2">Package manager \u00b7 <span class="mono-sm">${esc(mgr)}</span> · Observed package count (hint) \u00b7 <span class="mono-sm">${esc(cnt)}</span> · Last evidence \u00b7 ${oatDisp}</div>
         ${badgeRow}
         ${noCveLine}
-        ${vinRollupHtml}
-        ${vinTable}
-        ${vinApi}
+        ${vinBlock}
+        ${pkgBrowse}
         ${expl}
         ${evidenceBlock}
       </div>
@@ -22650,6 +22736,7 @@ async function openHostPanel(id, ip) {
 
     const reconEvidenceHtml = stHostReconciliationEvidenceHtml(assetData);
     const softwareInventoryHtml = stHostSoftwareInventoryHtml(assetData);
+    const hostInvVendorHtml = stHostVendorAdvisoryCorrelationHtml(assetData);
     const identityEvidenceHtml = stHostIdentityEvidenceHtml(assetData);
     const credHostSummaryHtml = stHostCredentialedChecksHtml(assetData);
 
@@ -22662,9 +22749,12 @@ async function openHostPanel(id, ip) {
         : '';
 
     const zbxHtml = renderHostPanelZabbixBlock(a);
-    const enrichmentBody = zbxHtml
-        ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
-        : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty st-host-empty">No Zabbix enrichment for this address. Connect Zabbix under Integrations if you monitor this host there.</div></section>`;
+    const hostPanelZabbixIntro = `<section class="host-section st-host-subsection" aria-label="Zabbix tab help"><p class="text-micro text-dim mb0">This tab is <strong>Zabbix</strong> linkage only — not SSH package inventory or CVE correlation. Credentialed <strong>package inventory</strong> and <strong>imported vendor advisories</strong> (Ubuntu/Debian) are on <strong>Overview</strong> under <em>Evidence — Software evidence</em> (including <strong>Load first 80 installed packages</strong>).</p><div class="mt8 row-wrap gap6 mb8"><button type="button" class="tbtn btn-xs" onclick="stHostFocusSoftwareEvidence()">Jump to software evidence</button></div></section>`;
+    const enrichmentBody =
+        hostPanelZabbixIntro
+        + (zbxHtml
+            ? `<section class="host-section host-section--zbx" aria-label="Zabbix enrichment">${zbxHtml}</section>`
+            : `<section class="host-section" aria-label="Zabbix enrichment"><div class="hp-empty st-host-empty">No Zabbix enrichment for this address. Connect Zabbix under Integrations if you monitor this host there.</div></section>`);
     const hostVendorSummary = stVendorSummaryForAsset(a);
     const scanHistList = Array.isArray(assetData.asset.scan_history) ? assetData.asset.scan_history : [];
     const latestScan = scanHistList.length ? scanHistList[0] : null;
@@ -22687,7 +22777,7 @@ async function openHostPanel(id, ip) {
       <div class="host-tab-shell">
         <div class="host-tablist" role="tablist" aria-label="Host detail sections">
           <button type="button" role="tab" class="host-tab-btn active" data-tab="overview" id="hp-tab-overview" aria-selected="true" aria-controls="hp-panel-overview" tabindex="0" onclick="stHostSetTab('overview')">Overview</button>
-          <button type="button" role="tab" class="host-tab-btn" data-tab="enrichment" id="hp-tab-enrichment" aria-selected="false" aria-controls="hp-panel-enrichment" tabindex="-1" onclick="stHostSetTab('enrichment')">Enrichment</button>
+          <button type="button" role="tab" class="host-tab-btn" data-tab="enrichment" id="hp-tab-enrichment" aria-selected="false" aria-controls="hp-panel-enrichment" tabindex="-1" onclick="stHostSetTab('enrichment')">Zabbix</button>
           <button type="button" role="tab" class="host-tab-btn" data-tab="ports" id="hp-tab-ports" aria-selected="false" aria-controls="hp-panel-ports" tabindex="-1" onclick="stHostSetTab('ports')">Ports &amp; services</button>
           <button type="button" role="tab" class="host-tab-btn" data-tab="vulns" id="hp-tab-vulns" aria-selected="false" aria-controls="hp-panel-vulns" tabindex="-1" onclick="stHostSetTab('vulns')">Vulnerabilities</button>
           <button type="button" role="tab" class="host-tab-btn" data-tab="history" id="hp-tab-history" aria-selected="false" aria-controls="hp-panel-history" tabindex="-1" onclick="stHostSetTab('history')">History</button>
@@ -22709,7 +22799,7 @@ async function openHostPanel(id, ip) {
           <div class="st-host-summary-item"><span class="st-host-summary-k">Findings</span><span class="st-host-summary-v">${esc(String(openFindings.length + acceptedFindings.length))}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Scope</span><span class="st-host-summary-v">${scopeLabel}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Last seen</span><span class="st-host-summary-v">${relTime(a.last_seen)}</span></div>
-          <div class="st-host-summary-item"><span class="st-host-summary-k">Enrichment</span><span class="st-host-summary-v">${esc(enrichmentState)}</span></div>
+          <div class="st-host-summary-item"><span class="st-host-summary-k">Zabbix</span><span class="st-host-summary-v">${esc(enrichmentState)}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Device</span><span class="st-host-summary-v mono-sm">${deviceSummaryHtml}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Services</span><span class="st-host-summary-v">${esc(String(serviceChips.length))}</span></div>
           <div class="st-host-summary-item"><span class="st-host-summary-k">Open ports</span><span class="st-host-summary-v">${esc(String(ports.length))}</span></div>
@@ -22778,8 +22868,14 @@ async function openHostPanel(id, ip) {
       </section>
       </div>
           <div class="host-tab-panel" data-tab="vulns" role="tabpanel" id="hp-panel-vulns" aria-labelledby="hp-tab-vulns" hidden>
+      <section class="host-section st-host-subsection" aria-label="Inventory advisory correlation">
+        <h3 class="host-section-heading">Inventory \u2192 advisory (imports)</h3>
+        <p class="text-micro text-dim mb6">Normalized packages from <strong>credentialed SSH inventory</strong> compared to <strong>locally imported</strong> vendor rules (offline). Distinct from scanner <strong>open CVE</strong> rows below.</p>
+        ${hostInvVendorHtml}
+        <div class="mt8 row-wrap gap6"><button type="button" class="tbtn btn-xs" onclick="stHostFocusSoftwareEvidence()">Open software evidence &amp; package list</button></div>
+      </section>
       <section class="host-section" aria-label="Open vulnerabilities">
-        <h3 class="host-section-heading">Open vulnerabilities (${openFindings.length})</h3>
+        <h3 class="host-section-heading">Scanner open CVEs (${openFindings.length})</h3>
       <div class="mb14 host-inner-surface">${findingRows}</div>
       </section>
       <section class="host-section" aria-label="Accepted risk">
