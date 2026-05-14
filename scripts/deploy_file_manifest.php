@@ -196,6 +196,7 @@ return [
         'import_nvd_from_local_db.php',
         'import_distro_advisories.php',
         'convert_ubuntu_advisories.php',
+        'sync_ubuntu_distro_advisories.php',
         'remove_advisory.php',
         'run_vulnerability_correlation.php',
         'diagnose_vulnerability_correlation.php',
@@ -250,6 +251,8 @@ return [
         'surveytrace-credential-check-worker.service',
         'surveytrace-vuln-correlation.service',
         'surveytrace-vuln-correlation.timer',
+        'surveytrace-ubuntu-advisory-sync.service',
+        'surveytrace-ubuntu-advisory-sync.timer',
     ],
 
     /**

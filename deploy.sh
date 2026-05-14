@@ -577,6 +577,11 @@ sudo cp "$SRC/surveytrace-vuln-correlation.timer" /etc/systemd/system/surveytrac
 sudo systemctl daemon-reload
 sudo systemctl enable --now surveytrace-vuln-correlation.timer 2>/dev/null || true
 
+install_unit_with_install_dir "surveytrace-ubuntu-advisory-sync.service"
+sudo cp "$SRC/surveytrace-ubuntu-advisory-sync.timer" /etc/systemd/system/surveytrace-ubuntu-advisory-sync.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now surveytrace-ubuntu-advisory-sync.timer 2>/dev/null || true
+
 # ---------------------------------------------------------------------------
 # Restart daemons
 # ---------------------------------------------------------------------------

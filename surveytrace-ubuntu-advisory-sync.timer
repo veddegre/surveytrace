@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly timer — Ubuntu OVAL advisory sync for SurveyTrace
+Documentation=file:/opt/surveytrace/docs/wiki/vulnerability-advisory-runbook.md
+
+[Timer]
+OnCalendar=Sun *-*-* 04:40:00
+Persistent=true
+RandomizedDelaySec=1800
+Unit=surveytrace-ubuntu-advisory-sync.service
+
+[Install]
+WantedBy=timers.target

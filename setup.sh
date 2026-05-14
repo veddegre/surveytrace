@@ -627,6 +627,15 @@ if [ -f "$INSTALL_DIR/surveytrace-vuln-correlation.service" ] && [ -f "$INSTALL_
   echo "[setup] Enabled surveytrace-vuln-correlation.timer (every 5 min)"
 fi
 
+# Ubuntu CVE OVAL weekly fetch → import_distro_advisories (network); optional disable: systemctl disable --now surveytrace-ubuntu-advisory-sync.timer
+if [ -f "$INSTALL_DIR/surveytrace-ubuntu-advisory-sync.service" ] && [ -f "$INSTALL_DIR/surveytrace-ubuntu-advisory-sync.timer" ]; then
+  sudo cp "$INSTALL_DIR/surveytrace-ubuntu-advisory-sync.service" /etc/systemd/system/
+  sudo cp "$INSTALL_DIR/surveytrace-ubuntu-advisory-sync.timer" /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now surveytrace-ubuntu-advisory-sync.timer 2>/dev/null || true
+  echo "[setup] Enabled surveytrace-ubuntu-advisory-sync.timer (weekly Ubuntu OVAL import)"
+fi
+
 # =============================================================================
 # STEP 8 — Web server config
 # =============================================================================
@@ -1075,6 +1084,8 @@ check_systemd_unit_enabled "surveytrace-collector-ingest.service"
 check_systemd_unit_enabled "surveytrace-credential-check-worker.service"
 check_systemd_unit_present "surveytrace-vuln-correlation.service"
 check_systemd_unit_present "surveytrace-vuln-correlation.timer"
+check_systemd_unit_present "surveytrace-ubuntu-advisory-sync.service"
+check_systemd_unit_present "surveytrace-ubuntu-advisory-sync.timer"
 check_systemd_unit_rw_policy "surveytrace-daemon.service"
 check_systemd_unit_rw_policy "surveytrace-scheduler.service"
 check_systemd_unit_rw_policy "surveytrace-collector-ingest.service"

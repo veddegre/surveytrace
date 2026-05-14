@@ -65,6 +65,7 @@ $criticalFiles = [
     'api/vulnerability_dashboard.php',
     'scripts/check_database_integrity.php',
     'scripts/convert_ubuntu_advisories.php',
+    'scripts/sync_ubuntu_distro_advisories.php',
     'scripts/run_operational_integrity_suite.php',
 ];
 foreach ($criticalFiles as $f) {

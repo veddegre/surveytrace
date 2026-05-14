@@ -1,0 +1,26 @@
+[Unit]
+Description=SurveyTrace Ubuntu CVE OVAL fetch, convert, and distro advisory import
+After=network.target
+Documentation=file:/opt/surveytrace/docs/wiki/vulnerability-advisory-runbook.md
+ConditionPathExists=/opt/surveytrace/data/surveytrace.db
+
+[Service]
+Type=oneshot
+User=surveytrace
+Group=surveytrace
+SupplementaryGroups=www-data
+WorkingDirectory=/opt/surveytrace
+Environment=SURVEYTRACE_INSTALL_DIR=/opt/surveytrace
+EnvironmentFile=-/etc/surveytrace/surveytrace.env
+ExecStart=/usr/bin/php /opt/surveytrace/scripts/sync_ubuntu_distro_advisories.php --correlate
+TimeoutStartSec=3600
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/surveytrace/data
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=surveytrace-ubuntu-advisory-sync
