@@ -5519,6 +5519,8 @@ function renderHealthHtml(h, zbxResp) {
     const daemon = sv.daemon || null;
     const schedulerSvc = sv.scheduler || null;
     const collectorSvc = sv.collector_ingest || null;
+    const ubuntuAdvTimer = sv.ubuntu_advisory_sync_timer || null;
+    const vulnCorrTimer = sv.vulnerability_correlation_timer || null;
 
     const isOkService = (x) => x && String(x.state || '') === 'active';
     const appOk = !!(h.data_dir && h.data_dir.writable) && !!db.reachable;
@@ -5655,6 +5657,8 @@ function renderHealthHtml(h, zbxResp) {
         ['Scanner daemon', daemon],
         ['Scheduler daemon', schedulerSvc],
         ['Collector ingest daemon', collectorSvc],
+        ['Ubuntu CVE OVAL ingest timer', ubuntuAdvTimer],
+        ['Vulnerability correlation timer', vulnCorrTimer],
     ].forEach(([nm, row]) => {
         if (!row) return;
         serviceRows.push(
@@ -5804,6 +5808,32 @@ function renderHealthHtml(h, zbxResp) {
                 tdDetail += ` · triage backlog wo=${esc(String(wo))} stale-sup=${esc(String(stsp))} hi-age30=${esc(String(hpag))}`;
             }
         }
+    }
+    if (ubuntuAdvTimer) {
+        const uState = esc(healthHumanizeServiceState(ubuntuAdvTimer.state));
+        const uCls = healthStateClass(ubuntuAdvTimer.state);
+        const uDet = esc(String(ubuntuAdvTimer.detail || '—'));
+        integrationRows.push(
+            `<tr><td class="tbl-cell-primary">Ubuntu CVE OVAL ingest (timer)</td><td class="tbl-cell-muted"><span class="${uCls}">${uState}</span></td><td class="tbl-cell-muted">${uDet} · weekly fetch + import to local advisory tables when enabled on master</td></tr>`,
+        );
+    }
+    if (vulnCorrTimer) {
+        const vState = esc(healthHumanizeServiceState(vulnCorrTimer.state));
+        const vCls = healthStateClass(vulnCorrTimer.state);
+        const vDet = esc(String(vulnCorrTimer.detail || '—'));
+        integrationRows.push(
+            `<tr><td class="tbl-cell-primary">Vulnerability correlation (timer)</td><td class="tbl-cell-muted"><span class="${vCls}">${vState}</span></td><td class="tbl-cell-muted">${vDet} · drains inventory→advisory worker jobs</td></tr>`,
+        );
+    }
+    if (vu && vu.tables_ready) {
+        const vdr = parseInt(String(vu.vendor_distro_package_rule_count ?? 0), 10) || 0;
+        const lu = vu.last_advisory_import_by_source && typeof vu.last_advisory_import_by_source === 'object' ? vu.last_advisory_import_by_source : null;
+        const ubuAt = lu && lu.ubuntu != null ? esc(String(lu.ubuntu)) : '—';
+        const ubuRules = parseInt(String(vu.ubuntu_vendor_package_rules ?? 0), 10) || 0;
+        const ubuRulesDisp = String(ubuRules);
+        integrationRows.push(
+            `<tr><td class="tbl-cell-primary">Vendor advisory rules (DB)</td><td class="tbl-cell-mono tbl-cell-muted">vendor_distro rules ${esc(String(vdr))}</td><td class="tbl-cell-muted">Ubuntu advisories last update ${ubuAt} · Ubuntu package rules ${esc(ubuRulesDisp)} (offline correlation matches normalized inventory to these rows)</td></tr>`,
+        );
     }
     integrationRows.push(`<tr><td class="tbl-cell-primary">Trusted data (OS reconciliation)</td><td class="tbl-cell-muted"><span class="${tdStateClass}">${esc(tdStateLabel)}</span></td><td class="tbl-cell-muted">${tdDetail}</td></tr>`);
 
@@ -6064,7 +6094,7 @@ function renderHealthHtml(h, zbxResp) {
       <section class="st-band st-health-band st-health-band--services health-section" aria-labelledby="st-health-sec-services">
         <header class="st-health-section-head">
           <h3 class="health-sec-title" id="st-health-sec-services">Core services</h3>
-          <p class="hint-micro text-dim st-health-sec-lede mb0">Scheduler, scanner, and collector ingest — expected state is <span class="hstate-ok">Running</span> for active operations.</p>
+          <p class="hint-micro text-dim st-health-sec-lede mb0">Scanner, scheduler, collector ingest, and (when installed on this host) Ubuntu OVAL ingest + vulnerability correlation <strong>timers</strong> — daemons expect <span class="hstate-ok">Running</span>; timer units expect <span class="hstate-ok">Running</span> (armed schedule).</p>
         </header>
         ${mkTable(['Service', 'State', 'Detail'], serviceRows, 'Service status has not been reported yet.')}
       </section>
@@ -13427,6 +13457,40 @@ async function stCcRunOpenModal(runId) {
         ? `<div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>ID</th><th>Kind</th><th>SHA256</th><th>Bytes</th></tr></thead><tbody>${artRows}</tbody></table></div>`
         : '<p class="text-dim mb0">No artifact rows (or none in cap).</p>';
 
+    const vf = run.vulnerability_inventory_followup && typeof run.vulnerability_inventory_followup === 'object' ? run.vulnerability_inventory_followup : null;
+    let vfBlock = '';
+    if (vf) {
+        const aids = Array.isArray(vf.target_asset_ids) ? vf.target_asset_ids.map((x) => esc(String(x))).join(', ') : '';
+        const tblRows = [
+            ['Target asset id(s)', aids || '—'],
+            ['Package inventory (this run)', vf.had_package_inventory_success ? 'success recorded' : 'no success row'],
+            ['Active normalized catalog rows (those assets)', vf.active_normalized_inventory_rows != null ? String(vf.active_normalized_inventory_rows) : '—'],
+            ['Vendor_distro package rules (DB)', vf.vendor_distro_package_rule_count != null ? String(vf.vendor_distro_package_rule_count) : '—'],
+            ['Ubuntu vendor package rules', vf.ubuntu_vendor_package_rules != null ? String(vf.ubuntu_vendor_package_rules) : '—'],
+            ['Ubuntu advisories last DB update', vf.ubuntu_advisories_last_updated_at != null ? esc(localTime(String(vf.ubuntu_advisories_last_updated_at))) : '—'],
+            ['Open findings (those assets)', vf.open_affected_findings_on_targets != null ? String(vf.open_affected_findings_on_targets) : '—'],
+            ['Correlation jobs queued (those assets)', vf.correlation_jobs_pending_for_targets != null ? String(vf.correlation_jobs_pending_for_targets) : '—'],
+        ]
+            .map(([k, v]) => `<tr><td class="text-dim tbl-cell-primary">${esc(String(k))}</td><td class="mono-sm">${esc(String(v))}</td></tr>`)
+            .join('');
+        const hints = Array.isArray(vf.viewer_hints) ? vf.viewer_hints : [];
+        const hintUl =
+            hints.length > 0
+                ? `<ul class="hint-micro text-dim mt6 mb0" style="padding-left:1.2rem">${hints.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ul>`
+                : '';
+        const sumLine = vf.summary ? `<p class="hint-micro mb6">${esc(String(vf.summary))}</p>` : '';
+        vfBlock = `<div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Vulnerability correlation (offline)</div>
+          <p class="hint-micro text-dim mb6">SSH inventory is normalized into the software catalog; SurveyTrace then compares each active package row to locally imported vendor advisories (for example Ubuntu OVAL). CVE-level rows appear under <strong>Vulnerabilities</strong> and on each host’s <strong>Vulnerabilities</strong> tab — not inside this run’s plugin previews.</p>
+          ${sumLine}
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><tbody>${tblRows}</tbody></table></div>
+          ${hintUl}
+          <div class="mt8 row-wrap gap6">
+            <button type="button" class="tbtn" onclick="stCcRunCloseModal();goTab('vulns');">Open Vulnerabilities</button>
+            <button type="button" class="tbtn tbtn--ghost" onclick="stCcRunCloseModal();goTab('health');">System health</button>
+          </div>
+        </div>`;
+    }
+
     const wj = run.worker_debug && typeof run.worker_debug === 'object' ? run.worker_debug : null;
     let wjBlock = '';
     if (stRoleIsAdmin() && wj) {
@@ -13471,6 +13535,7 @@ async function stCcRunOpenModal(runId) {
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Targets</div>${tgtBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Normalized previews</div>${resBlock}</div>
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Observations (reconciliation)</div>${obsBlock}</div>
+      ${vfBlock}
       <div class="st-cc-run-sec mt10"><div class="st-cc-run-sec-title">Artifact metadata</div>${artBlock}</div>
       ${wjBlock}
       ${retNote}

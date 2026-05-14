@@ -2246,6 +2246,18 @@ function st_cc_run_get_detail(PDO $pdo, int $runId, bool $includeWorkerDebug = f
         unset($run['timeline'], $run['timeline_meta']);
     }
 
+    require_once __DIR__ . '/lib_vulnerability_correlation.php';
+    try {
+        $run['vulnerability_inventory_followup'] = st_cc_run_vulnerability_followup_public($pdo, $runId);
+    } catch (Throwable $e) {
+        @error_log('SurveyTrace st_cc_run_get_detail vulnerability_inventory_followup: ' . $e->getMessage());
+        $run['vulnerability_inventory_followup'] = [
+            'tables_ready' => false,
+            'summary'      => 'Vulnerability follow-up snapshot failed.',
+            'viewer_hints' => [],
+        ];
+    }
+
     return $run;
 }
 

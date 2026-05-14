@@ -767,6 +767,8 @@ $health = [
         'daemon' => st_health_systemd_unit('surveytrace-daemon'),
         'scheduler' => st_health_systemd_unit('surveytrace-scheduler'),
         'collector_ingest' => st_health_systemd_unit('surveytrace-collector-ingest'),
+        'ubuntu_advisory_sync_timer' => st_health_systemd_unit('surveytrace-ubuntu-advisory-sync.timer'),
+        'vulnerability_correlation_timer' => st_health_systemd_unit('surveytrace-vuln-correlation.timer'),
     ],
     'collector_ingest_runtime' => [],
     'scheduler_runtime' => [],
@@ -1140,6 +1142,9 @@ try {
         'last_correlation_status'     => null,
         'correlation_runtime_warning' => false,
         'queued_correlation_jobs'     => 0,
+        'vendor_distro_package_rule_count' => 0,
+        'ubuntu_vendor_package_rules' => 0,
+        'last_advisory_import_by_source' => [],
         'summary'                     => 'Vulnerability correlation health unavailable.',
         'warning_hints'               => [],
     ];
