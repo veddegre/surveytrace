@@ -108,7 +108,12 @@ foreach ($selftests as $st) {
     if ($rc === 0) {
         oi_emit($state, 'pass', 'selftest', $st);
     } else {
-        oi_emit($state, 'fail', 'selftest', "{$st} exit={$rc}");
+        $hint = '';
+        if ($out !== []) {
+            $joined = implode("\n", $out);
+            $hint = ' — ' . (strlen($joined) > 600 ? substr($joined, -600) : $joined);
+        }
+        oi_emit($state, 'fail', 'selftest', "{$st} exit={$rc}{$hint}");
     }
 }
 

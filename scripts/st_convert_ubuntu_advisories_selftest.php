@@ -6,6 +6,8 @@
  * deploy check_file parity; CLI tests write temp files under sys_get_temp_dir().
  *
  *   php scripts/st_convert_ubuntu_advisories_selftest.php
+ *
+ * If nested CLI smoke fails to find PHP, set SURVEYTRACE_PHP_CLI to the CLI binary path.
  */
 
 declare(strict_types=1);
@@ -19,6 +21,18 @@ function st_cu_fail(string $m): void
 function st_cu_tmp(string $suffix): string
 {
     return rtrim(sys_get_temp_dir(), '/') . '/st_cu_' . bin2hex(random_bytes(6)) . $suffix;
+}
+
+/** PHP interpreter for nested CLI smoke (PHP_BINARY can be empty on some SAPI/builds). */
+function st_cu_php_cli(): string
+{
+    $env = getenv('SURVEYTRACE_PHP_CLI');
+    if (is_string($env) && $env !== '' && $env !== '0') {
+        return $env;
+    }
+    $b = PHP_BINARY;
+
+    return ($b !== '') ? $b : 'php';
 }
 
 require_once dirname(__DIR__) . '/api/lib_ubuntu_advisory_convert.php';
@@ -178,10 +192,7 @@ if (is_string($df) && $df !== '') {
     }
 }
 
-$php = PHP_BINARY;
-if (! is_executable($php) && PHP_BINARY !== '') {
-    $php = 'php';
-}
+$php = st_cu_php_cli();
 
 $intFile = st_cu_tmp('.intermediate.json');
 $ovalFile = st_cu_tmp('.fragment.xml');
@@ -198,12 +209,13 @@ $cmd = escapeshellarg($php) . ' ' . escapeshellarg($root . '/scripts/convert_ubu
     . ' --input=' . escapeshellarg($ovalFile)
     . ' --output=' . escapeshellarg($tmpOut)
     . ' --release=jammy --format=oval --limit=50';
-exec($cmd, $o, $code);
+exec($cmd . ' 2>&1', $o, $code);
 if ($code !== 0) {
     @unlink($intFile);
     @unlink($ovalFile);
     @unlink($tmpOut);
-    st_cu_fail('CLI oval convert exit ' . $code);
+    $tail = $o === [] ? '' : ' | ' . substr(implode("\n", $o), -1200);
+    st_cu_fail('CLI oval convert exit ' . $code . $tail);
 }
 $ovalOut = json_decode((string) @file_get_contents($tmpOut), true);
 @unlink($tmpOut);
@@ -231,11 +243,12 @@ $cmd2 = escapeshellarg($php) . ' ' . escapeshellarg($root . '/scripts/convert_ub
     . ' --input=' . escapeshellarg($intFile)
     . ' --output=' . escapeshellarg($tmpOut2)
     . ' --format=intermediate --limit=50';
-exec($cmd2, $o2, $code2);
+exec($cmd2 . ' 2>&1', $o2, $code2);
 if ($code2 !== 0) {
     @unlink($intFile);
     @unlink($tmpOut2);
-    st_cu_fail('CLI intermediate convert exit ' . $code2);
+    $tail2 = $o2 === [] ? '' : ' | ' . substr(implode("\n", $o2), -1200);
+    st_cu_fail('CLI intermediate convert exit ' . $code2 . $tail2);
 }
 $cliInt = json_decode((string) @file_get_contents($tmpOut2), true);
 @unlink($tmpOut2);

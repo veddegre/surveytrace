@@ -486,7 +486,11 @@ if (! $opt['dry_run']) {
     if ($opt['output'] === '-') {
         fwrite(STDOUT, $jsonOut . "\n");
     } else {
-        if (@file_put_contents($opt['output'], $jsonOut . "\n", LOCK_EX) === false) {
+        $written = @file_put_contents($opt['output'], $jsonOut . "\n", LOCK_EX);
+        if ($written === false) {
+            $written = @file_put_contents($opt['output'], $jsonOut . "\n");
+        }
+        if ($written === false) {
             fwrite(STDERR, "Failed to write output file.\n");
             exit(1);
         }
