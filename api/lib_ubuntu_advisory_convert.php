@@ -8,7 +8,7 @@ declare(strict_types=1);
 /** @return list<string> */
 function st_ubuntu_allowed_releases(): array
 {
-    return ['noble', 'jammy', 'focal', 'bionic', 'mantic', 'lunar', 'kinetic', 'impish', 'hirsute', 'groovy', 'eoan', 'disco', 'cosmic', 'artful', 'xenial', 'trusty'];
+    return ['noble', 'resolute', 'jammy', 'focal', 'bionic', 'mantic', 'lunar', 'kinetic', 'impish', 'hirsute', 'groovy', 'eoan', 'disco', 'cosmic', 'artful', 'xenial', 'trusty'];
 }
 
 function st_ubuntu_validate_release(string $r): bool
