@@ -8043,6 +8043,7 @@ function stHostCredentialedChecksHtml(assetData) {
 }
 
 function stGoToCredentialedRunsSettings() {
+    closeHostPanel();
     goTab('settings');
     hiNav('nsettings');
     setTimeout(() => {
@@ -8050,6 +8051,15 @@ function stGoToCredentialedRunsSettings() {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (stRoleIsAdmin()) void stCcLoadJobsAndRuns();
     }, 80);
+}
+
+/** Escaped observation / error payload for table cells — monospace block, readable width. */
+function stHostEvidenceRawCell(escaped) {
+    const s = String(escaped || '');
+    if (s === '\u2014' || s === '—' || s.trim() === '') {
+        return '\u2014';
+    }
+    return `<pre class="st-host-evidence-json-pre" tabindex="0">${s}</pre>`;
 }
 
 function stHostReconciliationEvidenceDetailHtml(rd) {
@@ -8093,18 +8103,18 @@ function stHostReconciliationEvidenceDetailHtml(rd) {
         const hint = o.contribution_hint && String(o.contribution_hint).trim()
             ? esc(String(o.contribution_hint))
             : '\u2014';
-        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        return `<tr><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${stHostEvidenceRawCell(raw)}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     }).join('');
     const runRows = runs.map((r) => {
         const rawErr = r.error && String(r.error).trim() ? String(r.error) : '';
         const rawSum = r.result_summary && String(r.result_summary).trim() ? String(r.result_summary) : '';
         const err = rawErr ? esc(rawErr) : (rawSum ? esc(rawSum) : '\u2014');
         const fin = r.finished_at ? esc(localTime(r.finished_at)) : '\u2014';
-        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${err}</td></tr>`;
+        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${stHostEvidenceRawCell(err)}</td></tr>`;
     }).join('');
     const obsBlock = obs.length
         ? `<div class="text-micro text-dim mt8 mb4">Observations (what sources recorded)</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
+          <div class="tbl-wrap tbl-wrap--compact st-host-evidence-obs-wrap"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsRows}</tbody></table></div>`
         : '';
     const swPreviewLis = swPrev.map((p) => {
         const lb = p.label != null && String(p.label).trim() ? esc(String(p.label)) : '\u2014';
@@ -8523,7 +8533,7 @@ function stHostIdentityEvidenceDetailHtml(ird) {
             ? esc(String(o.contribution_hint))
             : '\u2014';
         const cls = rowCls ? ` class="${rowCls}"` : '';
-        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${raw}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
+        return `<tr${cls}><td class="mono-sm">${esc(String(o.observation_type || ''))}</td><td>${tierH}${tierH ? ' ' : ''}${src}</td><td>${ref}</td><td class="st-host-evidence-cell-raw">${stHostEvidenceRawCell(raw)}</td><td class="mono-sm">${norm}</td><td class="text-dim">${when}</td><td class="text-dim">${hint}</td><td>${esc(String(o.confidence_level || '').toUpperCase())}</td></tr>`;
     };
     const supRows = obs.filter((o) => sup.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
     const neuRows = obs.filter((o) => !sup.has(parseInt(String(o.id), 10) || 0) && !con.has(parseInt(String(o.id), 10) || 0)).map((o) => obsRowHtml(o, '')).join('');
@@ -8532,7 +8542,7 @@ function stHostIdentityEvidenceDetailHtml(ird) {
     const obsBody = [supRows, neuRows, conRows].filter(Boolean).join('');
     const obsBlock = obsBody
         ? `<div class="text-micro text-dim mt8 mb4">Identity observations</div>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsBody}</tbody></table></div>
+          <div class="tbl-wrap tbl-wrap--compact st-host-evidence-obs-wrap"><table class="tbl tbl--compact st-host-evidence-tbl"><thead><tr><th>Type</th><th>Source</th><th>Ref</th><th>Raw</th><th>Normalized</th><th>Observed</th><th>To belief</th><th>Conf.</th></tr></thead><tbody>${obsBody}</tbody></table></div>
           ${hasConflictRows ? '<p class="text-micro text-dim mt4 mb0">Rows highlighted for hostname/FQDN disagree with the reconciled short name; they are kept as evidence.</p>' : ''}`
         : '';
     const runRows = runs.map((r) => {
@@ -8540,7 +8550,7 @@ function stHostIdentityEvidenceDetailHtml(ird) {
         const rawSum = r.result_summary && String(r.result_summary).trim() ? String(r.result_summary) : '';
         const err = rawErr ? esc(rawErr) : (rawSum ? esc(rawSum) : '\u2014');
         const fin = r.finished_at ? esc(localTime(r.finished_at)) : '\u2014';
-        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${err}</td></tr>`;
+        return `<tr><td class="mono-sm">${esc(String(r.status || ''))}</td><td class="mono-sm">${esc(String(r.slice_key || ''))}</td><td class="text-dim">${fin}</td><td class="st-host-evidence-cell-raw">${stHostEvidenceRawCell(err)}</td></tr>`;
     }).join('');
     const runBlock = runs.length
         ? `<div class="text-micro text-dim mt10 mb4">Reconciliation attempts (identity)</div>
@@ -22501,6 +22511,11 @@ function stHostSetTab(tab) {
             } else {
                 panel.setAttribute('hidden', '');
             }
+        });
+        body.querySelectorAll('details.st-host-evidence-details, details.st-host-cc-recent').forEach((det) => {
+            try {
+                det.open = false;
+            } catch (_e) {}
         });
         const panelsRoot = body.querySelector('.host-tab-panels');
         if (panelsRoot) {
