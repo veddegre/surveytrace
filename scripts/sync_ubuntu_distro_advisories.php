@@ -11,6 +11,7 @@
  *   SURVEYTRACE_UBUNTU_ADVISORY_FETCH_LIMIT — max advisories per release (default: 15000)
  *   SURVEYTRACE_UBUNTU_ADVISORY_IMPORT_MAX — max advisories passed to import_distro_advisories when chaining (default: max(30000, FETCH_LIMIT))
  *   SURVEYTRACE_UBUNTU_ADVISORY_MAX_PACKAGE_ROWS — max vulnerability_advisory_packages inserts per import file (default: 250000; full noble OVAL is ~80k rows)
+ *   SURVEYTRACE_UBUNTU_ADVISORY_IMPORT_MAX_SIZE_MB — max import JSON file size in MB (default: 256; full jammy OVAL JSON can exceed 64MB)
  *
  * CLI:
  *   php scripts/sync_ubuntu_distro_advisories.php [--dry-run] [--correlate]
@@ -65,6 +66,9 @@ $importMax = is_string($impEnv) && ctype_digit($impEnv) ? max(1000, min(100_000,
 $pkgRowEnv = getenv('SURVEYTRACE_UBUNTU_ADVISORY_MAX_PACKAGE_ROWS');
 $importPkgMax = is_string($pkgRowEnv) && ctype_digit($pkgRowEnv) ? max(5_000, min(500_000, (int) $pkgRowEnv)) : 250_000;
 
+$sizeMbEnv = getenv('SURVEYTRACE_UBUNTU_ADVISORY_IMPORT_MAX_SIZE_MB');
+$importMaxSizeMb = is_string($sizeMbEnv) && ctype_digit($sizeMbEnv) ? max(64, min(2048, (int) $sizeMbEnv)) : 256;
+
 $php = PHP_BINARY;
 if ($php === '' || $php === '0') {
     $php = 'php';
@@ -90,7 +94,7 @@ if (! $dry && ! extension_loaded('bz2')) {
     exit(1);
 }
 
-fwrite(STDOUT, "sync_ubuntu_distro_advisories install={$install} releases=" . implode(',', $releases) . " limit={$limit} import_max={$importMax} import_pkg_max={$importPkgMax} dry_run=" . ($dry ? '1' : '0') . " correlate=" . ($correlate ? '1' : '0') . "\n");
+fwrite(STDOUT, "sync_ubuntu_distro_advisories install={$install} releases=" . implode(',', $releases) . " limit={$limit} import_max={$importMax} import_pkg_max={$importPkgMax} import_max_mb={$importMaxSizeMb} dry_run=" . ($dry ? '1' : '0') . " correlate=" . ($correlate ? '1' : '0') . "\n");
 
 foreach ($releases as $rel) {
     $outPath = $inbox . '/ubuntu_' . $rel . '_cve_oval.json';
@@ -108,6 +112,7 @@ foreach ($releases as $rel) {
         '--import',
         '--import-max-advisories=' . (string) $importMax,
         '--import-max-package-rows=' . (string) $importPkgMax,
+        '--import-max-size-mb=' . (string) $importMaxSizeMb,
     ];
     $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $proc = proc_open($cmd, $spec, $pipes, $install, null, ['bypass_shell' => true]);
