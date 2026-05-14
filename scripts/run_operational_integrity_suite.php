@@ -59,10 +59,12 @@ if ($opts['json']) {
 // --- Domain 1: PHP lint on critical files ---
 $criticalFiles = [
     'api/health.php',
+    'api/lib_ubuntu_advisory_convert.php',
     'api/lib_vulnerability_correlation.php',
     'api/lib_vulnerability_triage.php',
     'api/vulnerability_dashboard.php',
     'scripts/check_database_integrity.php',
+    'scripts/convert_ubuntu_advisories.php',
     'scripts/run_operational_integrity_suite.php',
 ];
 foreach ($criticalFiles as $f) {
@@ -84,6 +86,7 @@ foreach ($criticalFiles as $f) {
 // --- Domain 2: Existing selftests ---
 $selftests = [
     'st_vulnerability_correlation_selftest.php',
+    'st_convert_ubuntu_advisories_selftest.php',
     'st_vulnerability_dashboard_selftest.php',
     'st_remove_advisory_selftest.php',
     'st_vulnerability_triage_selftest.php',

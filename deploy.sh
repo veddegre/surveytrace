@@ -764,6 +764,8 @@ check_file "$DEST/scripts/import_advisories.php" "import_advisories.php (bounded
 check_file "$DEST/scripts/import_nvd_metadata.php" "import_nvd_metadata.php (NVD metadata-only rows)"
 check_file "$DEST/scripts/import_nvd_from_local_db.php" "import_nvd_from_local_db.php (NVD bridge from nvd.db)"
 check_file "$DEST/scripts/import_distro_advisories.php" "import_distro_advisories.php (Ubuntu/Debian vendor rules)"
+check_file "$DEST/scripts/convert_ubuntu_advisories.php" "convert_ubuntu_advisories.php (Ubuntu OVAL/JSON → import format)"
+check_file "$DEST/api/lib_ubuntu_advisory_convert.php" "lib_ubuntu_advisory_convert.php (Ubuntu advisory transforms)"
 check_file "$DEST/scripts/remove_advisory.php" "remove_advisory.php (test advisory cleanup CLI)"
 check_file "$DEST/scripts/run_vulnerability_correlation.php" "run_vulnerability_correlation.php (offline correlation)"
 check_file "$DEST/scripts/diagnose_vulnerability_correlation.php" "diagnose_vulnerability_correlation.php"

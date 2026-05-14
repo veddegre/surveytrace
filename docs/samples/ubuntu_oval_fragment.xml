@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oval_definitions xmlns="http://oval.mitre.org/XMLSchema/oval-definitions-5">
+  <definitions>
+    <definition class="vulnerability" id="oval:com.ubuntu.jammy:def:20999990001" version="1">
+      <metadata>
+        <title>CVE-2099-99999 on Ubuntu 22.04 LTS (jammy) - high</title>
+        <description>Test &lt;b&gt;HTML&lt;/b&gt; in OVAL description.</description>
+        <reference source="CVE" ref_id="CVE-2099-99999" ref_url="https://ubuntu.com/security/CVE-2099-99999"/>
+        <advisory>
+          <severity>High</severity>
+          <public_date>2026-01-01 12:00:00 UTC</public_date>
+          <cve href="https://ubuntu.com/security/CVE-2099-99999" cvss_score="9.1" cvss_severity="critical">CVE-2099-99999</cve>
+        </advisory>
+      </metadata>
+      <criteria>
+        <criteria operator="OR">
+          <criterion comment="ovaltestpkg package in jammy was vulnerable but has been fixed (note: '2.4-1ubuntu3')."/>
+        </criteria>
+      </criteria>
+    </definition>
+  </definitions>
+</oval_definitions>

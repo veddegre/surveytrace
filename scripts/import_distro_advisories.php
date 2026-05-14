@@ -41,16 +41,36 @@ require_once dirname(__DIR__) . '/api/db.php';
 require_once dirname(__DIR__) . '/api/lib_vulnerability_correlation.php';
 require_once dirname(__DIR__) . '/api/lib_vulnerability_advisory_import.php';
 
-$path = $argv[1] ?? '';
+$maxAdvisories = 5000;
+$maxBytes = 64 * 1024 * 1024;
+
+foreach (array_slice($argv, 1) as $_a) {
+    if (str_starts_with($_a, '--max-advisories=')) {
+        $maxAdvisories = max(1, min(50000, (int) substr($_a, 17)));
+    } elseif (str_starts_with($_a, '--max-size=')) {
+        $maxBytes = max(1024, (int) substr($_a, 11) * 1024 * 1024);
+    } elseif ($_a === '--help' || $_a === '-h') {
+        fwrite(STDOUT, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json [--max-advisories=5000] [--max-size=64]\n");
+        exit(0);
+    }
+}
+
+$path = '';
+foreach (array_slice($argv, 1) as $_a) {
+    if (!str_starts_with($_a, '--')) {
+        $path = $_a;
+        break;
+    }
+}
 if ($path === '' || ! is_readable($path)) {
-    fwrite(STDERR, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json\n");
+    fwrite(STDERR, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json [--max-advisories=5000]\n");
     exit(1);
 }
 
-$maxBytes = 2 * 1024 * 1024;
 $raw = @file_get_contents($path);
 if ($raw === false || strlen($raw) > $maxBytes) {
-    fwrite(STDERR, "File missing or larger than 2MB (bounded import).\n");
+    $limitMB = (int) round($maxBytes / 1024 / 1024);
+    fwrite(STDERR, "File missing or larger than {$limitMB}MB (bounded import; use --max-size=N to raise).\n");
     exit(1);
 }
 
@@ -67,8 +87,8 @@ if ($ds !== 'ubuntu' && $ds !== 'debian') {
 }
 
 $list = $data['advisories'];
-if (count($list) > 500) {
-    fwrite(STDERR, "Too many advisories in one file (max 500).\n");
+if (count($list) > $maxAdvisories) {
+    fwrite(STDERR, "Too many advisories in one file (max {$maxAdvisories}; use --max-advisories=N to raise).\n");
     exit(1);
 }
 
@@ -113,7 +133,7 @@ $upAdv = $pdo->prepare(
         updated_at = datetime(\'now\')'
 );
 
-$delPkg = $pdo->prepare('DELETE FROM vulnerability_advisory_packages WHERE advisory_id = ?');
+$delPkgRelease = $pdo->prepare('DELETE FROM vulnerability_advisory_packages WHERE advisory_id = ? AND distro_release = ?');
 $insPkg = $pdo->prepare(
     'INSERT INTO vulnerability_advisory_packages (advisory_id, ecosystem, normalized_name, version_operator, version_value, distro_release, architecture, fixed_version, metadata_json, created_at)
      VALUES (?, \'dpkg\', ?, \'=\', \'0\', ?, NULL, ?, ?, datetime(\'now\'))'
@@ -228,7 +248,7 @@ try {
             continue;
         }
 
-        $delPkg->execute([$aid]);
+        $delPkgRelease->execute([$aid, $drAdv]);
         foreach ($validRows as $vr) {
             $insPkg->execute([$aid, $vr['bin'], $drAdv, $vr['fv'], $vr['mj']]);
             ++$pkgRows;

@@ -1,0 +1,51 @@
+{
+  "surveytrace_ubuntu_intermediate_v1": true,
+  "distro_release": "jammy",
+  "cves": [
+    {
+      "cve_id": "CVE-2099-88881",
+      "description": "<p>Test <b>HTML</b> stripped.</p>",
+      "severity": "high",
+      "cvss_score": 8.1,
+      "published_at": "2026-01-01T00:00:00Z",
+      "modified_at": "2026-01-02T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "references": [
+        {"url": "https://ubuntu.com/security/CVE-2099-88881"},
+        {"url": "https://www.cve.org/CVERecord?id=CVE-2099-88881"}
+      ],
+      "packages": [
+        {
+          "binary_package": "testpkg-a",
+          "source_package": "testsrc-a",
+          "fixed_version": "1.0-1ubuntu1",
+          "status": "released"
+        },
+        {
+          "binary_package": "testpkg-no-fv",
+          "status": "released"
+        },
+        {
+          "binary_package": "testpkg-needed",
+          "fixed_version": "2.0-1",
+          "status": "needed"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2099-88881",
+      "description": "Same CVE on noble (multi-release preservation).",
+      "severity": "high",
+      "published_at": "2026-01-01T00:00:00Z",
+      "distro_release": "noble",
+      "packages": [
+        {
+          "binary_package": "testpkg-a",
+          "fixed_version": "1.2-0ubuntu2",
+          "status": "released"
+        }
+      ]
+    }
+  ]
+}

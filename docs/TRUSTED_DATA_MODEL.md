@@ -151,6 +151,7 @@ On upsert, authority and **`source`** merge so **vendor > internal > metadata_on
 - **`php scripts/import_nvd_metadata.php`** — `vulnerabilities[]` JSON file → **`metadata_only`**; leaves existing package rules from other feeds intact on merge.
 - **`php scripts/import_nvd_from_local_db.php --apply`** — **NVD bridge**: reads existing `data/nvd.db` (populated by `daemon/sync_nvd.py`) and imports CVE metadata into `vulnerability_advisories` as **`metadata_only`**. Does not write package rules or create affected assets. Supports `--incremental`, `--since=YYYY-MM-DD`, `--limit=N`. Dry-run default.
 - **`php scripts/import_distro_advisories.php`** — `distro_source` `ubuntu` \| `debian`; **`distro_release`** required per advisory; emits dpkg **`fixed_version`** rules.
+- **`php scripts/convert_ubuntu_advisories.php`** — optional **`--fetch`** (Canonical OVAL bz2) or **local** OVAL / intermediate JSON → normalized import JSON; **`--import`** chains **`import_distro_advisories.php`** (explicit opt-in).
 
 All are transactional, offline, and reject oversized inputs (see script headers).
 
@@ -209,7 +210,7 @@ Deterministic **`dpkg` / `rpm` / `generic`** ordering in `api/lib_version_compar
 - `daemon/vuln_correlation_jobs.py` — enqueue deduped **`worker_jobs`** (`vulnerability_correlation`) after inventory persist
 - `api/lib_software_inventory.php`, `api/software_inventory.php` — bounded read/search API
 - `api/lib_version_compare.php`, `api/lib_vulnerability_priority.php`, `api/lib_vulnerability_advisory_import.php`, `api/lib_vulnerability_correlation.php`, `api/lib_vulnerability_triage.php`, `api/vulnerabilities.php`, `api/vulnerability_triage.php` — **local advisory correlation** plus **bounded analyst triage** (inventory → rules → `asset_vulnerabilities`); **not** scanner findings, NVD live mirror, automated remediation, ticketing, or SOAR
-- `scripts/import_advisories.php`, `scripts/import_nvd_metadata.php`, `scripts/import_nvd_from_local_db.php`, `scripts/import_distro_advisories.php`, `scripts/remove_advisory.php`, `scripts/run_vulnerability_correlation.php`, `scripts/diagnose_vulnerability_correlation.php`, `scripts/st_vulnerability_correlation_selftest.php`, `scripts/st_remove_advisory_selftest.php` — bounded import, NVD bridge, offline correlation, diagnostics, selftests
+- `api/lib_ubuntu_advisory_convert.php`, `scripts/convert_ubuntu_advisories.php`, `scripts/st_convert_ubuntu_advisories_selftest.php` — Ubuntu advisory JSON normalization / OVAL conversion (offline by default; bounded)
 - `scripts/diagnose_vulnerability_triage.php`, `scripts/prune_vulnerability_activity.php`, `scripts/resync_vulnerability_triage_priority.php`, `scripts/st_vulnerability_triage_selftest.php` — triage diagnostics, optional **activity-log-only** retention prune (dry-run default), **priority resync** CLI (dry-run default), triage selftest
 - `api/vulnerability_dashboard.php`, `scripts/diagnose_vulnerability_dashboard.php`, `scripts/st_vulnerability_dashboard_selftest.php` — operator vulnerability dashboard API, diagnostics, selftest
 - `docs/samples/*.json` — shipped bounded sample payloads for importer validation (mirrors `data/samples/` in git)

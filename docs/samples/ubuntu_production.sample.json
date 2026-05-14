@@ -1,0 +1,163 @@
+{
+  "distro_source": "ubuntu",
+  "generated_at": "2026-05-11T00:00:00Z",
+  "format_version": "1.0",
+  "advisories": [
+    {
+      "cve_id": "CVE-2024-6119",
+      "description": "OpenSSL: Possible denial of service in X.509 name checks. A flaw was found in OpenSSL where checking of an application certificate name against the server certificate name results in a possible denial of service.",
+      "severity": "medium",
+      "cvss_score": 5.9,
+      "published_at": "2024-09-03T00:00:00Z",
+      "modified_at": "2024-09-04T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "references": [
+        {"url": "https://ubuntu.com/security/notices/USN-6986-1"},
+        {"url": "https://www.openssl.org/news/secadv/20240903.txt"}
+      ],
+      "packages": [
+        {
+          "binary_package": "libssl3",
+          "source_package": "openssl",
+          "fixed_version": "3.0.2-0ubuntu1.17",
+          "status": "released"
+        },
+        {
+          "binary_package": "openssl",
+          "source_package": "openssl",
+          "fixed_version": "3.0.2-0ubuntu1.17",
+          "status": "released"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2024-6119",
+      "description": "OpenSSL: Possible denial of service in X.509 name checks.",
+      "severity": "medium",
+      "cvss_score": 5.9,
+      "published_at": "2024-09-03T00:00:00Z",
+      "modified_at": "2024-09-04T00:00:00Z",
+      "distro_release": "noble",
+      "withdrawn": false,
+      "packages": [
+        {
+          "binary_package": "libssl3t64",
+          "source_package": "openssl",
+          "fixed_version": "3.0.13-0ubuntu3.4",
+          "status": "released"
+        },
+        {
+          "binary_package": "openssl",
+          "source_package": "openssl",
+          "fixed_version": "3.0.13-0ubuntu3.4",
+          "status": "released"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2024-47175",
+      "description": "CUPS: PPD command injection via IPP attributes. libppd in CUPS before 2.0.1 allows remote code execution via crafted IPP responses.",
+      "severity": "high",
+      "cvss_score": 7.7,
+      "published_at": "2024-09-27T00:00:00Z",
+      "modified_at": "2024-10-01T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "references": [
+        {"url": "https://ubuntu.com/security/notices/USN-7041-1"},
+        {"url": "https://github.com/OpenPrinting/libppd/security/advisories/GHSA-7xfx-47qg-grp6"}
+      ],
+      "packages": [
+        {
+          "binary_package": "cups",
+          "source_package": "cups",
+          "fixed_version": "2.4.1op1-1ubuntu4.11",
+          "status": "released"
+        },
+        {
+          "binary_package": "libcups2",
+          "source_package": "cups",
+          "fixed_version": "2.4.1op1-1ubuntu4.11",
+          "status": "released"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2024-47175",
+      "description": "CUPS: PPD command injection via IPP attributes.",
+      "severity": "high",
+      "cvss_score": 7.7,
+      "published_at": "2024-09-27T00:00:00Z",
+      "modified_at": "2024-10-01T00:00:00Z",
+      "distro_release": "noble",
+      "withdrawn": false,
+      "packages": [
+        {
+          "binary_package": "cups",
+          "source_package": "cups",
+          "fixed_version": "2.4.7-1.2ubuntu7.3",
+          "status": "released"
+        },
+        {
+          "binary_package": "libcups2t64",
+          "source_package": "cups",
+          "fixed_version": "2.4.7-1.2ubuntu7.3",
+          "status": "released"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2024-3596",
+      "description": "RADIUS protocol susceptible to forgery attacks (Blast-RADIUS).",
+      "severity": "critical",
+      "cvss_score": 9.0,
+      "published_at": "2024-07-09T00:00:00Z",
+      "modified_at": "2024-07-15T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "references": [
+        {"url": "https://ubuntu.com/security/notices/USN-6885-1"},
+        {"url": "https://www.blastradius.fail/"}
+      ],
+      "packages": [
+        {
+          "binary_package": "freeradius",
+          "source_package": "freeradius",
+          "fixed_version": "3.0.26~dfsg~git20220223.1.00ed0241fa-0ubuntu3.2",
+          "status": "released"
+        },
+        {
+          "binary_package": "libfreeradius3",
+          "source_package": "freeradius",
+          "fixed_version": "3.0.26~dfsg~git20220223.1.00ed0241fa-0ubuntu3.2",
+          "status": "released"
+        }
+      ]
+    },
+    {
+      "cve_id": "CVE-2024-50602",
+      "description": "Expat: XML parsing crash via DTD in certain tag-close scenarios.",
+      "severity": "medium",
+      "cvss_score": 5.9,
+      "published_at": "2024-10-27T00:00:00Z",
+      "modified_at": "2024-11-01T00:00:00Z",
+      "distro_release": "jammy",
+      "withdrawn": false,
+      "packages": [
+        {
+          "binary_package": "libexpat1",
+          "source_package": "expat",
+          "fixed_version": "2.4.7-1ubuntu0.4",
+          "status": "released"
+        },
+        {
+          "binary_package": "expat",
+          "source_package": "expat",
+          "fixed_version": "2.4.7-1ubuntu0.4",
+          "status": "released"
+        }
+      ]
+    }
+  ]
+}

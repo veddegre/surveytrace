@@ -287,6 +287,7 @@ function st_feed_sync_resolve(string $target): ?array {
 function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
     $results = [];
     $ok = true;
+    $nvdSyncSucceeded = false;
     // Child must inherit this; shell-prefixed VAR=value in exec() is unreliable on
     // some PHP/sh builds. putenv applies to the whole PHP process until restored.
     $cancelPath = st_feed_sync_cancel_path();
@@ -319,7 +320,19 @@ function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
             if ($code !== 0) {
                 $ok = false;
             }
+            if (basename($script) === 'sync_nvd.py' && $code === 0) {
+                $nvdSyncSucceeded = true;
+            }
         }
+
+        // Post-hook: bridge NVD metadata into vulnerability_advisories after successful NVD sync.
+        if ($nvdSyncSucceeded) {
+            $bridgeResult = st_feed_sync_run_nvd_bridge();
+            if ($bridgeResult !== null) {
+                $results[] = $bridgeResult;
+            }
+        }
+
         return ['ok' => $ok, 'results' => $results];
     } finally {
         if (PHP_OS_FAMILY !== 'Windows') {
@@ -330,6 +343,41 @@ function st_feed_sync_run_sync(array $scriptPaths, string $python): array {
             }
         }
     }
+}
+
+/**
+ * Run the NVD metadata bridge after a successful NVD sync.
+ * Non-fatal: bridge failure does not mark the feed sync as failed.
+ *
+ * @return array{script: string, ok: bool, exit_code: int, output: string}|null
+ */
+function st_feed_sync_run_nvd_bridge(): ?array {
+    $roots = st_feed_sync_install_root_candidates();
+    $bridgePath = null;
+    foreach ($roots as $root) {
+        $candidate = $root . '/scripts/import_nvd_from_local_db.php';
+        if (is_file($candidate)) {
+            $bridgePath = $candidate;
+            break;
+        }
+    }
+    if ($bridgePath === null) {
+        return null;
+    }
+
+    $php = st_feed_sync_php_cli();
+    $cmd = escapeshellarg($php) . ' ' . escapeshellarg($bridgePath) . ' --apply --incremental --limit=5000 2>&1';
+    $output = [];
+    $code = 1;
+    @exec($cmd, $output, $code);
+
+    return [
+        'script' => 'import_nvd_from_local_db.php',
+        'ok' => $code === 0,
+        'exit_code' => $code,
+        'output' => implode("\n", $output),
+        'post_hook' => true,
+    ];
 }
 
 function st_feed_sync_write_result(string $target, array $payload): void {

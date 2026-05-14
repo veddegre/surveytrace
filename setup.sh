@@ -823,11 +823,18 @@ echo -e "${YLW}└────────────────────�
 read -rp "Run NVD sync now? [y/N] " run_nvd
 if [[ "${run_nvd,,}" == "y" ]]; then
     info "Running NVD full sync (often 20+ min with API key; much longer without)…"
-    sudo -u "$APP_USER" "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/sync_nvd.py" && \
-        ok "NVD sync complete" || warn "NVD sync encountered errors — retry with: sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py"
+    if sudo -u "$APP_USER" "$VENV_DIR/bin/python3" "$INSTALL_DIR/daemon/sync_nvd.py"; then
+        ok "NVD sync complete"
+        info "Running NVD metadata bridge (imports CVE metadata into advisory model)…"
+        sudo -u "$APP_USER" /usr/bin/php "$INSTALL_DIR/scripts/import_nvd_from_local_db.php" --apply --incremental --limit=5000 && \
+            ok "NVD metadata bridge complete" || warn "NVD metadata bridge failed (non-fatal; run manually)"
+    else
+        warn "NVD sync encountered errors — retry with: sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py"
+    fi
 else
     info "Skipping NVD sync. Run manually when ready:"
     echo "  sudo -u $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py"
+    echo "  sudo -u $APP_USER /usr/bin/php $INSTALL_DIR/scripts/import_nvd_from_local_db.php --apply --incremental"
 fi
 
 # =============================================================================
@@ -876,11 +883,11 @@ fi
 # =============================================================================
 CRON_FILE="/etc/cron.d/surveytrace-nvd"
 cat > "$CRON_FILE" <<CRON
-# SurveyTrace — weekly NVD CVE feed refresh (Sunday 3am)
-0 3 * * 0 $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py --recent >> $DATA_DIR/nvd_sync.log 2>&1
+# SurveyTrace — weekly NVD CVE feed refresh (Sunday 3am) + metadata bridge
+0 3 * * 0 $APP_USER $VENV_DIR/bin/python3 $INSTALL_DIR/daemon/sync_nvd.py --recent >> $DATA_DIR/nvd_sync.log 2>&1 && /usr/bin/php $INSTALL_DIR/scripts/import_nvd_from_local_db.php --apply --incremental --limit=5000 >> $DATA_DIR/nvd_bridge.log 2>&1
 CRON
 chmod 644 "$CRON_FILE"
-ok "Weekly NVD cron installed at $CRON_FILE"
+ok "Weekly NVD cron installed at $CRON_FILE (includes metadata bridge)"
 
 FP_CRON_FILE="/etc/cron.d/surveytrace-fp"
 cat > "$FP_CRON_FILE" <<CRON
@@ -958,6 +965,9 @@ check_file "$INSTALL_DIR/docs/CREDENTIALED_CHECKS_MVP_PLAN.md" "docs/CREDENTIALE
 check_file "$INSTALL_DIR/docs/samples/README.md" "docs/samples/README.md exists"
 check_file "$INSTALL_DIR/docs/samples/nvd_metadata.sample.json" "docs/samples/nvd_metadata.sample.json exists"
 check_file "$INSTALL_DIR/docs/samples/distro_advisories.sample.json" "docs/samples/distro_advisories.sample.json exists"
+check_file "$INSTALL_DIR/docs/samples/ubuntu_production.sample.json" "docs/samples/ubuntu_production.sample.json exists"
+check_file "$INSTALL_DIR/docs/samples/ubuntu_intermediate.sample.json" "docs/samples/ubuntu_intermediate.sample.json exists"
+check_file "$INSTALL_DIR/docs/samples/ubuntu_oval_fragment.xml" "docs/samples/ubuntu_oval_fragment.xml exists"
 check_file "$INSTALL_DIR/docs/samples/advisory_cve_test.sample.json" "docs/samples/advisory_cve_test.sample.json exists"
 
 check_file "$INSTALL_DIR/public/index.php" "public/index.php exists"
