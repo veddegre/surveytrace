@@ -39,7 +39,7 @@ sudo ./setup.sh
 
 The script performs:
 
-- package/runtime installation
+- package/runtime installation (PHP includes **`php-xml`** for **XMLReader**, used by Ubuntu CVE OVAL conversion and the operational integrity selftests that **`deploy.sh`** runs)
 - service user creation (`surveytrace`)
 - application deployment to `/opt/surveytrace`
 - database initialization

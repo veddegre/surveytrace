@@ -33,6 +33,7 @@ This will:
 
 - create the `surveytrace` service user
 - install systemd services
+- install PHP packages for the API and workers, including **`php-xml`** (**XMLReader**) for Ubuntu OVAL advisory conversion and deploy-time selftests
 - initialize the database
 - set permissions under `/opt/surveytrace`
 - prepare the web interface

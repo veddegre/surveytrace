@@ -415,6 +415,10 @@ if ($fmt === 'auto') {
 $outDoc = null;
 
 if ($fmt === 'oval') {
+    if (! extension_loaded('xmlreader') || ! class_exists('XMLReader', false)) {
+        fwrite(STDERR, "OVAL input requires the PHP xmlreader extension (on Debian/Ubuntu: apt install php-xml).\n");
+        exit(1);
+    }
     if ($opt['release'] === '' || ! st_ubuntu_validate_release($opt['release'])) {
         fwrite(STDERR, "OVAL conversion requires --release=noble|jammy|... (codename matching criterion comments)\n");
         exit(1);

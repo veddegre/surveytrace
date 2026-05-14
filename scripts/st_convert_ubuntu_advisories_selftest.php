@@ -8,6 +8,9 @@
  *   php scripts/st_convert_ubuntu_advisories_selftest.php
  *
  * If nested CLI smoke fails to find PHP, set SURVEYTRACE_PHP_CLI to the CLI binary path.
+ *
+ * OVAL CLI smoke requires the PHP xmlreader extension (often in the php-xml package). When it is
+ * absent, that subprocess test is skipped; install php-xml (or equivalent) on the host to cover OVAL.
  */
 
 declare(strict_types=1);
@@ -195,47 +198,8 @@ if (is_string($df) && $df !== '') {
 $php = st_cu_php_cli();
 
 $intFile = st_cu_tmp('.intermediate.json');
-$ovalFile = st_cu_tmp('.fragment.xml');
 if (@file_put_contents($intFile, $fixtureIntermediateJson) === false) {
     st_cu_fail('temp intermediate write');
-}
-if (@file_put_contents($ovalFile, $fixtureOvalXml) === false) {
-    @unlink($intFile);
-    st_cu_fail('temp oval write');
-}
-
-$tmpOut = st_cu_tmp('.out.json');
-$cmd = escapeshellarg($php) . ' ' . escapeshellarg($root . '/scripts/convert_ubuntu_advisories.php')
-    . ' --input=' . escapeshellarg($ovalFile)
-    . ' --output=' . escapeshellarg($tmpOut)
-    . ' --release=jammy --format=oval --limit=50';
-exec($cmd . ' 2>&1', $o, $code);
-if ($code !== 0) {
-    @unlink($intFile);
-    @unlink($ovalFile);
-    @unlink($tmpOut);
-    $tail = $o === [] ? '' : ' | ' . substr(implode("\n", $o), -1200);
-    st_cu_fail('CLI oval convert exit ' . $code . $tail);
-}
-$ovalOut = json_decode((string) @file_get_contents($tmpOut), true);
-@unlink($tmpOut);
-@unlink($ovalFile);
-if (! is_array($ovalOut) || ($ovalOut['distro_source'] ?? '') !== 'ubuntu') {
-    @unlink($intFile);
-    st_cu_fail('oval CLI output shape');
-}
-if (count($ovalOut['advisories'] ?? []) !== 1) {
-    @unlink($intFile);
-    st_cu_fail('oval fragment: expected 1 advisory');
-}
-$a0 = $ovalOut['advisories'][0];
-if (($a0['cve_id'] ?? '') !== 'CVE-2099-99999' || count($a0['packages'] ?? []) !== 1) {
-    @unlink($intFile);
-    st_cu_fail('oval CVE / package');
-}
-if (($a0['packages'][0]['binary_package'] ?? '') !== 'ovaltestpkg') {
-    @unlink($intFile);
-    st_cu_fail('oval binary name');
 }
 
 $tmpOut2 = st_cu_tmp('.out2.json');
@@ -255,6 +219,45 @@ $cliInt = json_decode((string) @file_get_contents($tmpOut2), true);
 @unlink($intFile);
 if (count($cliInt['advisories'] ?? []) !== 2) {
     st_cu_fail('CLI intermediate should match lib advisory count');
+}
+
+$ovalXmlReady = extension_loaded('xmlreader') && class_exists('XMLReader', false);
+if ($ovalXmlReady) {
+    $ovalFile = st_cu_tmp('.fragment.xml');
+    if (@file_put_contents($ovalFile, $fixtureOvalXml) === false) {
+        st_cu_fail('temp oval write');
+    }
+
+    $tmpOut = st_cu_tmp('.out.json');
+    $cmd = escapeshellarg($php) . ' ' . escapeshellarg($root . '/scripts/convert_ubuntu_advisories.php')
+        . ' --input=' . escapeshellarg($ovalFile)
+        . ' --output=' . escapeshellarg($tmpOut)
+        . ' --release=jammy --format=oval --limit=50';
+    exec($cmd . ' 2>&1', $o, $code);
+    if ($code !== 0) {
+        @unlink($ovalFile);
+        @unlink($tmpOut);
+        $tail = $o === [] ? '' : ' | ' . substr(implode("\n", $o), -1200);
+        st_cu_fail('CLI oval convert exit ' . $code . $tail);
+    }
+    $ovalOut = json_decode((string) @file_get_contents($tmpOut), true);
+    @unlink($tmpOut);
+    @unlink($ovalFile);
+    if (! is_array($ovalOut) || ($ovalOut['distro_source'] ?? '') !== 'ubuntu') {
+        st_cu_fail('oval CLI output shape');
+    }
+    if (count($ovalOut['advisories'] ?? []) !== 1) {
+        st_cu_fail('oval fragment: expected 1 advisory');
+    }
+    $a0 = $ovalOut['advisories'][0];
+    if (($a0['cve_id'] ?? '') !== 'CVE-2099-99999' || count($a0['packages'] ?? []) !== 1) {
+        st_cu_fail('oval CVE / package');
+    }
+    if (($a0['packages'][0]['binary_package'] ?? '') !== 'ovaltestpkg') {
+        st_cu_fail('oval binary name');
+    }
+} else {
+    fwrite(STDERR, "INFO st_convert_ubuntu_advisories_selftest: skipping OVAL CLI (php-xmlreader not loaded; e.g. apt install php-xml)\n");
 }
 
 echo "OK st_convert_ubuntu_advisories_selftest\n";
