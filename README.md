@@ -45,7 +45,7 @@ sudo ./setup.sh
 
 Installs application, services, permissions, and runs validation checks.
 
-**PHP on Debian/Ubuntu:** `setup.sh` installs **`php-xml`** (the **XMLReader** extension) together with the rest of the PHP stack. That extension is required for Ubuntu CVE **OVAL** conversion (`scripts/convert_ubuntu_advisories.php`) and for the full operational integrity selftests run during **`deploy.sh`**. If you maintain PHP yourself, install **`php-xml`** or the matching versioned package (for example **`php8.2-xml`**) for the same CLI major/minor as `php -v`; without it, OVAL conversion is unavailable and the convert selftest skips the OVAL subprocess check.
+**PHP on Debian/Ubuntu:** `setup.sh` installs **`php-xml`** (the **XMLReader** extension) and **`php-bz2`** (bzip2 streams for Canonical **`*.xml.bz2`** OVAL) together with the rest of the PHP stack. **`php-xml`** is required for Ubuntu CVE **OVAL** conversion (`scripts/convert_ubuntu_advisories.php`) and for the full operational integrity selftests run during **`deploy.sh`**. **`php-bz2`** is required for **`--fetch`** (compressed OVAL). If you maintain PHP yourself, install **`php-xml`** and **`php-bz2`** (or the matching versioned packages, e.g. **`php8.2-xml`** / **`php8.2-bz2`**) for the same CLI major/minor as `php -v`.
 
 ### Deploy updates
 
@@ -107,7 +107,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history and [RELEASE_NOTES.md](./
 
 ## Notes
 
-- **`php-xml`** (XMLReader): required for Ubuntu OVAL advisory conversion and full deploy selftests; included by **`setup.sh`** on apt-based masters (see Installation above).
+- **`php-xml`** (XMLReader) and **`php-bz2`** (Canonical `*.xml.bz2` OVAL via `compress.bzip2://`): required for Ubuntu **`--fetch`** / weekly sync; included by **`setup.sh`** on apt-based masters (see Installation above).
 - Zabbix output requires `zabbix_sender` on Debian/Ubuntu
 - Install scripts include post-run validation
 - Collector installs validate independently

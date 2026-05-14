@@ -77,6 +77,10 @@ if (! $dry && (! extension_loaded('xmlreader') || ! class_exists('XMLReader', fa
     fwrite(STDERR, "FAIL: PHP xmlreader extension required for OVAL fetch (--fetch). Install php-xml (e.g. apt install php-xml).\n");
     exit(1);
 }
+if (! $dry && ! extension_loaded('bz2')) {
+    fwrite(STDERR, "FAIL: PHP bz2 extension required for Canonical OVAL (*.xml.bz2 via compress.bzip2://). Install php-bz2 (e.g. apt install php-bz2).\n");
+    exit(1);
+}
 
 fwrite(STDOUT, "sync_ubuntu_distro_advisories install={$install} releases=" . implode(',', $releases) . " limit={$limit} dry_run=" . ($dry ? '1' : '0') . " correlate=" . ($correlate ? '1' : '0') . "\n");
 

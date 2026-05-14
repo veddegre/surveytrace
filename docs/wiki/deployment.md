@@ -42,7 +42,7 @@ The deploy script will:
 - normalize ownership and permissions
 - validate required files exist (including trusted-data / reconciliation PHP and `recon_observations.py` where shipped)
 - run **`php -l`** on every shipped **`api/*.php`**, **`daemon/cred_decrypt_cli.php`**, and **`scripts/*.php`** from the manifest; run **`python3 -m py_compile`** on shipped **`daemon/*.py`**
-- run **`scripts/release_security_gate.php --static-only`** (includes **`run_operational_integrity_suite.php`**); for the Ubuntu OVAL subprocess selftest, the PHP CLI needs the **xmlreader** extension (**`php-xml`** or **`php${VER}-xml`** on Debian/Ubuntu — installed by **`setup.sh`** on fresh masters)
+- run **`scripts/release_security_gate.php --static-only`** (includes **`run_operational_integrity_suite.php`**); for the Ubuntu OVAL subprocess selftest, the PHP CLI needs **xmlreader** (**`php-xml`**) and, for **`--fetch`**, **bz2** (**`php-bz2`**) — installed by **`setup.sh`** on fresh masters (or matching **`php${VER}-xml`** / **`php${VER}-bz2`**)
 - check worker readability
 - verify systemd units
 - restart services as needed

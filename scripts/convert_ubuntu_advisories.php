@@ -153,6 +153,11 @@ function st_convert_ubuntu_from_oval(string $path, string $releaseFilter, int $l
     $uri = $path;
     $lower = strtolower($path);
     if (str_ends_with($lower, '.bz2') || str_ends_with($lower, '.bzip2')) {
+        if (! extension_loaded('bz2')) {
+            throw new RuntimeException(
+                'oval_bz2_requires_php_bz2: Canonical OVAL is bzip2-compressed; PHP needs the bz2 extension for compress.bzip2:// (e.g. apt install php-bz2).'
+            );
+        }
         $rp = realpath($path);
         if ($rp === false) {
             throw new RuntimeException('oval_path_unreadable');
@@ -162,7 +167,9 @@ function st_convert_ubuntu_from_oval(string $path, string $releaseFilter, int $l
 
     $r = new XMLReader();
     if (@$r->open($uri) !== true) {
-        throw new RuntimeException('oval_xml_open_failed');
+        $err = libxml_get_last_error();
+        $tail = is_object($err) && isset($err->message) ? ' libxml: ' . trim((string) $err->message) : '';
+        throw new RuntimeException('oval_xml_open_failed' . $tail);
     }
     if (function_exists('libxml_disable_entity_loader')) {
         @libxml_disable_entity_loader(true);

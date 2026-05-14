@@ -290,13 +290,14 @@ REQUIRED_PKGS=(
     python3-pip
     python3-venv
     python3-dev
-    # PHP + SQLite (php-xml provides XMLReader — Ubuntu OVAL advisory convert + release/deploy selftests)
+    # PHP + SQLite (php-xml = XMLReader; php-bz2 = compress.bzip2:// for Canonical *.xml.bz2 OVAL)
     php
     php-cli
     php-sqlite3
     php-json
     php-mbstring
     php-xml
+    php-bz2
     php-curl
     php-fpm
     # Build deps for scapy / python packages
@@ -349,6 +350,12 @@ fi
 if apt-cache show "php${PHP_VER}-xml" &>/dev/null; then
     apt-get install -y --no-install-recommends "php${PHP_VER}-xml" || \
         warn "Could not install php${PHP_VER}-xml — OVAL convert may fail until it is installed"
+fi
+
+# bz2 stream (compress.bzip2://) for Canonical *.xml.bz2 OVAL; meta php-bz2 may lag behind PHP_VER.
+if apt-cache show "php${PHP_VER}-bz2" &>/dev/null; then
+    apt-get install -y --no-install-recommends "php${PHP_VER}-bz2" || \
+        warn "Could not install php${PHP_VER}-bz2 — OVAL --fetch may fail until it is installed"
 fi
 
 # Debian/Ubuntu: mod_proxy_fcgi lives here; package name is libapache2-mod-proxy-fcgi.
