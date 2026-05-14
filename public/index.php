@@ -8213,7 +8213,7 @@ function stHostVendorAdvisoryCorrelationHtml(assetData) {
         vin && vin.tables_ready === true && aidV > 0
             ? `<p class="text-micro text-dim mt4 mb0">API (bounded): <span class="mono-sm">/api/vulnerabilities.php?action=list_for_asset&amp;asset_id=${esc(
                   String(aidV),
-              )}</span> · <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(String(aidV))}&amp;limit=80</span></p>`
+              )}</span> · <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(String(aidV))}&amp;limit=80&amp;offset=0&amp;q=</span></p>`
             : '';
     const vinTable =
         vin && vin.tables_ready === true && vinRows.length
@@ -8279,24 +8279,48 @@ function stHostVendorAdvisoryCorrelationHtml(assetData) {
     return `${vinRollupHtml}${vinTable}${vinApi}`;
 }
 
-async function stHostLoadInstalledPackages(assetId, elBtn) {
+const ST_HOST_PKG_PAGE_SIZE = 80;
+
+async function stHostLoadInstalledPackages(assetId, offset, elBtn) {
     const aid = parseInt(String(assetId), 10) || 0;
+    const lim = ST_HOST_PKG_PAGE_SIZE;
+    const off = Math.max(0, parseInt(String(offset), 10) || 0);
     const out = document.getElementById('hp-pkg-out-' + aid);
+    const wrap = document.getElementById('hp-pkg-wrap-' + aid);
     if (aid < 1 || !out) return;
+    const lockBtns = wrap ? () => wrap.querySelectorAll('button').forEach((b) => { b.disabled = true; }) : () => {};
+    const unlockBtns = wrap ? () => wrap.querySelectorAll('button').forEach((b) => { b.disabled = false; }) : () => {};
+    lockBtns();
     if (elBtn) {
         elBtn.disabled = true;
     }
     out.innerHTML = '<p class="text-micro text-dim mb0">Loading…</p>';
     try {
-        const r = await api('/api/software_inventory.php?asset_id=' + encodeURIComponent(String(aid)) + '&limit=80&q=', { quiet: true });
+        const r = await api(
+            '/api/software_inventory.php?asset_id=' +
+                encodeURIComponent(String(aid)) +
+                '&limit=' +
+                encodeURIComponent(String(lim)) +
+                '&offset=' +
+                encodeURIComponent(String(off)) +
+                '&q=',
+            { quiet: true },
+        );
         if (!r || !r.ok) {
             out.innerHTML = '<p class="text-micro text-dim mb0">Could not load package list.</p>';
             return;
         }
         const pkgs = Array.isArray(r.packages) ? r.packages : [];
-        const tot = r.active_total != null ? String(r.active_total) : '?';
+        const totRaw = r.active_total != null ? String(r.active_total) : '?';
+        const totNum = parseInt(String(r.active_total), 10);
+        const totalKnown = Number.isFinite(totNum) && totNum >= 0;
+        if (!pkgs.length && off > 0) {
+            out.innerHTML = `<p class="text-micro text-dim mb4">No rows at this offset (past end of catalog or empty page).</p>
+              <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aid},0,null)">First page</button>`;
+            return;
+        }
         if (!pkgs.length) {
-            out.innerHTML = `<p class="text-micro text-dim mb0">No active normalized rows (total active <span class="mono-sm">${esc(tot)}</span>).</p>`;
+            out.innerHTML = `<p class="text-micro text-dim mb0">No active normalized rows (total active <span class="mono-sm">${esc(totRaw)}</span>).</p>`;
             return;
         }
         const rows = pkgs
@@ -8310,14 +8334,36 @@ async function stHostLoadInstalledPackages(assetId, elBtn) {
                 return `<tr><td class="mono-sm">${nm}</td><td class="mono-sm">${ver}</td><td>${ar}</td><td class="text-dim">${eco}</td></tr>`;
             })
             .join('');
-        out.innerHTML = `<p class="text-micro text-dim mb4">Showing <span class="mono-sm">${esc(String(pkgs.length))}</span> of <span class="mono-sm">${esc(tot)}</span> active catalog row(s) (lexicographic first page). Use API query param <span class="mono-sm">q=</span> for prefix search.</p>
-          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Ecosystem</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        const rowStart = off + 1;
+        const rowEnd = off + pkgs.length;
+        const pageIdx = Math.floor(off / lim) + 1;
+        const pageCount = totalKnown ? Math.max(1, Math.ceil(totNum / lim)) : null;
+        const pageLabel =
+            pageCount != null
+                ? `page <span class="mono-sm">${esc(String(pageIdx))}</span> of <span class="mono-sm">${esc(String(pageCount))}</span>`
+                : `page <span class="mono-sm">${esc(String(pageIdx))}</span>`;
+        const hasPrev = off > 0;
+        const prevOff = Math.max(0, off - lim);
+        const nextOff = off + lim;
+        const hasNext = totalKnown ? nextOff < totNum : pkgs.length >= lim;
+        const prevDis = hasPrev ? '' : ' disabled';
+        const nextDis = hasNext ? '' : ' disabled';
+        out.innerHTML = `<p class="text-micro text-dim mb4">Rows <span class="mono-sm">${esc(String(rowStart))}</span>\u2013<span class="mono-sm">${esc(
+            String(rowEnd),
+        )}</span> of <span class="mono-sm">${esc(totRaw)}</span> active catalog (${pageLabel}, <span class="mono-sm">${esc(String(lim))}</span> per page, lexicographic by normalized name). API <span class="mono-sm">offset=</span> / <span class="mono-sm">q=</span> for programmatic paging and prefix search.</p>
+          <div class="tbl-wrap tbl-wrap--compact"><table class="tbl tbl--compact st-cc-run-detail-tbl"><thead><tr><th>Package</th><th>Version</th><th>Arch</th><th>Ecosystem</th></tr></thead><tbody>${rows}</tbody></table></div>
+          <div class="mt6" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="tbtn btn-xs"${prevDis} onclick="stHostLoadInstalledPackages(${aid},${prevOff},null)">Previous page</button>
+            <button type="button" class="tbtn btn-xs"${nextDis} onclick="stHostLoadInstalledPackages(${aid},${nextOff},null)">Next page</button>
+            <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aid},0,null)">First page</button>
+          </div>`;
     } catch (_e) {
         out.innerHTML = '<p class="text-micro text-dim mb0">Load failed.</p>';
     } finally {
+        unlockBtns();
         if (elBtn) {
             elBtn.disabled = false;
-            elBtn.textContent = 'Reload first 80 packages';
+            elBtn.textContent = 'Reload package list';
         }
     }
 }
@@ -8426,12 +8472,12 @@ function stHostSoftwareInventoryHtml(assetData) {
         cat && cat.tables_ready === true && aidSw > 0
             ? `<p class="text-micro text-dim mt6 mb0">Bounded package search: <span class="mono-sm">/api/software_inventory.php?asset_id=${esc(
                   String(aidSw),
-              )}&amp;q=&amp;limit=80</span> (prefix match on normalized names).</p>`
+              )}&amp;q=&amp;limit=80&amp;offset=0</span> (prefix match on normalized names; paginate with <span class="mono-sm">offset=</span>).</p>`
             : '';
     const pkgBrowse =
         cat && cat.tables_ready === true && aidSw > 0
-            ? `<div class="mt8 st-host-pkg-browse-wrap">
-        <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aidSw}, this)">Load first 80 installed packages</button>
+            ? `<div class="mt8 st-host-pkg-browse-wrap" id="hp-pkg-wrap-${aidSw}">
+        <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aidSw},0,this)">Load installed packages (${ST_HOST_PKG_PAGE_SIZE} per page)</button>
         <div class="st-host-pkg-browse-out mt6" id="hp-pkg-out-${aidSw}"></div>
       </div>`
             : '';
@@ -22571,6 +22617,7 @@ function stHostTablistKeydown(ev, listEl) {
 
 window.stHostSetTab = stHostSetTab;
 window.stHostTablistKeydown = stHostTablistKeydown;
+window.stHostLoadInstalledPackages = stHostLoadInstalledPackages;
 
 async function openHostPanel(id, ip) {
     closeDevicePanel();
