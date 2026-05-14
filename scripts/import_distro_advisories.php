@@ -43,14 +43,17 @@ require_once dirname(__DIR__) . '/api/lib_vulnerability_advisory_import.php';
 
 $maxAdvisories = 5000;
 $maxBytes = 64 * 1024 * 1024;
+$maxPackageRows = 250_000;
 
 foreach (array_slice($argv, 1) as $_a) {
     if (str_starts_with($_a, '--max-advisories=')) {
-        $maxAdvisories = max(1, min(50000, (int) substr($_a, 17)));
+        $maxAdvisories = max(1, min(100_000, (int) substr($_a, 17)));
     } elseif (str_starts_with($_a, '--max-size=')) {
         $maxBytes = max(1024, (int) substr($_a, 11) * 1024 * 1024);
+    } elseif (str_starts_with($_a, '--max-package-rows=')) {
+        $maxPackageRows = max(5_000, min(500_000, (int) substr($_a, strlen('--max-package-rows='))));
     } elseif ($_a === '--help' || $_a === '-h') {
-        fwrite(STDOUT, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json [--max-advisories=5000] [--max-size=64]\n");
+        fwrite(STDOUT, "Usage: php scripts/import_distro_advisories.php /path/to/distro_advisories.json [--max-advisories=5000] [--max-size=64] [--max-package-rows=250000]\n");
         exit(0);
     }
 }
@@ -254,8 +257,8 @@ try {
             ++$pkgRows;
         }
         ++$ok;
-        if ($pkgRows > 20_000) {
-            throw new RuntimeException('package_row_cap');
+        if ($pkgRows > $maxPackageRows) {
+            throw new RuntimeException('package_row_cap (raise with --max-package-rows=N)');
         }
     }
     $pdo->exec('COMMIT');

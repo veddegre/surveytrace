@@ -23,7 +23,8 @@
  *   --dry-run          Print counts JSON to stderr; do not write --output
  *   --fetch            Download Canonical Ubuntu CVE OVAL (bz2) for --release (requires network)
  *   --import           After successful write, run import_distro_advisories.php on output (mutates DB)
- *   --import-max-advisories=N  When using --import, pass --max-advisories=N to the importer (default: max(25000, --limit))
+ *   --import-max-advisories=N  When using --import, pass --max-advisories to import_distro_advisories.php (default: max(25000, --limit))
+ *   --import-max-package-rows=N  When using --import, pass --max-package-rows to import_distro_advisories.php (default: 250000)
  */
 
 declare(strict_types=1);
@@ -37,7 +38,7 @@ require_once dirname(__DIR__) . '/api/lib_ubuntu_advisory_convert.php';
 require_once dirname(__DIR__) . '/api/lib_vulnerability_correlation.php';
 
 /**
- * @return array{input: ?string, output: ?string, release: string, limit: int, format: string, dry_run: bool, fetch: bool, import: bool, import_max_advisories: ?int, max_size_mb: int, max_def_bytes: int, max_download_mb: int}
+ * @return array{input: ?string, output: ?string, release: string, limit: int, format: string, dry_run: bool, fetch: bool, import: bool, import_max_advisories: ?int, import_max_package_rows: ?int, max_size_mb: int, max_def_bytes: int, max_download_mb: int}
  */
 function st_convert_ubuntu_parse_args(array $argv): array
 {
@@ -51,6 +52,7 @@ function st_convert_ubuntu_parse_args(array $argv): array
         'fetch' => false,
         'import' => false,
         'import_max_advisories' => null,
+        'import_max_package_rows' => null,
         'max_size_mb' => 64,
         'max_def_bytes' => 262_144,
         'max_download_mb' => 256,
@@ -58,7 +60,7 @@ function st_convert_ubuntu_parse_args(array $argv): array
     foreach (array_slice($argv, 1) as $a) {
         if ($a === '--help' || $a === '-h') {
             fwrite(STDOUT, "Usage: php scripts/convert_ubuntu_advisories.php --input=FILE --output=FILE [options]\n"
-                . "  --fetch --release=codename  (network)  --import  --import-max-advisories=N (with --import)\n");
+                . "  --fetch --release=codename  (network)  --import  [--import-max-advisories=N] [--import-max-package-rows=N]\n");
             exit(0);
         }
         if ($a === '--dry-run') {
@@ -85,6 +87,8 @@ function st_convert_ubuntu_parse_args(array $argv): array
             $o['max_download_mb'] = max(1, min(2048, (int) substr($a, 15)));
         } elseif (str_starts_with($a, '--import-max-advisories=')) {
             $o['import_max_advisories'] = max(1000, min(100_000, (int) substr($a, strlen('--import-max-advisories='))));
+        } elseif (str_starts_with($a, '--import-max-package-rows=')) {
+            $o['import_max_package_rows'] = max(5_000, min(500_000, (int) substr($a, strlen('--import-max-package-rows='))));
         } else {
             fwrite(STDERR, "Unknown option: {$a}\n");
             exit(1);
@@ -526,8 +530,14 @@ if ($opt['import'] && ! $opt['dry_run']) {
         $impMax = max(25_000, (int) $opt['limit']);
     }
     $impMax = max(1000, min(100_000, (int) $impMax));
+    $pkgMax = $opt['import_max_package_rows'] ?? null;
+    if ($pkgMax === null) {
+        $pkgMax = 250_000;
+    }
+    $pkgMax = max(5_000, min(500_000, (int) $pkgMax));
     $cmd = escapeshellarg($php) . ' ' . escapeshellarg($imp) . ' ' . escapeshellarg($opt['output'])
-        . ' --max-advisories=' . (string) $impMax;
+        . ' --max-advisories=' . (string) $impMax
+        . ' --max-package-rows=' . (string) $pkgMax;
     passthru($cmd, $code);
     if ($code !== 0) {
         exit($code);
