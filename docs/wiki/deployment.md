@@ -263,6 +263,7 @@ php scripts/recover_stale_worker_jobs.php --older-than-minutes=60 --run-sync --a
 Notes:
 
 - Start with dry-run and back up the DB before `--apply`.
+- Stale criteria align with System Health: expired lease (`lease_expires_at` before now) **or** job row not updated within `--older-than-minutes`.
 - Tool does not retry remote execution automatically.
 - Default excludes `collector_ingest` recovery; include explicitly with `--job-type=collector_ingest` or `all` only if you intend to touch that substrate.
 

@@ -3,6 +3,10 @@
 /**
  * Manual stale worker/job recovery helper (dry-run by default).
  *
+ * Stale job detection matches api/health.php maintenance snapshot: any past-due lease, OR
+ * updated_at/created_at older than --older-than-minutes (UTC cutoff passed as bound param).
+ * Default --job-type=credentialed_check; use all to include collector_ingest (health counts all types).
+ *
  * Usage:
  *   php scripts/recover_stale_worker_jobs.php [--apply] [--db=/path/to/surveytrace.db]
  *     [--older-than-minutes=60] [--job-type=credentialed_check|collector_ingest|all]
@@ -106,7 +110,6 @@ function st_recover_detect_stale_jobs(PDO $pdo, string $cutoff, string $jobType)
         $params[] = $jobType;
     }
     $params[] = $cutoff;
-    $params[] = $cutoff;
     $st = $pdo->prepare(
         "SELECT w.id, w.job_type, w.status, w.cancel_requested_at, w.lease_node_id, w.entity_id,
                 COALESCE(w.lease_expires_at, '') AS lease_expires_at,
@@ -120,7 +123,7 @@ function st_recover_detect_stale_jobs(PDO $pdo, string $cutoff, string $jobType)
          WHERE w.status IN ('leased','running','retrying')
            {$filter}
            AND (
-             (w.lease_expires_at IS NOT NULL AND w.lease_expires_at <> '' AND w.lease_expires_at < ?)
+             (w.lease_expires_at IS NOT NULL AND w.lease_expires_at <> '' AND w.lease_expires_at < datetime('now'))
              OR COALESCE(w.updated_at, w.created_at, '1970-01-01 00:00:00') < ?
            )"
     );

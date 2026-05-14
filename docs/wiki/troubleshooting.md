@@ -109,7 +109,7 @@ Design reference: [Worker execution MVP plan](../WORKER_EXECUTION_MVP_PLAN.md) Â
 
 **Operational history growth:** For `worker_job_events`, `worker_job_attempts`, `credential_check_results`, `credential_check_artifacts`, and `reconciliation_runs`, use `php /opt/surveytrace/scripts/prune_operational_history.php` in dry-run mode first, then `--apply` during maintenance windows. Use `--include-runs` only when you intend to prune old terminal run/job trees.
 
-**Stuck worker substrate rows:** If `worker_jobs` or credentialed runs stay in `running` / `leased` / `retrying` after worker failure, use `php /opt/surveytrace/scripts/recover_stale_worker_jobs.php` in dry-run first, then `--apply` with `--run-sync` to align stuck run states. Prefer `--older-than-minutes=60` (or higher in slow environments). This tool marks stale rows terminal; it does not retry remote execution automatically.
+**Stuck worker substrate rows:** If `worker_jobs` or credentialed runs stay in `running` / `leased` / `retrying` after worker failure, use `php /opt/surveytrace/scripts/recover_stale_worker_jobs.php` in dry-run first, then `--apply` with `--run-sync` to align stuck run states. Prefer `--older-than-minutes=60` (or higher in slow environments). Stale detection matches System Health: **any past-due `lease_expires_at`**, or `updated_at`/`created_at` older than the cutoff. Default scope is **`--job-type=credentialed_check`**; if health shows stale rows but dry-run finds none, retry with **`--job-type=all`** (for example `collector_ingest`). This tool marks stale rows terminal; it does not retry remote execution automatically.
 
 **Which maintenance tool should I use?** Installed copies live under **`/opt/surveytrace/scripts/`** (same relative names from the repo).
 
