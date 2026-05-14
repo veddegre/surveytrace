@@ -8281,6 +8281,20 @@ function stHostVendorAdvisoryCorrelationHtml(assetData) {
 
 const ST_HOST_PKG_PAGE_SIZE = 80;
 
+/** After package-table paging, scroll host panel so the Software evidence section heading is visible (avoids staying scrolled below a tall table). */
+function stHostScrollSoftwareEvidenceForPkgBrowse(assetId) {
+    const aid = parseInt(String(assetId), 10) || 0;
+    if (aid < 1) return;
+    requestAnimationFrame(() => {
+        const wrap = document.getElementById('hp-pkg-wrap-' + aid);
+        const section = wrap && wrap.closest && wrap.closest('section.st-host-sw-inv');
+        const el = section || wrap;
+        if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
+    });
+}
+
 async function stHostLoadInstalledPackages(assetId, offset, elBtn) {
     const aid = parseInt(String(assetId), 10) || 0;
     const lim = ST_HOST_PKG_PAGE_SIZE;
@@ -8317,6 +8331,7 @@ async function stHostLoadInstalledPackages(assetId, offset, elBtn) {
         if (!pkgs.length && off > 0) {
             out.innerHTML = `<p class="text-micro text-dim mb4">No rows at this offset (past end of catalog or empty page).</p>
               <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aid},0,null)">First page</button>`;
+            stHostScrollSoftwareEvidenceForPkgBrowse(aid);
             return;
         }
         if (!pkgs.length) {
@@ -8357,6 +8372,7 @@ async function stHostLoadInstalledPackages(assetId, offset, elBtn) {
             <button type="button" class="tbtn btn-xs"${nextDis} onclick="stHostLoadInstalledPackages(${aid},${nextOff},null)">Next page</button>
             <button type="button" class="tbtn btn-xs" onclick="stHostLoadInstalledPackages(${aid},0,null)">First page</button>
           </div>`;
+        stHostScrollSoftwareEvidenceForPkgBrowse(aid);
     } catch (_e) {
         out.innerHTML = '<p class="text-micro text-dim mb0">Load failed.</p>';
     } finally {
