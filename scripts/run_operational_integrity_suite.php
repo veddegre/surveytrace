@@ -90,6 +90,7 @@ $selftests = [
     'st_convert_ubuntu_advisories_selftest.php',
     'st_vulnerability_dashboard_selftest.php',
     'st_remove_advisory_selftest.php',
+    'st_diagnose_advisory_feeds_selftest.php',
     'st_vulnerability_triage_selftest.php',
     'st_operational_integrity_selftest.php',
     'st_credential_secret_no_leak_selftest.php',

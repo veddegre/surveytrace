@@ -199,6 +199,8 @@ return [
         'sync_ubuntu_distro_advisories.php',
         'remove_advisory.php',
         'run_vulnerability_correlation.php',
+        'diagnose_advisory_feeds.php',
+        'st_diagnose_advisory_feeds_selftest.php',
         'diagnose_vulnerability_correlation.php',
         'st_vulnerability_correlation_selftest.php',
         'st_convert_ubuntu_advisories_selftest.php',

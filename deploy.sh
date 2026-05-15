@@ -773,6 +773,7 @@ check_file "$DEST/scripts/convert_ubuntu_advisories.php" "convert_ubuntu_advisor
 check_file "$DEST/api/lib_ubuntu_advisory_convert.php" "lib_ubuntu_advisory_convert.php (Ubuntu advisory transforms)"
 check_file "$DEST/scripts/remove_advisory.php" "remove_advisory.php (test advisory cleanup CLI)"
 check_file "$DEST/scripts/run_vulnerability_correlation.php" "run_vulnerability_correlation.php (offline correlation)"
+check_file "$DEST/scripts/diagnose_advisory_feeds.php" "diagnose_advisory_feeds.php (advisory feed ops aggregator)"
 check_file "$DEST/scripts/diagnose_vulnerability_correlation.php" "diagnose_vulnerability_correlation.php"
 check_file "$DEST/scripts/diagnose_vulnerability_triage.php" "diagnose_vulnerability_triage.php"
 check_file "$DEST/scripts/diagnose_vulnerability_dashboard.php" "diagnose_vulnerability_dashboard.php"
